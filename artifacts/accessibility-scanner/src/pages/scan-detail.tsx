@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useParams, Link, useLocation } from "wouter";
 import {
   useGetScan,
@@ -40,7 +40,17 @@ import {
   Filter,
   X,
   RotateCcw,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  ChevronDown,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { getStatusBadge } from "@/lib/status-badge";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
@@ -192,6 +202,16 @@ function IssueFilterBar({
 }
 
 function IssueGroupList({ issues, filters }: { issues: Issue[]; filters: IssueFilters }) {
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+
+  const toggleRow = (id: number) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   const filteredIssues = useMemo(() => {
     return issues.filter((issue) => {
       if (filters.search && !issue.description.toLowerCase().includes(filters.search.toLowerCase())) return false;
@@ -238,22 +258,25 @@ function IssueGroupList({ issues, filters }: { issues: Issue[]; filters: IssueFi
               value={first.ruleId}
               className="border rounded-md bg-muted/20 px-4"
             >
-              <AccordionTrigger className="hover:no-underline py-3">
-                <div className="flex items-center justify-between w-full pr-3">
-                  <div className="flex items-center gap-2 overflow-hidden">
-                    <ImpactIcon impact={first.impact} />
-                    <span className="font-medium text-sm text-foreground truncate text-left">{first.description}</span>
+              <AccordionTrigger className="hover:no-underline py-3 items-start">
+                <div className="flex flex-col gap-2 w-full pr-3 text-left">
+                  <div className="flex items-start gap-2">
+                    <span className="mt-0.5 shrink-0"><ImpactIcon impact={first.impact} /></span>
+                    <span className="font-medium text-sm text-foreground break-words whitespace-normal leading-snug">{first.description}</span>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0 ml-3">
+                  <div className="flex flex-wrap items-center gap-2 pl-6">
                     <Badge variant="secondary" className="font-mono tabular-nums">
                       {count} {count === 1 ? "occurrence" : "occurrences"}
                     </Badge>
                     <Badge variant="outline" className="font-mono text-xs bg-background">{first.ruleId}</Badge>
                     <ImpactBadge impact={first.impact} />
                     {first.wcagCriteria && (
-                      <Badge variant="secondary" className="text-xs font-mono hidden lg:inline-flex">
+                      <Badge variant="secondary" className="text-xs font-mono">
                         WCAG {first.wcagCriteria}
                       </Badge>
+                    )}
+                    {first.wcagLevel && (
+                      <Badge variant="outline" className="text-xs">Level {first.wcagLevel}</Badge>
                     )}
                   </div>
                 </div>
@@ -266,55 +289,38 @@ function IssueGroupList({ issues, filters }: { issues: Issue[]; filters: IssueFi
                   </div>
                 )}
 
-                {count === 1 ? (
-                  <div className="space-y-2">
-                    {first.element && (
-                      <div>
-                        <span className="text-xs text-muted-foreground">Element:</span>
-                        <code className="block mt-1 bg-background border p-2 rounded text-xs break-all font-mono text-primary whitespace-pre-wrap">
-                          {first.element}
-                        </code>
-                      </div>
-                    )}
-                    {first.selector && (
-                      <div>
-                        <span className="text-xs text-muted-foreground">Selector:</span>
-                        <code className="block mt-1 bg-background border p-1 px-2 rounded text-xs break-all font-mono">
-                          {first.selector}
-                        </code>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground mb-2">
-                      {count} elements affected:
-                    </p>
-                    <div className="border rounded-md overflow-hidden">
-                      <div className="max-h-72 overflow-y-auto">
-                        <table className="w-full text-xs">
-                          <thead className="bg-muted sticky top-0">
-                            <tr>
-                              <th className="text-left px-3 py-2 font-medium w-10">#</th>
-                              <th className="text-left px-3 py-2 font-medium">Selector</th>
-                              <th className="text-left px-3 py-2 font-medium hidden md:table-cell">Element</th>
-                              {group.some((i) => i.description !== first.description) && (
-                                <th className="text-left px-3 py-2 font-medium hidden lg:table-cell">Note</th>
-                              )}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {group.map((issue, idx) => (
-                              <tr key={issue.id} className="border-t hover:bg-muted/30">
-                                <td className="px-3 py-2 text-muted-foreground font-mono">
-                                  {idx + 1}
-                                </td>
-                                <td className="px-3 py-2 font-mono text-xs max-w-[200px]">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground mb-2">
+                    {count} element{count !== 1 ? "s" : ""} affected: <span className="italic">(click any row to see full details)</span>
+                  </p>
+                  <div className="border rounded-md overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted sticky top-0">
+                        <tr>
+                          <th className="text-left px-3 py-2 font-medium w-10">#</th>
+                          <th className="text-left px-3 py-2 font-medium">Selector</th>
+                          <th className="text-left px-3 py-2 font-medium hidden md:table-cell">Element</th>
+                          {group.some((i) => i.description !== first.description) && (
+                            <th className="text-left px-3 py-2 font-medium hidden lg:table-cell">Note</th>
+                          )}
+                          <th className="w-6" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.map((issue, idx) => {
+                          const isExpanded = expandedRows.has(issue.id);
+                          const hasVariantDesc = issue.description !== first.description;
+                          return (
+                            <>
+                              <tr
+                                key={issue.id}
+                                className={`border-t cursor-pointer select-none transition-colors ${isExpanded ? "bg-primary/5" : "hover:bg-muted/40"}`}
+                                onClick={() => toggleRow(issue.id)}
+                              >
+                                <td className="px-3 py-2 text-muted-foreground font-mono">{idx + 1}</td>
+                                <td className="px-3 py-2 font-mono max-w-[200px]">
                                   {issue.selector ? (
-                                    <span
-                                      className="block truncate text-foreground/80"
-                                      title={issue.selector}
-                                    >
+                                    <span className="block truncate text-foreground/80" title={issue.selector}>
                                       {issue.selector}
                                     </span>
                                   ) : (
@@ -323,41 +329,230 @@ function IssueGroupList({ issues, filters }: { issues: Issue[]; filters: IssueFi
                                 </td>
                                 <td className="px-3 py-2 hidden md:table-cell max-w-[300px]">
                                   {issue.element ? (
-                                    <code
-                                      className="block truncate text-primary font-mono text-xs"
-                                      title={issue.element}
-                                    >
-                                      {issue.element.length > 80
-                                        ? issue.element.substring(0, 80) + "…"
-                                        : issue.element}
+                                    <code className="block truncate text-primary font-mono" title={issue.element}>
+                                      {issue.element.length > 80 ? issue.element.substring(0, 80) + "…" : issue.element}
                                     </code>
                                   ) : (
                                     <span className="text-muted-foreground italic">—</span>
                                   )}
                                 </td>
                                 {group.some((i) => i.description !== first.description) && (
-                                  <td className="px-3 py-2 hidden lg:table-cell text-muted-foreground italic max-w-[200px]">
-                                    {issue.description !== first.description ? (
-                                      <span className="truncate block" title={issue.description}>
-                                        {issue.description}
-                                      </span>
+                                  <td className="px-3 py-2 hidden lg:table-cell text-muted-foreground max-w-[200px]">
+                                    {hasVariantDesc ? (
+                                      <span className="truncate block italic" title={issue.description}>{issue.description}</span>
                                     ) : null}
                                   </td>
                                 )}
+                                <td className="px-3 py-2 text-muted-foreground">
+                                  <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-150 ${isExpanded ? "rotate-180" : ""}`} />
+                                </td>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
+                              {isExpanded && (
+                                <tr key={`${issue.id}-detail`} className="bg-primary/5 border-t border-primary/10">
+                                  <td colSpan={group.some(i => i.description !== first.description) ? 6 : 5} className="px-4 py-4">
+                                    <div className="space-y-3">
+                                      {hasVariantDesc && (
+                                        <div>
+                                          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Description</p>
+                                          <p className="text-sm text-foreground">{issue.description}</p>
+                                        </div>
+                                      )}
+                                      {issue.selector && (
+                                        <div>
+                                          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">CSS Selector</p>
+                                          <code className="block bg-background border px-3 py-2 rounded text-xs font-mono text-foreground/80 break-all whitespace-pre-wrap">
+                                            {issue.selector}
+                                          </code>
+                                        </div>
+                                      )}
+                                      {issue.element && (
+                                        <div>
+                                          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Element HTML</p>
+                                          <code className="block bg-background border px-3 py-2 rounded text-xs font-mono text-primary break-all whitespace-pre-wrap leading-relaxed">
+                                            {issue.element}
+                                          </code>
+                                        </div>
+                                      )}
+                                      {(issue.wcagCriteria || issue.wcagLevel) && (
+                                        <div className="flex gap-3 flex-wrap">
+                                          {issue.wcagCriteria && (
+                                            <div>
+                                              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">WCAG Criterion</p>
+                                              <Badge variant="secondary" className="font-mono text-xs">{issue.wcagCriteria}</Badge>
+                                            </div>
+                                          )}
+                                          {issue.wcagLevel && (
+                                            <div>
+                                              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Conformance Level</p>
+                                              <Badge variant="outline" className="text-xs">Level {issue.wcagLevel}</Badge>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
-                )}
+                </div>
               </AccordionContent>
             </AccordionItem>
           );
         })}
       </Accordion>
     </div>
+  );
+}
+
+interface ExportIssueRow {
+  pageUrl: string;
+  ruleId: string;
+  description: string;
+  impact: string;
+  wcagCriteria: string;
+  wcagLevel: string;
+  selector: string;
+  element: string;
+  remediation: string;
+}
+
+function buildExportRows(scan: { name?: string | null; pages?: Array<{ url: string; issues?: Issue[] }> }): ExportIssueRow[] {
+  const rows: ExportIssueRow[] = [];
+  for (const page of scan.pages ?? []) {
+    for (const issue of page.issues ?? []) {
+      rows.push({
+        pageUrl: page.url,
+        ruleId: issue.ruleId,
+        description: issue.description,
+        impact: issue.impact,
+        wcagCriteria: issue.wcagCriteria ?? "",
+        wcagLevel: issue.wcagLevel ?? "",
+        selector: issue.selector ?? "",
+        element: issue.element ?? "",
+        remediation: issue.remediation ?? "",
+      });
+    }
+  }
+  return rows;
+}
+
+function ExportButtons({ scan }: { scan: { id: number; name?: string | null; pages?: Array<{ url: string; issues?: Issue[] }> } }) {
+  const { toast } = useToast();
+  const scanLabel = scan.name || `scan-${scan.id}`;
+  const safeLabel = scanLabel.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
+
+  const exportCsv = useCallback(() => {
+    const rows = buildExportRows(scan);
+    if (rows.length === 0) { toast({ title: "No issues to export" }); return; }
+    const header = ["Page URL", "Rule ID", "Description", "Impact", "WCAG Criterion", "WCAG Level", "CSS Selector", "Element HTML", "Remediation"];
+    const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const csv = [header.map(escape).join(","), ...rows.map(r =>
+      [r.pageUrl, r.ruleId, r.description, r.impact, r.wcagCriteria, r.wcagLevel, r.selector, r.element, r.remediation].map(escape).join(",")
+    )].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `${safeLabel}-a11y-report.csv`; a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "CSV exported" });
+  }, [scan, safeLabel, toast]);
+
+  const exportExcel = useCallback(async () => {
+    const rows = buildExportRows(scan);
+    if (rows.length === 0) { toast({ title: "No issues to export" }); return; }
+    const XLSX = (await import("xlsx")).default;
+    const ws = XLSX.utils.json_to_sheet(rows.map(r => ({
+      "Page URL": r.pageUrl,
+      "Rule ID": r.ruleId,
+      "Description": r.description,
+      "Impact": r.impact,
+      "WCAG Criterion": r.wcagCriteria,
+      "WCAG Level": r.wcagLevel,
+      "CSS Selector": r.selector,
+      "Element HTML": r.element,
+      "Remediation": r.remediation,
+    })));
+    ws["!cols"] = [{ wch: 60 }, { wch: 10 }, { wch: 60 }, { wch: 10 }, { wch: 14 }, { wch: 8 }, { wch: 50 }, { wch: 80 }, { wch: 60 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Issues");
+    XLSX.writeFile(wb, `${safeLabel}-a11y-report.xlsx`);
+    toast({ title: "Excel file exported" });
+  }, [scan, safeLabel, toast]);
+
+  const exportPdf = useCallback(async () => {
+    const rows = buildExportRows(scan);
+    if (rows.length === 0) { toast({ title: "No issues to export" }); return; }
+    const { jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+
+    doc.setFontSize(16);
+    doc.text(`Accessibility Report: ${scanLabel}`, 40, 40);
+    doc.setFontSize(10);
+    doc.setTextColor(120);
+    doc.text(`Generated: ${new Date().toLocaleString()} — ${rows.length} issue${rows.length !== 1 ? "s" : ""} across ${scan.pages?.length ?? 0} page${(scan.pages?.length ?? 0) !== 1 ? "s" : ""}`, 40, 58);
+    doc.setTextColor(0);
+
+    autoTable(doc, {
+      startY: 70,
+      head: [["#", "Page URL", "Rule ID", "Impact", "WCAG", "Description", "Selector", "Remediation"]],
+      body: rows.map((r, i) => [
+        i + 1,
+        r.pageUrl,
+        r.ruleId,
+        r.impact,
+        r.wcagCriteria ? `${r.wcagCriteria} (${r.wcagLevel})` : "",
+        r.description,
+        r.selector,
+        r.remediation,
+      ]),
+      styles: { fontSize: 7, cellPadding: 4, overflow: "linebreak" },
+      headStyles: { fillColor: [109, 40, 217], textColor: 255, fontStyle: "bold" },
+      columnStyles: {
+        0: { cellWidth: 22 },
+        1: { cellWidth: 120 },
+        2: { cellWidth: 40 },
+        3: { cellWidth: 42 },
+        4: { cellWidth: 50 },
+        5: { cellWidth: 130 },
+        6: { cellWidth: 100 },
+        7: { cellWidth: 130 },
+      },
+      alternateRowStyles: { fillColor: [248, 246, 255] },
+    });
+
+    doc.save(`${safeLabel}-a11y-report.pdf`);
+    toast({ title: "PDF exported" });
+  }, [scan, scanLabel, safeLabel, toast]);
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm">
+          <Download className="w-4 h-4 mr-2" />
+          Export
+          <ChevronDown className="w-3.5 h-3.5 ml-2 opacity-60" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={exportCsv}>
+          <FileText className="w-4 h-4 mr-2" />
+          Export as CSV
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={exportExcel}>
+          <FileSpreadsheet className="w-4 h-4 mr-2" />
+          Export as Excel (.xlsx)
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={exportPdf}>
+          <FileText className="w-4 h-4 mr-2" />
+          Export as PDF
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -532,7 +727,10 @@ export default function ScanDetail() {
       {/* Completed page results */}
       {!isRunning && scan.pages && scan.pages.length > 0 && (
         <div className="space-y-6">
-          <h2 className="text-2xl font-semibold tracking-tight">Page Results</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-semibold tracking-tight">Page Results</h2>
+            {allIssues.length > 0 && <ExportButtons scan={scan} />}
+          </div>
 
           <Accordion type="multiple" className="space-y-4">
             {scan.pages.map((page) => {
