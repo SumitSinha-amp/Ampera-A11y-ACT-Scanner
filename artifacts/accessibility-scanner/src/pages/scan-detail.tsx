@@ -41,6 +41,148 @@ function ImpactIcon({ impact }: { impact: string }) {
   }
 }
 
+const IMPACT_ORDER: Record<string, number> = { critical: 0, serious: 1, moderate: 2, minor: 3 };
+
+interface Issue {
+  id: number;
+  ruleId: string;
+  impact: string;
+  description: string;
+  element: string | null;
+  selector: string | null;
+  wcagCriteria: string | null;
+  wcagLevel: string | null;
+  remediation: string | null;
+}
+
+function IssueGroupList({ issues }: { issues: Issue[] }) {
+  // Group by ruleId, then sort by impact severity
+  const grouped = issues.reduce<Record<string, Issue[]>>((acc, issue) => {
+    if (!acc[issue.ruleId]) acc[issue.ruleId] = [];
+    acc[issue.ruleId].push(issue);
+    return acc;
+  }, {});
+
+  const groups = Object.values(grouped).sort((a, b) => {
+    const ai = IMPACT_ORDER[a[0].impact] ?? 99;
+    const bi = IMPACT_ORDER[b[0].impact] ?? 99;
+    return ai - bi;
+  });
+
+  return (
+    <div className="space-y-2 mt-4 border-t pt-4">
+      <Accordion type="multiple" className="space-y-2">
+        {groups.map((group) => {
+          const first = group[0];
+          const count = group.length;
+          return (
+            <AccordionItem
+              key={first.ruleId}
+              value={first.ruleId}
+              className="border rounded-md bg-muted/20 px-4"
+            >
+              <AccordionTrigger className="hover:no-underline py-3">
+                <div className="flex items-center justify-between w-full pr-3">
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <ImpactIcon impact={first.impact} />
+                    <span className="font-medium text-sm text-foreground truncate text-left">{first.description}</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 ml-3">
+                    <Badge variant="secondary" className="font-mono tabular-nums">
+                      {count} {count === 1 ? "occurrence" : "occurrences"}
+                    </Badge>
+                    <Badge variant="outline" className="font-mono text-xs bg-background">{first.ruleId}</Badge>
+                    <ImpactBadge impact={first.impact} />
+                    {first.wcagCriteria && (
+                      <Badge variant="secondary" className="text-xs font-mono hidden lg:inline-flex">WCAG {first.wcagCriteria}</Badge>
+                    )}
+                  </div>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="pb-4">
+                {/* Remediation once at the top */}
+                {first.remediation && (
+                  <div className="mb-3 p-3 bg-primary/5 border border-primary/20 rounded-md text-sm">
+                    <span className="font-medium text-primary">How to fix: </span>
+                    <span className="text-foreground/80">{first.remediation}</span>
+                  </div>
+                )}
+
+                {/* Individual occurrences */}
+                {count === 1 ? (
+                  /* Single occurrence — show inline without sub-toggle */
+                  <div className="space-y-2">
+                    {first.element && (
+                      <div>
+                        <span className="text-xs text-muted-foreground">Element:</span>
+                        <code className="block mt-1 bg-background border p-2 rounded text-xs break-all font-mono text-primary whitespace-pre-wrap">
+                          {first.element}
+                        </code>
+                      </div>
+                    )}
+                    {first.selector && (
+                      <div>
+                        <span className="text-xs text-muted-foreground">Selector:</span>
+                        <code className="block mt-1 bg-background border p-1 px-2 rounded text-xs break-all font-mono">
+                          {first.selector}
+                        </code>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* Multiple occurrences — numbered list */
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground mb-2">
+                      {count} elements affected — expand to see each one:
+                    </p>
+                    <Accordion type="multiple" className="space-y-1">
+                      {group.map((issue, idx) => (
+                        <AccordionItem
+                          key={issue.id}
+                          value={String(issue.id)}
+                          className="border rounded bg-background"
+                        >
+                          <AccordionTrigger className="hover:no-underline px-3 py-2 text-xs">
+                            <span className="font-mono text-muted-foreground">
+                              #{idx + 1}
+                              {issue.selector ? ` — ${issue.selector.substring(0, 60)}${issue.selector.length > 60 ? "…" : ""}` : " — (no selector)"}
+                            </span>
+                          </AccordionTrigger>
+                          <AccordionContent className="px-3 pb-3 space-y-2">
+                            {issue.element && (
+                              <div>
+                                <span className="text-xs text-muted-foreground">Element:</span>
+                                <code className="block mt-1 bg-muted/40 border p-2 rounded text-xs break-all font-mono text-primary whitespace-pre-wrap">
+                                  {issue.element}
+                                </code>
+                              </div>
+                            )}
+                            {issue.selector && (
+                              <div>
+                                <span className="text-xs text-muted-foreground">Selector:</span>
+                                <code className="block mt-1 bg-muted/40 border p-1 px-2 rounded text-xs break-all font-mono">
+                                  {issue.selector}
+                                </code>
+                              </div>
+                            )}
+                            {issue.description !== first.description && (
+                              <p className="text-xs text-foreground/70 italic">{issue.description}</p>
+                            )}
+                          </AccordionContent>
+                        </AccordionItem>
+                      ))}
+                    </Accordion>
+                  </div>
+                )}
+              </AccordionContent>
+            </AccordionItem>
+          );
+        })}
+      </Accordion>
+    </div>
+  );
+}
+
 export default function ScanDetail() {
   const { id } = useParams();
   const scanId = Number(id);
@@ -181,61 +323,7 @@ export default function ScanDetail() {
                   )}
                   
                   {page.issues && page.issues.length > 0 ? (
-                    <div className="space-y-4 mt-4 border-t pt-4">
-                      {page.issues.map((issue) => (
-                        <div key={issue.id} className="border rounded-md p-4 bg-muted/30">
-                          <div className="flex justify-between items-start mb-2">
-                            <div className="flex items-center gap-2">
-                              <ImpactIcon impact={issue.impact} />
-                              <span className="font-semibold text-foreground">{issue.description}</span>
-                            </div>
-                            <div className="flex gap-2 shrink-0">
-                              <Badge variant="outline" className="font-mono bg-background">{issue.ruleId}</Badge>
-                              <ImpactBadge impact={issue.impact} />
-                            </div>
-                          </div>
-                          
-                          <div className="grid md:grid-cols-2 gap-4 mt-4 text-sm">
-                            <div className="space-y-2">
-                              {issue.element && (
-                                <div>
-                                  <span className="text-muted-foreground block mb-1">Element Snippet:</span>
-                                  <code className="block bg-background border p-2 rounded text-xs break-all whitespace-pre-wrap font-mono text-primary">
-                                    {issue.element}
-                                  </code>
-                                </div>
-                              )}
-                              {issue.selector && (
-                                <div>
-                                  <span className="text-muted-foreground block mb-1">Selector:</span>
-                                  <code className="block bg-background border p-1 px-2 rounded text-xs break-all font-mono">
-                                    {issue.selector}
-                                  </code>
-                                </div>
-                              )}
-                            </div>
-                            <div className="space-y-2">
-                              {issue.remediation && (
-                                <div>
-                                  <span className="text-muted-foreground block mb-1">How to fix:</span>
-                                  <p className="bg-primary/5 text-primary-foreground/90 border border-primary/20 p-2 rounded text-sm">
-                                    {issue.remediation}
-                                  </p>
-                                </div>
-                              )}
-                              <div className="flex gap-2 mt-2">
-                                {issue.wcagCriteria && (
-                                  <Badge variant="secondary" className="text-xs font-mono">WCAG {issue.wcagCriteria}</Badge>
-                                )}
-                                {issue.wcagLevel && (
-                                  <Badge variant="secondary" className="text-xs font-mono">Level {issue.wcagLevel}</Badge>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <IssueGroupList issues={page.issues} />
                   ) : page.status === "completed" ? (
                     <div className="p-8 text-center text-muted-foreground border rounded-md mt-4 border-dashed bg-muted/10">
                       <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto mb-2 opacity-50" />
