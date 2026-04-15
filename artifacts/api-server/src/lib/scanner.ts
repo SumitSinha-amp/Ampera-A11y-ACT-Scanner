@@ -42,51 +42,65 @@ const WCAG_MAPPING: Record<string, { sc: string[]; level: string }> = {
   "SIA-R3":   { sc: ["4.1.1"], level: "A" },
   "SIA-R4":   { sc: ["3.1.1"], level: "A" },
   "SIA-R8":   { sc: ["1.3.1", "4.1.2"], level: "A" },
-  "SIA-R9":   { sc: ["2.2.1"], level: "A" },
-  "SIA-R10":  { sc: ["1.3.5"], level: "AA" },
+  "SIA-R9":   { sc: ["2.4.6"], level: "AA" },
   "SIA-R11":  { sc: ["2.4.4"], level: "A" },
   "SIA-R12":  { sc: ["4.1.2"], level: "A" },
+  "SIA-R13":  { sc: ["3.2.2"], level: "A" },
   "SIA-R14":  { sc: ["2.5.3"], level: "A" },
   "SIA-R16":  { sc: ["4.1.2"], level: "A" },
-  "SIA-R17":  { sc: ["4.1.2"], level: "A" },
+  "SIA-R17":  { sc: ["1.2.1"], level: "A" },
   "SIA-R21":  { sc: ["4.1.2"], level: "A" },
   "SIA-R22":  { sc: ["1.2.2"], level: "A" },
-  "SIA-R40":  { sc: ["1.3.1"], level: "A" },
-  "SIA-R41":  { sc: ["2.4.4"], level: "AA" },
-  "SIA-R42":  { sc: ["1.3.1"], level: "A" },
-  "SIA-R43":  { sc: ["1.1.1"], level: "A" },
-  "SIA-R44":  { sc: ["1.3.4"], level: "AA" },
-  "SIA-R47":  { sc: ["1.4.4"], level: "AA" },
-  "SIA-R48":  { sc: ["1.4.2"], level: "A" },
-  "SIA-R58":  { sc: ["2.4.1"], level: "A" },
-  "SIA-R59":  { sc: ["2.4.6"], level: "AA" },
-  "SIA-R62":  { sc: ["1.4.1"], level: "A" },
-  "SIA-R64":  { sc: ["2.4.6"], level: "AA" },
-  "SIA-R65":  { sc: ["2.4.7"], level: "AA" },
-  "SIA-R69":  { sc: ["1.4.3"], level: "AA" },
-  "SIA-R74":  { sc: ["1.4.4"], level: "AA" },
-  "SIA-R82":  { sc: ["3.3.1"], level: "A" },
-  "SIA-R84":  { sc: ["2.1.1"], level: "A" },
-  "SIA-R87":  { sc: ["2.4.1"], level: "A" },
-  "SIA-R88":  { sc: ["1.4.3"], level: "AA" },
-  "SIA-R91":  { sc: ["1.4.12"], level: "AA" },
-  "SIA-R92":  { sc: ["1.4.12"], level: "AA" },
-  "SIA-R93":  { sc: ["1.4.12"], level: "AA" },
-  "SIA-R94":  { sc: ["4.1.2"], level: "A" },
-  "SIA-R110": { sc: ["4.1.2"], level: "A" },
-  "SIA-R114": { sc: ["2.4.2"], level: "A" },
-  "SIA-R115": { sc: ["2.4.6"], level: "AA" },
-  "SIA-R116": { sc: ["4.1.2"], level: "A" },
-  "SIA-R117": { sc: ["1.1.1"], level: "A" },
-  // Extended rules
+  "SIA-R23":  { sc: ["1.2.5"], level: "AA" },
   "SIA-R25":  { sc: ["2.5.3"], level: "A" },
+  "SIA-R26":  { sc: ["3.1.4"], level: "AAA" },
   "SIA-R30":  { sc: ["1.4.6"], level: "AAA" },
   "SIA-R31":  { sc: ["1.4.8"], level: "AAA" },
   "SIA-R32":  { sc: ["2.5.5"], level: "AAA" },
   "SIA-R34":  { sc: ["1.3.1"], level: "A" },
   "SIA-R35":  { sc: ["1.3.6"], level: "AAA" },
   "SIA-R36":  { sc: ["4.1.2"], level: "A" },
+  "SIA-R40":  { sc: ["1.3.1"], level: "A" },
+  "SIA-R41":  { sc: ["1.3.1"], level: "A" },
+  "SIA-R42":  { sc: ["1.3.1"], level: "A" },
+  "SIA-R44":  { sc: ["1.3.4"], level: "AA" },
+  "SIA-R45":  { sc: ["1.3.5"], level: "AA" },
+  "SIA-R46":  { sc: ["2.5.8"], level: "AA" },
+  "SIA-R47":  { sc: ["1.4.4"], level: "AA" },
+  "SIA-R48":  { sc: ["1.4.2"], level: "A" },
+  "SIA-R54":  { sc: ["4.1.3"], level: "AA" },
+  "SIA-R57":  { sc: ["1.4.11"], level: "AA" },
+  "SIA-R58":  { sc: ["2.4.1"], level: "A" },
+  "SIA-R59":  { sc: ["2.4.4"], level: "A" },
+  "SIA-R62":  { sc: ["2.4.10"], level: "AAA" },
+  "SIA-R64":  { sc: ["2.4.6"], level: "AA" },
+  "SIA-R65":  { sc: ["2.4.7"], level: "AA" },
+  "SIA-R66":  { sc: ["3.3.1"], level: "A" },
+  "SIA-R67":  { sc: ["3.3.2"], level: "A" },
   "SIA-R68":  { sc: ["1.4.4"], level: "AA" },
+  "SIA-R69":  { sc: ["1.4.3"], level: "AA" },
+  "SIA-R75":  { sc: ["1.4.5"], level: "AA" },
+  "SIA-R87":  { sc: ["2.4.1"], level: "A" },
+  "SIA-R88":  { sc: ["1.4.12"], level: "AA" },
+  "SIA-R91":  { sc: ["1.4.12"], level: "AA" },
+  "SIA-R92":  { sc: ["1.4.12"], level: "AA" },
+  "SIA-R93":  { sc: ["1.4.12"], level: "AA" },
+  "SIA-R94":  { sc: ["1.4.12"], level: "AA" },
+  "SIA-R95":  { sc: ["2.3.3"], level: "AAA" },
+  "SIA-R96":  { sc: ["1.3.1"], level: "A" },
+  "SIA-R97":  { sc: ["1.3.1"], level: "A" },
+  "SIA-R98":  { sc: ["4.1.2"], level: "A" },
+  "SIA-R99":  { sc: ["4.1.2"], level: "A" },
+  "SIA-R100": { sc: ["1.1.1"], level: "A" },
+  "SIA-R104": { sc: ["2.2.1"], level: "A" },
+  "SIA-R105": { sc: ["2.4.4"], level: "A" },
+  "SIA-R107": { sc: ["2.1.1"], level: "A" },
+  "SIA-R112": { sc: ["1.3.1"], level: "A" },
+  "SIA-R113": { sc: ["4.1.2"], level: "A" },
+  "SIA-R114": { sc: ["2.4.2"], level: "A" },
+  "SIA-R115": { sc: ["1.1.1"], level: "A" },
+  "SIA-R116": { sc: ["4.1.2"], level: "A" },
+  "SIA-R117": { sc: ["1.1.1"], level: "A" },
 };
 
 const RULE_DESCRIPTIONS: Record<string, { description: string; remediation: string }> = {
@@ -126,6 +140,35 @@ const RULE_DESCRIPTIONS: Record<string, { description: string; remediation: stri
   "SIA-R64":  { description: "Headings are not structured — heading level is skipped", remediation: "Ensure headings follow a sequential hierarchy without skipping levels (e.g. h1 → h2 → h3); do not jump from h1 to h3" },
   "SIA-R36":  { description: "ARIA attribute is unsupported or prohibited on this element", remediation: "Remove ARIA attributes that are not permitted on the element's role or native element type" },
   "SIA-R68":  { description: "Text may be clipped when resized (1.4.4 Resize Text)", remediation: "Avoid fixed heights on text containers with overflow:hidden; use min-height or allow overflow:visible" },
+  // New rules
+  "SIA-R9":   { description: "Empty heading element", remediation: "Add descriptive text inside heading elements; do not use empty headings for spacing" },
+  "SIA-R13":  { description: "Link opens in new window or tab without warning", remediation: "Add visible text or an sr-only span indicating the link opens in a new window (e.g. '(opens in new tab)')" },
+  "SIA-R17":  { description: "Audio/video element may be missing a text transcript", remediation: "Provide a text transcript adjacent to or linked from each audio or video element" },
+  "SIA-R23":  { description: "Video element may be missing an audio description track", remediation: "Add a <track kind='descriptions'> element or provide a separate described version of the video" },
+  "SIA-R26":  { description: "Abbreviation has no expansion", remediation: "Wrap abbreviations in <abbr title='Full Form'> or provide an expansion on first use" },
+  "SIA-R41":  { description: "Table is missing a caption or summary", remediation: "Add a <caption> element as the first child of the table to describe its purpose" },
+  "SIA-R45":  { description: "Input field is missing autocomplete attribute", remediation: "Add autocomplete attributes to inputs collecting personal data (name, email, phone, address, etc.)" },
+  "SIA-R46":  { description: "Interactive element may be too small for touch targets", remediation: "Ensure all interactive elements have a minimum size of 24×24 CSS pixels or have sufficient spacing" },
+  "SIA-R54":  { description: "Dynamic status message is not announced to screen readers", remediation: "Use aria-live='polite' or role='status' on containers that receive dynamic status messages" },
+  "SIA-R57":  { description: "UI component or graphical object may have insufficient contrast", remediation: "Ensure non-text UI components (icons, borders, focus indicators) have at least 3:1 contrast against adjacent colors" },
+  "SIA-R59":  { description: "Link text is ambiguous or non-descriptive", remediation: "Replace generic link text ('click here', 'read more', 'here') with descriptive text that explains the link destination" },
+  "SIA-R62":  { description: "Content section is missing a heading", remediation: "Add a heading element to introduce each major section of content; use aria-labelledby on landmarks" },
+  "SIA-R66":  { description: "Form error message is not programmatically associated with its field", remediation: "Use aria-describedby to link error messages to their form fields, or use aria-invalid='true' on invalid inputs" },
+  "SIA-R67":  { description: "Form field is missing a label or instruction", remediation: "Add a <label>, aria-label, or aria-labelledby to every form control" },
+  "SIA-R75":  { description: "Image of text — image likely contains text that should be real HTML text", remediation: "Replace images of text with real text styled with CSS; only use images of text for logos and brand names" },
+  "SIA-R88":  { description: "Word spacing may be too low for text readability", remediation: "Ensure word-spacing is at least 0.16em and that layout does not break at this value" },
+  "SIA-R95":  { description: "Animation or motion not respecting prefers-reduced-motion", remediation: "Wrap CSS animations in @media (prefers-reduced-motion: no-preference) or disable them for reduce-motion users" },
+  "SIA-R96":  { description: "Table header cell is missing a scope attribute", remediation: "Add scope='col' or scope='row' to all <th> elements to explicitly associate them with data cells" },
+  "SIA-R97":  { description: "Fieldset is missing a legend element", remediation: "Add a <legend> as the first child of every <fieldset> to describe the group of form controls" },
+  "SIA-R98":  { description: "Expandable element is missing aria-expanded state", remediation: "Add aria-expanded='true'/'false' to toggle controls (accordions, dropdowns, disclosure buttons)" },
+  "SIA-R99":  { description: "Focusable element is hidden from assistive technology with aria-hidden", remediation: "Remove aria-hidden='true' from elements that can receive keyboard focus, or make them non-focusable" },
+  "SIA-R100": { description: "Link to a PDF without an accessible alternative", remediation: "Provide an accessible HTML alternative alongside the PDF download link" },
+  "SIA-R104": { description: "Page uses meta refresh to redirect or reload", remediation: "Remove <meta http-equiv='refresh'>; use server-side redirects or notify users before any page refresh" },
+  "SIA-R105": { description: "Multiple links with identical text point to different destinations", remediation: "Make link text unique, or add aria-label to distinguish links with the same visible text" },
+  "SIA-R107": { description: "Custom interactive element is not keyboard accessible", remediation: "Add tabindex='0', role, and keyboard event handlers (keydown Enter/Space) to custom interactive elements" },
+  "SIA-R112": { description: "Figure element is missing a figcaption", remediation: "Add a <figcaption> inside <figure> to provide a visible caption for images and other embedded content" },
+  "SIA-R113": { description: "Details element summary has no accessible name", remediation: "Add descriptive text inside <summary> so screen readers can announce the disclosure widget" },
+  "SIA-R115": { description: "Object element is missing an accessible name", remediation: "Add a title attribute or aria-label to <object> elements, and provide fallback text content inside" },
 };
 
 // Persistent profile dir — preserves Cloudflare clearance cookies across restarts
@@ -1053,6 +1096,437 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
 
       clippedCount++;
       results.push({ ruleId: "SIA-R68", impact: "moderate", description: `Element has fixed height (${height}) with overflow:hidden — text may be clipped when text size is increased`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+    });
+
+    // ─── SIA-R9: Empty headings ───────────────────────────────────────────────
+    document.querySelectorAll("h1,h2,h3,h4,h5,h6").forEach(el => {
+      if (!isVisible(el)) return;
+      const text = el.textContent?.trim() || "";
+      const ariaLabel = el.getAttribute("aria-label")?.trim() || "";
+      const labelledBy = el.getAttribute("aria-labelledby");
+      const labelledText = labelledBy
+        ? labelledBy.split(/\s+/).map(id => document.getElementById(id)?.textContent?.trim() || "").join(" ").trim()
+        : "";
+      if (!text && !ariaLabel && !labelledText) {
+        results.push({ ruleId: "SIA-R9", impact: "moderate", description: `Empty ${el.tagName.toLowerCase()} element provides no accessible heading`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R13: Links open new window without warning ───────────────────────
+    document.querySelectorAll("a[target='_blank'], a[target='_new']").forEach(el => {
+      if (!isVisible(el)) return;
+      const fullText = el.textContent || "";
+      const ariaLabel = el.getAttribute("aria-label") || "";
+      const title = el.getAttribute("title") || "";
+      const combined = (fullText + " " + ariaLabel + " " + title).toLowerCase();
+      const warningPhrases = ["new window", "new tab", "opens in", "external", "new page", "neues", "nouvel"];
+      if (!warningPhrases.some(p => combined.includes(p))) {
+        // Check for sr-only child with warning text
+        const hasHiddenWarning = Array.from(el.querySelectorAll("*")).some(child => {
+          const childText = (child.textContent || "").toLowerCase();
+          return warningPhrases.some(p => childText.includes(p));
+        });
+        if (!hasHiddenWarning) {
+          results.push({ ruleId: "SIA-R13", impact: "minor", description: `Link opens in a new window without warning the user`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+        }
+      }
+    });
+
+    // ─── SIA-R17: Audio/video without transcript ──────────────────────────────
+    document.querySelectorAll("audio, video").forEach(el => {
+      if (!isVisible(el)) return;
+      // Look for a link or nearby text referencing a transcript
+      const parent = el.parentElement;
+      const nearby = parent ? parent.textContent?.toLowerCase() || "" : "";
+      const transcriptKeywords = ["transcript", "text version", "text alternative", "caption"];
+      // Also check for aria-describedby pointing to transcript
+      const describedBy = el.getAttribute("aria-describedby");
+      if (!transcriptKeywords.some(k => nearby.includes(k)) && !describedBy) {
+        results.push({ ruleId: "SIA-R17", impact: "serious", description: `${el.tagName.toLowerCase()} element has no adjacent transcript link or text alternative`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R23: Video without audio description track ───────────────────────
+    document.querySelectorAll("video").forEach(el => {
+      if (!isVisible(el)) return;
+      const tracks = el.querySelectorAll("track[kind='descriptions']");
+      if (tracks.length === 0) {
+        results.push({ ruleId: "SIA-R23", impact: "serious", description: `Video element is missing an audio description track (<track kind='descriptions'>)`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R26: Abbreviation without title ──────────────────────────────────
+    document.querySelectorAll("abbr").forEach(el => {
+      if (!isVisible(el)) return;
+      const title = el.getAttribute("title")?.trim() || "";
+      if (!title) {
+        results.push({ ruleId: "SIA-R26", impact: "minor", description: `<abbr> element "${el.textContent?.trim()}" has no title attribute explaining the abbreviation`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R41: Table without caption ───────────────────────────────────────
+    document.querySelectorAll("table").forEach(el => {
+      if (!isVisible(el)) return;
+      const hasCaption = el.querySelector("caption") !== null;
+      const hasSummary = el.getAttribute("summary")?.trim();
+      const ariaLabel = el.getAttribute("aria-label")?.trim();
+      const labelledBy = el.getAttribute("aria-labelledby");
+      const labelledText = labelledBy
+        ? labelledBy.split(/\s+/).map(id => document.getElementById(id)?.textContent?.trim() || "").join(" ").trim()
+        : "";
+      if (!hasCaption && !hasSummary && !ariaLabel && !labelledText) {
+        results.push({ ruleId: "SIA-R41", impact: "moderate", description: `Table is missing a <caption> or accessible label to describe its purpose`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R45: Inputs missing autocomplete for personal data ───────────────
+    const autocompleteMap: Record<string, string[]> = {
+      "name": ["name", "full-name", "first", "last", "given", "family", "fname", "lname"],
+      "email": ["email", "mail", "e-mail"],
+      "tel": ["phone", "telephone", "mobile", "cell"],
+      "street-address": ["address", "street", "addr"],
+      "postal-code": ["zip", "postal", "postcode"],
+      "country": ["country"],
+      "bday": ["birth", "dob", "birthday"],
+      "username": ["username", "login", "user-name"],
+      "new-password": ["password", "passwd", "pwd"],
+      "current-password": [],
+      "cc-number": ["card", "credit", "cardnumber"],
+    };
+    document.querySelectorAll("input[type='text'], input[type='email'], input[type='tel'], input[type='password'], input:not([type])").forEach(el => {
+      if (!isVisible(el)) return;
+      const input = el as HTMLInputElement;
+      if (input.getAttribute("autocomplete") && input.getAttribute("autocomplete") !== "off") return;
+      const name = (input.name || "").toLowerCase();
+      const id = (input.id || "").toLowerCase();
+      const placeholder = (input.placeholder || "").toLowerCase();
+      const combined = name + " " + id + " " + placeholder;
+      for (const [token, patterns] of Object.entries(autocompleteMap)) {
+        if (patterns.some(p => combined.includes(p)) || combined.includes(token)) {
+          results.push({ ruleId: "SIA-R45", impact: "moderate", description: `Input collecting "${token}" data is missing autocomplete="${token}" attribute`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+          break;
+        }
+      }
+    });
+
+    // ─── SIA-R46: Touch target too small (<24×24px) ───────────────────────────
+    const interactiveTags = ["a", "button", "input", "select", "textarea", "summary", "[role='button']", "[role='link']", "[role='menuitem']", "[role='tab']", "[role='checkbox']", "[role='radio']", "[role='switch']", "[tabindex]"];
+    document.querySelectorAll(interactiveTags.join(", ")).forEach(el => {
+      if (!isVisible(el)) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return;
+      if (rect.width < 24 || rect.height < 24) {
+        results.push({ ruleId: "SIA-R46", impact: "moderate", description: `Interactive element is ${Math.round(rect.width)}×${Math.round(rect.height)}px — below the 24×24px minimum touch target size (WCAG 2.5.8)`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R54: Status messages not in ARIA live region ─────────────────────
+    // Look for elements that look like status/alert messages but lack live region markup
+    const statusSelectors = [".alert", ".notification", ".toast", ".message", ".success", ".error", ".warning", ".info", "[class*='alert']", "[class*='notification']", "[class*='toast']", "[class*='status']", "[class*='message']"];
+    document.querySelectorAll(statusSelectors.join(", ")).forEach(el => {
+      if (!isVisible(el)) return;
+      if (el.tagName === "BODY" || el.tagName === "MAIN" || el.tagName === "HEADER" || el.tagName === "FOOTER") return;
+      const role = el.getAttribute("role");
+      const ariaLive = el.getAttribute("aria-live");
+      const ariaAtomic = el.getAttribute("aria-atomic");
+      if (!role && !ariaLive && !ariaAtomic) {
+        const liveRoles = ["status", "alert", "log", "marquee", "timer"];
+        if (!liveRoles.includes(role || "")) {
+          results.push({ ruleId: "SIA-R54", impact: "moderate", description: `Element appears to be a status message but lacks aria-live or role="status"/"alert"`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+        }
+      }
+    });
+
+    // ─── SIA-R57: Non-text contrast for UI components ─────────────────────────
+    function getLuminanceFromColor(colorStr: string): number | null {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1; canvas.height = 1;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.fillStyle = colorStr;
+      ctx.fillRect(0, 0, 1, 1);
+      const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+      const toLinear = (c: number) => {
+        const s = c / 255;
+        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+      };
+      return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+    }
+    function getContrastRatio(l1: number, l2: number): number {
+      const lighter = Math.max(l1, l2);
+      const darker = Math.min(l1, l2);
+      return (lighter + 0.05) / (darker + 0.05);
+    }
+    // Check borders and outlines on interactive elements
+    document.querySelectorAll("input, select, textarea, button, a").forEach(el => {
+      if (!isVisible(el)) return;
+      const style = window.getComputedStyle(el);
+      const borderColor = style.borderColor;
+      const bgColor = style.backgroundColor;
+      if (!borderColor || borderColor === "transparent" || borderColor === "rgba(0, 0, 0, 0)") return;
+      const borderLum = getLuminanceFromColor(borderColor);
+      const bgLum = getLuminanceFromColor(bgColor || "#ffffff");
+      if (borderLum === null || bgLum === null) return;
+      const ratio = getContrastRatio(borderLum, bgLum);
+      if (ratio < 3.0) {
+        results.push({ ruleId: "SIA-R57", impact: "serious", description: `UI component border/outline has contrast ratio of ${ratio.toFixed(2)}:1 — below the 3:1 minimum for non-text elements`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R59: Ambiguous link text ─────────────────────────────────────────
+    const ambiguousPatterns = /^(click here|here|read more|more|learn more|details|info|information|link|this link|continue|go|view|see more|see details|download|submit|open|visit|press here|tap here|find out more)$/i;
+    document.querySelectorAll("a").forEach(el => {
+      if (!isVisible(el)) return;
+      const name = getAccessibleName(el).trim().replace(/\s+/g, " ");
+      if (name && ambiguousPatterns.test(name)) {
+        results.push({ ruleId: "SIA-R59", impact: "moderate", description: `Link text "${name}" is non-descriptive and does not explain the link destination`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R62: Content section missing a heading ───────────────────────────
+    const sectionLandmarks = ["main", "nav", "aside", "section", "[role='region']", "[role='complementary']"];
+    document.querySelectorAll(sectionLandmarks.join(", ")).forEach(el => {
+      if (!isVisible(el)) return;
+      const hasHeading = el.querySelector("h1,h2,h3,h4,h5,h6") !== null;
+      const ariaLabel = el.getAttribute("aria-label")?.trim();
+      const labelledBy = el.getAttribute("aria-labelledby");
+      if (!hasHeading && !ariaLabel && !labelledBy) {
+        results.push({ ruleId: "SIA-R62", impact: "minor", description: `${el.tagName.toLowerCase()} landmark region has no heading or accessible label`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R66: Form error not associated with its field ────────────────────
+    const errorSelectors = [".error", ".invalid", ".field-error", "[class*='error']", "[class*='invalid']", "[aria-invalid='true']"];
+    document.querySelectorAll(errorSelectors.join(", ")).forEach(el => {
+      if (!isVisible(el)) return;
+      const text = el.textContent?.trim() || "";
+      if (!text || text.length < 3) return;
+      // It's a message — check if it's associated with a field
+      const id = el.getAttribute("id");
+      if (id) {
+        // Good if some input points back to this id via aria-describedby
+        const associated = document.querySelector(`[aria-describedby~="${CSS.escape(id)}"]`);
+        if (associated) return;
+      }
+      // Check parent form for aria-invalid inputs
+      const parentForm = el.closest("form");
+      if (parentForm) {
+        const invalidInputs = parentForm.querySelectorAll("[aria-invalid='true']");
+        if (invalidInputs.length > 0) return;
+      }
+      results.push({ ruleId: "SIA-R66", impact: "serious", description: `Error message "${text.substring(0, 80)}" is not programmatically associated with its form field via aria-describedby`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+    });
+
+    // ─── SIA-R67: Form field missing label ────────────────────────────────────
+    document.querySelectorAll("input:not([type='hidden']):not([type='submit']):not([type='reset']):not([type='button']):not([type='image']), select, textarea").forEach(el => {
+      if (!isVisible(el)) return;
+      const name = getAccessibleName(el).trim();
+      if (!name) {
+        results.push({ ruleId: "SIA-R67", impact: "serious", description: `Form field has no associated label, aria-label, or aria-labelledby`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R75: Image of text ───────────────────────────────────────────────
+    // Heuristic: img elements whose alt text contains word-like content (not empty, not "*", not pure symbols)
+    // and are used in contexts that suggest they replace real text (nav, headings, buttons)
+    document.querySelectorAll("img").forEach(el => {
+      if (!isVisible(el)) return;
+      const alt = (el as HTMLImageElement).alt?.trim();
+      if (!alt || alt.length < 3) return;
+      // Skip purely decorative/icon images
+      if (/^(icon|logo|image|photo|picture|thumbnail|avatar|banner|bg|background)$/i.test(alt)) return;
+      // Only flag images inside navigation, headings, or buttons — likely text replacement
+      const inNavOrHeading = el.closest("nav, h1, h2, h3, h4, h5, h6, button, [role='button'], [role='heading']");
+      if (!inNavOrHeading) return;
+      // Flag if alt text is a phrase (contains spaces = text-like)
+      if (alt.includes(" ") && alt.split(" ").length >= 2) {
+        results.push({ ruleId: "SIA-R75", impact: "moderate", description: `Image with alt="${alt}" inside a navigational or heading element may be an image of text`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R88: Word spacing too low ───────────────────────────────────────
+    document.querySelectorAll("p, li, td, th, div, span, article, section, main, h1, h2, h3, h4, h5, h6").forEach(el => {
+      if (!isVisible(el)) return;
+      if (!el.textContent?.trim()) return;
+      const style = window.getComputedStyle(el);
+      const wordSpacing = style.wordSpacing;
+      const fontSize = parseFloat(style.fontSize);
+      if (!wordSpacing || wordSpacing === "normal" || isNaN(fontSize) || fontSize === 0) return;
+      const wordSpacingPx = parseFloat(wordSpacing);
+      if (isNaN(wordSpacingPx)) return;
+      const minWordSpacing = 0.16 * fontSize;
+      if (wordSpacingPx < -0.01 && Math.abs(wordSpacingPx) > minWordSpacing) {
+        results.push({ ruleId: "SIA-R88", impact: "minor", description: `word-spacing is ${wordSpacing} (${(wordSpacingPx / fontSize).toFixed(2)}em) — negative word spacing below -0.16em may hinder readability`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R95: Animation not respecting prefers-reduced-motion ─────────────
+    // Detect CSS animation/transition on elements without a prefers-reduced-motion guard
+    // We check for inline animation styles or elements with animation-duration set
+    document.querySelectorAll("*").forEach(el => {
+      if (!isVisible(el)) return;
+      const style = window.getComputedStyle(el);
+      const animDuration = style.animationDuration;
+      const transDuration = style.transitionDuration;
+      if (!animDuration && !transDuration) return;
+      const animDurVal = parseFloat(animDuration);
+      const transDurVal = parseFloat(transDuration);
+      // Only flag obvious animations (>0.3s) 
+      if (animDurVal > 0.3) {
+        const animName = style.animationName;
+        if (animName && animName !== "none") {
+          results.push({ ruleId: "SIA-R95", impact: "moderate", description: `Element has CSS animation "${animName}" (${animDuration}) — ensure it is disabled or reduced via @media (prefers-reduced-motion: reduce)`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+          return;
+        }
+      }
+    });
+
+    // ─── SIA-R96: Table <th> missing scope attribute ──────────────────────────
+    document.querySelectorAll("table").forEach(table => {
+      if (!isVisible(table)) return;
+      table.querySelectorAll("th").forEach(th => {
+        const scope = th.getAttribute("scope");
+        const ariaSort = th.getAttribute("aria-sort");
+        if (!scope && !ariaSort) {
+          results.push({ ruleId: "SIA-R96", impact: "moderate", description: `Table header cell is missing a scope attribute (scope="col" or scope="row")`, element: outerHtmlSnippet(th), selector: getSelector(th) });
+        }
+      });
+    });
+
+    // ─── SIA-R97: Fieldset without legend ────────────────────────────────────
+    document.querySelectorAll("fieldset").forEach(el => {
+      if (!isVisible(el)) return;
+      const legend = el.querySelector("legend");
+      if (!legend || !legend.textContent?.trim()) {
+        results.push({ ruleId: "SIA-R97", impact: "serious", description: `<fieldset> is missing a <legend> element to describe the group of form controls`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R98: Expandable elements missing aria-expanded ──────────────────
+    // Detect buttons/links that control collapsible panels but lack aria-expanded
+    document.querySelectorAll("button, [role='button'], a[href='#'], a[href='javascript:void(0)'], a[href='javascript:;']").forEach(el => {
+      if (!isVisible(el)) return;
+      if (el.getAttribute("aria-expanded") !== null) return;
+      if (el.getAttribute("aria-haspopup")) return;
+      // Check if it controls something via aria-controls
+      const controls = el.getAttribute("aria-controls");
+      if (!controls) return;
+      const controlled = document.getElementById(controls);
+      if (controlled) {
+        results.push({ ruleId: "SIA-R98", impact: "serious", description: `Toggle control references #${controls} via aria-controls but is missing aria-expanded state`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R99: aria-hidden on focusable element ────────────────────────────
+    document.querySelectorAll("[aria-hidden='true']").forEach(el => {
+      const focusable = el.querySelectorAll("a, button, input, select, textarea, [tabindex]:not([tabindex='-1'])");
+      focusable.forEach(child => {
+        const tabindex = child.getAttribute("tabindex");
+        if (tabindex === "-1") return;
+        results.push({ ruleId: "SIA-R99", impact: "serious", description: `Focusable element is inside an aria-hidden="true" container — keyboard users can focus it but screen readers will not announce it`, element: outerHtmlSnippet(child), selector: getSelector(child) });
+      });
+    });
+
+    // ─── SIA-R100: PDF links without accessible alternative ──────────────────
+    document.querySelectorAll("a[href]").forEach(el => {
+      if (!isVisible(el)) return;
+      const href = (el as HTMLAnchorElement).href || "";
+      if (!/\.pdf(\?|$|#)/i.test(href)) return;
+      // Check if there's a nearby "HTML version" or "accessible version" link
+      const parent = el.parentElement;
+      const nearby = parent?.textContent?.toLowerCase() || "";
+      const hasAlternative = /html version|accessible version|text version|word version|alternative format/i.test(nearby);
+      if (!hasAlternative) {
+        results.push({ ruleId: "SIA-R100", impact: "moderate", description: `Link to PDF "${el.textContent?.trim() || href.split("/").pop()}" has no adjacent accessible alternative format`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R104: Meta refresh causing auto-redirect or reload ───────────────
+    document.querySelectorAll("meta[http-equiv='refresh']").forEach(el => {
+      const content = el.getAttribute("content") || "";
+      const match = content.match(/(\d+)/);
+      const seconds = match ? parseInt(match[1], 10) : 0;
+      if (seconds === 0) {
+        results.push({ ruleId: "SIA-R104", impact: "serious", description: `<meta http-equiv="refresh"> causes an immediate page redirect — users have no control over timing`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      } else {
+        results.push({ ruleId: "SIA-R104", impact: "moderate", description: `<meta http-equiv="refresh" content="${content}"> auto-refreshes the page after ${seconds}s without user control`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R105: Multiple links with same text → different destinations ─────
+    const linkTextMap: Map<string, Set<string>> = new Map();
+    document.querySelectorAll("a[href]").forEach(el => {
+      if (!isVisible(el)) return;
+      const text = getAccessibleName(el).trim().toLowerCase().replace(/\s+/g, " ");
+      if (!text || text.length < 2) return;
+      const href = (el as HTMLAnchorElement).href || "";
+      if (!href || href === window.location.href + "#" || href === "#") return;
+      if (!linkTextMap.has(text)) linkTextMap.set(text, new Set());
+      linkTextMap.get(text)!.add(href);
+    });
+    linkTextMap.forEach((hrefs, text) => {
+      if (hrefs.size > 1) {
+        document.querySelectorAll("a[href]").forEach(el => {
+          if (!isVisible(el)) return;
+          const elText = getAccessibleName(el).trim().toLowerCase().replace(/\s+/g, " ");
+          if (elText === text) {
+            results.push({ ruleId: "SIA-R105", impact: "moderate", description: `Link text "${text}" is used for ${hrefs.size} different destinations — add aria-label to distinguish them`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+          }
+        });
+      }
+    });
+
+    // ─── SIA-R107: Custom interactive element not keyboard accessible ──────────
+    document.querySelectorAll("[onclick], [ondblclick]").forEach(el => {
+      if (!isVisible(el)) return;
+      const tag = el.tagName.toLowerCase();
+      // Native interactive elements are fine
+      if (["a", "button", "input", "select", "textarea", "summary", "details", "label", "option"].includes(tag)) return;
+      const tabindex = el.getAttribute("tabindex");
+      const role = el.getAttribute("role");
+      const isKeyboardAccessible = tabindex !== null && tabindex !== "-1";
+      const hasKeyboardHandler = el.getAttribute("onkeydown") || el.getAttribute("onkeyup") || el.getAttribute("onkeypress");
+      if (!isKeyboardAccessible || !hasKeyboardHandler) {
+        results.push({ ruleId: "SIA-R107", impact: "serious", description: `<${tag}> element has an onclick handler but is ${!isKeyboardAccessible ? "not keyboard focusable (missing tabindex)" : "missing keyboard event handler (onkeydown)"}`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R112: Figure missing figcaption ──────────────────────────────────
+    document.querySelectorAll("figure").forEach(el => {
+      if (!isVisible(el)) return;
+      const figcaption = el.querySelector("figcaption");
+      const ariaLabel = el.getAttribute("aria-label")?.trim();
+      const labelledBy = el.getAttribute("aria-labelledby");
+      if (!figcaption && !ariaLabel && !labelledBy) {
+        results.push({ ruleId: "SIA-R112", impact: "minor", description: `<figure> element has no <figcaption> or accessible label to describe its content`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // ─── SIA-R113: Details element summary has no accessible name ─────────────
+    document.querySelectorAll("details").forEach(el => {
+      if (!isVisible(el)) return;
+      const summary = el.querySelector("summary");
+      if (!summary) {
+        results.push({ ruleId: "SIA-R113", impact: "serious", description: `<details> element is missing a <summary> child — screen readers cannot announce the disclosure widget`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+        return;
+      }
+      const text = summary.textContent?.trim() || "";
+      const ariaLabel = summary.getAttribute("aria-label")?.trim() || "";
+      if (!text && !ariaLabel) {
+        results.push({ ruleId: "SIA-R113", impact: "serious", description: `<summary> element is empty — provide descriptive text so screen readers can announce the disclosure widget`, element: outerHtmlSnippet(summary), selector: getSelector(summary) });
+      }
+    });
+
+    // ─── SIA-R115: Object element without accessible name ────────────────────
+    document.querySelectorAll("object").forEach(el => {
+      if (!isVisible(el)) return;
+      const title = el.getAttribute("title")?.trim();
+      const ariaLabel = el.getAttribute("aria-label")?.trim();
+      const labelledBy = el.getAttribute("aria-labelledby");
+      const fallbackText = el.textContent?.trim();
+      if (!title && !ariaLabel && !labelledBy && !fallbackText) {
+        results.push({ ruleId: "SIA-R115", impact: "serious", description: `<object> element has no title, aria-label, or fallback text content`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
     });
 
     return results;
