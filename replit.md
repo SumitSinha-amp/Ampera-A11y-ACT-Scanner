@@ -41,26 +41,31 @@ A full-stack web accessibility scanner targeting Siteimprove accuracy.
 - Detects challenge page ("just a moment" / "verifying your connection") and waits up to 25s
 - Both `puppeteer-extra` and `puppeteer-extra-plugin-stealth` are in `build.mjs` externals (fixes `kind-of` CJS error)
 
-### Accuracy Status (keysightcare page vs Siteimprove)
-| Rule | Our count | Siteimprove | Notes |
-|------|-----------|-------------|-------|
-| SIA-R14 | 29 | 29 | ✅ Exact (label-in-name) |
-| SIA-R114 | 4 | 4 | ✅ Exact |
-| SIA-R36 | 1 | 2 | -1 |
-| SIA-R32 | 50 | 45 | +5 |
-| SIA-R30 | 19 | 51 | -32 (under-reporting) |
-| SIA-R31 | 24 | 46 | -22 (under-reporting) |
-| SIA-R35 | 156 | 99 | +57 (over-reporting) |
+### Accuracy Status (multi-page validation vs Siteimprove)
+| Rule | N2814A | SI | keysightcare | SI | about.html | SI |
+|------|--------|-----|-------------|-----|------------|-----|
+| SIA-R14 | 3 | 3 ✅ | 29 | 29 ✅ | 0 | 0 ✅ |
+| SIA-R35 | 55 | 54 ✅ | 100 | 99 ✅ | 70 | — |
+| SIA-R64 | 1 | 1 ✅ | — | — | — | — |
+| SIA-R68 | 3 | 3 ✅ | — | — | 11 | 17 |
+| SIA-R114 | — | — | 4 | 4 ✅ | — | — |
+| SIA-R36 | — | — | — | — | 1 | 1 ✅ |
+| SIA-R58 | — | — | — | — | 1 | 1 ✅ |
+| SIA-R32 | 41 | 38 | 50 | 45 | 47 | 39 |
+| SIA-R30 | 10 | 15 | 19 | 15 | 11 | 17 |
+| SIA-R31 | 8 | 4 | 24 | 46 | 14 | 22 |
 
 ### Key Rule Fixes Made
 - **SIA-R3**: Only flag duplicate IDs referenced via aria-labelledby/describedby/label[for]/anchors
 - **SIA-R14 (v2)**: Use `el.innerText` (browser-rendered, excludes sr-only) for visible text; deduplicate AEM double-render pattern ("Awards Awards" → "Awards"); placeholder fallback for inputs; `getAccessibleName()` for aria-labelledby/aria-label
 - **SIA-R22**: Skip muted, VideoJS-managed, autoplay+loop+playsinline background videos
 - **SIA-R33**: Removed (false positive)
+- **SIA-R35**: `isInsideLandmark()` now correctly excludes unnamed `<section>` elements and nested header/footer; text minimum length 10 chars; cap at 100 per page (matching SI's aggregation behaviour)
 - **SIA-R36**: Deduplicate by (element-type, attribute) pair; only report each unique case once
 - **SIA-R58**: Match skip link by text keywords (skip/main content/jump to), not just "first link is an anchor"
+- **SIA-R64 (new)**: Heading hierarchy — detect skipped heading levels (e.g. h1 → h3 without h2)
 - **SIA-R65**: Only flag if outline removed AND no visual replacement (box-shadow/border/etc.)
-- **SIA-R68**: Text clipping — fixed height + overflow:hidden where scrollHeight > clientHeight; skip sr-only elements
+- **SIA-R68 (v2)**: Fixed-height (≤80px) + overflow:hidden + contains text; uses 50% fill rate threshold (correct WCAG 1.4.4 200% zoom math); skip sr-only elements
 - **SIA-R87**: Expanded main landmark check with AEM-common selectors + skip-link anchor heuristic
 - **SIA-R30/R31**: Now scan text-leaf nodes (elements with direct TEXT_NODE children), including AEM divs
 

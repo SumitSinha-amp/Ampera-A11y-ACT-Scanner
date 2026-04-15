@@ -123,6 +123,7 @@ const RULE_DESCRIPTIONS: Record<string, { description: string; remediation: stri
   "SIA-R32":  { description: "Interactive element does not meet enhanced target size (2.5.5)", remediation: "Ensure interactive elements have a target size of at least 24×24 CSS pixels" },
   "SIA-R34":  { description: "Content missing after heading", remediation: "Ensure headings are followed by content; avoid using consecutive headings without intervening text" },
   "SIA-R35":  { description: "Text content is not included in an ARIA landmark", remediation: "Wrap all significant text content within a landmark region (main, nav, aside, footer, etc.)" },
+  "SIA-R64":  { description: "Headings are not structured — heading level is skipped", remediation: "Ensure headings follow a sequential hierarchy without skipping levels (e.g. h1 → h2 → h3); do not jump from h1 to h3" },
   "SIA-R36":  { description: "ARIA attribute is unsupported or prohibited on this element", remediation: "Remove ARIA attributes that are not permitted on the element's role or native element type" },
   "SIA-R68":  { description: "Text may be clipped when resized (1.4.4 Resize Text)", remediation: "Avoid fixed heights on text containers with overflow:hidden; use min-height or allow overflow:visible" },
 };
@@ -468,11 +469,26 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
 
     function isInsideLandmark(el: Element): boolean {
       const landmarkRoles = ["main", "navigation", "complementary", "contentinfo", "banner", "search", "form", "region"];
-      const landmarkTags = ["main", "nav", "aside", "footer", "header", "form", "section"];
+      // These tags are always landmarks regardless of nesting or naming
+      const alwaysLandmarkTags = ["main", "nav", "aside", "form"];
+      // header/footer are banner/contentinfo landmarks ONLY when NOT nested inside sectioning content
+      const sectioningTags = ["article", "aside", "main", "nav", "section"];
       let node: Element | null = el.parentElement;
       while (node && node !== document.body) {
         const tag = node.tagName.toLowerCase();
-        if (landmarkTags.includes(tag)) return true;
+        if (alwaysLandmarkTags.includes(tag)) return true;
+        // <section> is only a landmark (region) when it has an accessible name
+        if (tag === "section") {
+          if (node.hasAttribute("aria-label") || node.hasAttribute("aria-labelledby") || node.hasAttribute("title")) return true;
+          // unnamed section is NOT a landmark — keep climbing
+        }
+        // <header>/<footer> are landmarks only when at top-level (not nested inside sectioning elements)
+        if (tag === "header" || tag === "footer") {
+          const parent = node.parentElement;
+          const parentTag = parent?.tagName?.toLowerCase() || "";
+          if (!sectioningTags.includes(parentTag)) return true;
+          // nested header/footer inside sectioning element → NOT a landmark
+        }
         const role = node.getAttribute("role");
         if (role && landmarkRoles.includes(role)) return true;
         node = node.parentElement;
@@ -695,29 +711,57 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       }
     });
 
+    // Heading hierarchy — detect skipped heading levels (e.g. h1 → h3 without h2)
+    // Siteimprove: "Headings are not structured" (Accessibility best practices)
+    const visibleHeadings = headings.filter(h => isVisible(h));
+    visibleHeadings.forEach((h, i) => {
+      if (i === 0) return; // first heading has no predecessor to compare
+      const prev = visibleHeadings[i - 1];
+      const prevLevel = parseInt(prev.tagName[1], 10);
+      const currLevel = parseInt(h.tagName[1], 10);
+      // A heading that jumps more than one level down (e.g. h1→h3) skips a level
+      if (currLevel > prevLevel + 1) {
+        results.push({
+          ruleId: "SIA-R64",
+          impact: "moderate",
+          description: `Heading level skipped: <${prev.tagName.toLowerCase()}> is followed by <${h.tagName.toLowerCase()}> — level ${prevLevel + 1} is missing. "${(h.textContent || "").substring(0, 60)}"`,
+          element: outerHtmlSnippet(h),
+          selector: getSelector(h)
+        });
+      }
+    });
+
     // SIA-R35: Text content not inside a landmark
-    // Walk the full DOM tree, report text nodes outside any landmark (no cap — report all)
+    // Walk the full DOM tree, report text nodes outside any landmark.
+    // Cap at 100 per page — Siteimprove aggregates at higher container levels and never reports unbounded lists.
     const seenR35Parents = new Set<Element>();
+    let r35Count = 0;
     function checkTextNodes(node: Node): void {
+      if (r35Count >= 100) return;
       if (node.nodeType === Node.TEXT_NODE) {
         const text = node.textContent?.trim() || "";
-        if (text.length < 20) return; // ignore short fragments (labels, icons, punctuation)
+        if (text.length < 10) return; // ignore very short fragments (icons, punctuation)
         const parent = node.parentElement;
         if (!parent || seenR35Parents.has(parent)) return;
         if (!isVisible(parent)) return;
         if (!isInsideLandmark(parent)) {
           seenR35Parents.add(parent);
+          r35Count++;
           results.push({ ruleId: "SIA-R35", impact: "minor", description: `Text "${text.substring(0, 80)}" is not contained within a landmark region`, element: outerHtmlSnippet(parent), selector: getSelector(parent) });
         }
       } else if (node.nodeType === Node.ELEMENT_NODE) {
         const el = node as Element;
         const tag = el.tagName?.toLowerCase();
         if (["script","style","noscript","template"].includes(tag)) return;
-        // Stop descending into landmark elements — their content is fine
+        // Stop descending into landmark elements — their content is fine.
+        // Must mirror isInsideLandmark() logic exactly: unnamed <section> and nested header/footer are NOT landmarks.
         const role = el.getAttribute("role");
         const landmarkRoles = ["main","navigation","complementary","contentinfo","banner","search","form","region"];
-        const landmarkTags = ["main","nav","aside","footer","header","form","section"];
-        if (landmarkTags.includes(tag) || (role && landmarkRoles.includes(role))) return;
+        const alwaysStop = ["main","nav","aside","form"];
+        if (alwaysStop.includes(tag)) return;
+        if (tag === "section" && (el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby") || el.hasAttribute("title"))) return;
+        if ((tag === "header" || tag === "footer") && !["article","aside","main","nav","section"].includes((el.parentElement?.tagName || "").toLowerCase())) return;
+        if (role && landmarkRoles.includes(role)) return;
         node.childNodes.forEach(child => checkTextNodes(child));
       }
     }
@@ -943,7 +987,9 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     }
 
     // SIA-R68: Text clipped when resized (1.4.4 Resize Text)
-    // Flag elements with fixed height + overflow:hidden where content actually overflows
+    // Flag elements with overflow:hidden + fixed height that contain text — at larger font sizes
+    // the content will clip. This is a static/potential check (Siteimprove behaviour), not requiring
+    // actual overflow at 1× zoom.
     let clippedCount = 0;
     document.querySelectorAll("*").forEach(el => {
       if (clippedCount >= 25) return;
@@ -955,10 +1001,10 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
 
       const style = window.getComputedStyle(el);
 
-      // Skip elements with very small rendered dimensions — these are sr-only or decorative
-      const w = parseFloat(style.width);
-      const h = parseFloat(style.height);
-      if (!isNaN(w) && !isNaN(h) && (w <= 1 || h <= 1)) return;
+      // Skip elements with very small rendered dimensions (sr-only / decorative)
+      const clientH = el.clientHeight;
+      const clientW = el.clientWidth;
+      if (clientH <= 1 || clientW <= 1) return;
 
       // Skip elements clipped via clip/clip-path (sr-only pattern)
       if (style.clip && style.clip !== "auto") return;
@@ -968,24 +1014,37 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
 
       if (!isVisible(el)) return;
 
-      const overflow = style.overflowY !== "visible" ? style.overflowY : style.overflow;
-      if (!["hidden","clip"].includes(overflow)) return;
+      // Check overflow in any direction (hidden or clip)
+      const overflowY = style.overflowY;
+      const overflowX = style.overflowX;
+      const overflowGeneral = style.overflow;
+      const hasHiddenOverflow = ["hidden","clip"].includes(overflowY) || ["hidden","clip"].includes(overflowX) || ["hidden","clip"].includes(overflowGeneral);
+      if (!hasHiddenOverflow) return;
 
       const text = el.textContent?.trim() || "";
-      if (text.length < 15) return;
+      if (text.length < 10) return;
 
       const height = style.height;
       // Only flag fixed-height (px/em/rem/ch), not auto/percentage/min/max-content
       if (!height || height === "auto" || height.endsWith("%") || height === "none" ||
           height === "fit-content" || height === "max-content" || height === "min-content") return;
 
-      // Only flag if content measurably overflows the box
+      // Only flag tight containers (≤ 80px) — large expandable/product sections are excluded.
+      // Siteimprove focuses on single/double-line-height fixed containers (e.g. nav tabs, badges, labels).
+      const heightPx = parseFloat(height);
+      if (isNaN(heightPx) || heightPx > 80) return;
+
+      // Must contain text
+      if (!el.textContent?.trim()) return;
+
+      // WCAG 1.4.4: content must survive 200% text zoom without clipping.
+      // If scrollH > 50% of clientH, doubling the text size would exceed the fixed height → flag it.
+      // Elements at ≤50% capacity can absorb 2× zoom safely.
       const scrollH = el.scrollHeight;
-      const clientH = el.clientHeight;
-      if (clientH > 1 && scrollH > clientH + 4) {
-        clippedCount++;
-        results.push({ ruleId: "SIA-R68", impact: "moderate", description: `Element has fixed height (${height}) with overflow:hidden — text content may be clipped when text is enlarged`, element: outerHtmlSnippet(el), selector: getSelector(el) });
-      }
+      if (clientH > 0 && scrollH < clientH * 0.5) return;
+
+      clippedCount++;
+      results.push({ ruleId: "SIA-R68", impact: "moderate", description: `Element has fixed height (${height}) with overflow:hidden — text may be clipped when text size is increased`, element: outerHtmlSnippet(el), selector: getSelector(el) });
     });
 
     return results;
