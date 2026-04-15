@@ -83,10 +83,10 @@ const WCAG_MAPPING: Record<string, { sc: string[]; level: string }> = {
   "SIA-R30":  { sc: ["1.4.6"], level: "AAA" },
   "SIA-R31":  { sc: ["1.4.8"], level: "AAA" },
   "SIA-R32":  { sc: ["2.5.5"], level: "AAA" },
-  "SIA-R33":  { sc: ["1.3.1"], level: "A" },
   "SIA-R34":  { sc: ["1.3.1"], level: "A" },
-  "SIA-R35":  { sc: ["2.4.1"], level: "A" },
+  "SIA-R35":  { sc: ["1.3.6"], level: "AAA" },
   "SIA-R36":  { sc: ["4.1.2"], level: "A" },
+  "SIA-R68":  { sc: ["1.4.4"], level: "AA" },
 };
 
 const RULE_DESCRIPTIONS: Record<string, { description: string; remediation: string }> = {
@@ -121,10 +121,10 @@ const RULE_DESCRIPTIONS: Record<string, { description: string; remediation: stri
   "SIA-R30":  { description: "Text contrast ratio is below AAA enhanced minimum (7:1 normal, 4.5:1 large)", remediation: "Increase contrast ratio to at least 7:1 for normal text and 4.5:1 for large text" },
   "SIA-R31":  { description: "Line height is below minimum value (1.4.8 Visual Presentation)", remediation: "Set line-height to at least 1.5× the font-size for body text" },
   "SIA-R32":  { description: "Interactive element does not meet enhanced target size (2.5.5)", remediation: "Ensure interactive elements have a target size of at least 24×24 CSS pixels" },
-  "SIA-R33":  { description: "Container element is empty", remediation: "Remove empty container elements or add meaningful content; empty elements confuse screen readers" },
   "SIA-R34":  { description: "Content missing after heading", remediation: "Ensure headings are followed by content; avoid using consecutive headings without intervening text" },
   "SIA-R35":  { description: "Text content is not included in an ARIA landmark", remediation: "Wrap all significant text content within a landmark region (main, nav, aside, footer, etc.)" },
   "SIA-R36":  { description: "ARIA attribute is unsupported or prohibited on this element", remediation: "Remove ARIA attributes that are not permitted on the element's role or native element type" },
+  "SIA-R68":  { description: "Text may be clipped when resized (1.4.4 Resize Text)", remediation: "Avoid fixed heights on text containers with overflow:hidden; use min-height or allow overflow:visible" },
 };
 
 // Persistent profile dir — preserves Cloudflare clearance cookies across restarts
@@ -345,6 +345,22 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       return el.textContent?.trim() || "";
     }
 
+    // Returns visible text of an element, stripping aria-hidden subtrees
+    function getVisibleText(el: Element): string {
+      let text = "";
+      el.childNodes.forEach(node => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          text += node.textContent || "";
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          const child = node as Element;
+          if (child.getAttribute("aria-hidden") !== "true") {
+            text += getVisibleText(child);
+          }
+        }
+      });
+      return text.trim().replace(/\s+/g, " ");
+    }
+
     function getVisibleLabel(el: Element): string {
       if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) {
         if (el.id) {
@@ -450,16 +466,24 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       results.push({ ruleId: "SIA-R4", impact: "serious", description: "HTML element is missing lang attribute", element: "<html>", selector: "html" });
     }
 
-    // SIA-R3: Duplicate IDs
-    const allIds = Array.from(document.querySelectorAll("[id]")).map(el => el.id);
-    const seenIds = new Set<string>();
-    const dupIds = new Set<string>();
-    for (const id of allIds) {
-      if (seenIds.has(id)) dupIds.add(id);
-      seenIds.add(id);
-    }
-    for (const id of dupIds) {
-      results.push({ ruleId: "SIA-R3", impact: "critical", description: `Duplicate ID: "${id}"`, element: `#${id}`, selector: `[id="${id}"]` });
+    // SIA-R3: Duplicate IDs — only flag IDs actually used in accessibility relationships
+    // (aria-labelledby, aria-describedby, aria-controls, label[for], anchor links)
+    const referencedIds = new Set<string>();
+    document.querySelectorAll("[aria-labelledby],[aria-describedby],[aria-controls],[aria-owns],[aria-activedescendant]").forEach(el => {
+      ["aria-labelledby","aria-describedby","aria-controls","aria-owns","aria-activedescendant"].forEach(attr => {
+        (el.getAttribute(attr) || "").split(/\s+/).filter(Boolean).forEach(id => referencedIds.add(id));
+      });
+    });
+    document.querySelectorAll("label[for]").forEach(el => { const v = el.getAttribute("for"); if (v) referencedIds.add(v); });
+    document.querySelectorAll("a[href^='#']").forEach(el => { const h = el.getAttribute("href")!.slice(1); if (h) referencedIds.add(h); });
+    const idCountMap: Record<string, number> = {};
+    document.querySelectorAll("[id]").forEach(el => {
+      if (referencedIds.has(el.id)) idCountMap[el.id] = (idCountMap[el.id] || 0) + 1;
+    });
+    for (const [id, count] of Object.entries(idCountMap)) {
+      if (count > 1) {
+        results.push({ ruleId: "SIA-R3", impact: "critical", description: `Duplicate ID "${id}" is referenced for accessibility (${count} elements share this ID)`, element: `#${id}`, selector: `[id="${id}"]` });
+      }
     }
 
     // SIA-R2: Images without alt
@@ -511,11 +535,12 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       }
     });
 
-    // Also check buttons and links for label-in-name
+    // Also check buttons and links for label-in-name (use getVisibleText to ignore aria-hidden icons)
     document.querySelectorAll("a[href], button, [role='button'], [role='link']").forEach(el => {
       if (!isVisible(el)) return;
-      const visibleText = el.textContent?.trim() || "";
-      if (!visibleText) return;
+      const visibleText = getVisibleText(el);
+      // Skip if no text, too short, or if text contains HTML markup (CMS rendering artifact)
+      if (!visibleText || visibleText.length < 2 || visibleText.includes("<")) return;
       const ariaLabel = el.getAttribute("aria-label") || "";
       if (!ariaLabel) return;
       if (!ariaLabel.toLowerCase().includes(visibleText.toLowerCase())) {
@@ -544,30 +569,12 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     let targetSizeFailCount = 0;
     document.querySelectorAll("a, button, [role='button'], [role='link'], input[type='checkbox'], input[type='radio'], select").forEach(el => {
       if (!isVisible(el)) return;
-      if (targetSizeFailCount >= 20) return;
+      if (targetSizeFailCount >= 50) return;
       const rect = el.getBoundingClientRect();
       if (rect.width < 24 || rect.height < 24) {
         targetSizeFailCount++;
         results.push({ ruleId: "SIA-R32", impact: "minor", description: `Interactive element is ${Math.round(rect.width)}×${Math.round(rect.height)}px, below the 24×24px enhanced target size`, element: outerHtmlSnippet(el), selector: getSelector(el) });
       }
-    });
-
-    // SIA-R33: Container element is empty
-    const containerTags = ["div", "section", "article", "aside", "main", "header", "footer", "nav", "li", "td", "th", "p", "span"];
-    let emptyContainerCount = 0;
-    containerTags.forEach(tag => {
-      if (emptyContainerCount >= 10) return;
-      document.querySelectorAll(tag).forEach(el => {
-        if (emptyContainerCount >= 10) return;
-        if (!isVisible(el)) return;
-        // Element is truly empty: no text content, no child elements with content
-        const text = el.textContent?.trim() || "";
-        const hasChildren = el.children.length > 0;
-        if (!text && !hasChildren) {
-          emptyContainerCount++;
-          results.push({ ruleId: "SIA-R33", impact: "minor", description: `Empty <${tag}> container element`, element: outerHtmlSnippet(el), selector: getSelector(el) });
-        }
-      });
     });
 
     // SIA-R34: Content missing after heading (heading followed immediately by another heading)
@@ -583,25 +590,24 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     });
 
     // SIA-R35: Text content not inside a landmark
-    // Check direct text nodes in body that are not inside any landmark
-    let textOutsideLandmarkCount = 0;
+    // Walk the full DOM tree, report text nodes outside any landmark (no cap — report all)
+    const seenR35Parents = new Set<Element>();
     function checkTextNodes(node: Node): void {
-      if (textOutsideLandmarkCount >= 15) return;
       if (node.nodeType === Node.TEXT_NODE) {
         const text = node.textContent?.trim() || "";
-        if (text.length < 20) return; // ignore short text fragments
+        if (text.length < 20) return; // ignore short fragments (labels, icons, punctuation)
         const parent = node.parentElement;
-        if (!parent) return;
+        if (!parent || seenR35Parents.has(parent)) return;
         if (!isVisible(parent)) return;
         if (!isInsideLandmark(parent)) {
-          textOutsideLandmarkCount++;
+          seenR35Parents.add(parent);
           results.push({ ruleId: "SIA-R35", impact: "minor", description: `Text "${text.substring(0, 80)}" is not contained within a landmark region`, element: outerHtmlSnippet(parent), selector: getSelector(parent) });
         }
       } else if (node.nodeType === Node.ELEMENT_NODE) {
         const el = node as Element;
         const tag = el.tagName?.toLowerCase();
-        // Don't descend into landmark elements (they're fine), scripts, styles
         if (["script","style","noscript","template"].includes(tag)) return;
+        // Stop descending into landmark elements — their content is fine
         const role = el.getAttribute("role");
         const landmarkRoles = ["main","navigation","complementary","contentinfo","banner","search","form","region"];
         const landmarkTags = ["main","nav","aside","footer","header","form","section"];
@@ -623,12 +629,18 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
         }
       }
     });
-    // Check for ARIA attributes on elements where aria is prohibited (e.g., input[type=hidden])
-    document.querySelectorAll("input[type='hidden'], meta, html, script, style").forEach(el => {
-      ALL_ARIA_ATTRS.forEach(attr => {
-        if (el.hasAttribute(attr)) {
-          results.push({ ruleId: "SIA-R36", impact: "moderate", description: `ARIA attribute "${attr}" is not permitted on <${el.tagName.toLowerCase()}>`, element: outerHtmlSnippet(el), selector: getSelector(el) });
-        }
+    // Check for ARIA attributes on native elements where ARIA is prohibited
+    // Deduplicate: only report each unique (element type, attribute) combination once
+    const r36Seen = new Set<string>();
+    document.querySelectorAll("input[type='hidden'], meta, script, style").forEach(el => {
+      const tag = el.tagName.toLowerCase();
+      const inputType = el.getAttribute("type") || "";
+      const key = `${tag}[type=${inputType}]`;
+      el.getAttributeNames().filter(a => a.startsWith("aria-")).forEach(attr => {
+        const dedupKey = `${key}::${attr}`;
+        if (r36Seen.has(dedupKey)) return;
+        r36Seen.add(dedupKey);
+        results.push({ ruleId: "SIA-R36", impact: "moderate", description: `ARIA attribute "${attr}" is not permitted on <${tag}>`, element: outerHtmlSnippet(el), selector: getSelector(el) });
       });
     });
 
@@ -649,8 +661,17 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       }
     }
 
-    // SIA-R22: Video without captions
+    // SIA-R22: Video without captions — skip muted, decorative, hidden, or managed-player videos
     document.querySelectorAll("video").forEach(video => {
+      if (video.hasAttribute("muted")) return;
+      if (video.getAttribute("aria-hidden") === "true" || video.closest('[aria-hidden="true"]')) return;
+      if (video.hasAttribute("autoplay") && video.hasAttribute("loop") && video.hasAttribute("playsinline")) return; // background/ambient video pattern
+      // Skip VideoJS-managed players — they provide their own CC interface
+      if (video.classList.contains("vjs-tech") || video.closest(".video-js") || video.closest("[data-comp*='Video']") || video.closest(".ks-video-player")) return;
+      if (!isVisible(video)) return;
+      // Skip very small videos (likely decorative)
+      const rect = video.getBoundingClientRect();
+      if (rect.width < 50 || rect.height < 50) return;
       const hasCaptions = video.querySelector('track[kind="captions"], track[kind="subtitles"]');
       if (!hasCaptions) {
         results.push({ ruleId: "SIA-R22", impact: "serious", description: "Video element may be missing captions", element: outerHtmlSnippet(video), selector: getSelector(video) });
@@ -708,27 +729,34 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       });
     }
 
-    // SIA-R87: Landmark regions
-    const hasMain = document.querySelector("main, [role='main']");
-    if (!hasMain) {
+    // SIA-R87: Landmark regions — only flag if <main> is truly absent (including common CMS patterns)
+    let hasMainLandmark = !!document.querySelector(
+      "main, [role='main'], #main, #main-content, #maincontent, .main-content, #page-content, #content-main, #primary-content"
+    );
+    // Also check: if a skip link exists that points to an anchor, treat that as evidence of a main area
+    if (!hasMainLandmark) {
+      const skipLinkHref = (document.querySelector("a[href^='#']") as HTMLAnchorElement)?.href || "";
+      const anchor = skipLinkHref ? skipLinkHref.split("#")[1] : null;
+      if (anchor && document.getElementById(anchor)) hasMainLandmark = true;
+    }
+    if (!hasMainLandmark) {
       results.push({ ruleId: "SIA-R87", impact: "moderate", description: "Page is missing a <main> landmark region", element: "<body>", selector: "body" });
     }
-    const hasNav = document.querySelector("nav, [role='navigation']");
-    if (!hasNav && document.querySelectorAll("a[href]").length > 3) {
-      results.push({ ruleId: "SIA-R87", impact: "minor", description: "Page is missing a <nav> landmark region", element: "<body>", selector: "body" });
+
+    // SIA-R58: Skip to content link — look for a link with skip-related text targeting an anchor
+    const anchorLinks = Array.from(document.querySelectorAll("a[href^='#']"));
+    const hasSkipLink = anchorLinks.some(link => {
+      const text = (link.textContent || link.getAttribute("aria-label") || "").toLowerCase();
+      const href = link.getAttribute("href") || "#";
+      return href.length > 1 && (text.includes("skip") || text.includes("main content") || text.includes("jump to") || text.includes("go to content"));
+    });
+    if (!hasSkipLink) {
+      results.push({ ruleId: "SIA-R58", impact: "moderate", description: "Page is missing a skip navigation link (a visible-on-focus link to the main content)", element: "<body>", selector: "body" });
     }
 
-    // SIA-R58: Skip to content link
-    const firstLink = document.querySelector("a");
-    if (firstLink) {
-      const href = firstLink.getAttribute("href") || "";
-      if (!href.startsWith("#")) {
-        results.push({ ruleId: "SIA-R58", impact: "moderate", description: "Page may be missing a skip navigation link (first link should target an anchor)", element: outerHtmlSnippet(firstLink), selector: getSelector(firstLink) });
-      }
-    }
-
-    // SIA-R65: Focus visible — check for outline:none without replacement
-    let hasFocusHidden = false;
+    // SIA-R65: Focus visible — only flag if outline is removed AND no visual replacement is provided
+    let hasFocusOutlineRemoved = false;
+    let hasFocusReplacement = false;
     try {
       Array.from(document.styleSheets).forEach(sheet => {
         try {
@@ -736,33 +764,34 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
             const text = rule.cssText || "";
             if ((text.includes(":focus") || text.includes(":focus-visible")) &&
                (text.includes("outline: none") || text.includes("outline:none") || text.includes("outline: 0") || text.includes("outline:0"))) {
-              hasFocusHidden = true;
+              hasFocusOutlineRemoved = true;
+              // Check if there's a visual replacement in the same rule
+              if (text.includes("box-shadow") || text.includes("border") || text.includes("background") ||
+                  text.includes("text-decoration") || text.includes("filter") || text.includes("ring")) {
+                hasFocusReplacement = true;
+              }
             }
           });
         } catch { /* cross-origin */ }
       });
     } catch { /* ignore */ }
-    if (hasFocusHidden) {
+    if (hasFocusOutlineRemoved && !hasFocusReplacement) {
       results.push({ ruleId: "SIA-R65", impact: "serious", description: "CSS removes focus outline without providing a visible replacement focus indicator", element: null, selector: null });
     }
 
     // SIA-R69: AA Contrast (4.5:1 normal / 3:1 large text)
     // SIA-R30: AAA Enhanced Contrast (7:1 normal / 4.5:1 large text)
+    // Target: elements that directly contain text nodes (not just structural containers)
     let contrastAAFails = 0;
     let contrastAAAFails = 0;
-    const textEls = Array.from(document.querySelectorAll("p, h1, h2, h3, h4, h5, h6, span, a, button, label, li, td, th, div")).slice(0, 200);
-    for (const el of textEls) {
+    const allDomEls = Array.from(document.querySelectorAll("p, h1, h2, h3, h4, h5, h6, span, a, button, label, li, td, th, div, blockquote, cite, figcaption, dt, dd, summary"));
+    const textLeafEls = allDomEls.filter(el => {
+      // Must have at least one direct text node with meaningful content
+      return Array.from(el.childNodes).some(n => n.nodeType === Node.TEXT_NODE && (n.textContent?.trim()?.length || 0) > 3);
+    }).slice(0, 500);
+    for (const el of textLeafEls) {
       if (!(el instanceof HTMLElement)) continue;
       if (!isVisible(el)) continue;
-      const text = el.textContent?.trim();
-      if (!text || text.length < 2) continue;
-      // Skip elements that are mostly container elements with block children
-      const blockChildren = Array.from(el.children).filter(c => {
-        const cs = window.getComputedStyle(c as HTMLElement).display;
-        return cs === "block" || cs === "flex" || cs === "grid";
-      });
-      if (blockChildren.length > 0 && el.tagName.toLowerCase() === "div") continue;
-
       const style = window.getComputedStyle(el);
       const color = style.color;
       const bgColor = getEffectiveBackground(el);
@@ -775,39 +804,60 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       const fontSize = parseFloat(style.fontSize);
       const fontWeight = parseFloat(style.fontWeight);
       const isLarge = fontSize >= 24 || (fontSize >= 18.67 && fontWeight >= 700);
-
       const aaMin = isLarge ? 3 : 4.5;
       const aaaMin = isLarge ? 4.5 : 7;
-
-      if (ratio < aaMin && contrastAAFails < 10) {
+      if (ratio < aaMin && contrastAAFails < 15) {
         contrastAAFails++;
         results.push({ ruleId: "SIA-R69", impact: "serious", description: `Text contrast ratio ${ratio.toFixed(2)}:1 is below AA minimum (${aaMin}:1)`, element: outerHtmlSnippet(el), selector: getSelector(el) });
-      } else if (ratio < aaaMin && ratio >= aaMin && contrastAAAFails < 15) {
+      } else if (ratio < aaaMin && ratio >= aaMin && contrastAAAFails < 25) {
         contrastAAAFails++;
         results.push({ ruleId: "SIA-R30", impact: "minor", description: `Text contrast ratio ${ratio.toFixed(2)}:1 is below AAA enhanced minimum (${aaaMin}:1)`, element: outerHtmlSnippet(el), selector: getSelector(el) });
       }
     }
 
-    // SIA-R91 / SIA-R31: Line height (1.4.12 AA / 1.4.8 AAA)
-    let lineHeightAAFails = 0;
-    let lineHeightAAAFails = 0;
-    const bodyTextEls = Array.from(document.querySelectorAll("p, li, td, th, blockquote, article, section > div")).slice(0, 100);
-    for (const el of bodyTextEls) {
+    // SIA-R31: Line height (1.4.8 AAA / 1.4.12 AA) — target text leaf nodes including AEM divs
+    let lineHeightFails = 0;
+    const lineHeightEls = allDomEls.filter(el => {
+      return Array.from(el.childNodes).some(n => n.nodeType === Node.TEXT_NODE && (n.textContent?.trim()?.length || 0) > 15);
+    }).slice(0, 300);
+    for (const el of lineHeightEls) {
       if (!(el instanceof HTMLElement)) continue;
       if (!isVisible(el)) continue;
-      const text = el.textContent?.trim() || "";
-      if (text.length < 10) continue;
       const style = window.getComputedStyle(el);
-      const lineHeight = parseFloat(style.lineHeight);
+      const lineHeightRaw = style.lineHeight;
+      if (lineHeightRaw === "normal") continue; // browser default — not measurable
+      const lineHeight = parseFloat(lineHeightRaw);
       const fontSize = parseFloat(style.fontSize);
       if (isNaN(lineHeight) || isNaN(fontSize) || fontSize === 0) continue;
       const ratio = lineHeight / fontSize;
-      // AA (1.4.12): 1.5x; AAA (1.4.8): stricter but 1.5x is the WCAG floor
-      if (ratio < 1.5 && lineHeightAAFails < 5) {
-        lineHeightAAFails++;
-        results.push({ ruleId: "SIA-R31", impact: "moderate", description: `Line height ${ratio.toFixed(2)}× is below the minimum 1.5× (font-size: ${Math.round(fontSize)}px)`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      if (ratio < 1.5 && lineHeightFails < 30) {
+        lineHeightFails++;
+        results.push({ ruleId: "SIA-R31", impact: "moderate", description: `Line height ${ratio.toFixed(2)}× is below the minimum 1.5× (font-size: ${Math.round(fontSize)}px, line-height: ${Math.round(lineHeight)}px)`, element: outerHtmlSnippet(el), selector: getSelector(el) });
       }
     }
+
+    // SIA-R68: Text clipped when resized (1.4.4 Resize Text)
+    // Flag elements with fixed height + overflow:hidden that are actually overflowing
+    let clippedCount = 0;
+    document.querySelectorAll("*").forEach(el => {
+      if (clippedCount >= 25) return;
+      if (!(el instanceof HTMLElement)) return;
+      if (!isVisible(el)) return;
+      const style = window.getComputedStyle(el);
+      const overflow = style.overflowY || style.overflow;
+      if (!["hidden","clip"].includes(overflow)) return;
+      const text = el.textContent?.trim() || "";
+      if (text.length < 15) return;
+      const height = style.height;
+      // Only fixed-height elements (px/em/rem/ch), not auto or percentage
+      if (!height || height === "auto" || height.endsWith("%") || height === "none" || height === "fit-content" || height === "max-content" || height === "min-content") return;
+      const scrollH = el.scrollHeight;
+      const clientH = el.clientHeight;
+      if (scrollH > clientH + 4) { // content exceeds the visible area
+        clippedCount++;
+        results.push({ ruleId: "SIA-R68", impact: "moderate", description: `Element has fixed height (${height}) with overflow:hidden — text content may be clipped when text is enlarged`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
 
     return results;
   });
