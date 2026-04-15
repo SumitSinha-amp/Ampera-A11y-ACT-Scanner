@@ -1,6 +1,12 @@
-import puppeteer, { Browser, Page } from "puppeteer";
+import puppeteerExtra from "puppeteer-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
+import type { Browser, Page } from "puppeteer";
 import { execSync } from "child_process";
+import { mkdirSync } from "fs";
+import path from "path";
 import { logger } from "./logger";
+
+puppeteerExtra.use(StealthPlugin());
 
 function getChromiumPath(): string | undefined {
   if (process.env["PUPPETEER_EXECUTABLE_PATH"]) {
@@ -121,6 +127,10 @@ const RULE_DESCRIPTIONS: Record<string, { description: string; remediation: stri
   "SIA-R36":  { description: "ARIA attribute is unsupported or prohibited on this element", remediation: "Remove ARIA attributes that are not permitted on the element's role or native element type" },
 };
 
+// Persistent profile dir — preserves Cloudflare clearance cookies across restarts
+const CHROME_PROFILE_DIR = path.join(process.cwd(), ".chrome-profile");
+try { mkdirSync(CHROME_PROFILE_DIR, { recursive: true }); } catch { /* already exists */ }
+
 let browserInstance: Browser | null = null;
 
 async function getBrowser(): Promise<Browser> {
@@ -128,10 +138,11 @@ async function getBrowser(): Promise<Browser> {
     return browserInstance;
   }
 
-  logger.info("Launching browser for accessibility scanning");
-  browserInstance = await puppeteer.launch({
+  logger.info({ profileDir: CHROME_PROFILE_DIR }, "Launching browser for accessibility scanning");
+  browserInstance = await puppeteerExtra.launch({
     headless: true,
     executablePath: getChromiumPath(),
+    userDataDir: CHROME_PROFILE_DIR,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -141,7 +152,6 @@ async function getBrowser(): Promise<Browser> {
       "--disable-features=IsolateOrigins,site-per-process",
       "--allow-running-insecure-content",
       "--ignore-certificate-errors",
-      "--disable-blink-features=AutomationControlled",
     ],
   });
 
@@ -153,28 +163,6 @@ async function getBrowser(): Promise<Browser> {
   return browserInstance;
 }
 
-async function applyStealthMeasures(page: Page): Promise<void> {
-  await page.evaluateOnNewDocument(() => {
-    Object.defineProperty(navigator, "webdriver", { get: () => false });
-    Object.defineProperty(navigator, "languages", { get: () => ["en-US", "en"] });
-    Object.defineProperty(navigator, "plugins", { get: () => [1, 2, 3, 4, 5] });
-    const getParameter = WebGLRenderingContext.prototype.getParameter;
-    WebGLRenderingContext.prototype.getParameter = function (parameter: number) {
-      if (parameter === 37445) return "Intel Inc.";
-      if (parameter === 37446) return "Intel Iris OpenGL Engine";
-      return getParameter.call(this, parameter);
-    };
-  });
-
-  await page.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-  );
-
-  await page.setExtraHTTPHeaders({
-    "Accept-Language": "en-US,en;q=0.9",
-    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-  });
-}
 
 /**
  * Scroll through the entire page to trigger lazy-loaded content, then wait
@@ -226,7 +214,6 @@ export async function scanPage(url: string, options: {
       await page.setBypassCSP(true);
     }
 
-    await applyStealthMeasures(page);
     await page.setViewport({ width: 1440, height: 900 });
     page.setDefaultNavigationTimeout(timeout);
 
@@ -235,6 +222,38 @@ export async function scanPage(url: string, options: {
       waitUntil: waitForNetworkIdle ? "networkidle2" : "domcontentloaded",
       timeout,
     });
+
+    // Cloudflare Bot Management shows a challenge page before redirecting to the real page.
+    // Detect it and wait up to 25s for the JS challenge to complete and the real page to load.
+    const isCfChallenge = await page.evaluate((): boolean => {
+      const title = document.title.toLowerCase();
+      const bodyText = document.body?.innerText?.toLowerCase() ?? "";
+      return (
+        title.includes("just a moment") ||
+        title.includes("please wait") ||
+        title.includes("checking your browser") ||
+        bodyText.includes("verifying your connection") ||
+        bodyText.includes("checking your browser before accessing") ||
+        bodyText.includes("enable javascript and cookies") ||
+        !!document.querySelector("#challenge-form, #cf-challenge-running, .cf-browser-verification, [id^='challenge-']")
+      );
+    });
+
+    if (isCfChallenge) {
+      logger.info({ url }, "Cloudflare challenge detected — waiting for it to resolve (up to 25s)");
+      try {
+        // Wait for navigation away from the challenge page, or for the page URL to settle
+        await Promise.race([
+          page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
+          new Promise<void>(resolve => setTimeout(resolve, 25000)),
+        ]);
+        // Extra pause for any post-redirect JS to settle
+        await new Promise(r => setTimeout(r, 2000));
+        logger.info({ url, currentUrl: page.url() }, "After Cloudflare challenge wait");
+      } catch {
+        logger.warn({ url }, "Cloudflare challenge did not resolve within timeout");
+      }
+    }
 
     logger.info({ url }, "Scrolling page to trigger lazy-loaded content");
     await fullyRenderPage(page, timeout);
