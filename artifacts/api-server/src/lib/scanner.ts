@@ -2,7 +2,7 @@ import puppeteerExtra from "puppeteer-extra";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import type { Browser, Page } from "puppeteer";
 import { execSync } from "child_process";
-import { mkdirSync } from "fs";
+import { mkdirSync, rmSync, existsSync } from "fs";
 import path from "path";
 import { logger } from "./logger";
 
@@ -175,6 +175,35 @@ const RULE_DESCRIPTIONS: Record<string, { description: string; remediation: stri
 const CHROME_PROFILE_DIR = path.join(process.cwd(), ".chrome-profile");
 try { mkdirSync(CHROME_PROFILE_DIR, { recursive: true }); } catch { /* already exists */ }
 
+/** Remove stale Chrome singleton lock files that prevent profile re-use */
+function clearChromeLocks(): void {
+  const lockFiles = [
+    path.join(CHROME_PROFILE_DIR, "SingletonLock"),
+    path.join(CHROME_PROFILE_DIR, "SingletonCookie"),
+    path.join(CHROME_PROFILE_DIR, "SingletonSocket"),
+  ];
+  for (const f of lockFiles) {
+    if (existsSync(f)) {
+      try {
+        rmSync(f, { force: true });
+        logger.info({ file: f }, "Removed stale Chrome lock file");
+      } catch (e) {
+        logger.warn({ file: f, err: e }, "Could not remove Chrome lock file");
+      }
+    }
+  }
+}
+
+const PUPPETEER_LAUNCH_ARGS = [
+  "--no-sandbox",
+  "--disable-setuid-sandbox",
+  "--disable-dev-shm-usage",
+  "--disable-gpu",
+  "--window-size=1440,900",
+  "--lang=en-US,en;q=0.9",
+  "--disable-blink-features=AutomationControlled",
+];
+
 let browserInstance: Browser | null = null;
 
 async function getBrowser(): Promise<Browser> {
@@ -182,23 +211,31 @@ async function getBrowser(): Promise<Browser> {
     return browserInstance;
   }
 
+  // Clear any stale lock files left by a crashed previous process
+  clearChromeLocks();
+
   logger.info({ profileDir: CHROME_PROFILE_DIR }, "Launching browser for accessibility scanning");
-  browserInstance = await puppeteerExtra.launch({
-    headless: true,
+
+  const launchOptions = {
+    headless: true as const,
     executablePath: getChromiumPath(),
     userDataDir: CHROME_PROFILE_DIR,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      // Avoid flags that signal automation to Cloudflare's fingerprinting:
-      // --disable-web-security, --disable-features=IsolateOrigins removed
-      "--window-size=1440,900",
-      "--lang=en-US,en;q=0.9",
-      "--disable-blink-features=AutomationControlled",
-    ],
-  });
+    args: PUPPETEER_LAUNCH_ARGS,
+  };
+
+  try {
+    browserInstance = await puppeteerExtra.launch(launchOptions);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("SingletonLock") || msg.includes("profile") || msg.includes("already in use") || msg.includes("process_singleton")) {
+      // Second attempt: clear locks again and retry once
+      logger.warn("Browser launch failed with profile lock error — clearing locks and retrying");
+      clearChromeLocks();
+      browserInstance = await puppeteerExtra.launch(launchOptions);
+    } else {
+      throw err;
+    }
+  }
 
   browserInstance.on("disconnected", () => {
     logger.warn("Browser disconnected");
