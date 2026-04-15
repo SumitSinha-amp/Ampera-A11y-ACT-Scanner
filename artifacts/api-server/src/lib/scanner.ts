@@ -202,7 +202,7 @@ export async function scanPage(url: string, options: {
   waitForNetworkIdle?: boolean;
   bypassCSP?: boolean;
 } = {}): Promise<PageScanResult> {
-  const { timeout = 60000, waitForNetworkIdle = true, bypassCSP = true } = options;
+  const { timeout = 90000, waitForNetworkIdle = true, bypassCSP = true } = options;
 
   let page: Page | null = null;
 
@@ -218,10 +218,22 @@ export async function scanPage(url: string, options: {
     page.setDefaultNavigationTimeout(timeout);
 
     logger.info({ url }, "Navigating to page");
+    // Always navigate to domcontentloaded first — networkidle2 can hang forever on
+    // pages with persistent analytics/tracking (long-polling, SSE, etc.)
     await page.goto(url, {
-      waitUntil: waitForNetworkIdle ? "networkidle2" : "domcontentloaded",
+      waitUntil: "domcontentloaded",
       timeout,
     });
+
+    // Optionally wait for network to settle (up to 15s) — but never let it block scanning
+    if (waitForNetworkIdle) {
+      try {
+        await page.waitForNetworkIdle({ idleTime: 500, timeout: 15000 });
+      } catch {
+        // Network didn't fully settle — that's fine, the DOM is ready; continue scanning
+        logger.info({ url }, "Network idle timeout — proceeding with available DOM");
+      }
+    }
 
     // Cloudflare Bot Management shows a challenge page before redirecting to the real page.
     // Detect it and wait up to 25s for the JS challenge to complete and the real page to load.
@@ -244,7 +256,7 @@ export async function scanPage(url: string, options: {
       try {
         // Wait for navigation away from the challenge page, or for the page URL to settle
         await Promise.race([
-          page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
+          page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 25000 }),
           new Promise<void>(resolve => setTimeout(resolve, 25000)),
         ]);
         // Extra pause for any post-redirect JS to settle
