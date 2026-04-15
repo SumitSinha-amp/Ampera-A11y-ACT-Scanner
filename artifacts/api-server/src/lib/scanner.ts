@@ -148,10 +148,11 @@ async function getBrowser(): Promise<Browser> {
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
       "--disable-gpu",
-      "--disable-web-security",
-      "--disable-features=IsolateOrigins,site-per-process",
-      "--allow-running-insecure-content",
-      "--ignore-certificate-errors",
+      // Avoid flags that signal automation to Cloudflare's fingerprinting:
+      // --disable-web-security, --disable-features=IsolateOrigins removed
+      "--window-size=1440,900",
+      "--lang=en-US,en;q=0.9",
+      "--disable-blink-features=AutomationControlled",
     ],
   });
 
@@ -217,6 +218,24 @@ export async function scanPage(url: string, options: {
     await page.setViewport({ width: 1440, height: 900 });
     page.setDefaultNavigationTimeout(timeout);
 
+    // Set a realistic Chrome user-agent and request headers to minimise bot detection
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    );
+    await page.setExtraHTTPHeaders({
+      "Accept-Language": "en-US,en;q=0.9",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      "Accept-Encoding": "gzip, deflate, br",
+      "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+      "Sec-Ch-Ua-Mobile": "?0",
+      "Sec-Ch-Ua-Platform": '"Windows"',
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "none",
+      "Sec-Fetch-User": "?1",
+      "Upgrade-Insecure-Requests": "1",
+    });
+
     logger.info({ url }, "Navigating to page");
     // Always navigate to domcontentloaded first — networkidle2 can hang forever on
     // pages with persistent analytics/tracking (long-polling, SSE, etc.)
@@ -252,19 +271,57 @@ export async function scanPage(url: string, options: {
     });
 
     if (isCfChallenge) {
-      logger.info({ url }, "Cloudflare challenge detected — waiting for it to resolve (up to 25s)");
+      logger.info({ url }, "Cloudflare challenge detected — waiting for it to resolve (up to 55s)");
+      // Phase 1: wait up to 30s for the JS challenge to execute and redirect
       try {
-        // Wait for navigation away from the challenge page, or for the page URL to settle
         await Promise.race([
-          page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 25000 }),
-          new Promise<void>(resolve => setTimeout(resolve, 25000)),
+          page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 }),
+          new Promise<void>(resolve => setTimeout(resolve, 30000)),
         ]);
-        // Extra pause for any post-redirect JS to settle
-        await new Promise(r => setTimeout(r, 2000));
-        logger.info({ url, currentUrl: page.url() }, "After Cloudflare challenge wait");
-      } catch {
-        logger.warn({ url }, "Cloudflare challenge did not resolve within timeout");
+      } catch { /* expected if no navigation fires within 30s */ }
+
+      // Re-check: are we still on the challenge page?
+      const stillOnChallenge = await page.evaluate((): boolean => {
+        const title = document.title.toLowerCase();
+        const bodyText = document.body?.innerText?.toLowerCase() ?? "";
+        return (
+          title.includes("just a moment") || title.includes("please wait") ||
+          title.includes("checking your browser") ||
+          bodyText.includes("verifying your connection") ||
+          bodyText.includes("checking your browser before accessing") ||
+          bodyText.includes("enable javascript and cookies") ||
+          !!document.querySelector("#challenge-form, #cf-challenge-running, .cf-browser-verification, [id^='challenge-']")
+        );
+      });
+
+      if (stillOnChallenge) {
+        // Phase 2: give it another 25s
+        logger.info({ url }, "Still on Cloudflare challenge — waiting an additional 25s");
+        try {
+          await Promise.race([
+            page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 25000 }),
+            new Promise<void>(resolve => setTimeout(resolve, 25000)),
+          ]);
+        } catch { /* expected */ }
+
+        // Final check: if STILL on challenge, abort — don't scan the bot-wall
+        const finalChallenge = await page.evaluate((): boolean => {
+          const bodyText = document.body?.innerText?.toLowerCase() ?? "";
+          return (
+            bodyText.includes("verifying your connection") ||
+            bodyText.includes("checking your browser before accessing") ||
+            bodyText.includes("enable javascript and cookies") ||
+            !!document.querySelector("#challenge-form, #cf-challenge-running")
+          );
+        });
+        if (finalChallenge) {
+          throw new Error("Cloudflare Bot Protection blocked the scan — the page could not be reached. Try scanning from a browser with the cf_clearance cookie already set.");
+        }
       }
+
+      // Extra pause for any post-redirect JS to settle
+      await new Promise(r => setTimeout(r, 2000));
+      logger.info({ url, currentUrl: page.url() }, "Cloudflare challenge resolved");
     }
 
     logger.info({ url }, "Scrolling page to trigger lazy-loaded content");

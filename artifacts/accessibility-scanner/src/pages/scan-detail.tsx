@@ -317,8 +317,18 @@ export default function ScanDetail() {
                 </AccordionTrigger>
                 <AccordionContent className="pt-2 pb-4">
                   {page.errorMessage && (
-                    <div className="p-4 bg-destructive/10 text-destructive text-sm rounded-md mb-4 border border-destructive/20 font-mono">
-                      Error: {page.errorMessage}
+                    <div className="p-4 bg-destructive/10 text-destructive text-sm rounded-md mb-4 border border-destructive/20">
+                      {page.errorMessage.includes("Cloudflare") || page.errorMessage.includes("Bot Protection") ? (
+                        <div className="flex items-start gap-2">
+                          <span className="text-lg shrink-0">🛡️</span>
+                          <div>
+                            <p className="font-semibold mb-1">Cloudflare Bot Protection blocked this page</p>
+                            <p className="text-xs opacity-80">This website uses Cloudflare's bot detection and did not allow the scanner through. You may be able to scan it successfully from a browser where you've already logged in or accepted cookies on this domain.</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="font-mono">Error: {page.errorMessage}</span>
+                      )}
                     </div>
                   )}
                   
