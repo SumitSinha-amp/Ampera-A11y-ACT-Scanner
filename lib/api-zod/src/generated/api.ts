@@ -47,6 +47,7 @@ export const CreateScanBody = zod.object({
       maxConcurrency: zod.number().optional(),
       bypassCSP: zod.boolean().optional(),
       stealthMode: zod.boolean().optional(),
+      rules: zod.array(zod.string()).optional(),
     })
     .optional(),
 });

@@ -208,6 +208,7 @@ export function scanPage(url: string, options: {
   timeout?: number;
   waitForNetworkIdle?: boolean;
   bypassCSP?: boolean;
+  rules?: string[];
 } = {}): Promise<PageScanResult> {
   const result = _scanMutex.then(() => _scanPageInternal(url, options));
   // Advance mutex even if this scan errors — never block the queue permanently
@@ -219,6 +220,7 @@ async function _scanPageInternal(url: string, options: {
   timeout?: number;
   waitForNetworkIdle?: boolean;
   bypassCSP?: boolean;
+  rules?: string[];
 } = {}): Promise<PageScanResult> {
   const { timeout = 90000, waitForNetworkIdle = true, bypassCSP = true } = options;
 
@@ -345,8 +347,14 @@ async function _scanPageInternal(url: string, options: {
     await fullyRenderPage(page, timeout);
 
     logger.info({ url }, "Running SIA accessibility rules on fully-rendered DOM");
-    const issues = await runSIARules(page);
+    let issues = await runSIARules(page);
     logger.info({ url, issueCount: issues.length }, "SIA rules completed");
+
+    // If a rule filter was specified, only return issues matching those rule IDs
+    if (options.rules && options.rules.length > 0) {
+      const ruleSet = new Set(options.rules.map(r => r.toUpperCase()));
+      issues = issues.filter(i => ruleSet.has(i.ruleId.toUpperCase()));
+    }
 
     return { url, issues };
   } catch (err: unknown) {

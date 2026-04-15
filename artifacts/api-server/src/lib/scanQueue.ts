@@ -8,6 +8,7 @@ interface ScanOptions {
   waitForNetworkIdle?: boolean;
   bypassCSP?: boolean;
   maxConcurrency?: number;
+  rules?: string[];
 }
 
 const activeScanControllers = new Map<number, AbortController>();
@@ -83,6 +84,7 @@ async function scanSinglePage(
     timeout: options.timeout,
     waitForNetworkIdle: options.waitForNetworkIdle,
     bypassCSP: options.bypassCSP,
+    rules: options.rules,
   });
 
   const issueCount = result.issues.length;

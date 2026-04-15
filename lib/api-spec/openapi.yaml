@@ -554,6 +554,11 @@ components:
           type: boolean
         stealthMode:
           type: boolean
+        rules:
+          type: array
+          items:
+            type: string
+          description: If provided, only check these rule IDs (e.g. ["SIA-R14","SIA-R35"])
       required: []
 
     ParseSitemapBody:
