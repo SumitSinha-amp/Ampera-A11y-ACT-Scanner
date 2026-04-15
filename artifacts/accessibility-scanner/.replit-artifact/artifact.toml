@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Accessibility Scanner"
+version = "1.0.0"
+id = "artifacts/accessibility-scanner"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20007
+
+[services.development]
+run = "pnpm --filter @workspace/accessibility-scanner run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/accessibility-scanner", "run", "build" ]
+publicDir = "artifacts/accessibility-scanner/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20007"
+BASE_PATH = "/"
