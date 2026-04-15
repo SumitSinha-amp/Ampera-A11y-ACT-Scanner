@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react";
-import { useParams, Link } from "wouter";
+import { useParams, Link, useLocation } from "wouter";
 import {
   useGetScan,
   useGetScanStatus,
   useCancelScan,
+  useCreateScan,
   getGetScanStatusQueryKey,
   getGetScanQueryKey,
 } from "@workspace/api-client-react";
@@ -38,6 +39,7 @@ import {
   Search,
   Filter,
   X,
+  RotateCcw,
 } from "lucide-react";
 import { getStatusBadge } from "@/lib/status-badge";
 import { useQueryClient } from "@tanstack/react-query";
@@ -364,6 +366,7 @@ export default function ScanDetail() {
   const scanId = Number(id);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
 
   const [filters, setFilters] = useState<IssueFilters>({
     search: "",
@@ -380,6 +383,7 @@ export default function ScanDetail() {
   });
 
   const isRunning = scan?.status === "running" || scan?.status === "pending";
+  const canRetry = scan?.status === "failed" || scan?.status === "cancelled";
 
   const { data: liveStatus } = useGetScanStatus(scanId, {
     query: {
@@ -390,6 +394,7 @@ export default function ScanDetail() {
   });
 
   const cancelScan = useCancelScan();
+  const retryScan = useCreateScan();
 
   const handleCancel = () => {
     cancelScan.mutate(
@@ -401,6 +406,38 @@ export default function ScanDetail() {
         },
         onError: () => {
           toast({ title: "Error cancelling scan", variant: "destructive" });
+        },
+      }
+    );
+  };
+
+  const handleRetry = () => {
+    if (!scan) return;
+    const urls = (scan.pages ?? []).map((p: { url: string }) => p.url).filter(Boolean);
+    if (urls.length === 0) {
+      toast({ title: "No URLs to retry", variant: "destructive" });
+      return;
+    }
+    const opts = (scan.options ?? {}) as Record<string, unknown>;
+    retryScan.mutate(
+      {
+        data: {
+          urls,
+          name: scan.name ? `${scan.name} (retry)` : undefined,
+          options: {
+            maxConcurrency: (opts.maxConcurrency as number) ?? 5,
+            ...(Array.isArray(opts.rules) && opts.rules.length > 0 ? { rules: opts.rules as string[] } : {}),
+            ...(opts.proxyPacUrl ? { proxyPacUrl: opts.proxyPacUrl as string } : {}),
+          },
+        },
+      },
+      {
+        onSuccess: (data) => {
+          toast({ title: "Retry scan started" });
+          setLocation(`/scans/${data.id}`);
+        },
+        onError: () => {
+          toast({ title: "Failed to start retry scan", variant: "destructive" });
         },
       }
     );
@@ -447,6 +484,20 @@ export default function ScanDetail() {
                 <StopCircle className="w-4 h-4 mr-2" />
               )}
               Cancel
+            </Button>
+          )}
+          {canRetry && (
+            <Button
+              variant="outline"
+              onClick={handleRetry}
+              disabled={retryScan.isPending}
+            >
+              {retryScan.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RotateCcw className="w-4 h-4 mr-2" />
+              )}
+              Retry Scan
             </Button>
           )}
           {!isRunning && scan.status === "completed" && (
