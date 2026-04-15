@@ -1,3 +1,6 @@
-2026/04/15-12:09:07.724 52a9 Reusing MANIFEST /home/runner/workspace/artifacts/api-server/.chrome-profile/Default/Session Storage/MANIFEST-000001
-2026/04/15-12:09:07.725 52a9 Recovering log #4
-2026/04/15-12:09:07.726 52a9 Reusing old log /home/runner/workspace/artifacts/api-server/.chrome-profile/Default/Session Storage/000004.log 
+2026/04/15-14:33:16.986 e8e Reusing MANIFEST /home/runner/workspace/artifacts/api-server/.chrome-profile/Default/Session Storage/MANIFEST-000001
+2026/04/15-14:33:16.987 e8e Recovering log #4
+2026/04/15-14:33:16.989 e8e Reusing old log /home/runner/workspace/artifacts/api-server/.chrome-profile/Default/Session Storage/000004.log 
+2026/04/15-15:00:52.020 e8f Level-0 table #8: started
+2026/04/15-15:00:52.024 e8f Level-0 table #8: 13584 bytes OK
+2026/04/15-15:00:52.028 e8f Delete type=0 #4

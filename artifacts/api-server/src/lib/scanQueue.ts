@@ -9,6 +9,7 @@ interface ScanOptions {
   bypassCSP?: boolean;
   maxConcurrency?: number;
   rules?: string[];
+  proxyPacUrl?: string;
 }
 
 const activeScanControllers = new Map<number, AbortController>();
@@ -85,6 +86,7 @@ async function scanSinglePage(
     waitForNetworkIdle: options.waitForNetworkIdle,
     bypassCSP: options.bypassCSP,
     rules: options.rules,
+    proxyPacUrl: options.proxyPacUrl,
   });
 
   const issueCount = result.issues.length;

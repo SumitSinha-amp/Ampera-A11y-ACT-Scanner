@@ -1,6 +1,6 @@
-2026/04/15-12:09:07.653 52a9 Reusing MANIFEST /home/runner/workspace/artifacts/api-server/.chrome-profile/Default/Local Storage/leveldb/MANIFEST-000001
-2026/04/15-12:09:07.662 52a9 Recovering log #3
-2026/04/15-12:09:07.663 52a9 Reusing old log /home/runner/workspace/artifacts/api-server/.chrome-profile/Default/Local Storage/leveldb/000003.log 
-2026/04/15-12:09:21.653 52a9 Level-0 table #5: started
-2026/04/15-12:09:21.656 52a9 Level-0 table #5: 11498 bytes OK
-2026/04/15-12:09:21.661 52a9 Delete type=0 #3
+2026/04/15-14:33:16.142 e8e Reusing MANIFEST /home/runner/workspace/artifacts/api-server/.chrome-profile/Default/Local Storage/leveldb/MANIFEST-000001
+2026/04/15-14:33:16.195 e8e Recovering log #4
+2026/04/15-14:33:16.196 e8e Reusing old log /home/runner/workspace/artifacts/api-server/.chrome-profile/Default/Local Storage/leveldb/000004.log 
+2026/04/15-15:00:37.220 e8e Level-0 table #8: started
+2026/04/15-15:00:37.237 e8e Level-0 table #8: 12126 bytes OK
+2026/04/15-15:00:37.243 e8e Delete type=0 #4

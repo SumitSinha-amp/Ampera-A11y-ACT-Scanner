@@ -279,6 +279,52 @@ async function fullyRenderPage(page: Page, timeout: number): Promise<void> {
   await new Promise(r => setTimeout(r, 1000));
 }
 
+// ─── Proxy browser management ─────────────────────────────────────────────────
+// Proxy scans need a separate Chromium instance launched with --proxy-pac-url.
+// We cache one proxy browser per PAC URL to avoid relaunching on every page.
+let _proxyBrowserInstance: Browser | null = null;
+let _currentProxyPac: string | null = null;
+
+async function getProxyBrowser(proxyPacUrl: string): Promise<Browser> {
+  // Reuse if same PAC URL and browser is still connected
+  if (_proxyBrowserInstance && _proxyBrowserInstance.connected && _currentProxyPac === proxyPacUrl) {
+    return _proxyBrowserInstance;
+  }
+
+  // Close old proxy browser if PAC URL changed
+  if (_proxyBrowserInstance && _proxyBrowserInstance.connected) {
+    await _proxyBrowserInstance.close().catch(() => {});
+    _proxyBrowserInstance = null;
+  }
+
+  logger.info({ proxyPacUrl }, "Launching proxy browser");
+
+  _proxyBrowserInstance = await puppeteerExtra.launch({
+    headless: true,
+    executablePath: getChromiumPath(),
+    // Use a separate profile dir for proxy sessions so they don't conflict with the main profile lock
+    userDataDir: path.join(CHROME_PROFILE_DIR, "proxy"),
+    args: [
+      ...PUPPETEER_LAUNCH_ARGS,
+      `--proxy-pac-url=${proxyPacUrl}`,
+      // Ignore certificate errors on internal/staging environments
+      "--ignore-certificate-errors",
+      "--ignore-ssl-errors",
+    ],
+  });
+
+  _currentProxyPac = proxyPacUrl;
+
+  _proxyBrowserInstance.on("disconnected", () => {
+    logger.warn("Proxy browser disconnected");
+    _proxyBrowserInstance = null;
+    _currentProxyPac = null;
+  });
+
+  return _proxyBrowserInstance;
+}
+
+// ─── Scan mutex ───────────────────────────────────────────────────────────────
 // Global mutex: the persistent Chrome profile cannot be opened by two Chromium processes
 // simultaneously, so all scanPage() calls must run one at a time regardless of which
 // scan session requested them.
@@ -289,6 +335,7 @@ export function scanPage(url: string, options: {
   waitForNetworkIdle?: boolean;
   bypassCSP?: boolean;
   rules?: string[];
+  proxyPacUrl?: string;
 } = {}): Promise<PageScanResult> {
   const result = _scanMutex.then(() => _scanPageInternal(url, options));
   // Advance mutex even if this scan errors — never block the queue permanently
@@ -301,13 +348,16 @@ async function _scanPageInternal(url: string, options: {
   waitForNetworkIdle?: boolean;
   bypassCSP?: boolean;
   rules?: string[];
+  proxyPacUrl?: string;
 } = {}): Promise<PageScanResult> {
   const { timeout = 90000, waitForNetworkIdle = true, bypassCSP = true } = options;
 
   let page: Page | null = null;
 
   try {
-    const browser = await getBrowser();
+    const browser = options.proxyPacUrl
+      ? await getProxyBrowser(options.proxyPacUrl)
+      : await getBrowser();
     page = await browser.newPage();
 
     if (bypassCSP) {

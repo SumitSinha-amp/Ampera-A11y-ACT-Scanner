@@ -48,6 +48,7 @@ export const CreateScanBody = zod.object({
       bypassCSP: zod.boolean().optional(),
       stealthMode: zod.boolean().optional(),
       rules: zod.array(zod.string()).optional(),
+      proxyPacUrl: zod.string().optional(),
     })
     .optional(),
 });
