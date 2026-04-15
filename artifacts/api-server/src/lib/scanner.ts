@@ -198,7 +198,23 @@ async function fullyRenderPage(page: Page, timeout: number): Promise<void> {
   await new Promise(r => setTimeout(r, 1000));
 }
 
-export async function scanPage(url: string, options: {
+// Global mutex: the persistent Chrome profile cannot be opened by two Chromium processes
+// simultaneously, so all scanPage() calls must run one at a time regardless of which
+// scan session requested them.
+let _scanMutex: Promise<void> = Promise.resolve();
+
+export function scanPage(url: string, options: {
+  timeout?: number;
+  waitForNetworkIdle?: boolean;
+  bypassCSP?: boolean;
+} = {}): Promise<PageScanResult> {
+  const result = _scanMutex.then(() => _scanPageInternal(url, options));
+  // Advance mutex even if this scan errors — never block the queue permanently
+  _scanMutex = result.then(() => {}, () => {});
+  return result;
+}
+
+async function _scanPageInternal(url: string, options: {
   timeout?: number;
   waitForNetworkIdle?: boolean;
   bypassCSP?: boolean;
@@ -443,6 +459,9 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
           clone.querySelectorAll("input,select,textarea").forEach(c => c.remove());
           return clone.textContent?.trim() || "";
         }
+        // Placeholder is the de-facto visible label when no explicit <label> exists
+        if (el instanceof HTMLInputElement && el.placeholder) return el.placeholder;
+        if (el instanceof HTMLTextAreaElement && el.placeholder) return el.placeholder;
       }
       return el.textContent?.trim() || "";
     }
@@ -604,16 +623,34 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       }
     });
 
-    // Also check buttons and links for label-in-name (use getVisibleText to ignore aria-hidden icons)
-    document.querySelectorAll("a[href], button, [role='button'], [role='link']").forEach(el => {
+    // Also check buttons, links, tabs for label-in-name
+    // Use el.innerText (browser-rendered text) so sr-only spans are excluded,
+    // and use getAccessibleName (handles aria-label AND aria-labelledby)
+    document.querySelectorAll("a[href], button, [role='button'], [role='link'], [role='tab'], [role='menuitem']").forEach(el => {
       if (!isVisible(el)) return;
-      const visibleText = getVisibleText(el);
-      // Skip if no text, too short, or if text contains HTML markup (CMS rendering artifact)
-      if (!visibleText || visibleText.length < 2 || visibleText.includes("<")) return;
-      const ariaLabel = el.getAttribute("aria-label") || "";
-      if (!ariaLabel) return;
-      if (!ariaLabel.toLowerCase().includes(visibleText.toLowerCase())) {
-        results.push({ ruleId: "SIA-R14", impact: "moderate", description: `Visible text "${visibleText.substring(0, 60)}" is not included in aria-label "${ariaLabel.substring(0, 60)}"`, element: outerHtmlSnippet(el), selector: getSelector(el) });
+      // Only check elements that have an explicit accessible name override
+      const hasAriaLabel = el.hasAttribute("aria-label");
+      const hasAriaLabelledby = el.hasAttribute("aria-labelledby");
+      if (!hasAriaLabel && !hasAriaLabelledby) return;
+      // Use innerText — the browser's own rendering of visually-presented text (excludes sr-only, clips, hidden spans)
+      const rawVisible = (el instanceof HTMLElement ? el.innerText?.replace(/\s+/g, " ")?.trim() : "") || "";
+      if (!rawVisible || rawVisible.length < 2 || rawVisible.includes("<")) return;
+      // Deduplicate AEM/CMS double-render pattern: "Awards Awards" → "Awards"
+      const visibleText = (() => {
+        const words = rawVisible.split(" ");
+        if (words.length >= 2) {
+          const half = Math.floor(words.length / 2);
+          const a = words.slice(0, half).join(" ");
+          const b = words.slice(half).join(" ");
+          if (a.toLowerCase() === b.toLowerCase()) return a;
+        }
+        return rawVisible;
+      })();
+      const accName = getAccessibleName(el);
+      if (!accName || accName.length < 2) return;
+      // The accessible name must contain the visible label text (case-insensitive)
+      if (!accName.toLowerCase().includes(visibleText.toLowerCase())) {
+        results.push({ ruleId: "SIA-R14", impact: "moderate", description: `Visible text "${visibleText.substring(0, 60)}" is not included in accessible name "${accName.substring(0, 60)}"`, element: outerHtmlSnippet(el), selector: getSelector(el) });
       }
     });
 
@@ -906,23 +943,46 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     }
 
     // SIA-R68: Text clipped when resized (1.4.4 Resize Text)
-    // Flag elements with fixed height + overflow:hidden that are actually overflowing
+    // Flag elements with fixed height + overflow:hidden where content actually overflows
     let clippedCount = 0;
     document.querySelectorAll("*").forEach(el => {
       if (clippedCount >= 25) return;
       if (!(el instanceof HTMLElement)) return;
-      if (!isVisible(el)) return;
+
+      // Skip screen-reader-only elements — they use 1px/overflow:hidden intentionally for AT access
+      const cls = (el.className || "").toString().toLowerCase();
+      if (cls.includes("sr-only") || cls.includes("visually-hidden") || cls.includes("screen-reader") || cls.includes("a11y-hidden") || cls.includes("offscreen")) return;
+
       const style = window.getComputedStyle(el);
-      const overflow = style.overflowY || style.overflow;
+
+      // Skip elements with very small rendered dimensions — these are sr-only or decorative
+      const w = parseFloat(style.width);
+      const h = parseFloat(style.height);
+      if (!isNaN(w) && !isNaN(h) && (w <= 1 || h <= 1)) return;
+
+      // Skip elements clipped via clip/clip-path (sr-only pattern)
+      if (style.clip && style.clip !== "auto") return;
+      if (style.clipPath && style.clipPath !== "none") return;
+      // Skip absolutely-positioned elements with negative margins (classic sr-only)
+      if (style.position === "absolute" && (parseFloat(style.marginLeft) < -100 || parseFloat(style.marginTop) < -100)) return;
+
+      if (!isVisible(el)) return;
+
+      const overflow = style.overflowY !== "visible" ? style.overflowY : style.overflow;
       if (!["hidden","clip"].includes(overflow)) return;
+
       const text = el.textContent?.trim() || "";
       if (text.length < 15) return;
+
       const height = style.height;
-      // Only fixed-height elements (px/em/rem/ch), not auto or percentage
-      if (!height || height === "auto" || height.endsWith("%") || height === "none" || height === "fit-content" || height === "max-content" || height === "min-content") return;
+      // Only flag fixed-height (px/em/rem/ch), not auto/percentage/min/max-content
+      if (!height || height === "auto" || height.endsWith("%") || height === "none" ||
+          height === "fit-content" || height === "max-content" || height === "min-content") return;
+
+      // Only flag if content measurably overflows the box
       const scrollH = el.scrollHeight;
       const clientH = el.clientHeight;
-      if (scrollH > clientH + 4) { // content exceeds the visible area
+      if (clientH > 1 && scrollH > clientH + 4) {
         clippedCount++;
         results.push({ ruleId: "SIA-R68", impact: "moderate", description: `Element has fixed height (${height}) with overflow:hidden — text content may be clipped when text is enlarged`, element: outerHtmlSnippet(el), selector: getSelector(el) });
       }
