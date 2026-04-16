@@ -1259,20 +1259,18 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     const isScrollable = (el: HTMLElement) => {
       const style = window.getComputedStyle(el);
 
-      const overflowY = style.overflowY;
-      const overflowX = style.overflowX;
+      // Rule SIA-R84 specifically looks for 'auto' or 'scroll'
+      const hasScrollStyle = (s: string) => s === "auto" || s === "scroll";
+      if (!hasScrollStyle(style.overflowX) && !hasScrollStyle(style.overflowY))
+        return false;
 
-      const canScroll =
-        ["auto", "scroll"].includes(overflowY) ||
-        ["auto", "scroll"].includes(overflowX);
+      // Use a 1px tolerance to account for sub-pixel rendering
+      const isVerticalScroll = el.scrollHeight > el.clientHeight + 1;
+      const isHorizontalScroll = el.scrollWidth > el.clientWidth + 1;
 
-      if (!canScroll) return false;
-
-      return (
-        el.scrollHeight > el.clientHeight + 2 ||
-        el.scrollWidth > el.clientWidth + 2
-      );
+      return isVerticalScroll || isHorizontalScroll;
     };
+
     const isFocusable = (el: HTMLElement) => {
       return (
         el.tabIndex >= 0 ||
@@ -1318,6 +1316,19 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
 
       return false;
     };
+    const isKeyboardAccessible = (el: HTMLElement) => {
+      // 1. Is the element itself focusable?
+      if (isFocusable(el)) return true;
+
+      // 2. Does it have any focusable descendants?
+      // (If a child is focusable, tabbing to it will scroll the container into view)
+      const focusableDescendant = el.querySelector(
+        'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+
+      return !!focusableDescendant;
+    };
+
     const hasHoverReveal = (el: HTMLElement) => {
       // check inline styles (rare but cheap)
       const style = window.getComputedStyle(el);
@@ -1387,10 +1398,7 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       .filter((el): el is HTMLElement => el instanceof HTMLElement)
       .filter(isVisible)
       .filter((el) => !isRootElement(el))
-      .filter(
-        (el) =>
-          hasScrollableContentDeep(el) || isInteractiveScrollContainer(el),
-      );
+      .filter(isScrollable); // Focus purely on whether it scrolls
 
     const inaccessibleScrollables = scrollableCandidates.filter(
       (el) => !isActuallyKeyboardScrollable(el),
