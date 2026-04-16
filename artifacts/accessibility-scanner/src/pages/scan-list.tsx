@@ -1,12 +1,14 @@
+import { useMemo, useState } from "react";
 import { useListScans, useDeleteScan, getListScansQueryKey } from "@workspace/api-client-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Trash2, FileText, Loader2 } from "lucide-react";
+import { Trash2, FileText, Loader2, Search, X, CalendarDays } from "lucide-react";
 import { getStatusBadge } from "@/lib/status-badge";
 import { formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,6 +26,16 @@ export default function ScanList() {
   const deleteScan = useDeleteScan();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [nameFilter, setNameFilter] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
+
+  const filteredScans = useMemo(() => {
+    return (scans ?? []).filter((scan) => {
+      const matchesName = !nameFilter || (scan.name || `scan #${scan.id}`).toLowerCase().includes(nameFilter.toLowerCase());
+      const matchesDate = !dateFilter || new Date(scan.createdAt).toISOString().slice(0, 10) === dateFilter;
+      return matchesName && matchesDate;
+    });
+  }, [scans, nameFilter, dateFilter]);
 
   const handleDelete = (id: number) => {
     deleteScan.mutate({ id }, {
@@ -53,6 +65,33 @@ export default function ScanList() {
         </Link>
       </div>
 
+      <div className="flex flex-col md:flex-row gap-3 p-4 border rounded-lg bg-card">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            value={nameFilter}
+            onChange={(e) => setNameFilter(e.target.value)}
+            placeholder="Filter by scan name"
+            className="pl-9"
+          />
+        </div>
+        <div className="relative w-full md:w-64">
+          <CalendarDays className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            type="date"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        {(nameFilter || dateFilter) && (
+          <Button variant="ghost" onClick={() => { setNameFilter(""); setDateFilter(""); }}>
+            <X className="w-4 h-4 mr-2" />
+            Clear
+          </Button>
+        )}
+      </div>
+
       <div className="border rounded-lg bg-card">
         <Table>
           <TableHeader>
@@ -66,14 +105,14 @@ export default function ScanList() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {scans?.length === 0 ? (
+            {filteredScans.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
                   No scans found. Start your first audit!
                 </TableCell>
               </TableRow>
             ) : (
-              scans?.map((scan) => (
+              filteredScans.map((scan) => (
                 <TableRow key={scan.id}>
                   <TableCell className="font-medium">
                     <Link href={`/scans/${scan.id}`} className="hover:underline text-primary">
