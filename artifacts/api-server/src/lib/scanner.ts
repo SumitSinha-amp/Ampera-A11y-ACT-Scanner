@@ -71,6 +71,7 @@ const WCAG_MAPPING: Record<string, { sc: string[]; level: string }> = {
   "SIA-R54":  { sc: ["4.1.3"], level: "AA" },
   "SIA-R57":  { sc: ["1.4.11"], level: "AA" },
   "SIA-R58":  { sc: ["2.4.1"], level: "A" },
+    "SIA-R84":  { sc: ["2.1.1"], level: "A" },
   "SIA-R59":  { sc: ["2.4.4"], level: "A" },
   "SIA-R62":  { sc: ["2.4.10"], level: "AAA" },
   "SIA-R64":  { sc: ["2.4.6"], level: "AA" },
@@ -121,6 +122,7 @@ const RULE_DESCRIPTIONS: Record<string, { description: string; remediation: stri
   "SIA-R47":  { description: "Viewport zoom is disabled via meta tag", remediation: "Remove user-scalable=no or maximum-scale=1 from the viewport meta tag" },
   "SIA-R48":  { description: "Media element is autoplaying with audio", remediation: "Do not autoplay audio; provide user controls to start playback" },
   "SIA-R58":  { description: "Page may be missing a skip navigation link", remediation: "Add a skip-to-content link as the first focusable element" },
+  "SIA-R84":  { description: "Scrollable elements are not keyboard accessible", remediation: "Ensure scrollable containers can receive keyboard focus and can be scrolled with the keyboard, for example by adding tabindex='0' when appropriate" },
   "SIA-R65":  { description: "CSS may be removing focus indicators", remediation: "Ensure all focusable elements have a visible focus indicator; avoid outline: none without replacement" },
   "SIA-R69":  { description: "Text contrast ratio is below AA minimum (4.5:1 normal, 3:1 large)", remediation: "Ensure text has a contrast ratio of at least 4.5:1 (3:1 for large text) against its background" },
   "SIA-R87":  { description: "Page is missing landmark regions", remediation: "Add ARIA landmarks (main, nav, header, footer) or HTML5 sectioning elements to the page" },
@@ -753,6 +755,26 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       if (!isVisible(el)) return;
       if (!getAccessibleName(el)) {
         results.push({ ruleId: "SIA-R8", impact: "critical", description: "Form field has no accessible name", element: outerHtmlSnippet(el), selector: getSelector(el) });
+      }
+    });
+
+    // SIA-R84: Scrollable elements must be keyboard accessible
+    document.querySelectorAll("*").forEach(el => {
+      if (!(el instanceof HTMLElement)) return;
+      if (!isVisible(el)) return;
+      const style = window.getComputedStyle(el);
+      const hasScrollableOverflow = ["auto", "scroll"].includes(style.overflowY) || ["auto", "scroll"].includes(style.overflowX);
+      if (!hasScrollableOverflow) return;
+      if (el.scrollHeight <= el.clientHeight && el.scrollWidth <= el.clientWidth) return;
+      if (el.tabIndex < 0) {
+        results.push({
+          ruleId: "SIA-R84",
+          impact: "moderate",
+          description: "Scrollable elements are not keyboard accessible",
+          element: outerHtmlSnippet(el),
+          selector: getSelector(el),
+          remediation: "Make the scrollable container focusable so users can scroll it with the keyboard",
+        });
       }
     });
 
