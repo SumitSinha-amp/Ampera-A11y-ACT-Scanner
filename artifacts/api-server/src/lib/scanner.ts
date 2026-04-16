@@ -1273,31 +1273,16 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
         el.scrollWidth > el.clientWidth + 2
       );
     };
-
-    const isPotentialScroller = (el: HTMLElement) => {
-      const style = window.getComputedStyle(el);
-      return (
-        ["auto", "scroll"].includes(style.overflowY) ||
-        ["auto", "scroll"].includes(style.overflowX)
-      );
-    };
-
     const isFocusable = (el: HTMLElement) => {
       return (
         el.tabIndex >= 0 ||
         el.hasAttribute("tabindex") ||
         el.matches(
-          "[role='region'],a[href], button, input, select, textarea, summary, [role='button'], [role='link']",
+          "a[href], button, input, select, textarea, summary, [role='button'], [role='link']",
         )
       );
     };
-
-    const hasMeaningfulContent = (el: HTMLElement) => {
-      const text = el.textContent?.trim() || "";
-      return text.length > 10;
-    };
-
-    // ✅ NEW: keyboard scroll validation
+    // NEW: keyboard scroll validation
     const isActuallyKeyboardScrollable = (el: HTMLElement) => {
       // must be focusable first
       if (!isFocusable(el)) return false;
@@ -1305,65 +1290,17 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       // native browser scrolling works once focusable
       return true;
     };
-    const isVisuallyClipped = (el: HTMLElement) => {
-      const style = window.getComputedStyle(el);
 
-      // ignore inline elements
-      if (style.display === "inline") return false;
-
-      const rect = el.getBoundingClientRect();
-
-      // small elements are noise
-      if (rect.height < 40 || rect.width < 40) return false;
-
-      // detect clipping scenarios
-      const isClipped =
-        el.scrollHeight > el.clientHeight + 2 ||
-        el.scrollWidth > el.clientWidth + 2;
-
-      // OR text truncation patterns
-      const hasLineClamp =
-        style.webkitLineClamp !== "none" || style.display.includes("box");
-
-      const hasHiddenOverflow =
-        ["hidden", "clip"].includes(style.overflow) ||
-        ["hidden", "clip"].includes(style.overflowY);
-
-      return isClipped || (hasHiddenOverflow && hasLineClamp);
-    };
-    const isContentClippedContainer = (el: HTMLElement) => {
-      const style = window.getComputedStyle(el);
-
-      // ignore inline / non-layout elements
-      if (style.display === "inline") return false;
-
-      const rect = el.getBoundingClientRect();
-
-      // ignore tiny elements (noise)
-      if (rect.height < 40 || rect.width < 40) return false;
-
-      const hasOverflowRestriction =
-        ["hidden", "clip", "auto", "scroll"].includes(style.overflow) ||
-        ["hidden", "clip", "auto", "scroll"].includes(style.overflowY) ||
-        ["hidden", "clip", "auto", "scroll"].includes(style.overflowX);
-
-      if (!hasOverflowRestriction) return false;
-
-      // CRITICAL: detect real content clipping
-      const isClipped =
-        el.scrollHeight > el.clientHeight + 1 ||
-        el.scrollWidth > el.clientWidth + 1;
-
-      return isClipped;
-    };
     const hasScrollableContentDeep = (el: HTMLElement) => {
       // check self
       if (el.scrollHeight > el.clientHeight + 1) return true;
 
       // check children
-      const children = el.querySelectorAll<HTMLElement>("*");
+      const children = el.querySelectorAll<HTMLElement>(
+        ".hover,[role='region'],a[href], button [role='button'], [role='link']",
+      );
 
-      for (const child of children) {
+      for (const child of Array.from(children)) {
         if (!isVisible(child)) continue;
 
         const style = window.getComputedStyle(child);
@@ -1443,29 +1380,36 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       //  key signal
       return hasHoverReveal(el);
     };
+    const isRootElement = (el: HTMLElement) => {
+      return el === document.documentElement || el === document.body;
+    };
     const scrollableCandidates = Array.from(document.querySelectorAll("*"))
       .filter((el): el is HTMLElement => el instanceof HTMLElement)
       .filter(isVisible)
+      .filter((el) => !isRootElement(el))
       .filter(
         (el) =>
-          hasScrollableContentDeep(el) || // real scroll
-          isInteractiveScrollContainer(el), // hover/JS scroll
+          hasScrollableContentDeep(el) || isInteractiveScrollContainer(el),
       );
 
-    const firstInaccessibleScroller = scrollableCandidates.find((el) => {
-      // if NOT keyboard scrollable → violation
-      return !isActuallyKeyboardScrollable(el);
-    });
-
-    if (firstInaccessibleScroller) {
+    const inaccessibleScrollables = scrollableCandidates.filter(
+      (el) => !isActuallyKeyboardScrollable(el),
+    );
+    const getDeepestElements = (elements: HTMLElement[]) => {
+      return elements.filter((el) => {
+        return !elements.some((other) => other !== el && other.contains(el));
+      });
+    };
+    const finalElements = getDeepestElements(inaccessibleScrollables);
+    finalElements.forEach((el) => {
       results.push({
         ruleId: "SIA-R84",
         impact: "moderate",
         description: "Scrollable elements are not keyboard accessible",
-        element: outerHtmlSnippet(firstInaccessibleScroller),
-        selector: getSelector(firstInaccessibleScroller),
+        element: outerHtmlSnippet(el),
+        selector: getSelector(el),
       });
-    }
+    });
 
     // SIA-R116: Select without accessible name
     document.querySelectorAll("select").forEach((sel) => {
