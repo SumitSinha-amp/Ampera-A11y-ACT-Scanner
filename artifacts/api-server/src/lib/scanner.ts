@@ -784,7 +784,8 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       const classes = `${el.className || ""}`.toLowerCase();
       const role = `${el.getAttribute("role") || ""}`.toLowerCase();
       const ariaLabel = `${el.getAttribute("aria-label") || ""} ${el.getAttribute("aria-labelledby") || ""}`.toLowerCase();
-      const isCardHover = classes.includes("card-hover") || classes.includes("keysight-generic-asset-page-card-configuration");
+      const text = `${el.textContent || ""}`.toLowerCase();
+      const isCardHover = classes.includes("card-hover") || classes.includes("keysight-generic-asset-page-card-configuration") || text.includes("scrollable card description");
       const isDescriptionRegion = role === "region" && ariaLabel.includes("scrollable");
       if (!isCardHover && !isDescriptionRegion) return false;
       const focusable = el.tabIndex >= 0 || el.hasAttribute("tabindex");
