@@ -35,15 +35,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
               Scan History
             </Button>
           </Link>
-          <Link href="/documentation">
-            <Button
-              variant={location === "/documentation" ? "secondary" : "ghost"}
-              className="w-full justify-start gap-2"
-            >
-              <BookOpen className="w-4 h-4" />
-              Documentation
-            </Button>
-          </Link>
         </nav>
 
         <div className="px-4 pb-4 mt-auto space-y-1">
@@ -54,6 +45,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
             >
               <Settings className="w-4 h-4" />
               Settings
+            </Button>
+          </Link>
+          <Link href="/documentation">
+            <Button
+              variant={location === "/documentation" ? "secondary" : "ghost"}
+              className="w-full justify-start gap-2"
+            >
+              <BookOpen className="w-4 h-4" />
+              Documentation
             </Button>
           </Link>
           <div className="text-xs text-sidebar-foreground/50 px-2 pt-2">

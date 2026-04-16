@@ -7,6 +7,7 @@ const references = [
     title: "Siteimprove Accessibility Rules",
     description: "Use this as the primary rule reference when interpreting scanner findings and prioritizing fixes.",
     links: [
+      { label: "Alfa Rules Catalog", href: "https://alfa.siteimprove.com/rules" },
       { label: "Siteimprove Help Center", href: "https://help.siteimprove.com/" },
       { label: "WCAG 2.1 Overview", href: "https://www.w3.org/WAI/standards-guidelines/wcag/" },
     ],
