@@ -1256,62 +1256,38 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
 
     // SIA-R84: Scrollable elements must be keyboard accessible
 
-    const isScrollableSiteImprove = (el: HTMLElement) => {
-      // 1. Get current styles
-      const style = window.getComputedStyle(el);
-
-      // 2. DETECTION BYPASS: If it's currently hidden, we need to "test" it
-      // We check scrollHeight vs clientHeight. Even if visibility is hidden,
-      // browser usually calculates scrollHeight if display is block.
-      const isVerticallyScrollable = el.scrollHeight > el.clientHeight + 1;
-      const isHorizontallyScrollable = el.scrollWidth > el.clientWidth + 1;
-
-      // 3. CHECK THE CSS RULES:
-      // If the element has 'card-hover' class, we know it's a target for scrollable content
-      const isHoverContainer = el.classList.contains("card-hover");
-
-      return (
-        isVerticallyScrollable || isHorizontallyScrollable || isHoverContainer
-      );
-    };
-
     const isFocusable = (el: HTMLElement) => {
       return (
         el.tabIndex >= 0 ||
         el.hasAttribute("tabindex") ||
         el.matches(
-          "a[href], button, input, select, textarea, summary, [role='button'], [role='link']",
+          ".hover, [role='region'], a[href], button, [role='button'], [role='link']",
         )
       );
     };
-    const isScrollable = (el: HTMLElement) => {
-      if (!el) return false;
+    const isScrollable = (el: HTMLElement | null) => {
+      if (!el || !(el instanceof HTMLElement)) return false;
 
       const style = window.getComputedStyle(el);
+      const canScroll =
+        ["auto", "scroll"].includes(style.overflowY) ||
+        ["auto", "scroll"].includes(style.overflowX);
+      if (!canScroll) return false;
+      const isVerticallyScrollable =
+        (el?.scrollHeight || 0) > (el?.clientHeight || 0) + 2;
 
-      // Skip truly tiny utility elements (sr-only)
-      if (el.offsetWidth < 5 && el.offsetHeight < 5) return false;
+      const isHorizontallyScrollable =
+        (el?.scrollWidth || 0) > (el?.clientWidth || 0) + 2;
+      const hasHoverClass = (el: HTMLElement) => {
+        if (!el) return false;
 
-      // SIA-R84 applies if scroll distance > size.
-      // We check this even if currently visibility: hidden because the DOM
-      // still calculates scrollHeight for block elements.
-      const isVerticallyScrollable = el.scrollHeight > el.clientHeight + 2;
-      const isHorizontallyScrollable = el.scrollWidth > el.clientWidth + 2;
-
-      // Logic: It's a candidate if it scrolls OR if it's your specific hover container
+        return Array.from(el.classList).some((cls) =>
+          cls.toLowerCase().includes("hover"),
+        );
+      };
       return (
-        isVerticallyScrollable ||
-        isHorizontallyScrollable ||
-        el.classList.contains("card-hover")
+        isVerticallyScrollable || isHorizontallyScrollable || hasHoverClass(el)
       );
-    };
-    // NEW: keyboard scroll validation
-    const isActuallyKeyboardScrollable = (el: HTMLElement) => {
-      // must be focusable first
-      if (!isFocusable(el)) return false;
-
-      // native browser scrolling works once focusable
-      return true;
     };
 
     const hasScrollableContentDeep = (el: HTMLElement) => {
@@ -1320,11 +1296,11 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
 
       // check children
       const children = el.querySelectorAll<HTMLElement>(
-        ".hover,[role='region'],a[href], button [role='button'], [role='link']",
+        ".hover, [role='region'], a[href], button, [role='button'], [role='link']",
       );
 
       for (const child of Array.from(children)) {
-        if (!isVisible(child)) continue;
+        if (!child || !(child instanceof HTMLElement)) continue;
 
         const style = window.getComputedStyle(child);
 
@@ -1349,7 +1325,7 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
 
       // Pass if it contains focusable descendants that are NOT hidden from screen readers
       const focusable = el.querySelectorAll(
-        'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        '[role="region"],a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])',
       );
 
       const hasAccessibleFocus = Array.from(focusable).some((child) => {
@@ -1408,50 +1384,7 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
         el.scrollWidth > el.clientWidth + 1
       );
     };
-    const isInteractiveScrollContainer = (el: HTMLElement) => {
-      if (!isContentClipped(el)) return false;
 
-      const style = window.getComputedStyle(el);
-
-      const hasOverflowRestriction =
-        ["hidden", "clip"].includes(style.overflow) ||
-        ["hidden", "clip"].includes(style.overflowY);
-
-      if (!hasOverflowRestriction) return false;
-
-      //  key signal
-      return hasHoverReveal(el);
-    };
-    const isScrollContainer = (el: HTMLElement) => {
-      const style = window.getComputedStyle(el);
-
-      // 1. Direct Scroll: Does this element have scrollbars?
-      const hasScrollStyle = (s: string) => s === "auto" || s === "scroll";
-      const isDirectScroll =
-        hasScrollStyle(style.overflowX) || hasScrollStyle(style.overflowY);
-
-      if (isDirectScroll) {
-        return (
-          el.scrollHeight > el.clientHeight + 1 ||
-          el.scrollWidth > el.clientWidth + 1
-        );
-      }
-
-      // 2. Indirect Scroll (The "Card Hover" Case):
-      // Does it contain a child that overflows but the container hides it?
-      if (
-        style.overflow === "hidden" ||
-        style.clip === "rect(0px, 0px, 0px, 0px)"
-      ) {
-        // Check if children are larger than this container
-        const children = Array.from(el.children) as HTMLElement[];
-        return children.some(
-          (child) => child.scrollHeight > el.clientHeight + 1,
-        );
-      }
-
-      return false;
-    };
     const isRootElement = (el: HTMLElement) => {
       return el === document.documentElement || el === document.body;
     };
