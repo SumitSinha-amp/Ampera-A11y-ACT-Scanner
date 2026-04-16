@@ -491,6 +491,13 @@ async function _scanPageInternal(url: string, options: {
     return { url, issues };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
+    const timeoutMatch = msg.match(/Navigation timeout of (\d+) ms exceeded/);
+    if (timeoutMatch) {
+      const seconds = Math.round(parseInt(timeoutMatch[1], 10) / 1000);
+      const normalised = `Scan timed out after ${seconds}s while loading the page.`;
+      logger.warn({ url, error: normalised }, "Failed to scan page");
+      return { url, issues: [], error: normalised };
+    }
     logger.warn({ url, error: msg }, "Failed to scan page");
     return { url, issues: [], error: msg };
   } finally {
@@ -759,44 +766,34 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     });
 
     // SIA-R84: Scrollable elements must be keyboard accessible
-    document.querySelectorAll("*").forEach(el => {
-      if (!(el instanceof HTMLElement)) return;
-      if (!isVisible(el)) return;
+    const scrollableCandidates = Array.from(document.querySelectorAll("*")).filter((el): el is HTMLElement => {
+      if (!(el instanceof HTMLElement)) return false;
+      if (!isVisible(el)) return false;
       const style = window.getComputedStyle(el);
-      const hasScrollableOverflow = ["auto", "scroll"].includes(style.overflowY) || ["auto", "scroll"].includes(style.overflowX);
-      if (!hasScrollableOverflow) return;
-      if (el.scrollHeight <= el.clientHeight && el.scrollWidth <= el.clientWidth) return;
-      if (el.tabIndex < 0) {
-        results.push({
-          ruleId: "SIA-R84",
-          impact: "moderate",
-          description: "Scrollable elements are not keyboard accessible",
-          element: outerHtmlSnippet(el),
-          selector: getSelector(el),
-        });
-      }
-    });
-    document.querySelectorAll("*").forEach(el => {
-      if (!(el instanceof HTMLElement)) return;
-      if (!isVisible(el)) return;
-      const style = window.getComputedStyle(el);
-      const hasScrollableOverflow = ["auto", "scroll", "hidden", "clip"].includes(style.overflowY) || ["auto", "scroll", "hidden", "clip"].includes(style.overflowX);
-      if (!hasScrollableOverflow) return;
+      const overflowY = style.overflowY;
+      const overflowX = style.overflowX;
+      const overflow = style.overflow;
+      const scrollLike = ["auto", "scroll", "hidden", "clip"].includes(overflowY) || ["auto", "scroll", "hidden", "clip"].includes(overflowX) || ["auto", "scroll", "hidden", "clip"].includes(overflow);
+      if (!scrollLike) return false;
       const rect = el.getBoundingClientRect();
-      const contentOverflows = el.scrollHeight > el.clientHeight + 4 || el.scrollWidth > el.clientWidth + 4 || rect.height < 40 || rect.width < 40;
-      if (!contentOverflows) return;
+      const hasOverflowContent = el.scrollHeight > el.clientHeight + 4 || el.scrollWidth > el.clientWidth + 4;
+      const isSizedScroller = rect.height >= 40 && rect.width >= 40;
+      return hasOverflowContent || isSizedScroller;
+    });
+    const firstInaccessibleScroller = scrollableCandidates.find(el => {
       const focusable = el.tabIndex >= 0 || el.hasAttribute("tabindex");
       const interactive = el.matches("a, button, input, select, textarea, summary, [role='button'], [role='link'], [role='tab'], [role='menuitem'], [role='listbox'], [role='grid'], [role='tree'], [role='textbox']");
-      if (!focusable && !interactive) {
-        results.push({
-          ruleId: "SIA-R84",
-          impact: "moderate",
-          description: "Scrollable elements are not keyboard accessible",
-          element: outerHtmlSnippet(el),
-          selector: getSelector(el),
-        });
-      }
+      return !focusable && !interactive;
     });
+    if (firstInaccessibleScroller) {
+      results.push({
+        ruleId: "SIA-R84",
+        impact: "moderate",
+        description: "Scrollable elements are not keyboard accessible",
+        element: outerHtmlSnippet(firstInaccessibleScroller),
+        selector: getSelector(firstInaccessibleScroller),
+      });
+    }
 
     // SIA-R116: Select without accessible name
     document.querySelectorAll("select").forEach(sel => {
