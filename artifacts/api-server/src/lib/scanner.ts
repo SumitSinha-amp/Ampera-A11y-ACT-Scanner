@@ -773,7 +773,27 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
           description: "Scrollable elements are not keyboard accessible",
           element: outerHtmlSnippet(el),
           selector: getSelector(el),
-          remediation: "Make the scrollable container focusable so users can scroll it with the keyboard",
+        });
+      }
+    });
+    document.querySelectorAll("*").forEach(el => {
+      if (!(el instanceof HTMLElement)) return;
+      if (!isVisible(el)) return;
+      const style = window.getComputedStyle(el);
+      const hasScrollableOverflow = ["auto", "scroll", "hidden", "clip"].includes(style.overflowY) || ["auto", "scroll", "hidden", "clip"].includes(style.overflowX);
+      if (!hasScrollableOverflow) return;
+      const rect = el.getBoundingClientRect();
+      const contentOverflows = el.scrollHeight > el.clientHeight + 4 || el.scrollWidth > el.clientWidth + 4 || rect.height < 40 || rect.width < 40;
+      if (!contentOverflows) return;
+      const focusable = el.tabIndex >= 0 || el.hasAttribute("tabindex");
+      const interactive = el.matches("a, button, input, select, textarea, summary, [role='button'], [role='link'], [role='tab'], [role='menuitem'], [role='listbox'], [role='grid'], [role='tree'], [role='textbox']");
+      if (!focusable && !interactive) {
+        results.push({
+          ruleId: "SIA-R84",
+          impact: "moderate",
+          description: "Scrollable elements are not keyboard accessible",
+          element: outerHtmlSnippet(el),
+          selector: getSelector(el),
         });
       }
     });
