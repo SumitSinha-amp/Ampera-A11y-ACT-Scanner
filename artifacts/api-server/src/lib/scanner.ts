@@ -221,7 +221,7 @@ async function getBrowser(): Promise<Browser> {
   const launchOptions = {
     headless: true as const,
     executablePath: getChromiumPath(),
-    userDataDir: CHROME_PROFILE_DIR,
+    userDataDir: path.join(CHROME_PROFILE_DIR, `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
     args: PUPPETEER_LAUNCH_ARGS,
   };
 
