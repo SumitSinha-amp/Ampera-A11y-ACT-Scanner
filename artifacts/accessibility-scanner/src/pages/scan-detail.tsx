@@ -54,6 +54,7 @@ import {
 import { getStatusBadge } from "@/lib/status-badge";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { Copy } from "lucide-react";
 
 function ImpactBadge({ impact }: { impact: string }) {
   switch (impact) {
@@ -336,6 +337,31 @@ function IssueGroupList({ issues, filters }: { issues: Issue[]; filters: IssueFi
                                     <span className="text-muted-foreground italic">—</span>
                                   )}
                                 </td>
+                                <td className="px-3 py-2 hidden xl:table-cell max-w-[380px]">
+                                  <div className="flex items-center gap-2">
+                                    {issue.element ? (
+                                      <>
+                                        <code className="block truncate text-foreground/80 font-mono" title={issue.element}>
+                                          {issue.element}
+                                        </code>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-7 w-7 shrink-0"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            navigator.clipboard.writeText(issue.element || "");
+                                          }}
+                                          title="Copy element HTML"
+                                        >
+                                          <Copy className="w-3.5 h-3.5" />
+                                        </Button>
+                                      </>
+                                    ) : (
+                                      <span className="text-muted-foreground italic">—</span>
+                                    )}
+                                  </div>
+                                </td>
                                 {group.some((i) => i.description !== first.description) && (
                                   <td className="px-3 py-2 hidden lg:table-cell text-muted-foreground max-w-[200px]">
                                     {hasVariantDesc ? (
@@ -349,8 +375,26 @@ function IssueGroupList({ issues, filters }: { issues: Issue[]; filters: IssueFi
                               </tr>
                               {isExpanded && (
                                 <tr key={`${issue.id}-detail`} className="bg-primary/5 border-t border-primary/10">
-                                  <td colSpan={group.some(i => i.description !== first.description) ? 6 : 5} className="px-4 py-4">
+                                  <td colSpan={group.some(i => i.description !== first.description) ? 7 : 6} className="px-4 py-4">
                                     <div className="space-y-3">
+                                      {issue.selector && (
+                                        <div>
+                                          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Full URL</p>
+                                          <div className="flex items-start gap-2">
+                                            <code className="block bg-background border px-3 py-2 rounded text-xs font-mono text-foreground/80 break-all whitespace-pre-wrap flex-1">
+                                              {issue.selector}
+                                            </code>
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              className="shrink-0"
+                                              onClick={() => navigator.clipboard.writeText(issue.selector || "")}
+                                            >
+                                              Copy
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      )}
                                       {hasVariantDesc && (
                                         <div>
                                           <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Description</p>
