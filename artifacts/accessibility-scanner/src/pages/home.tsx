@@ -102,7 +102,7 @@ const ALL_RULES: { id: string; label: string }[] = [
   { id: "SIA-R81",  label: "Context-sensitive help not available (WCAG 3.3.5)" },
   { id: "SIA-R82",  label: "Keyboard operation not available without exception (WCAG 2.1.3)" },
   { id: "SIA-R83",  label: "Time limits exist — no exception (WCAG 2.2.3)" },
-  { id: "SIA-R84",  label: "Interruptions cannot be postponed or suppressed (WCAG 2.2.4)" },
+  { id: "SIA-R84",  label: "Scrollable elements are keyboard accessible (WCAG 2.1.1)" },
   { id: "SIA-R85",  label: "Re-authentication causes data loss (WCAG 2.2.5)" },
   { id: "SIA-R86",  label: "Three flashes in one second (WCAG 2.3.2)" },
   { id: "SIA-R87",  label: "Page missing main landmark region (WCAG 2.4.1)" },

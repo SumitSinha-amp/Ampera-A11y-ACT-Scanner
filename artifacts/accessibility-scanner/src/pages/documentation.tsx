@@ -86,7 +86,7 @@ const ruleReferences = [
   { id: "SIA-R81", title: "Context-sensitive help not available", detail: "Help or guidance should be available when users may need extra support." },
   { id: "SIA-R82", title: "Keyboard operation not available", detail: "All essential functions should be reachable and operable with a keyboard." },
   { id: "SIA-R83", title: "Time limits exist", detail: "Users should be able to adjust or extend time limits where reasonable." },
-  { id: "SIA-R84", title: "Interruptions cannot be postponed", detail: "Provide a way to defer interruptions or notifications when they would disrupt tasks." },
+  { id: "SIA-R84", title: "Scrollable elements are keyboard accessible", detail: "Scrollable containers and custom scroll regions should be reachable and operable with the keyboard." },
   { id: "SIA-R85", title: "Re-authentication causes data loss", detail: "Users should not lose unsaved work when they need to sign in again." },
   { id: "SIA-R86", title: "Three flashes in one second", detail: "Avoid visual flashes that could trigger photosensitive seizures." },
   { id: "SIA-R87", title: "Page missing main landmark", detail: "Use a main landmark so screen reader users can quickly jump to the primary content area." },
