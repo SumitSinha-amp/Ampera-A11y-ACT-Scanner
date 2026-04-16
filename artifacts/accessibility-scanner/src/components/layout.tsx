@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Activity, LayoutDashboard, Plus, Settings } from "lucide-react";
+import { Activity, BookOpen, LayoutDashboard, Plus, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -33,6 +33,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
             >
               <LayoutDashboard className="w-4 h-4" />
               Scan History
+            </Button>
+          </Link>
+          <Link href="/documentation">
+            <Button
+              variant={location === "/documentation" ? "secondary" : "ghost"}
+              className="w-full justify-start gap-2"
+            >
+              <BookOpen className="w-4 h-4" />
+              Documentation
             </Button>
           </Link>
         </nav>
