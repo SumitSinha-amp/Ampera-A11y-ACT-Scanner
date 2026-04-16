@@ -50,7 +50,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <aside className="hidden md:flex w-64 border-r border-border bg-sidebar shrink-0 flex-col">
           <div className="p-6 pb-2">
             <div className="flex items-center gap-2 font-bold text-xs text-sidebar-foreground">
-              <span>version 1.0</span>
+              <span>version 1.0.0</span>
             </div>
           </div>
           <nav className="flex-1 px-4 py-4 space-y-1">
