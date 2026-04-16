@@ -1258,17 +1258,20 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
 
     const isScrollable = (el: HTMLElement) => {
       const style = window.getComputedStyle(el);
+      const overflow = style.overflow + style.overflowY + style.overflowX;
 
-      // Rule SIA-R84 specifically looks for 'auto' or 'scroll'
-      const hasScrollStyle = (s: string) => s === "auto" || s === "scroll";
-      if (!hasScrollStyle(style.overflowX) && !hasScrollStyle(style.overflowY))
-        return false;
+      // SIA-R84 looks for scroll/auto OR if a container clips overflowing children
+      const hasScrollAbility =
+        overflow.includes("auto") ||
+        overflow.includes("scroll") ||
+        overflow.includes("hidden");
 
-      // Use a 1px tolerance to account for sub-pixel rendering
-      const isVerticalScroll = el.scrollHeight > el.clientHeight + 1;
-      const isHorizontalScroll = el.scrollWidth > el.clientWidth + 1;
+      if (!hasScrollAbility) return false;
 
-      return isVerticalScroll || isHorizontalScroll;
+      const isVerticallyScrollable = el.scrollHeight > el.clientHeight + 1;
+      const isHorizontallyScrollable = el.scrollWidth > el.clientWidth + 1;
+
+      return isVerticallyScrollable || isHorizontallyScrollable;
     };
 
     const isFocusable = (el: HTMLElement) => {
@@ -1317,16 +1320,22 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       return false;
     };
     const isKeyboardAccessible = (el: HTMLElement) => {
-      // 1. Is the element itself focusable?
-      if (isFocusable(el)) return true;
+      // If the element itself is in the tab order, it's accessible
+      if (el.tabIndex >= 0) return true;
 
-      // 2. Does it have any focusable descendants?
-      // (If a child is focusable, tabbing to it will scroll the container into view)
-      const focusableDescendant = el.querySelector(
+      // Check for focusable children that are NOT hidden from assistive tech
+      const focusableChildren = el.querySelectorAll<HTMLElement>(
         'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])',
       );
 
-      return !!focusableDescendant;
+      // If any child is focusable and NOT inside an aria-hidden block, it's accessible
+      const hasVisibleFocusableChild = Array.from(focusableChildren).some(
+        (child) => {
+          return !child.closest('[aria-hidden="true"]');
+        },
+      );
+
+      return hasVisibleFocusableChild;
     };
 
     const hasHoverReveal = (el: HTMLElement) => {
@@ -1391,24 +1400,62 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       //  key signal
       return hasHoverReveal(el);
     };
+    const isScrollContainer = (el: HTMLElement) => {
+      const style = window.getComputedStyle(el);
+
+      // 1. Direct Scroll: Does this element have scrollbars?
+      const hasScrollStyle = (s: string) => s === "auto" || s === "scroll";
+      const isDirectScroll =
+        hasScrollStyle(style.overflowX) || hasScrollStyle(style.overflowY);
+
+      if (isDirectScroll) {
+        return (
+          el.scrollHeight > el.clientHeight + 1 ||
+          el.scrollWidth > el.clientWidth + 1
+        );
+      }
+
+      // 2. Indirect Scroll (The "Card Hover" Case):
+      // Does it contain a child that overflows but the container hides it?
+      if (
+        style.overflow === "hidden" ||
+        style.clip === "rect(0px, 0px, 0px, 0px)"
+      ) {
+        // Check if children are larger than this container
+        const children = Array.from(el.children) as HTMLElement[];
+        return children.some(
+          (child) => child.scrollHeight > el.clientHeight + 1,
+        );
+      }
+
+      return false;
+    };
     const isRootElement = (el: HTMLElement) => {
       return el === document.documentElement || el === document.body;
     };
-    const scrollableCandidates = Array.from(document.querySelectorAll("*"))
-      .filter((el): el is HTMLElement => el instanceof HTMLElement)
-      .filter(isVisible)
-      .filter((el) => !isRootElement(el))
-      .filter(isScrollable); // Focus purely on whether it scrolls
 
-    const inaccessibleScrollables = scrollableCandidates.filter(
-      (el) => !isActuallyKeyboardScrollable(el),
-    );
     const getDeepestElements = (elements: HTMLElement[]) => {
       return elements.filter((el) => {
         return !elements.some((other) => other !== el && other.contains(el));
       });
     };
+
+    // 3. The final integrated detection
+    const scrollableCandidates = Array.from(document.querySelectorAll("*"))
+      .filter((el): el is HTMLElement => el instanceof HTMLElement)
+      .filter(isVisible) // Your existing visibility check
+      .filter((el) => !isRootElement(el))
+      .filter(isScrollable);
+
+    // CRUCIAL: Find the ones that ARE scrollable but ARE NOT keyboard accessible
+    const inaccessibleScrollables = scrollableCandidates.filter(
+      (el) => !isKeyboardAccessible(el),
+    );
+
+    // Get the deepest elements to avoid flagging parents of already flagged containers
     const finalElements = getDeepestElements(inaccessibleScrollables);
+
+    // Output results
     finalElements.forEach((el) => {
       results.push({
         ruleId: "SIA-R84",
@@ -1418,7 +1465,6 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
         selector: getSelector(el),
       });
     });
-
     // SIA-R116: Select without accessible name
     document.querySelectorAll("select").forEach((sel) => {
       if (!isVisible(sel)) return;
