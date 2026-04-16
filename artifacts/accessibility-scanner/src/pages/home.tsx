@@ -9,8 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { UploadCloud, Globe, Link as LinkIcon, Loader2, AlertCircle, X, Plus, Filter, CheckCircle2, XCircle, Clock, BarChart2, ChevronDown, Shield, ShieldCheck, Trash2 } from "lucide-react";
+import { UploadCloud, Globe, Link as LinkIcon, Loader2, AlertCircle, X, Plus, Filter, CheckCircle2, XCircle, Clock, BarChart2, ChevronDown, Shield, ShieldCheck, ExternalLink } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { getActiveProxy, ACTIVE_PROXY_KEY } from "@/pages/settings";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getStatusBadge } from "@/lib/status-badge";
@@ -504,23 +505,6 @@ function InlineScanMonitor({ scanId, onNewScan }: { scanId: number; onNewScan: (
   );
 }
 
-const PROXY_LS_KEY = "a11y-scanner-proxy-pacs";
-
-function loadSavedProxies(): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(PROXY_LS_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-function persistProxy(url: string): string[] {
-  const existing = loadSavedProxies().filter(p => p !== url);
-  const updated = [url, ...existing].slice(0, 8);
-  localStorage.setItem(PROXY_LS_KEY, JSON.stringify(updated));
-  return updated;
-}
-
 export default function Home() {
   const { toast } = useToast();
   const [scanName, setScanName] = useState("");
@@ -534,15 +518,17 @@ export default function Home() {
   const [isUploading, setIsUploading] = useState(false);
   const [parsedUrls, setParsedUrls] = useState<string[]>([]);
 
-  // Proxy PAC state
+  // Proxy PAC state — PAC URL is managed in Settings; here we just toggle it on/off
   const [proxyEnabled, setProxyEnabled] = useState(false);
-  const [proxyPacUrl, setProxyPacUrl] = useState("");
-  const [savedProxies, setSavedProxies] = useState<string[]>([]);
-  const [showProxyHistory, setShowProxyHistory] = useState(false);
-  const proxyInputRef = useRef<HTMLInputElement>(null);
+  const [activeProxyPac, setActiveProxyPac] = useState<string>("");
 
   useEffect(() => {
-    setSavedProxies(loadSavedProxies());
+    setActiveProxyPac(getActiveProxy());
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === ACTIVE_PROXY_KEY) setActiveProxyPac(e.newValue || "");
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   const createScan = useCreateScan();
@@ -587,31 +573,21 @@ export default function Home() {
     }
   };
 
-  const removeProxy = (url: string) => {
-    const remaining = savedProxies.filter(p => p !== url);
-    setSavedProxies(remaining);
-    localStorage.setItem(PROXY_LS_KEY, JSON.stringify(remaining));
-    if (proxyPacUrl === url) setProxyPacUrl("");
-  };
-
   const startScan = () => {
     if (parsedUrls.length === 0) {
       toast({ title: "No URLs", description: "Please provide at least one URL to scan.", variant: "destructive" });
       return;
     }
-    if (proxyEnabled && !proxyPacUrl.trim()) {
-      toast({ title: "Proxy PAC URL required", description: "Enter a PAC file URL or disable the proxy option.", variant: "destructive" });
-      proxyInputRef.current?.focus();
+    if (proxyEnabled && !activeProxyPac) {
+      toast({
+        title: "No proxy PAC configured",
+        description: "Go to Settings to add a PAC file URL before enabling proxy mode.",
+        variant: "destructive",
+      });
       return;
     }
 
-    const effectiveProxy = proxyEnabled && proxyPacUrl.trim() ? proxyPacUrl.trim() : undefined;
-
-    // Persist proxy to localStorage history
-    if (effectiveProxy) {
-      const updated = persistProxy(effectiveProxy);
-      setSavedProxies(updated);
-    }
+    const effectiveProxy = proxyEnabled && activeProxyPac ? activeProxyPac : undefined;
 
     createScan.mutate(
       {
@@ -787,8 +763,8 @@ export default function Home() {
               <RuleFilterSelector selectedRules={selectedRules} onChange={setSelectedRules} />
             </div>
 
-            {/* Proxy PAC section */}
-            <div className={`space-y-3 border rounded-lg p-4 transition-colors ${proxyEnabled ? "bg-blue-50/50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-800" : "bg-muted/20"}`}>
+            {/* Proxy PAC section — PAC URL managed in Settings */}
+            <div className={`border rounded-lg p-4 transition-colors ${proxyEnabled ? "bg-blue-50/50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-800" : "bg-muted/20"}`}>
               <div className="flex items-center gap-3">
                 {proxyEnabled
                   ? <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
@@ -797,81 +773,32 @@ export default function Home() {
                 <div className="flex-1 min-w-0">
                   <Label className="text-sm font-medium">Proxy PAC (Optional)</Label>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Use a PAC file to access internal, staging, or pre-prod environments behind a corporate proxy.
+                    Route scanning through a PAC file for internal or staging environments.
                   </p>
                 </div>
                 <Switch
                   checked={proxyEnabled}
-                  onCheckedChange={(v) => {
-                    setProxyEnabled(v);
-                    setShowProxyHistory(false);
-                    if (v) setTimeout(() => proxyInputRef.current?.focus(), 100);
-                  }}
+                  onCheckedChange={setProxyEnabled}
                   aria-label="Enable proxy PAC"
                 />
               </div>
 
               {proxyEnabled && (
-                <div className="space-y-2 pt-1">
-                  <div className="relative">
-                    <Input
-                      ref={proxyInputRef}
-                      placeholder="http://example.com/proxy/autoproxy.pac"
-                      value={proxyPacUrl}
-                      onChange={(e) => setProxyPacUrl(e.target.value)}
-                      onFocus={() => setShowProxyHistory(savedProxies.length > 0)}
-                      className="pr-8 font-mono text-sm"
-                    />
-                    {savedProxies.length > 0 && (
-                      <button
-                        type="button"
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                        onMouseDown={(e) => { e.preventDefault(); setShowProxyHistory(v => !v); }}
-                        aria-label="Toggle proxy history"
-                      >
-                        <ChevronDown className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-
-                  {showProxyHistory && savedProxies.length > 0 && (
-                    <div className="border rounded-md bg-background shadow-md overflow-hidden">
-                      <div className="px-3 py-1.5 text-xs text-muted-foreground font-medium border-b bg-muted/50">
-                        Previously used proxy PAC URLs
-                      </div>
-                      {savedProxies.map((pac) => (
-                        <div
-                          key={pac}
-                          className="flex items-center gap-2 px-3 py-2 hover:bg-muted group text-sm"
-                        >
-                          <button
-                            type="button"
-                            className="flex-1 text-left font-mono text-xs truncate"
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              setProxyPacUrl(pac);
-                              setShowProxyHistory(false);
-                            }}
-                          >
-                            {pac}
-                          </button>
-                          <button
-                            type="button"
-                            className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                            onMouseDown={(e) => { e.preventDefault(); removeProxy(pac); }}
-                            aria-label="Remove from history"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ))}
+                <div className="mt-3 pt-3 border-t border-blue-200/50 dark:border-blue-800/50">
+                  {activeProxyPac ? (
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <code className="text-xs font-mono text-blue-700 dark:text-blue-400 truncate flex-1">
+                        {activeProxyPac}
+                      </code>
                     </div>
-                  )}
-
-                  {proxyPacUrl.trim() && (
-                    <div className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400">
-                      <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                      <span className="font-mono truncate">{proxyPacUrl.trim()}</span>
+                  ) : (
+                    <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      <span>No PAC URL configured. </span>
+                      <Link href="/settings" className="underline underline-offset-2 inline-flex items-center gap-0.5 hover:opacity-80">
+                        Go to Settings <ExternalLink className="w-3 h-3" />
+                      </Link>
                     </div>
                   )}
                 </div>
@@ -887,7 +814,7 @@ export default function Home() {
               className="w-full sm:w-auto"
             >
               {createScan.isPending ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : null}
-              {proxyEnabled && proxyPacUrl.trim()
+              {proxyEnabled && activeProxyPac
                 ? `Scan via Proxy${selectedRules.length > 0 ? ` (${selectedRules.length} rules)` : ""}`
                 : selectedRules.length > 0
                   ? `Scan ${selectedRules.length} Rule${selectedRules.length !== 1 ? "s" : ""}`

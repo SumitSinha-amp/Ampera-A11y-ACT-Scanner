@@ -28,7 +28,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </Link>
           <Link href="/scans">
             <Button
-              variant={location.startsWith("/scans") && location !== "/" ? "secondary" : "ghost"}
+              variant={location.startsWith("/scans") ? "secondary" : "ghost"}
               className="w-full justify-start gap-2"
             >
               <LayoutDashboard className="w-4 h-4" />
@@ -37,8 +37,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </Link>
         </nav>
 
-        <div className="p-4 mt-auto">
-          <div className="text-xs text-sidebar-foreground/50 px-2">
+        <div className="px-4 pb-4 mt-auto space-y-1">
+          <Link href="/settings">
+            <Button
+              variant={location === "/settings" ? "secondary" : "ghost"}
+              className="w-full justify-start gap-2"
+            >
+              <Settings className="w-4 h-4" />
+              Settings
+            </Button>
+          </Link>
+          <div className="text-xs text-sidebar-foreground/50 px-2 pt-2">
             Professional accessibility auditing tool.
           </div>
         </div>
