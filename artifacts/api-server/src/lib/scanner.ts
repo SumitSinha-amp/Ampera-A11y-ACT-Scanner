@@ -780,13 +780,16 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       const classes = `${el.className || ""}`.toLowerCase();
       const role = `${el.getAttribute("role") || ""}`.toLowerCase();
       const ariaLabel = `${el.getAttribute("aria-label") || ""} ${el.getAttribute("aria-labelledby") || ""}`.toLowerCase();
-      const text = `${el.textContent || ""}`.toLowerCase();
-      const isCardHover = classes.includes("card-hover") || classes.includes("keysight-generic-asset-page-card-configuration") || text.includes("scrollable card description");
+      const titleText = `${el.querySelector(".card-title")?.textContent || ""}`.toLowerCase();
+      const descText = `${el.querySelector(".card-desc")?.textContent || ""}`.toLowerCase();
+      const combinedText = `${el.textContent || ""} ${titleText} ${descText}`.toLowerCase();
+      const isCardHover = classes.includes("card-hover") || classes.includes("keysight-generic-asset-page-card-configuration") || combinedText.includes("scrollable card description");
       const isDescriptionRegion = role === "region" && ariaLabel.includes("scrollable");
       if (!isCardHover && !isDescriptionRegion) return false;
       const focusable = el.tabIndex >= 0 || el.hasAttribute("tabindex");
       const interactive = el.matches("a, button, input, select, textarea, summary, [role='button'], [role='link'], [role='tab'], [role='menuitem'], [role='listbox'], [role='grid'], [role='tree'], [role='textbox']");
-      return !focusable && !interactive;
+      const hasExactPattern = classes.includes("card-hover") || classes.includes("keysight-generic-asset-page-card-configuration");
+      return hasExactPattern && !focusable && !interactive;
     });
     if (firstInaccessibleScroller) {
       results.push({
