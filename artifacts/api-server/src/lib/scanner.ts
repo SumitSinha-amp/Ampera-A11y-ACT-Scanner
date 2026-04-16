@@ -230,13 +230,9 @@ async function getBrowser(): Promise<Browser> {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("SingletonLock") || msg.includes("profile") || msg.includes("already in use") || msg.includes("process_singleton")) {
-      // Second attempt: clear locks again and retry once
-      logger.warn("Browser launch failed with profile lock error — clearing locks and retrying");
-      clearChromeLocks();
-      browserInstance = await puppeteerExtra.launch(launchOptions);
-    } else {
-      throw err;
+      logger.warn({ error: msg }, "Browser launch failed with profile lock error");
     }
+    throw err;
   }
 
   browserInstance.on("disconnected", () => {
