@@ -9,13 +9,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { UploadCloud, Globe, Link as LinkIcon, Loader2, AlertCircle, X, Plus, Filter, CheckCircle2, XCircle, Clock, BarChart2, ChevronDown, Shield, ShieldCheck, ExternalLink } from "lucide-react";
+import { UploadCloud, Globe, Link as LinkIcon, Loader2, AlertCircle, X, Plus, Filter, CheckCircle2, XCircle, Clock, BarChart2, ChevronDown, Shield, ShieldCheck, ExternalLink, HelpCircle } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { getActiveProxy, ACTIVE_PROXY_KEY } from "@/pages/settings";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getStatusBadge } from "@/lib/status-badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const ALL_RULES: { id: string; label: string }[] = [
   { id: "SIA-R1",   label: "Page title missing (WCAG 2.4.2)" },
@@ -751,6 +752,16 @@ export default function Home() {
               <div className="flex items-center gap-2">
                 <Filter className="w-4 h-4 text-muted-foreground" />
                 <Label className="text-sm font-medium">Rule Filter (Optional)</Label>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link href="/documentation" className="inline-flex items-center text-muted-foreground hover:text-foreground">
+                      <HelpCircle className="w-4 h-4" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Open documentation for all SI rule references.
+                  </TooltipContent>
+                </Tooltip>
                 {selectedRules.length > 0 && (
                   <Badge variant="secondary" className="text-xs ml-auto">
                     {selectedRules.length} rule{selectedRules.length !== 1 ? "s" : ""} selected
