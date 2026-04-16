@@ -1285,26 +1285,25 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       );
     };
     const isScrollable = (el: HTMLElement) => {
+      if (!el) return false;
+
       const style = window.getComputedStyle(el);
 
-      // Ignore sr-only and truly hidden elements
-      if (el.classList.contains("sr-only") || style.display === "none")
-        return false;
+      // Skip truly tiny utility elements (sr-only)
+      if (el.offsetWidth < 5 && el.offsetHeight < 5) return false;
 
-      // Check if the element has a fixed height/max-height constraint
-      const hasHeightConstraint =
-        style.maxHeight !== "none" || style.height !== "auto";
-
-      // ACT Rule Logic: Compare scrollHeight to clientHeight
-      // For hover-cards, we check if the inner content (scrollHeight)
-      // is significantly larger than the container's visible area (clientHeight)
+      // SIA-R84 applies if scroll distance > size.
+      // We check this even if currently visibility: hidden because the DOM
+      // still calculates scrollHeight for block elements.
       const isVerticallyScrollable = el.scrollHeight > el.clientHeight + 2;
       const isHorizontallyScrollable = el.scrollWidth > el.clientWidth + 2;
 
-      // KEY FIX: If it's a hover-reveal card, the scrollHeight usually
-      // exceeds the clientHeight even when the 'hover' class is missing
-      // because the container limits the visible area.
-      return isVerticallyScrollable || isHorizontallyScrollable;
+      // Logic: It's a candidate if it scrolls OR if it's your specific hover container
+      return (
+        isVerticallyScrollable ||
+        isHorizontallyScrollable ||
+        el.classList.contains("card-hover")
+      );
     };
     // NEW: keyboard scroll validation
     const isActuallyKeyboardScrollable = (el: HTMLElement) => {
@@ -1343,15 +1342,22 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       return false;
     };
     const isKeyboardAccessible = (el: HTMLElement) => {
-      // SIA-R84: If it scrolls, it MUST have a tabindex OR a focusable child
-      const hasTabIndex = el.tabIndex >= 0;
+      if (!el) return false;
 
-      // Check for any focusable children (ignoring aria-hidden for a moment
-      // to see if the container is fundamentally capable of focus)
-      const hasFocusableChild =
-        el.querySelector('a, button, input, [tabindex="0"]') !== null;
+      // Pass if the element itself is in the tab order
+      if (el.tabIndex >= 0) return true;
 
-      return hasTabIndex || hasFocusableChild;
+      // Pass if it contains focusable descendants that are NOT hidden from screen readers
+      const focusable = el.querySelectorAll(
+        'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+
+      const hasAccessibleFocus = Array.from(focusable).some((child) => {
+        // If the focusable child is inside an aria-hidden block, it doesn't count for accessibility
+        return !child.closest('[aria-hidden="true"]');
+      });
+
+      return hasAccessibleFocus;
     };
 
     const hasHoverReveal = (el: HTMLElement) => {
@@ -1459,21 +1465,15 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     // 3. The final integrated detection
     const scrollableCandidates = Array.from(document.querySelectorAll("*"))
       .filter((el): el is HTMLElement => el instanceof HTMLElement)
-      // REMOVE 'isVisible' here, or modify it to allow .card-hover
-      .filter((el) => {
-        // If it's hidden but is a .card-hover, we must check it anyway
-        if (el.classList.contains("card-hover")) return true;
-        return isVisible(el);
-      })
       .filter((el) => !isRootElement(el))
-      .filter(isScrollableSiteImprove);
+      // We remove the top-level 'isVisible' filter because .card-hover is hidden by default
+      .filter(isScrollable);
 
-    // CRUCIAL: Find the ones that ARE scrollable but ARE NOT keyboard accessible
     const inaccessibleScrollables = scrollableCandidates.filter(
       (el) => !isKeyboardAccessible(el),
     );
 
-    // This will now correctly keep .card-hover because spans inside are filtered out
+    // Filter for deepest elements to avoid redundant flags
     const finalElements = getDeepestElements(inaccessibleScrollables);
 
     // Output results
@@ -1481,7 +1481,7 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       results.push({
         ruleId: "SIA-R84",
         impact: "moderate",
-        description: "Scrollable elements are not keyboard accessible",
+        description: "Scrollable elements must be keyboard accessible",
         element: outerHtmlSnippet(el),
         selector: getSelector(el),
       });
