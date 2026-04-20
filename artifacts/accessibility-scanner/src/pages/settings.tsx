@@ -1,42 +1,14 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Shield, ShieldCheck, Trash2, CheckCircle2, Plus, Eye, Sun, Moon, Monitor } from "lucide-react";
+import { Shield, ShieldCheck, Trash2, CheckCircle2, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-
-export const ELEMENT_VIEWER_LS_KEY = "a11y-element-viewer-enabled";
-
-export function isElementViewerEnabled(): boolean {
-  try {
-    return localStorage.getItem(ELEMENT_VIEWER_LS_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
 
 export const PROXY_LS_KEY = "a11y-scanner-proxy-pacs";
 export const ACTIVE_PROXY_KEY = "a11y-scanner-active-proxy";
-
-export const THEME_LS_KEY = "a11y-theme";
-export type Theme = "light" | "dark" | "system";
-
-export function getSavedTheme(): Theme {
-  try {
-    const v = localStorage.getItem(THEME_LS_KEY);
-    if (v === "light" || v === "dark" || v === "system") return v;
-  } catch { /* ignore */ }
-  return "system";
-}
-
-export function applyTheme(theme: Theme) {
-  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const useDark = theme === "dark" || (theme === "system" && prefersDark);
-  document.documentElement.classList.toggle("dark", useDark);
-}
 
 export function loadSavedProxies(): string[] {
   try { return JSON.parse(localStorage.getItem(PROXY_LS_KEY) || "[]"); } catch { return []; }
@@ -51,22 +23,11 @@ export default function Settings() {
   const [savedProxies, setSavedProxies] = useState<string[]>([]);
   const [activeProxy, setActiveProxy] = useState<string>("");
   const [newPacUrl, setNewPacUrl] = useState("");
-  const [elementViewerEnabled, setElementViewerEnabledState] = useState<boolean>(false);
-  const [theme, setThemeState] = useState<Theme>("system");
 
   useEffect(() => {
     setSavedProxies(loadSavedProxies());
     setActiveProxy(getActiveProxy());
-    setElementViewerEnabledState(isElementViewerEnabled());
-    setThemeState(getSavedTheme());
   }, []);
-
-  const handleThemeChange = (t: Theme) => {
-    setThemeState(t);
-    localStorage.setItem(THEME_LS_KEY, t);
-    applyTheme(t);
-    toast({ title: `Theme set to ${t === "system" ? "system default" : t === "dark" ? "dark" : "light"}` });
-  };
 
   const addProxy = () => {
     const url = newPacUrl.trim();
@@ -112,44 +73,6 @@ export default function Settings() {
         <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
         <p className="text-muted-foreground mt-1">Configure scanner preferences and proxy settings.</p>
       </div>
-
-      {/* Theme */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Sun className="w-5 h-5 text-muted-foreground" />
-            <CardTitle>Appearance</CardTitle>
-          </div>
-          <CardDescription>
-            Choose a colour scheme for the interface.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-3 gap-3">
-            {(
-              [
-                { value: "light", label: "Light", icon: Sun },
-                { value: "dark",  label: "Dark",  icon: Moon },
-                { value: "system", label: "System", icon: Monitor },
-              ] as { value: Theme; label: string; icon: React.ElementType }[]
-            ).map(({ value, label, icon: Icon }) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => handleThemeChange(value)}
-                className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-all ${
-                  theme === value
-                    ? "border-primary bg-primary/5 text-primary"
-                    : "border-border hover:border-primary/40 hover:bg-muted/40 text-muted-foreground"
-                }`}
-              >
-                <Icon className="w-5 h-5" />
-                <span className="text-sm font-medium">{label}</span>
-              </button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
@@ -252,39 +175,6 @@ export default function Settings() {
           ) : (
             <p className="text-sm text-muted-foreground">No PAC URLs saved yet. Add one above.</p>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Element Viewer */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Eye className="w-5 h-5 text-muted-foreground" />
-            <CardTitle>Element Viewer</CardTitle>
-          </div>
-          <CardDescription>
-            When enabled, a side panel appears next to Page Results on each scan detail page.
-            Click any issue occurrence to inspect its HTML source and live page preview, and
-            navigate between occurrences with Prev / Next controls.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Enable Element Viewer</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Shows HTML source viewer and live page preview alongside issue results
-              </p>
-            </div>
-            <Switch
-              checked={elementViewerEnabled}
-              onCheckedChange={(v) => {
-                setElementViewerEnabledState(v);
-                localStorage.setItem(ELEMENT_VIEWER_LS_KEY, String(v));
-                toast({ title: v ? "Element Viewer enabled" : "Element Viewer disabled" });
-              }}
-            />
-          </div>
         </CardContent>
       </Card>
     </div>
