@@ -11,7 +11,7 @@ import {
   GetScanReportParams,
   ParseSitemapBody,
 } from "@workspace/api-zod";
-import { startScan, cancelScan } from "../lib/scanQueue";
+import { startScan, cancelScan, pauseScan, resumeScan, isScanPaused } from "../lib/scanQueue";
 import { fetchSitemapUrls, parseUrlsFromCsv } from "../lib/sitemap";
 import { logger } from "../lib/logger";
 
@@ -203,7 +203,8 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
     .from(pageResultsTable)
     .where(eq(pageResultsTable.scanId, params.data.id));
 
-  const scanning = pages.find(p => p.status === "scanning");
+  const ACTIVE_STAGES = ["scanning", "navigating", "rendering", "analyzing", "saving"];
+  const scanning = pages.find(p => ACTIVE_STAGES.includes(p.status));
   const currentUrl = scanning ? scanning.url : null;
 
   res.json({
@@ -255,6 +256,71 @@ router.post("/scans/:id/cancel", async (req, res): Promise<void> => {
     createdAt: updated.createdAt.toISOString(),
     completedAt: updated.completedAt?.toISOString() ?? null,
   });
+});
+
+router.post("/scans/:id/pause", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const scanId = parseInt(raw, 10);
+  if (isNaN(scanId)) {
+    res.status(400).json({ error: "Invalid scan ID" });
+    return;
+  }
+
+  const [session] = await db.select()
+    .from(scanSessionsTable)
+    .where(eq(scanSessionsTable.id, scanId));
+
+  if (!session) {
+    res.status(404).json({ error: "Scan not found" });
+    return;
+  }
+
+  const paused = pauseScan(scanId);
+  if (!paused) {
+    res.status(409).json({ error: "Scan is not currently running" });
+    return;
+  }
+
+  await db.update(scanSessionsTable)
+    .set({ status: "paused" })
+    .where(eq(scanSessionsTable.id, scanId));
+
+  res.json({ id: scanId, status: "paused" });
+});
+
+router.post("/scans/:id/resume", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const scanId = parseInt(raw, 10);
+  if (isNaN(scanId)) {
+    res.status(400).json({ error: "Invalid scan ID" });
+    return;
+  }
+
+  const [session] = await db.select()
+    .from(scanSessionsTable)
+    .where(eq(scanSessionsTable.id, scanId));
+
+  if (!session) {
+    res.status(404).json({ error: "Scan not found" });
+    return;
+  }
+
+  if (!isScanPaused(scanId)) {
+    res.status(409).json({ error: "Scan is not paused" });
+    return;
+  }
+
+  const resumed = resumeScan(scanId);
+  if (!resumed) {
+    res.status(409).json({ error: "Scan is not paused" });
+    return;
+  }
+
+  await db.update(scanSessionsTable)
+    .set({ status: "running" })
+    .where(eq(scanSessionsTable.id, scanId));
+
+  res.json({ id: scanId, status: "running" });
 });
 
 router.get("/scans/:id/report", async (req, res): Promise<void> => {
@@ -335,6 +401,87 @@ router.get("/scans/:id/report", async (req, res): Promise<void> => {
     topRules,
     pagesWithMostIssues,
   });
+});
+
+
+// GET /api/pages/:pageId/snapshot — return stored page screenshot as JPEG
+router.get("/pages/:pageId/snapshot", async (req, res): Promise<void> => {
+  const pageId = parseInt(req.params.pageId, 10);
+  if (isNaN(pageId)) {
+    res.status(400).json({ error: "Invalid pageId" });
+    return;
+  }
+  const [page] = await db
+    .select({ screenshot: pageResultsTable.screenshot })
+    .from(pageResultsTable)
+    .where(eq(pageResultsTable.id, pageId));
+
+  if (!page) {
+    res.status(404).json({ error: "Page not found" });
+    return;
+  }
+  if (!page.screenshot) {
+    res.status(404).json({ error: "No snapshot available for this page" });
+    return;
+  }
+  const buf = Buffer.from(page.screenshot, "base64");
+  res.setHeader("Content-Type", "image/jpeg");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.send(buf);
+});
+
+// GET /api/pages/:pageId/html — serve stored Puppeteer-rendered HTML for Element Viewer
+router.get("/pages/:pageId/html", async (req, res): Promise<void> => {
+  const pageId = parseInt(req.params.pageId, 10);
+  if (isNaN(pageId)) {
+    res.status(400).json({ error: "Invalid pageId" });
+    return;
+  }
+  const [page] = await db
+    .select({ pageHtml: pageResultsTable.pageHtml })
+    .from(pageResultsTable)
+    .where(eq(pageResultsTable.id, pageId))
+    .limit(1);
+  if (!page) {
+    res.status(404).json({ error: "Page not found" });
+    return;
+  }
+  if (!page.pageHtml) {
+    res.status(404).json({ error: "No HTML available for this page" });
+    return;
+  }
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.json({ html: page.pageHtml, statusCode: 200 });
+});
+
+// GET /api/page-source?url=... — server-side HTML fetch for Element Viewer (fallback)
+router.get("/page-source", async (req, res): Promise<void> => {
+  const { url } = req.query;
+  if (!url || typeof url !== "string") {
+    res.status(400).json({ error: "url required" });
+    return;
+  }
+  try {
+    const resp = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml",
+      },
+      signal: AbortSignal.timeout(15000),
+      redirect: "follow",
+    });
+    const html = await resp.text();
+    res.json({ html, statusCode: resp.status });
+  } catch (err) {
+    logger.warn({ err, url }, "page-source fetch failed");
+    res
+      .status(502)
+      .json({
+        error: `Failed to fetch: ${err instanceof Error ? err.message : String(err)}`,
+      });
+  }
 });
 
 export default router;

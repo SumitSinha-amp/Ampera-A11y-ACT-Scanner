@@ -151,18 +151,18 @@
   --sidebar: 222 47% 11%;
   --sidebar-foreground: 210 40% 98%;
   --sidebar-border: 217 33% 17%;
-  --sidebar-primary: 255 85% 55%;
+  --sidebar-primary: 255 80% 74%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 217 33% 17%;
   --sidebar-accent-foreground: 210 40% 98%;
-  --sidebar-ring: 255 85% 55%;
+  --sidebar-ring: 255 80% 74%;
 
   --popover: 222 47% 11%;
   --popover-foreground: 210 40% 98%;
   --popover-border: 217 33% 17%;
 
-  --primary: 255 85% 55%;
-  --primary-foreground: 0 0% 100%;
+  --primary: 255 80% 74%;
+  --primary-foreground: 222 47% 11%;
 
   --secondary: 217 33% 17%;
   --secondary-foreground: 210 40% 98%;
