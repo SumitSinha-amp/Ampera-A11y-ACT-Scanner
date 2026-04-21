@@ -4,8 +4,11 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
-const rawPort = process.env.PORT;
+const rawPort = process.env.PORT || 8080;
 
+app.listen(rawPort, () => {
+  console.log(`Server running on port ${rawPort}`);
+});
 const port = rawPort ? Number(rawPort) : 5173;
 
 if (Number.isNaN(port) || port <= 0) {

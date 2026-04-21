@@ -1,12 +1,13 @@
 #!/bin/bash
 set -e
 
-echo "Starting app..."
+echo "=== DEBUG START ==="
 pwd
 ls -la
+ls -la /home/site/wwwroot/artifacts
+ls -la /home/site/wwwroot/artifacts/api-server
+ls -la /home/site/wwwroot/artifacts/api-server/dist
 
-apt-get update -qq
-apt-get install -y -qq chromium
+echo "=== STARTING NODE ==="
 
-echo "Running node app..."
-node /home/site/wwwroot/artifacts/api-server/dist/index.mjs
+node /home/site/wwwroot/artifacts/api-server/dist/index.js

@@ -48,7 +48,7 @@ async function runStartupMigrations(): Promise<void> {
   }
 }
 
-const rawPort = process.env["PORT"];
+const rawPort = process.env.PORT || 8080;
 
 if (!rawPort) {
   throw new Error(
