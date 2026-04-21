@@ -18,13 +18,15 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          
+
       - name: Install dependencies
-      - run: pnpm install --no-frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
+      - name: Build API
+        run: pnpm --filter @workspace/api-server run build
 
-      - run: pnpm --filter @workspace/api-server run build
-      - run: pnpm --filter @workspace/accessibility-scanner run build
+      - name: Build Frontend
+        run: pnpm --filter @workspace/accessibility-scanner run build
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
