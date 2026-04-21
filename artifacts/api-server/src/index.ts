@@ -12,13 +12,13 @@ app.use(
     path.join(__dirname, "../../accessibility-scanner/dist/public")
   )
 );
-
 // Fallback route (VERY IMPORTANT)
-app.get("*", (req, res) => {
+app.get(/.*/, (req, res) => {
   res.sendFile(
     path.join(__dirname, "../../accessibility-scanner/dist/public/index.html")
   );
 });
+
 /**
  * Idempotent startup migration.
  * Creates any tables/columns introduced after the initial deployment so that
