@@ -108,10 +108,6 @@ export default function Settings() {
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground mt-1">Configure scanner preferences and proxy settings.</p>
-      </div>
 
       {/* Theme */}
       <Card>
@@ -281,6 +277,7 @@ export default function Settings() {
               onCheckedChange={(v) => {
                 setElementViewerEnabledState(v);
                 localStorage.setItem(ELEMENT_VIEWER_LS_KEY, String(v));
+                window.dispatchEvent(new Event("storage"));
                 toast({ title: v ? "Element Viewer enabled" : "Element Viewer disabled" });
               }}
             />

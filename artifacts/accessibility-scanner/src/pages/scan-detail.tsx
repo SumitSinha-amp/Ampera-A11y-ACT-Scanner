@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { SIA_RULES } from "@/lib/siaRules";
 import { useParams, Link, useLocation } from "wouter";
 import {
@@ -617,17 +617,19 @@ function IssueGroupList({
                                     <ChevronDown
                                       className={`w-3.5 h-3.5 shrink-0 transition-transform duration-150 ${isExpanded ? "rotate-180" : ""}`}
                                     />
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-6 text-[11px] px-2 gap-1 whitespace-nowrap"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        onSelectOccurrence?.(issue, group);
-                                      }}
-                                    >
-                                      View Details
-                                    </Button>
+                                    {onSelectOccurrence && (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-6 text-[11px] px-2 gap-1 whitespace-nowrap"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onSelectOccurrence(issue, group);
+                                        }}
+                                      >
+                                        View Details
+                                      </Button>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -1053,7 +1055,17 @@ export default function ScanDetail() {
     wcag: "all",
   });
 
-  const [viewerEnabled] = useState<boolean>(() => isElementViewerEnabled());
+  const [viewerEnabled, setViewerEnabled] = useState<boolean>(() => isElementViewerEnabled());
+
+  useEffect(() => {
+    const syncViewer = () => setViewerEnabled(isElementViewerEnabled());
+    window.addEventListener("storage", syncViewer);
+    window.addEventListener("focus", syncViewer);
+    return () => {
+      window.removeEventListener("storage", syncViewer);
+      window.removeEventListener("focus", syncViewer);
+    };
+  }, []);
   const [viewerSel, setViewerSel] = useState<{
     issue: ViewerIssue;
     group: ViewerIssue[];
@@ -1086,7 +1098,10 @@ export default function ScanDetail() {
   const isRunning = scan?.status === "running" || scan?.status === "pending";
   const isPaused = scan?.status === "paused";
   const isActive = isRunning || isPaused;
-  const canRetry = scan?.status === "failed" || scan?.status === "cancelled";
+  const canRetry =
+    scan?.status === "failed" ||
+    scan?.status === "cancelled" ||
+    (scan?.pages ?? []).some((p) => p.status === "failed" || p.status === "pending");
 
   const { data: liveStatus } = useGetScanStatus(scanId, {
     query: {
@@ -1237,6 +1252,14 @@ export default function ScanDetail() {
     <div className="space-y-8">
       <div className="flex justify-between items-start">
         <div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mb-3 -ml-2"
+            onClick={() => setLocation("/scans")}
+          >
+            Back to Scan History
+          </Button>
           {(scan as { projectName?: string | null }).projectName && (
             <div className="flex items-center gap-1.5 mb-1">
               <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Project</span>

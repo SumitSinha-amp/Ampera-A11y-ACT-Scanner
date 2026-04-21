@@ -7,9 +7,13 @@ import {
   Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useState } from "react";
+import SettingsPage from "@/pages/settings";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
+  const [settingsOpen, setSettingsOpen] = useState(location === "/settings");
 
   return (
     <div className="min-h-screen bg-background">
@@ -33,16 +37,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 Documentation
               </Button>
             </Link>
-            <Link href="/settings">
-              <Button
-                variant={location === "/settings" ? "secondary" : "ghost"}
-                size="sm"
-                className="gap-2"
-              >
-                <Settings className="w-4 h-4" />
-                Settings
-              </Button>
-            </Link>
+            <Button
+              variant={location === "/settings" ? "secondary" : "ghost"}
+              size="sm"
+              className="gap-2"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <Settings className="w-4 h-4" />
+              Settings
+            </Button>
           </div>
         </div>
       </header>
@@ -83,6 +86,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <div className="p-6 md:p-8 w-full">{children}</div>
         </main>
       </div>
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-between gap-3">
+              <span>Settings</span>
+              <Button variant="ghost" size="sm" onClick={() => setSettingsOpen(false)}>
+                Back
+              </Button>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-2">
+            <SettingsPage />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

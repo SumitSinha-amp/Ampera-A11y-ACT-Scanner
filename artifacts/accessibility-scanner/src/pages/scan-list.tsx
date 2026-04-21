@@ -9,6 +9,7 @@ import { formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,17 +28,20 @@ export default function ScanList() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [nameFilter, setNameFilter] = useState("");
-  const [dateFilter, setDateFilter] = useState("");
+  const [dateFromFilter, setDateFromFilter] = useState("");
+  const [dateToFilter, setDateToFilter] = useState("");
 
   const filteredScans = useMemo(() => {
     return (scans ?? []).filter((scan) => {
       const s = scan as typeof scan & { projectName?: string | null };
       const searchTarget = [scan.name, s.projectName, `scan #${scan.id}`].filter(Boolean).join(" ").toLowerCase();
       const matchesName = !nameFilter || searchTarget.includes(nameFilter.toLowerCase());
-      const matchesDate = !dateFilter || new Date(scan.createdAt).toISOString().slice(0, 10) === dateFilter;
-      return matchesName && matchesDate;
+      const createdDate = new Date(scan.createdAt).toISOString().slice(0, 10);
+      const matchesDateFrom = !dateFromFilter || createdDate >= dateFromFilter;
+      const matchesDateTo = !dateToFilter || createdDate <= dateToFilter;
+      return matchesName && matchesDateFrom && matchesDateTo;
     });
-  }, [scans, nameFilter, dateFilter]);
+  }, [scans, nameFilter, dateFromFilter, dateToFilter]);
 
   const handleDelete = (id: number) => {
     deleteScan.mutate({ id }, {
@@ -67,7 +71,7 @@ export default function ScanList() {
         </Link>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-3 p-4 border rounded-lg bg-card">
+      <div className="flex flex-col md:flex-row md:items-end gap-3 p-4 border rounded-lg bg-card">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
@@ -77,17 +81,34 @@ export default function ScanList() {
             className="pl-9"
           />
         </div>
-        <div className="relative w-full md:w-64">
-          <CalendarDays className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            type="date"
-            value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-            className="pl-9"
-          />
+        <div className="space-y-1 w-full md:w-44 shrink-0">
+          <Label className="text-xs text-muted-foreground">From</Label>
+          <div className="relative">
+            <CalendarDays className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              type="date"
+              value={dateFromFilter}
+              onChange={(e) => setDateFromFilter(e.target.value)}
+              className="pl-9"
+              aria-label="From date"
+            />
+          </div>
         </div>
-        {(nameFilter || dateFilter) && (
-          <Button variant="ghost" onClick={() => { setNameFilter(""); setDateFilter(""); }}>
+        <div className="space-y-1 w-full md:w-44 shrink-0">
+          <Label className="text-xs text-muted-foreground">To</Label>
+          <div className="relative">
+            <CalendarDays className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              type="date"
+              value={dateToFilter}
+              onChange={(e) => setDateToFilter(e.target.value)}
+              className="pl-9"
+              aria-label="To date"
+            />
+          </div>
+        </div>
+        {(nameFilter || dateFromFilter || dateToFilter) && (
+          <Button variant="ghost" onClick={() => { setNameFilter(""); setDateFromFilter(""); setDateToFilter(""); }}>
             <X className="w-4 h-4 mr-2" />
             Clear
           </Button>

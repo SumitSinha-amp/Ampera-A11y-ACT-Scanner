@@ -984,10 +984,6 @@ export default function Home() {
   const startScan = () => {
     let valid = true;
 
-    if (!projectId) {
-      setProjectError(true);
-      valid = false;
-    }
     if (!scanName.trim()) {
       setScanNameError(true);
       valid = false;
@@ -996,7 +992,7 @@ export default function Home() {
     if (!valid) {
       toast({
         title: "Required fields missing",
-        description: "Please select a project and enter a scan name.",
+        description: "Please enter a scan name.",
         variant: "destructive",
       });
       return;
@@ -1071,7 +1067,7 @@ export default function Home() {
         data: {
           urls: parsedUrls,
           name: scanName.trim(),
-          projectId: projectId ?? undefined,
+          projectId,
           options: {
             maxConcurrency: 5,
             ...(selectedRules.length > 0 ? { rules: selectedRules } : {}),
@@ -1131,9 +1127,7 @@ export default function Home() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-2">
-              <Label>
-                Project <span className="text-destructive">*</span>
-              </Label>
+              <Label>Project</Label>
               <ProjectSelector
                 value={projectId}
                 onChange={(id, name) => {
