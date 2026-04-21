@@ -1,7 +1,24 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { pool } from "@workspace/db";
+import path from "path";
 
+
+const __dirname = new URL('.', import.meta.url).pathname;
+
+// Serve frontend static files
+app.use(
+  (await import("express")).default.static(
+    path.join(__dirname, "../../accessibility-scanner/dist/public")
+  )
+);
+
+// Fallback route (VERY IMPORTANT)
+app.get("*", (req, res) => {
+  res.sendFile(
+    path.join(__dirname, "../../accessibility-scanner/dist/public/index.html")
+  );
+});
 /**
  * Idempotent startup migration.
  * Creates any tables/columns introduced after the initial deployment so that
@@ -60,23 +77,20 @@ if (!rawPort) {
   );
 }
 
-const port = Number(rawPort);
+const port = Number(process.env.PORT || 8080);
 
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-// Run migrations before accepting traffic.
-runStartupMigrations().then(() => {
-  app.listen(port, (err) => {
-    if (err) {
-      logger.error({ err }, "Error listening on port");
-      process.exit(1);
-    }
-
-    logger.info({ port }, "Server listening");
-  });
-}).catch((err) => {
-  logger.error({ err }, "Failed to run startup migrations");
-  process.exit(1);
+// Run migrations before accepting traffic
+runStartupMigrations()
+  .then(() => {
+    app.listen(port, () => {
+      logger.info({ port }, "Server listening");
+    });
+  })
+  .catch((err) => {
+    logger.error({ err }, "Failed to run startup migrations");
+    process.exit(1);
 });
