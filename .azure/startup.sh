@@ -12,4 +12,4 @@ find /home/site/wwwroot -name "*.mjs"
 
 echo "=== START NODE ==="
 
-node /home/site/wwwroot/artifacts/api-server/dist/index.js
+node /home/site/wwwroot/artifacts/api-server/dist/index.mjs
