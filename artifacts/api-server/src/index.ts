@@ -50,6 +50,10 @@ async function runStartupMigrations(): Promise<void> {
 
 const rawPort = process.env.PORT || 8080;
 
+app.listen(rawPort, () => {
+  console.log(`Server running on port ${rawPort}`);
+});
+
 if (!rawPort) {
   throw new Error(
     "PORT environment variable is required but was not provided.",
