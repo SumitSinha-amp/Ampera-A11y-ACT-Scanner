@@ -18,8 +18,10 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+          
+      - name: Install dependencies
+      - run: pnpm install --no-frozen-lockfile
 
-      - run: pnpm install --frozen-lockfile
 
       - run: pnpm --filter @workspace/api-server run build
       - run: pnpm --filter @workspace/accessibility-scanner run build
