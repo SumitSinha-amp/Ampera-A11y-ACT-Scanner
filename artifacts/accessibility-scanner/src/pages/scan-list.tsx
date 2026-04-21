@@ -3,7 +3,7 @@ import { useListScans, useDeleteScan, getListScansQueryKey } from "@workspace/ap
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Trash2, FileText, Loader2, Search, X, CalendarDays } from "lucide-react";
+import { Trash2, FileText, Loader2, Search, X, CalendarDays, FolderOpen } from "lucide-react";
 import { getStatusBadge } from "@/lib/status-badge";
 import { formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -31,7 +31,9 @@ export default function ScanList() {
 
   const filteredScans = useMemo(() => {
     return (scans ?? []).filter((scan) => {
-      const matchesName = !nameFilter || (scan.name || `scan #${scan.id}`).toLowerCase().includes(nameFilter.toLowerCase());
+      const s = scan as typeof scan & { projectName?: string | null };
+      const searchTarget = [scan.name, s.projectName, `scan #${scan.id}`].filter(Boolean).join(" ").toLowerCase();
+      const matchesName = !nameFilter || searchTarget.includes(nameFilter.toLowerCase());
       const matchesDate = !dateFilter || new Date(scan.createdAt).toISOString().slice(0, 10) === dateFilter;
       return matchesName && matchesDate;
     });
@@ -96,7 +98,7 @@ export default function ScanList() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
+              <TableHead>Project / Scan Name</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Progress</TableHead>
               <TableHead>Issues (Critical)</TableHead>
@@ -112,9 +114,17 @@ export default function ScanList() {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredScans.map((scan) => (
+              filteredScans.map((scan) => {
+                const s = scan as typeof scan & { projectName?: string | null };
+                return (
                 <TableRow key={scan.id}>
                   <TableCell className="font-medium">
+                    {s.projectName && (
+                      <div className="flex items-center gap-1 mb-0.5">
+                        <FolderOpen className="w-3 h-3 text-muted-foreground shrink-0" />
+                        <span className="text-xs text-muted-foreground truncate">{s.projectName}</span>
+                      </div>
+                    )}
                     <Link href={`/scans/${scan.id}`} className="hover:underline text-primary">
                       {scan.name || `Scan #${scan.id}`}
                     </Link>
@@ -166,7 +176,8 @@ export default function ScanList() {
                     </div>
                   </TableCell>
                 </TableRow>
-              ))
+                );
+              })
             )}
           </TableBody>
         </Table>

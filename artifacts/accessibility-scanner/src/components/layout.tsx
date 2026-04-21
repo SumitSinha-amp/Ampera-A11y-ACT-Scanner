@@ -80,7 +80,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </aside>
         <main className="flex-1 min-w-0 overflow-auto">
-          <div className="p-6 md:p-8 max-w-7xl mx-auto">{children}</div>
+          <div className="p-6 md:p-8 w-full">{children}</div>
         </main>
       </div>
     </div>
