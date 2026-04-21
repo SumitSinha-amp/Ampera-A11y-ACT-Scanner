@@ -1,13 +1,15 @@
 #!/bin/bash
 set -e
 
-echo "=== DEBUG START ==="
-pwd
-ls -la
-ls -la /home/site/wwwroot/artifacts
-ls -la /home/site/wwwroot/artifacts/api-server
-ls -la /home/site/wwwroot/artifacts/api-server/dist
+echo "=== CHECK DIST ==="
 
-echo "=== STARTING NODE ==="
+ls -la /home/site/wwwroot/artifacts/api-server || echo "NO API FOLDER"
+ls -la /home/site/wwwroot/artifacts/api-server/dist || echo "NO DIST"
+
+echo "=== FIND ENTRY FILE ==="
+find /home/site/wwwroot -name "*.js"
+find /home/site/wwwroot -name "*.mjs"
+
+echo "=== START NODE ==="
 
 node /home/site/wwwroot/artifacts/api-server/dist/index.js
