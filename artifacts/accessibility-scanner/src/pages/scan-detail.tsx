@@ -1098,6 +1098,8 @@ export default function ScanDetail() {
   const isRunning = scan?.status === "running" || scan?.status === "pending";
   const isPaused = scan?.status === "paused";
   const isActive = isRunning || isPaused;
+  const isUpdatingResults =
+    scan?.status === "completed" && (!scan.pages || scan.pages.length === 0);
   const canRetry =
     scan?.status === "failed" ||
     scan?.status === "cancelled" ||
@@ -1105,7 +1107,7 @@ export default function ScanDetail() {
 
   const { data: liveStatus } = useGetScanStatus(scanId, {
     query: {
-      enabled: !!scanId && isActive,
+      enabled: !!scanId && (isActive || isUpdatingResults),
       queryKey: getGetScanStatusQueryKey(scanId),
       refetchInterval: 2000,
     },
@@ -1242,11 +1244,14 @@ export default function ScanDetail() {
     );
   }
 
-  const displayStatus = liveStatus?.status || scan.status;
+  const displayStatus = isUpdatingResults ? "updating" : (liveStatus?.status || scan.status);
   const totalUrls = liveStatus?.totalUrls || scan.totalUrls;
   const scannedUrls = liveStatus?.scannedUrls || scan.scannedUrls;
   const progressPercent =
     totalUrls > 0 ? Math.round((scannedUrls / totalUrls) * 100) : 0;
+  const hasLoadedResults = !!scan.pages?.length;
+  const showUpdatingResults =
+    isUpdatingResults || (scan.status === "completed" && !hasLoadedResults);
 
   return (
     <div className="space-y-8">
@@ -1336,7 +1341,7 @@ export default function ScanDetail() {
               Retry Scan
             </Button>
           )}
-          {!isRunning && scan.status === "completed" && (
+          {!isRunning && scan.status === "completed" && !isUpdatingResults && (
             <Link href={`/scans/${scan.id}/report`}>
               <Button>
                 <BarChart2 className="w-4 h-4 mr-2" />
@@ -1355,6 +1360,11 @@ export default function ScanDetail() {
               Currently scanning: {liveStatus.currentUrl}
             </CardDescription>
           )}
+          {showUpdatingResults && (
+            <CardDescription className="text-amber-600">
+              Updating results, please wait...
+            </CardDescription>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex justify-between text-sm font-medium">
@@ -1368,7 +1378,7 @@ export default function ScanDetail() {
       </Card>
 
       {/* Completed page results */}
-      {!isActive && scan.pages && scan.pages.length > 0 && (
+      {!showUpdatingResults && !isActive && scan.pages && scan.pages.length > 0 && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-semibold tracking-tight">

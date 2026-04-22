@@ -98,6 +98,10 @@ const ALL_RULES: { id: string; label: string }[] = [
   },
   { id: "SIA-R16", label: "Required ARIA attribute is missing (WCAG 4.1.2)" },
   { id: "SIA-R17", label: "Hidden element has focusable content (WCAG 4.1.2)" },
+  {
+    id: "SIA-R17(1)",
+    label: "Role with implied hidden content has keyboard focus (WCAG 4.1.2)",
+  },
   { id: "SIA-R18", label: "Unsupported ARIA attribute used (WCAG 4.1.2)" },
   { id: "SIA-R19", label: "Invalid ARIA value used (WCAG 4.1.2)" },
   { id: "SIA-R20", label: "Invalid ARIA attribute used (WCAG 4.1.2)" },
@@ -438,31 +442,41 @@ function InlineScanMonitor({
   const pauseScanMutation = useMutation({
     mutationFn: async () => {
       const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
-      const res = await fetch(`${BASE}/api/scans/${scanId}/pause`, { method: "POST" });
+      const res = await fetch(`${BASE}/api/scans/${scanId}/pause`, {
+        method: "POST",
+      });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
     onSuccess: () => {
       toast({ title: "Scan paused" });
       queryClient.invalidateQueries({ queryKey: getGetScanQueryKey(scanId) });
-      queryClient.invalidateQueries({ queryKey: getGetScanStatusQueryKey(scanId) });
+      queryClient.invalidateQueries({
+        queryKey: getGetScanStatusQueryKey(scanId),
+      });
     },
-    onError: () => toast({ title: "Could not pause scan", variant: "destructive" }),
+    onError: () =>
+      toast({ title: "Could not pause scan", variant: "destructive" }),
   });
 
   const resumeScanMutation = useMutation({
     mutationFn: async () => {
       const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
-      const res = await fetch(`${BASE}/api/scans/${scanId}/resume`, { method: "POST" });
+      const res = await fetch(`${BASE}/api/scans/${scanId}/resume`, {
+        method: "POST",
+      });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
     onSuccess: () => {
       toast({ title: "Scan resumed" });
       queryClient.invalidateQueries({ queryKey: getGetScanQueryKey(scanId) });
-      queryClient.invalidateQueries({ queryKey: getGetScanStatusQueryKey(scanId) });
+      queryClient.invalidateQueries({
+        queryKey: getGetScanStatusQueryKey(scanId),
+      });
     },
-    onError: () => toast({ title: "Could not resume scan", variant: "destructive" }),
+    onError: () =>
+      toast({ title: "Could not resume scan", variant: "destructive" }),
   });
 
   if (!scan) {
@@ -545,8 +559,8 @@ function InlineScanMonitor({
             {getStatusBadge(displayStatus)}
           </div>
           <div className="flex items-center gap-2">
-            {(isRunning || isPaused) && (
-              isPaused ? (
+            {(isRunning || isPaused) &&
+              (isPaused ? (
                 <Button
                   variant="outline"
                   size="sm"
@@ -566,8 +580,7 @@ function InlineScanMonitor({
                   <Pause className="w-4 h-4 mr-1.5" />
                   Pause
                 </Button>
-              )
-            )}
+              ))}
             <Link href={`/scans/${scanId}`}>
               <Button variant="outline" size="sm">
                 <BarChart2 className="w-4 h-4 mr-2" />
@@ -591,7 +604,11 @@ function InlineScanMonitor({
           <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
             <span>
               {scannedUrls} of {totalUrls} URLs
-              {isPaused && <span className="ml-2 text-amber-500 font-medium">— Paused</span>}
+              {isPaused && (
+                <span className="ml-2 text-amber-500 font-medium">
+                  — Paused
+                </span>
+              )}
             </span>
             <span className="flex items-center gap-2">
               {etaText && (
@@ -609,7 +626,7 @@ function InlineScanMonitor({
         {/* Live page status table while running */}
         {isRunning && liveStatus?.pages && liveStatus.pages.length > 0 && (
           <div className="border rounded-md overflow-hidden">
-            <div className="max-h-48 overflow-y-auto">
+            <div className="overflow-visible h-auto">
               <table className="w-full text-xs">
                 <thead className="bg-muted sticky top-0">
                   <tr>
@@ -834,37 +851,42 @@ function InlineScanMonitor({
             )}
 
             {/* Rules with 0 occurrences across all pages (multi-rule scans) */}
-            {selectedRulesForScan.length >= 2 && (() => {
-              const zeroRules = selectedRulesForScan.filter((r) => !byRule[r]);
-              if (zeroRules.length === 0) return null;
-              return (
-                <div className="pt-1">
-                  <p className="text-xs text-muted-foreground mb-2">
-                    Rules with 0 occurrences across all pages:
-                  </p>
-                  <div className="space-y-1.5">
-                    {zeroRules.map((ruleId) => (
-                      <div
-                        key={ruleId}
-                        className="border rounded-md bg-green-50/40 dark:bg-green-950/10 border-green-200/60 dark:border-green-900/40 px-3 py-2 flex items-center gap-2"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
-                        <span className="font-mono text-xs text-primary">{ruleId}</span>
-                        <span className="text-xs text-foreground/70 truncate flex-1">
-                          {SIA_RULES[ruleId]?.title ?? "No issues detected"}
-                        </span>
-                        <Badge
-                          variant="secondary"
-                          className="text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 font-mono text-xs shrink-0"
+            {selectedRulesForScan.length >= 2 &&
+              (() => {
+                const zeroRules = selectedRulesForScan.filter(
+                  (r) => !byRule[r],
+                );
+                if (zeroRules.length === 0) return null;
+                return (
+                  <div className="pt-1">
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Rules with 0 occurrences across all pages:
+                    </p>
+                    <div className="space-y-1.5">
+                      {zeroRules.map((ruleId) => (
+                        <div
+                          key={ruleId}
+                          className="border rounded-md bg-green-50/40 dark:bg-green-950/10 border-green-200/60 dark:border-green-900/40 px-3 py-2 flex items-center gap-2"
                         >
-                          0 occurrences
-                        </Badge>
-                      </div>
-                    ))}
+                          <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                          <span className="font-mono text-xs text-primary">
+                            {ruleId}
+                          </span>
+                          <span className="text-xs text-foreground/70 truncate flex-1">
+                            {SIA_RULES[ruleId]?.title ?? "No issues detected"}
+                          </span>
+                          <Badge
+                            variant="secondary"
+                            className="text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 font-mono text-xs shrink-0"
+                          >
+                            0 occurrences
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              );
-            })()}
+                );
+              })()}
           </div>
         )}
       </CardContent>
@@ -888,6 +910,7 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [parsedUrls, setParsedUrls] = useState<string[]>([]);
+  const [startingScan, setStartingScan] = useState(false);
 
   // Proxy PAC state — PAC URL is managed in Settings; here we just toggle it on/off
   const [proxyEnabled, setProxyEnabled] = useState(false);
@@ -1023,30 +1046,33 @@ export default function Home() {
     // Split hostname into parts and check if any part starts with a known non-prod prefix.
     // This catches variants like stgwww, stg2, stg2www, prewww, preprod-, qa2, etc.
     const ENV_PREFIXES = [
-      "stg", "stage", "staging",           // stg, stg2, stgwww, stg2www, stage, staging
-      "dev",                                // dev, dev2, devwww
-      "preprod", "pre-prod", "prewww",      // preprod, preprod-, preprodwww, prewww
-      "uat",                                // uat, uat2, uatwww
-      "qa",                                 // qa, qa2, qawww
-      "test",                               // test, test2, testwww
-      "sit",                                // system integration testing
-      "sandbox",                            // sandbox envs
-      "nonprod", "non-prod",               // nonprod, non-prod
-      "beta",                               // beta environments
-      "alpha",                              // alpha environments
-      "rc",                                 // release candidates
-      "hotfix",                             // hotfix branches
-      "perf",                               // performance testing
-      "load",                               // load testing
+      "stg",
+      "stage",
+      "staging", // stg, stg2, stgwww, stg2www, stage, staging
+      "dev", // dev, dev2, devwww
+      "preprod",
+      "pre-prod",
+      "prewww", // preprod, preprod-, preprodwww, prewww
+      "uat", // uat, uat2, uatwww
+      "qa", // qa, qa2, qawww
+      "test", // test, test2, testwww
+      "sit", // system integration testing
+      "sandbox", // sandbox envs
+      "nonprod",
+      "non-prod", // nonprod, non-prod
+      "beta", // beta environments
+      "alpha", // alpha environments
+      "rc", // release candidates
+      "hotfix", // hotfix branches
+      "perf", // performance testing
+      "load", // load testing
     ];
     const internalUrls = parsedUrls.filter((u) => {
       try {
         const { hostname } = new URL(u);
         const parts = hostname.split(".");
         return parts.some((part) =>
-          ENV_PREFIXES.some((prefix) =>
-            part.toLowerCase().startsWith(prefix),
-          ),
+          ENV_PREFIXES.some((prefix) => part.toLowerCase().startsWith(prefix)),
         );
       } catch {
         return ENV_PREFIXES.some((prefix) => u.toLowerCase().includes(prefix));
@@ -1055,13 +1081,13 @@ export default function Home() {
     if (internalUrls.length > 0 && !effectiveProxy) {
       toast({
         title: "Proxy PAC required for internal URLs",
-        description:
-          `${internalUrls.length} URL${internalUrls.length > 1 ? "s appear" : " appears"} to be a stage/dev/preprod environment. Enable the proxy toggle and add a PAC file URL in Settings to scan internal addresses.`,
+        description: `${internalUrls.length} URL${internalUrls.length > 1 ? "s appear" : " appears"} to be a stage/dev/preprod environment. Enable the proxy toggle and add a PAC file URL in Settings to scan internal addresses.`,
         variant: "destructive",
       });
       return;
     }
 
+    setStartingScan(true);
     createScan.mutate(
       {
         data: {
@@ -1078,11 +1104,13 @@ export default function Home() {
       {
         onSuccess: (data) => {
           setActiveScanId(data.id);
+          setStartingScan(false);
         },
         onError: () => {
+          setStartingScan(false);
           toast({
-            title: "Error starting scan",
-            description: "Could not start the scan",
+            title: "Scan could not be started",
+            description: "Please try again in a moment.",
             variant: "destructive",
           });
         },
@@ -1138,7 +1166,9 @@ export default function Home() {
                 error={projectError}
               />
               {projectError && (
-                <p className="text-xs text-destructive">Please select or create a project.</p>
+                <p className="text-xs text-destructive">
+                  Please select or create a project.
+                </p>
               )}
             </div>
 
@@ -1154,10 +1184,16 @@ export default function Home() {
                   setScanName(e.target.value);
                   if (e.target.value.trim()) setScanNameError(false);
                 }}
-                className={scanNameError ? "border-destructive ring-1 ring-destructive" : ""}
+                className={
+                  scanNameError
+                    ? "border-destructive ring-1 ring-destructive"
+                    : ""
+                }
               />
               {scanNameError && (
-                <p className="text-xs text-destructive">Scan name is required.</p>
+                <p className="text-xs text-destructive">
+                  Scan name is required.
+                </p>
               )}
             </div>
 
@@ -1269,7 +1305,9 @@ export default function Home() {
                 <AlertTitle className="flex items-center gap-2">
                   Ready to scan {parsedUrls.length} URL
                   {parsedUrls.length !== 1 ? "s" : ""}
-                  <span className={`ml-1 text-xs font-mono px-1.5 py-0.5 rounded ${parsedUrls.length >= URL_LIMIT ? "bg-destructive/15 text-destructive" : "bg-muted-foreground/15 text-muted-foreground"}`}>
+                  <span
+                    className={`ml-1 text-xs font-mono px-1.5 py-0.5 rounded ${parsedUrls.length >= URL_LIMIT ? "bg-destructive/15 text-destructive" : "bg-muted-foreground/15 text-muted-foreground"}`}
+                  >
                     {parsedUrls.length} / {URL_LIMIT}
                   </span>
                 </AlertTitle>
@@ -1383,10 +1421,12 @@ export default function Home() {
             <Button
               size="lg"
               onClick={startScan}
-              disabled={parsedUrls.length === 0 || createScan.isPending}
+              disabled={
+                parsedUrls.length === 0 || createScan.isPending || startingScan
+              }
               className="w-full sm:w-auto"
             >
-              {createScan.isPending ? (
+              {createScan.isPending || startingScan ? (
                 <Loader2 className="w-5 h-5 mr-2 animate-spin" />
               ) : null}
               {proxyEnabled && activeProxyPac

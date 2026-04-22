@@ -274,6 +274,11 @@ const RULE_DESCRIPTIONS: Record<
     remediation:
       "Remove focusable elements from hidden content or make them visible",
   },
+  "SIA-R17(1)": {
+    type: "Issue",
+    description: "Role with implied hidden content has keyboard focus",
+    remediation: "Remove role from element with focusable elements",
+  },
   "SIA-R18": {
     type: "Issue",
     description: "Unsupported ARIA attribute is used",
@@ -816,7 +821,9 @@ function clearChromeLocks(): void {
   removeLocks(CHROME_PROFILE_DIR);
   // Sweep one level of subdirs so proxy/ and stale session-* dirs are cleaned
   try {
-    for (const entry of readdirSync(CHROME_PROFILE_DIR, { withFileTypes: true })) {
+    for (const entry of readdirSync(CHROME_PROFILE_DIR, {
+      withFileTypes: true,
+    })) {
       if (entry.isDirectory()) {
         removeLocks(path.join(CHROME_PROFILE_DIR, entry.name));
       }
@@ -1017,7 +1024,7 @@ async function _scanPageInternal(
   } = {},
 ): Promise<PageScanResult> {
   const {
-    timeout = 90000,
+    timeout = 60000,
     waitForNetworkIdle = true,
     bypassCSP = true,
     onStage,
@@ -1072,7 +1079,7 @@ async function _scanPageInternal(
     // Optionally wait for network to settle (up to 15s) — but never let it block scanning
     if (waitForNetworkIdle) {
       try {
-        await page.waitForNetworkIdle({ idleTime: 500, timeout: 15000 });
+        await page.waitForNetworkIdle({ idleTime: 400, timeout: 10000 });
       } catch {
         // Network didn't fully settle — that's fine, the DOM is ready; continue scanning
         logger.info(
@@ -1110,7 +1117,7 @@ async function _scanPageInternal(
         await Promise.race([
           page.waitForNavigation({
             waitUntil: "domcontentloaded",
-            timeout: 30000,
+            timeout: 20000,
           }),
           new Promise<void>((resolve) => setTimeout(resolve, 30000)),
         ]);
@@ -1145,7 +1152,7 @@ async function _scanPageInternal(
           await Promise.race([
             page.waitForNavigation({
               waitUntil: "domcontentloaded",
-              timeout: 25000,
+              timeout: 15000,
             }),
             new Promise<void>((resolve) => setTimeout(resolve, 25000)),
           ]);
@@ -2250,14 +2257,6 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
         video.hasAttribute("playsinline")
       )
         return; // background/ambient video pattern
-      // Skip VideoJS-managed players — they provide their own CC interface
-      if (
-        video.classList.contains("vjs-tech") ||
-        video.closest(".video-js") ||
-        video.closest("[data-comp*='Video']") ||
-        video.closest(".ks-video-player")
-      )
-        return;
       if (!isVisible(video)) return;
       // Skip very small videos (likely decorative)
       const rect = video.getBoundingClientRect();
@@ -2265,7 +2264,12 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       const hasCaptions = video.querySelector(
         'track[kind="captions"], track[kind="subtitles"]',
       );
-      if (!hasCaptions) {
+      // Check if Video.js added tracks dynamically
+      const hasTextTracks =
+        (video as HTMLVideoElement).textTracks &&
+        (video as HTMLVideoElement).textTracks.length > 0;
+
+      if (!hasCaptions && !hasTextTracks) {
         results.push({
           ruleId: "SIA-R22",
           type: "Issue",
@@ -2825,15 +2829,124 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     // ─── SIA-R37: Video without audio description track ───────────────────────
     document.querySelectorAll("video").forEach((el) => {
       if (!isVisible(el)) return;
-      const tracks = el.querySelectorAll("track[kind='descriptions']");
-      if (tracks.length === 0) {
+
+      const videoEl = el as HTMLVideoElement;
+
+      const hasDescriptionTrack = Array.from(videoEl.textTracks || []).some(
+        (t: any) => t.kind === "descriptions",
+      );
+
+      const hasRenderedDescriptions = !!el
+        .closest(".video-js")
+        ?.querySelector(".vjs-text-track-cue");
+
+      const nearbyText = (
+        el.parentElement?.textContent ||
+        el.closest("figure, section, article, div")?.textContent ||
+        ""
+      ).toLowerCase();
+
+      const hasTranscriptHint = /transcript/i.test(nearbyText);
+      // Video.js fallback (rendered cues)
+      const hasAnyCaptions = hasCaptions || hasRenderedCaptions;
+
+      if (!hasDescriptionTrack && !hasRenderedDescriptions) {
         results.push({
           ruleId: "SIA-R37",
           type: "Potential Issue",
           impact: "serious",
-          description: `Video element is missing an audio description track (<track kind='descriptions'>)`,
+          description:
+            "Video element is missing an audio description track (<track kind='descriptions'>)",
           element: outerHtmlSnippet(el),
           selector: getSelector(el),
+        });
+      }
+    });
+
+    // Extra fallback for players that render captions/descriptions outside <track>
+    document.querySelectorAll(".video-js, video").forEach((container) => {
+      const hasVideo =
+        container.querySelector?.("video") ?? container.tagName === "VIDEO";
+      if (!hasVideo) return;
+      const text = (container.textContent || "").toLowerCase();
+      const hasVttReference =
+        /\.vtt(\?|$)|captions?|subtitles?|descriptions?|transcript/i.test(text);
+      if (hasVttReference) return;
+      if (container.querySelector?.("track")) return;
+      if (
+        container.querySelector?.(
+          ".vjs-subs-caps-button, .vjs-descriptions-button",
+        )
+      )
+        return;
+      results.push({
+        ruleId: "SIA-R37",
+        type: "Potential Issue",
+        impact: "serious",
+        description:
+          "Video container appears to have no caption or description resources available.",
+        element: outerHtmlSnippet(container as Element),
+        selector: getSelector(container as Element),
+      });
+    });
+
+    // ─── SIA-R17(1): Role with implied hidden content has keyboard focus ────────────────────────────
+    const interactiveSelector =
+      "a[href], button, input, select, textarea, [role='button'], [role='link'], [role='menuitem'], [role='tab'], [tabindex]:not([tabindex='-1'])";
+    const roleSelector =
+      "[role='button'],[role='link'],[role='menuitem'],[role='tab'],[role='option'],[role='switch'],[role='checkbox'],[role='radio'],[role='treeitem'],[role='menuitemcheckbox'],[role='menuitemradio']";
+    const seenR17 = new Set<string>();
+    document.querySelectorAll(roleSelector).forEach((el) => {
+      const nestedInteractive = Array.from(
+        el.querySelectorAll(interactiveSelector),
+      ).filter((child) => child !== el);
+      nestedInteractive.forEach((child) => {
+        const key = `${getSelector(el)}|${getSelector(child)}`;
+        if (seenR17.has(key)) return;
+        seenR17.add(key);
+        results.push({
+          ruleId: "SIA-R17(1)",
+          type: "Issue",
+          impact: "serious",
+          description:
+            "Element with an interactive role contains nested interactive content.",
+          element: outerHtmlSnippet(el),
+          selector: getSelector(el),
+        });
+      });
+    });
+    document.querySelectorAll("a[href],button").forEach((el) => {
+      const nestedRole = Array.from(el.querySelectorAll(roleSelector)).find(
+        (child) => child !== el,
+      );
+      if (!nestedRole) return;
+      const key = `${getSelector(el)}|${getSelector(nestedRole)}`;
+      if (seenR17.has(key)) return;
+      seenR17.add(key);
+      results.push({
+        ruleId: "SIA-R17(1)",
+        type: "Issue",
+        impact: "serious",
+        description:
+          "Interactive content contains an element with an interactive role.",
+        element: outerHtmlSnippet(el),
+        selector: getSelector(el),
+      });
+    });
+    document.querySelectorAll(interactiveSelector).forEach((el) => {
+      const ancestorInteractive = el.parentElement?.closest(roleSelector);
+      if (ancestorInteractive && ancestorInteractive !== el) {
+        const key = `${getSelector(ancestorInteractive)}|${getSelector(el)}`;
+        if (seenR17.has(key)) return;
+        seenR17.add(key);
+        results.push({
+          ruleId: "SIA-R17(1)",
+          type: "Issue",
+          impact: "serious",
+          description:
+            "Focusable interactive content is nested inside an interactive container.",
+          element: outerHtmlSnippet(ancestorInteractive),
+          selector: getSelector(ancestorInteractive),
         });
       }
     });
@@ -3313,7 +3426,66 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
         });
       });
     });
-
+    // ─── SIA-R17(1): Role with implied hidden content has keyboard focus ────────────────────────────
+    const hiddenInteractiveSelector =
+      "a[href], button, input, select, textarea, [role='button'], [role='link'], [role='menuitem'], [role='tab'], [tabindex]:not([tabindex='-1'])";
+    const hiddenRoleSelector =
+      "[role='button'],[role='link'],[role='menuitem'],[role='tab'],[role='option'],[role='switch'],[role='checkbox'],[role='radio'],[role='treeitem'],[role='menuitemcheckbox'],[role='menuitemradio']";
+    const hiddenSeenR17 = new Set<string>();
+    document.querySelectorAll(hiddenRoleSelector).forEach((el) => {
+      const nestedInteractive = Array.from(
+        el.querySelectorAll(hiddenInteractiveSelector),
+      ).filter((child) => child !== el);
+      nestedInteractive.forEach((child) => {
+        const key = `${getSelector(el)}|${getSelector(child)}`;
+        if (hiddenSeenR17.has(key)) return;
+        hiddenSeenR17.add(key);
+        results.push({
+          ruleId: "SIA-R17(1)",
+          type: "Issue",
+          impact: "serious",
+          description:
+            "Element with an interactive role contains nested interactive content.",
+          element: outerHtmlSnippet(el),
+          selector: getSelector(el),
+        });
+      });
+    });
+    document.querySelectorAll("a[href],button").forEach((el) => {
+      const nestedRole = Array.from(
+        el.querySelectorAll(hiddenRoleSelector),
+      ).find((child) => child !== el);
+      if (!nestedRole) return;
+      const key = `${getSelector(el)}|${getSelector(nestedRole)}`;
+      if (hiddenSeenR17.has(key)) return;
+      hiddenSeenR17.add(key);
+      results.push({
+        ruleId: "SIA-R17(1)",
+        type: "Issue",
+        impact: "serious",
+        description:
+          "Interactive content contains an element with an interactive role.",
+        element: outerHtmlSnippet(el),
+        selector: getSelector(el),
+      });
+    });
+    document.querySelectorAll(hiddenInteractiveSelector).forEach((el) => {
+      const ancestorInteractive = el.parentElement?.closest(hiddenRoleSelector);
+      if (ancestorInteractive && ancestorInteractive !== el) {
+        const key = `${getSelector(ancestorInteractive)}|${getSelector(el)}`;
+        if (hiddenSeenR17.has(key)) return;
+        hiddenSeenR17.add(key);
+        results.push({
+          ruleId: "SIA-R17(1)",
+          type: "Issue",
+          impact: "serious",
+          description:
+            "Focusable interactive content is nested inside an interactive container.",
+          element: outerHtmlSnippet(ancestorInteractive),
+          selector: getSelector(ancestorInteractive),
+        });
+      }
+    });
     // ─── SIA-R100: PDF links without accessible alternative ──────────────────
     document.querySelectorAll("a[href]").forEach((el) => {
       if (!isVisible(el)) return;
@@ -3525,11 +3697,19 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
 
     // ─── SIA-R6: Inconsistent lang declarations ──────────────────────────────
     {
-      const rootLang = document.documentElement.getAttribute("lang")?.trim().split("-")[0].toLowerCase();
+      const rootLang = document.documentElement
+        .getAttribute("lang")
+        ?.trim()
+        .split("-")[0]
+        .toLowerCase();
       if (rootLang) {
         document.querySelectorAll("[lang]").forEach((el) => {
           if (el === document.documentElement) return;
-          const elLang = el.getAttribute("lang")?.trim().split("-")[0].toLowerCase();
+          const elLang = el
+            .getAttribute("lang")
+            ?.trim()
+            .split("-")[0]
+            .toLowerCase();
           if (!elLang) return;
           // Flag only if the content element has exactly the same lang as root (redundant)
           // OR has an obviously invalid value
@@ -3587,11 +3767,14 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       });
     }
 
-    // ─── SIA-R20: Non-existent ARIA attribute ────────────────────────────────
+    // ─── SIA-R20: Non-existent ARIA attribute ─i��──────────────────────────────
     {
       document.querySelectorAll("*").forEach((el) => {
         Array.from(el.attributes).forEach((attr) => {
-          if (attr.name.startsWith("aria-") && !ALL_ARIA_ATTRS.includes(attr.name)) {
+          if (
+            attr.name.startsWith("aria-") &&
+            !ALL_ARIA_ATTRS.includes(attr.name)
+          ) {
             results.push({
               ruleId: "SIA-R20",
               type: "Issue",
@@ -3608,18 +3791,58 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     // ─── SIA-R19: Invalid value for ARIA attributes with allowed values ───────
     {
       const ARIA_BOOLEAN_ATTRS = [
-        "aria-atomic", "aria-busy", "aria-disabled", "aria-modal",
-        "aria-multiline", "aria-multiselectable", "aria-readonly", "aria-required",
+        "aria-atomic",
+        "aria-busy",
+        "aria-disabled",
+        "aria-modal",
+        "aria-multiline",
+        "aria-multiselectable",
+        "aria-readonly",
+        "aria-required",
       ];
-      const ARIA_TRISTATE = ["aria-checked", "aria-pressed", "aria-selected", "aria-grabbed"];
+      const ARIA_TRISTATE = [
+        "aria-checked",
+        "aria-pressed",
+        "aria-selected",
+        "aria-grabbed",
+      ];
       const ARIA_LIVE_VALUES = ["off", "polite", "assertive"];
       const ARIA_ORIENTATION_VALUES = ["horizontal", "vertical"];
       const ARIA_SORT_VALUES = ["ascending", "descending", "none", "other"];
-      const ARIA_CURRENT_VALUES = ["page", "step", "location", "date", "time", "true", "false"];
-      const ARIA_HASPOPUP_VALUES = ["false", "true", "menu", "listbox", "tree", "grid", "dialog"];
+      const ARIA_CURRENT_VALUES = [
+        "page",
+        "step",
+        "location",
+        "date",
+        "time",
+        "true",
+        "false",
+      ];
+      const ARIA_HASPOPUP_VALUES = [
+        "false",
+        "true",
+        "menu",
+        "listbox",
+        "tree",
+        "grid",
+        "dialog",
+      ];
       const ARIA_AUTOCOMPLETE_VALUES = ["inline", "list", "both", "none"];
-      const ARIA_RELEVANT_VALUES = ["additions", "all", "removals", "text", "additions text"];
-      const ARIA_DROPEFFECT_VALUES = ["copy", "execute", "link", "move", "none", "popup"];
+      const ARIA_RELEVANT_VALUES = [
+        "additions",
+        "all",
+        "removals",
+        "text",
+        "additions text",
+      ];
+      const ARIA_DROPEFFECT_VALUES = [
+        "copy",
+        "execute",
+        "link",
+        "move",
+        "none",
+        "popup",
+      ];
 
       document.querySelectorAll("*").forEach((el) => {
         ARIA_BOOLEAN_ATTRS.forEach((attr) => {
@@ -3637,7 +3860,10 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
         });
         ARIA_TRISTATE.forEach((attr) => {
           const val = el.getAttribute(attr);
-          if (val !== null && !["true", "false", "mixed", "undefined"].includes(val)) {
+          if (
+            val !== null &&
+            !["true", "false", "mixed", "undefined"].includes(val)
+          ) {
             results.push({
               ruleId: "SIA-R19",
               type: "Issue",
@@ -3704,7 +3930,10 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
           });
         }
         const autocomplete = el.getAttribute("aria-autocomplete");
-        if (autocomplete !== null && !ARIA_AUTOCOMPLETE_VALUES.includes(autocomplete)) {
+        if (
+          autocomplete !== null &&
+          !ARIA_AUTOCOMPLETE_VALUES.includes(autocomplete)
+        ) {
           results.push({
             ruleId: "SIA-R19",
             type: "Issue",
@@ -3729,7 +3958,8 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
           ruleId: "SIA-R28",
           type: "Issue",
           impact: "critical",
-          description: "Image button (input[type='image']) is missing a text alternative",
+          description:
+            "Image button (input[type='image']) is missing a text alternative",
           element: outerHtmlSnippet(el),
           selector: getSelector(el),
         });
@@ -3744,7 +3974,10 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       // Check if alt looks like a filename: ends with extension or contains underscores/hyphens only
       const FILENAME_RE = /\.(jpg|jpeg|png|gif|svg|webp|avif|bmp|ico|tiff?)$/i;
       const CODENAME_RE = /^[a-z0-9_\-]+$/i;
-      if (FILENAME_RE.test(alt) || (CODENAME_RE.test(alt) && alt.length < 30 && alt.includes("_"))) {
+      if (
+        FILENAME_RE.test(alt) ||
+        (CODENAME_RE.test(alt) && alt.length < 30 && alt.includes("_"))
+      ) {
         results.push({
           ruleId: "SIA-R39",
           type: "Issue",
@@ -3765,13 +3998,20 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
           try {
             Array.from(sheet.cssRules || []).forEach((rule) => {
               if (rule instanceof CSSMediaRule) {
-                const cond = rule.conditionText || (rule as unknown as { media: { mediaText: string } }).media?.mediaText || "";
+                const cond =
+                  rule.conditionText ||
+                  (rule as unknown as { media: { mediaText: string } }).media
+                    ?.mediaText ||
+                  "";
                 if (cond.includes("orientation") && cond.includes(":")) {
                   // Check if it completely hides content in one orientation
                   Array.from(rule.cssRules || []).forEach((inner) => {
                     if (inner instanceof CSSStyleRule) {
                       const decl = inner.style;
-                      if (decl.display === "none" || decl.visibility === "hidden") {
+                      if (
+                        decl.display === "none" ||
+                        decl.visibility === "hidden"
+                      ) {
                         hasOrientationLock = true;
                       }
                     }
@@ -3791,7 +4031,8 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
           ruleId: "SIA-R44",
           type: "Issue",
           impact: "serious",
-          description: "Content or functionality appears to be restricted to a specific screen orientation via CSS",
+          description:
+            "Content or functionality appears to be restricted to a specific screen orientation via CSS",
           element: null,
           selector: null,
         });
@@ -3801,22 +4042,29 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     // ─── SIA-R46: Table data cells not associated with headers ───────────────
     document.querySelectorAll("table").forEach((table) => {
       if (!isVisible(table)) return;
-      const hasHeaders = table.querySelector("th, [role='columnheader'], [role='rowheader']");
+      const hasHeaders = table.querySelector(
+        "th, [role='columnheader'], [role='rowheader']",
+      );
       if (!hasHeaders) return;
       const dataCells = table.querySelectorAll("td");
       dataCells.forEach((td) => {
         const headersAttr = td.getAttribute("headers");
-        const scope = td.closest("tr")?.querySelector("th[scope='row'], th[scope='rowgroup']");
+        const scope = td
+          .closest("tr")
+          ?.querySelector("th[scope='row'], th[scope='rowgroup']");
         // Check if any th covers this td via column position
         const row = td.closest("tr");
         const colIdx = Array.from(row?.children || []).indexOf(td);
-        const colHeader = table.querySelector(`thead th:nth-child(${colIdx + 1}), thead td:nth-child(${colIdx + 1})`);
+        const colHeader = table.querySelector(
+          `thead th:nth-child(${colIdx + 1}), thead td:nth-child(${colIdx + 1})`,
+        );
         if (!headersAttr && !scope && !colHeader) {
           results.push({
             ruleId: "SIA-R46",
             type: "Issue",
             impact: "serious",
-            description: "Table data cell cannot be associated with a header — use scope on <th> or headers attribute on <td>",
+            description:
+              "Table data cell cannot be associated with a header — use scope on <th> or headers attribute on <td>",
             element: outerHtmlSnippet(td),
             selector: getSelector(td),
           });
@@ -3826,12 +4074,16 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
 
     // ─── SIA-R50: Auto-playing audio without controls ────────────────────────
     document.querySelectorAll("audio").forEach((el) => {
-      if ((el as HTMLAudioElement).autoplay && !(el as HTMLAudioElement).controls) {
+      if (
+        (el as HTMLAudioElement).autoplay &&
+        !(el as HTMLAudioElement).controls
+      ) {
         results.push({
           ruleId: "SIA-R50",
           type: "Issue",
           impact: "serious",
-          description: "Audio element auto-plays without visible controls — users cannot pause or stop it",
+          description:
+            "Audio element auto-plays without visible controls — users cannot pause or stop it",
           element: outerHtmlSnippet(el),
           selector: getSelector(el),
         });
@@ -3846,45 +4098,71 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
         ruleId: "SIA-R51",
         type: "Issue",
         impact: "serious",
-        description: "Audio element is missing the controls attribute — users cannot control playback",
+        description:
+          "Audio element is missing the controls attribute — users cannot control playback",
         element: outerHtmlSnippet(el),
         selector: getSelector(el),
       });
     });
 
     // ─── SIA-R52: Auto-playing video without controls ────────────────────────
-    document.querySelectorAll("video[autoplay]:not([controls])").forEach((el) => {
-      if (!isVisible(el)) return;
-      results.push({
-        ruleId: "SIA-R52",
-        type: "Issue",
-        impact: "serious",
-        description: "Video auto-plays without controls — users cannot pause, stop, or hide it",
-        element: outerHtmlSnippet(el),
-        selector: getSelector(el),
+    document
+      .querySelectorAll("video[autoplay]:not([controls])")
+      .forEach((el) => {
+        if (!isVisible(el)) return;
+        results.push({
+          ruleId: "SIA-R52",
+          type: "Issue",
+          impact: "serious",
+          description:
+            "Video auto-plays without controls — users cannot pause, stop, or hide it",
+          element: outerHtmlSnippet(el),
+          selector: getSelector(el),
+        });
       });
-    });
 
     // ─── SIA-R55: Landmark regions with duplicate accessible names ───────────
     {
       const regionNames: Record<string, number> = {};
-      document.querySelectorAll("section[aria-label], section[aria-labelledby], [role='region'][aria-label], [role='region'][aria-labelledby]").forEach((el) => {
-        const name = (el.getAttribute("aria-label") || document.getElementById(el.getAttribute("aria-labelledby") || "")?.textContent || "").toLowerCase().trim();
-        if (name) regionNames[name] = (regionNames[name] || 0) + 1;
-      });
-      document.querySelectorAll("section[aria-label], section[aria-labelledby], [role='region'][aria-label], [role='region'][aria-labelledby]").forEach((el) => {
-        const name = (el.getAttribute("aria-label") || document.getElementById(el.getAttribute("aria-labelledby") || "")?.textContent || "").toLowerCase().trim();
-        if (name && regionNames[name] > 1) {
-          results.push({
-            ruleId: "SIA-R55",
-            type: "Potential Issue",
-            impact: "moderate",
-            description: `Multiple landmark regions share the same accessible name "${name}" — each region should have a unique label`,
-            element: outerHtmlSnippet(el),
-            selector: getSelector(el),
-          });
-        }
-      });
+      document
+        .querySelectorAll(
+          "section[aria-label], section[aria-labelledby], [role='region'][aria-label], [role='region'][aria-labelledby]",
+        )
+        .forEach((el) => {
+          const name = (
+            el.getAttribute("aria-label") ||
+            document.getElementById(el.getAttribute("aria-labelledby") || "")
+              ?.textContent ||
+            ""
+          )
+            .toLowerCase()
+            .trim();
+          if (name) regionNames[name] = (regionNames[name] || 0) + 1;
+        });
+      document
+        .querySelectorAll(
+          "section[aria-label], section[aria-labelledby], [role='region'][aria-label], [role='region'][aria-labelledby]",
+        )
+        .forEach((el) => {
+          const name = (
+            el.getAttribute("aria-label") ||
+            document.getElementById(el.getAttribute("aria-labelledby") || "")
+              ?.textContent ||
+            ""
+          )
+            .toLowerCase()
+            .trim();
+          if (name && regionNames[name] > 1) {
+            results.push({
+              ruleId: "SIA-R55",
+              type: "Potential Issue",
+              impact: "moderate",
+              description: `Multiple landmark regions share the same accessible name "${name}" — each region should have a unique label`,
+              element: outerHtmlSnippet(el),
+              selector: getSelector(el),
+            });
+          }
+        });
     }
 
     // ─── SIA-R62: Color used as the only visual means of conveying information
@@ -3893,20 +4171,30 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       document.querySelectorAll("a").forEach((el) => {
         if (!isVisible(el)) return;
         const style = window.getComputedStyle(el);
-        const parentStyle = el.parentElement ? window.getComputedStyle(el.parentElement) : null;
+        const parentStyle = el.parentElement
+          ? window.getComputedStyle(el.parentElement)
+          : null;
         if (!parentStyle) return;
         const hasUnderline = style.textDecoration.includes("underline");
-        const hasBold = parseInt(style.fontWeight) > parseInt(parentStyle.fontWeight || "400") + 100;
+        const hasBold =
+          parseInt(style.fontWeight) >
+          parseInt(parentStyle.fontWeight || "400") + 100;
         const hasOutline = style.outline !== "none" && style.outline !== "";
         // Check if color is the ONLY differentiator
         const linkColor = style.color;
         const parentColor = parentStyle.color;
-        if (linkColor !== parentColor && !hasUnderline && !hasBold && !hasOutline) {
+        if (
+          linkColor !== parentColor &&
+          !hasUnderline &&
+          !hasBold &&
+          !hasOutline
+        ) {
           results.push({
             ruleId: "SIA-R62",
             type: "Issue",
             impact: "serious",
-            description: "Link uses color as the only visual means to distinguish it from surrounding text — add underline, bold, or another non-color indicator",
+            description:
+              "Link uses color as the only visual means to distinguish it from surrounding text — add underline, bold, or another non-color indicator",
             element: outerHtmlSnippet(el),
             selector: getSelector(el),
           });
@@ -3915,19 +4203,21 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     }
 
     // ─── SIA-R67: Decorative image has non-empty alt text ───────────────────
-    document.querySelectorAll("img[role='presentation'], img[role='none']").forEach((el) => {
-      const alt = (el as HTMLImageElement).alt;
-      if (alt && alt.trim() !== "") {
-        results.push({
-          ruleId: "SIA-R67",
-          type: "Issue",
-          impact: "minor",
-          description: `Decorative image (role="${el.getAttribute("role")}") has non-empty alt text "${alt}" — use alt="" for decorative images`,
-          element: outerHtmlSnippet(el),
-          selector: getSelector(el),
-        });
-      }
-    });
+    document
+      .querySelectorAll("img[role='presentation'], img[role='none']")
+      .forEach((el) => {
+        const alt = (el as HTMLImageElement).alt;
+        if (alt && alt.trim() !== "") {
+          results.push({
+            ruleId: "SIA-R67",
+            type: "Issue",
+            impact: "minor",
+            description: `Decorative image (role="${el.getAttribute("role")}") has non-empty alt text "${alt}" — use alt="" for decorative images`,
+            element: outerHtmlSnippet(el),
+            selector: getSelector(el),
+          });
+        }
+      });
 
     // ─── SIA-R68: Empty heading element ─────────────────────────────────────
     document.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach((el) => {
@@ -3947,7 +4237,24 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
 
     // ─── SIA-R70: Deprecated HTML elements ──────────────────────────────────
     {
-      const DEPRECATED = ["marquee", "blink", "center", "font", "big", "strike", "tt", "u", "s", "acronym", "applet", "basefont", "dir", "listing", "plaintext", "xmp"];
+      const DEPRECATED = [
+        "marquee",
+        "blink",
+        "center",
+        "font",
+        "big",
+        "strike",
+        "tt",
+        "u",
+        "s",
+        "acronym",
+        "applet",
+        "basefont",
+        "dir",
+        "listing",
+        "plaintext",
+        "xmp",
+      ];
       DEPRECATED.forEach((tag) => {
         document.querySelectorAll(tag).forEach((el) => {
           if (!isVisible(el)) return;
@@ -3976,7 +4283,10 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
           .trim();
         const style = window.getComputedStyle(el);
         const isAllCaps = style.textTransform === "uppercase";
-        const hasLongAllCapsText = directText.length > 20 && directText === directText.toUpperCase() && /[A-Z]{5,}/.test(directText);
+        const hasLongAllCapsText =
+          directText.length > 20 &&
+          directText === directText.toUpperCase() &&
+          /[A-Z]{5,}/.test(directText);
         if ((isAllCaps || hasLongAllCapsText) && directText.length > 20) {
           results.push({
             ruleId: "SIA-R72",
@@ -3995,7 +4305,9 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       if (!isVisible(table)) return;
       const hasAnyTh = table.querySelector("th") !== null;
       const hasCaption = table.querySelector("caption") !== null;
-      const hasAriaLabel = table.getAttribute("aria-label") || table.getAttribute("aria-labelledby");
+      const hasAriaLabel =
+        table.getAttribute("aria-label") ||
+        table.getAttribute("aria-labelledby");
       const rows = table.querySelectorAll("tr");
       const hasMeaningfulData = rows.length > 1;
       if (!hasAnyTh && hasMeaningfulData) {
@@ -4003,7 +4315,8 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
           ruleId: "SIA-R76",
           type: "Issue",
           impact: "serious",
-          description: "Data table has no header cells (<th>) — use <th> to identify column and row headers",
+          description:
+            "Data table has no header cells (<th>) — use <th> to identify column and row headers",
           element: outerHtmlSnippet(table),
           selector: getSelector(table),
         });
@@ -4036,15 +4349,18 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       const ariaLabel = (el.getAttribute("aria-label") || "").toLowerCase();
       const title = (el.getAttribute("title") || "").toLowerCase();
       const hasWarning = ["new window", "new tab", "opens in", "external"].some(
-        (w) => text.includes(w) || ariaLabel.includes(w) || title.includes(w)
+        (w) => text.includes(w) || ariaLabel.includes(w) || title.includes(w),
       );
-      const hasIconHint = el.querySelector("[aria-label*='new'], [title*='new'], [aria-label*='external'], [title*='external']");
+      const hasIconHint = el.querySelector(
+        "[aria-label*='new'], [title*='new'], [aria-label*='external'], [title*='external']",
+      );
       if (!hasWarning && !hasIconHint) {
         results.push({
           ruleId: "SIA-R79",
           type: "Issue",
           impact: "moderate",
-          description: "Link opens in a new window/tab without warning — inform users by adding text like '(opens in new tab)' or a visually-hidden equivalent",
+          description:
+            "Link opens in a new window/tab without warning — inform users by adding text like '(opens in new tab)' or a visually-hidden equivalent",
           element: outerHtmlSnippet(el),
           selector: getSelector(el),
         });
@@ -4055,14 +4371,16 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     document.querySelectorAll("form").forEach((form) => {
       if (!isVisible(form)) return;
       const hasSubmit =
-        form.querySelector("button[type='submit'], input[type='submit'], button:not([type]), [role='button']") ||
-        form.closest("[data-submit]");
+        form.querySelector(
+          "button[type='submit'], input[type='submit'], button:not([type]), [role='button']",
+        ) || form.closest("[data-submit]");
       if (!hasSubmit) {
         results.push({
           ruleId: "SIA-R85",
           type: "Potential Issue",
           impact: "moderate",
-          description: "Form has no submit button — ensure users can submit the form via a button or other explicit control",
+          description:
+            "Form has no submit button — ensure users can submit the form via a button or other explicit control",
           element: outerHtmlSnippet(form),
           selector: getSelector(form),
         });
@@ -4072,7 +4390,7 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     // ─── SIA-R90: aria-hidden content contains focusable elements ───────────
     document.querySelectorAll("[aria-hidden='true']").forEach((container) => {
       const focusable = container.querySelectorAll(
-        "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"
+        "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
       );
       if (focusable.length > 0) {
         results.push({
@@ -4137,13 +4455,15 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     {
       // Find radio buttons and checkboxes not inside fieldset
       const radioGroups: Record<string, HTMLInputElement[]> = {};
-      document.querySelectorAll("input[type='radio']:not([disabled])").forEach((el) => {
-        const input = el as HTMLInputElement;
-        if (!isVisible(input)) return;
-        const name = input.name || "_ungrouped_";
-        if (!radioGroups[name]) radioGroups[name] = [];
-        radioGroups[name].push(input);
-      });
+      document
+        .querySelectorAll("input[type='radio']:not([disabled])")
+        .forEach((el) => {
+          const input = el as HTMLInputElement;
+          if (!isVisible(input)) return;
+          const name = input.name || "_ungrouped_";
+          if (!radioGroups[name]) radioGroups[name] = [];
+          radioGroups[name].push(input);
+        });
       Object.values(radioGroups).forEach((inputs) => {
         if (inputs.length < 2) return;
         const firstInFieldset = inputs[0].closest("fieldset");
@@ -4168,7 +4488,8 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
           ruleId: "SIA-R99",
           type: "Issue",
           impact: "moderate",
-          description: "Page has no <main> landmark — add a <main> element to identify the primary content region",
+          description:
+            "Page has no <main> landmark — add a <main> element to identify the primary content region",
           element: null,
           selector: null,
         });
@@ -4227,11 +4548,17 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
 
     // ─── SIA-R111: Touch target too small (< 24×24px) ───────────────────────
     {
-      const INTERACTIVE = "a, button, input, select, textarea, [role='button'], [role='link'], [tabindex]:not([tabindex='-1'])";
+      const INTERACTIVE =
+        "a, button, input, select, textarea, [role='button'], [role='link'], [tabindex]:not([tabindex='-1'])";
       document.querySelectorAll(INTERACTIVE).forEach((el) => {
         if (!isVisible(el)) return;
         const rect = el.getBoundingClientRect();
-        if (rect.width < 24 && rect.height < 24 && rect.width > 0 && rect.height > 0) {
+        if (
+          rect.width < 24 &&
+          rect.height < 24 &&
+          rect.width > 0 &&
+          rect.height > 0
+        ) {
           results.push({
             ruleId: "SIA-R111",
             type: "Potential Issue",
@@ -4249,7 +4576,8 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       if (!isVisible(el)) return;
       let next = el.nextElementSibling;
       // Skip whitespace-only elements
-      while (next && next.textContent?.trim() === "") next = next.nextElementSibling;
+      while (next && next.textContent?.trim() === "")
+        next = next.nextElementSibling;
       // If the next visible sibling is another heading of same or higher level (or nothing), flag it
       if (!next) return; // end of parent — not an issue
       const nextTag = next?.tagName?.toLowerCase();
@@ -4282,7 +4610,8 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
           ruleId: "SIA-R117",
           type: "Issue",
           impact: "critical",
-          description: "Element with role='img' has no accessible name — add aria-label or aria-labelledby",
+          description:
+            "Element with role='img' has no accessible name — add aria-label or aria-labelledby",
           element: outerHtmlSnippet(el),
           selector: getSelector(el),
         });
