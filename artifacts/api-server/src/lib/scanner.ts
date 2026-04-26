@@ -55,6 +55,7 @@ export interface PageScanResult {
   url: string;
   issues: ScanIssue[];
   error?: string;
+  notAvailable?: boolean;
   screenshot?: string;
   pageHtml?: string;
 }
@@ -1024,7 +1025,7 @@ async function _scanPageInternal(
   } = {},
 ): Promise<PageScanResult> {
   const {
-    timeout = 60000,
+    timeout = 180000,
     waitForNetworkIdle = true,
     bypassCSP = true,
     onStage,
@@ -1069,10 +1070,17 @@ async function _scanPageInternal(
     await onStage?.("navigating");
     // Always navigate to domcontentloaded first — networkidle2 can hang forever on
     // pages with persistent analytics/tracking (long-polling, SSE, etc.)
-    await page.goto(url, {
+    const httpResponse = await page.goto(url, {
       waitUntil: "domcontentloaded",
       timeout,
     });
+
+    // Detect hard HTTP 4xx/5xx errors immediately (before any CF challenge handling)
+    const httpStatus = httpResponse?.status() ?? 200;
+    if (httpStatus === 404 || httpStatus === 410 || httpStatus === 403 || httpStatus >= 500) {
+      logger.info({ url, httpStatus }, "HTTP error status — marking page as not available");
+      return { url, issues: [], notAvailable: true, error: `HTTP ${httpStatus} – Page Not Available` };
+    }
 
     await onStage?.("rendering");
 
@@ -1183,6 +1191,37 @@ async function _scanPageInternal(
         { url, currentUrl: page.url() },
         "Cloudflare challenge resolved",
       );
+    }
+
+    // Detect "page not available" content returned with a 200 status
+    // (common on enterprise sites that have their own custom 404 pages)
+    // Only check the page <title> and the first <h1> — checking full body text
+    // causes false positives when nav/footer menus mention these phrases.
+    const isContentNotAvailable = await page.evaluate((): boolean => {
+      const title = document.title.toLowerCase();
+      const h1 = (document.querySelector("h1") as HTMLElement | null)?.innerText?.toLowerCase() ?? "";
+      const checks = [
+        "that page is not available",
+        "page is not available",
+        "page not available",
+        "this page is not available",
+        "page cannot be found",
+        "page could not be found",
+        "page doesn't exist",
+        "page does not exist",
+        "404 not found",
+        "error 404",
+        "404 – not found",
+        "404 - not found",
+      ];
+      return checks.some(
+        (phrase) => title.includes(phrase) || h1.includes(phrase),
+      );
+    });
+
+    if (isContentNotAvailable) {
+      logger.info({ url }, "Page content indicates 'not available' — skipping scan");
+      return { url, issues: [], notAvailable: true, error: "Page Not Available" };
     }
 
     logger.info({ url }, "Scrolling page to trigger lazy-loaded content");
@@ -2243,33 +2282,80 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       }
     }
 
-    // SIA-R22: Video without captions — skip muted, decorative, hidden, or managed-player videos
+    // ─── SIA-R22: Video without captions (WCAG 1.2.2) ───────────────────────────
+
     document.querySelectorAll("video").forEach((video) => {
+      if (!(video instanceof HTMLVideoElement)) return;
+
+      // ─────────────────────────────
+      // 1. Skip non-relevant videos
+      // ─────────────────────────────
+
+      // Muted / decorative videos
       if (video.hasAttribute("muted")) return;
+
+      // Hidden via aria
       if (
         video.getAttribute("aria-hidden") === "true" ||
         video.closest('[aria-hidden="true"]')
       )
         return;
+
+      // Background/ambient video pattern
       if (
         video.hasAttribute("autoplay") &&
         video.hasAttribute("loop") &&
         video.hasAttribute("playsinline")
       )
-        return; // background/ambient video pattern
+        return;
+
+      // Not visible
       if (!isVisible(video)) return;
-      // Skip very small videos (likely decorative)
+
+      // Very small → likely decorative
       const rect = video.getBoundingClientRect();
       if (rect.width < 50 || rect.height < 50) return;
-      const hasCaptions = video.querySelector(
+
+      // ─────────────────────────────
+      // 2. Native caption detection
+      // ─────────────────────────────
+
+      const hasTrackCaptions = !!video.querySelector(
         'track[kind="captions"], track[kind="subtitles"]',
       );
-      // Check if Video.js added tracks dynamically
-      const hasTextTracks =
-        (video as HTMLVideoElement).textTracks &&
-        (video as HTMLVideoElement).textTracks.length > 0;
 
-      if (!hasCaptions && !hasTextTracks) {
+      // Runtime tracks (may be added dynamically)
+      const hasTextTracks =
+        video.textTracks &&
+        Array.from(video.textTracks).some(
+          (t: any) => t.kind === "captions" || t.kind === "subtitles",
+        );
+
+      // ─────────────────────────────
+      // 3. Video.js detection (CRITICAL)
+      // ─────────────────────────────
+
+      const videoJsContainer = video.closest(".video-js");
+
+      const hasVideoJsCaptionsButton = !!videoJsContainer?.querySelector(
+        ".vjs-subs-caps-button:not(.vjs-hidden)",
+      );
+
+      const hasActiveVideoJsCaption = !!videoJsContainer?.querySelector(
+        ".vjs-menu-item.vjs-selected.vjs-subtitles-menu-item",
+      );
+
+      const hasVideoJsCaptions =
+        hasVideoJsCaptionsButton && hasActiveVideoJsCaption;
+
+      // ─────────────────────────────
+      // 4. Final decision (Siteimprove-aligned)
+      // ─────────────────────────────
+
+      const hasAnyCaptions =
+        hasTrackCaptions || hasTextTracks || hasVideoJsCaptions;
+
+      if (!hasAnyCaptions) {
         results.push({
           ruleId: "SIA-R22",
           type: "Issue",
@@ -2639,16 +2725,23 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       }
     }
 
-    // SIA-R68: Text clipped when resized (1.4.4 Resize Text)
+    // SIA-R83: Text clipped when resized (1.4.4 Resize Text)
     // Flag elements with overflow:hidden + fixed height that contain text — at larger font sizes
     // the content will clip. This is a static/potential check (Siteimprove behaviour), not requiring
     // actual overflow at 1× zoom.
+    // ─── SIA-R83: Text clipped when resized (WCAG 1.4.4) ───────────────────────
+
     let clippedCount = 0;
+    const seen = new Set<string>();
+
     document.querySelectorAll("*").forEach((el) => {
       if (clippedCount >= 25) return;
       if (!(el instanceof HTMLElement)) return;
+      if (!isVisible(el)) return;
 
-      // Skip screen-reader-only elements — they use 1px/overflow:hidden intentionally for AT access
+      const style = window.getComputedStyle(el);
+
+      // Skip hidden / sr-only
       const cls = (el.className || "").toString().toLowerCase();
       if (
         cls.includes("sr-only") ||
@@ -2659,17 +2752,8 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       )
         return;
 
-      const style = window.getComputedStyle(el);
+      if (style.clip !== "auto" || style.clipPath !== "none") return;
 
-      // Skip elements with very small rendered dimensions (sr-only / decorative)
-      const clientH = el.clientHeight;
-      const clientW = el.clientWidth;
-      if (clientH <= 1 || clientW <= 1) return;
-
-      // Skip elements clipped via clip/clip-path (sr-only pattern)
-      if (style.clip && style.clip !== "auto") return;
-      if (style.clipPath && style.clipPath !== "none") return;
-      // Skip absolutely-positioned elements with negative margins (classic sr-only)
       if (
         style.position === "absolute" &&
         (parseFloat(style.marginLeft) < -100 ||
@@ -2677,56 +2761,139 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       )
         return;
 
-      if (!isVisible(el)) return;
+      if (el.clientHeight <= 1 || el.clientWidth <= 1) return;
 
-      // Check overflow in any direction (hidden or clip)
-      const overflowY = style.overflowY;
-      const overflowX = style.overflowX;
-      const overflowGeneral = style.overflow;
-      const hasHiddenOverflow =
-        ["hidden", "clip"].includes(overflowY) ||
-        ["hidden", "clip"].includes(overflowX) ||
-        ["hidden", "clip"].includes(overflowGeneral);
-      if (!hasHiddenOverflow) return;
-
+      // Must contain visible text somewhere
       const text = el.textContent?.trim() || "";
       if (text.length < 10) return;
 
+      // Overflow check
+      const hasHiddenOverflow =
+        ["hidden", "clip"].includes(style.overflow) ||
+        ["hidden", "clip"].includes(style.overflowY) ||
+        ["hidden", "clip"].includes(style.overflowX);
+
+      if (!hasHiddenOverflow) return;
+
+      // Fixed height check
       const height = style.height;
-      // Only flag fixed-height (px/em/rem/ch), not auto/percentage/min/max-content
       if (
         !height ||
         height === "auto" ||
         height.endsWith("%") ||
-        height === "none" ||
-        height === "fit-content" ||
-        height === "max-content" ||
-        height === "min-content"
+        height.includes("content")
       )
         return;
 
-      // Only flag tight containers (≤ 80px) — large expandable/product sections are excluded.
-      // Siteimprove focuses on single/double-line-height fixed containers (e.g. nav tabs, badges, labels).
       const heightPx = parseFloat(height);
-      if (isNaN(heightPx) || heightPx > 80) return;
+      if (isNaN(heightPx) || heightPx < 20 || heightPx > 80) return;
 
-      // Must contain text
-      if (!el.textContent?.trim()) return;
+      // ✅ KEY FIX: only pick deepest clipping element
+      const childHasSameClipping = Array.from(el.children).some((child) => {
+        if (!(child instanceof HTMLElement)) return false;
 
-      // WCAG 1.4.4: content must survive 200% text zoom without clipping.
-      // If scrollH > 50% of clientH, doubling the text size would exceed the fixed height → flag it.
-      // Elements at ≤50% capacity can absorb 2× zoom safely.
+        const cs = window.getComputedStyle(child);
+
+        const childOverflow =
+          ["hidden", "clip"].includes(cs.overflow) ||
+          ["hidden", "clip"].includes(cs.overflowY) ||
+          ["hidden", "clip"].includes(cs.overflowX);
+
+        const childHeight = parseFloat(cs.height);
+
+        return (
+          childOverflow &&
+          !isNaN(childHeight) &&
+          childHeight <= 80 &&
+          (child.textContent?.trim()?.length || 0) > 0
+        );
+      });
+
+      if (childHasSameClipping) return;
+      const tag = el.tagName.toLowerCase();
+
+      // Skip interactive containers
+      if (["a", "button"].includes(tag)) return;
+
+      // Skip common layout wrappers
+      if (
+        ["section", "article", "nav"].includes(tag) ||
+        el.classList.contains("card") ||
+        el.className.toLowerCase().includes("wrapper") ||
+        el.className.toLowerCase().includes("container") ||
+        el.className.toLowerCase().includes("grid")
+      ) {
+        return;
+      }
+      const textNode = Array.from(el.childNodes).find(
+        (n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim().length,
+      );
+
+      // If NO direct text AND multiple children → likely wrapper
+      if (!textNode && el.children.length > 1) return;
+      const deeperTextContainer = el.querySelector("*:not(script):not(style)");
+
+      if (deeperTextContainer && deeperTextContainer !== el) {
+        const childStyle = window.getComputedStyle(deeperTextContainer);
+
+        const childOverflow =
+          ["hidden", "clip"].includes(childStyle.overflow) ||
+          ["hidden", "clip"].includes(childStyle.overflowY) ||
+          ["hidden", "clip"].includes(childStyle.overflowX);
+
+        if (childOverflow) return;
+      }
+      // Skip flex-based containers (buttons, CTAs, layout wrappers)
+      if (style.display === "flex" || style.display === "inline-flex") {
+        return;
+      }
+      const paddingTop = parseFloat(style.paddingTop);
+      const paddingBottom = parseFloat(style.paddingBottom);
+
+      // If element has enough vertical padding → it's likely a button/CTA
+      const hasComfortPadding = paddingTop + paddingBottom >= 10;
+      if (hasComfortPadding) return;
+
+      //Skip if text is primarily inside an interactive child (like <a>, <button>)
+      const hasInteractiveTextChild = Array.from(el.children).some((child) => {
+        if (!(child instanceof HTMLElement)) return false;
+
+        const tag = child.tagName.toLowerCase();
+
+        const isInteractive = ["a", "button"].includes(tag);
+
+        const hasText = (child.textContent?.trim()?.length || 0) > 0;
+
+        return isInteractive && hasText;
+      });
+
+      if (hasInteractiveTextChild) return;
+      // Resize risk
+      const clientH = el.clientHeight;
       const scrollH = el.scrollHeight;
-      if (clientH > 0 && scrollH < clientH * 0.5) return;
+
+      //  Stronger condition: must already be tight or overflowing
+      const isTightlyPacked = scrollH >= clientH * 0.9;
+
+      // OR already overflowing (best signal)
+      const isAlreadyClipping = scrollH > clientH;
+
+      if (!isTightlyPacked && !isAlreadyClipping) return;
+
+      // Deduplicate
+      const selector = getSelector(el);
+      if (seen.has(selector)) return;
+      seen.add(selector);
 
       clippedCount++;
+
       results.push({
         ruleId: "SIA-R83",
         type: "Issue",
         impact: "moderate",
         description: `Element has fixed height (${height}) with overflow:hidden — text may be clipped when text size is increased`,
         element: outerHtmlSnippet(el),
-        selector: getSelector(el),
+        selector,
       });
     });
 
@@ -2755,7 +2922,7 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       }
     });
 
-    // ─── SIA-R9: Links open new window without warning ───────────────────────
+    // ─── SIA-R9: Links open new window without warning ──────a��────────────────
     document
       .querySelectorAll("a[target='_blank'], a[target='_new']")
       .forEach((el) => {
@@ -2826,70 +2993,65 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       }
     });
 
-    // ─── SIA-R37: Video without audio description track ───────────────────────
-    document.querySelectorAll("video").forEach((el) => {
-      if (!isVisible(el)) return;
+    // ─── SIA-R37: Video without audio description (WCAG 1.2.5) ─────────────────
 
-      const videoEl = el as HTMLVideoElement;
+    document.querySelectorAll("video").forEach((video) => {
+      if (!(video instanceof HTMLVideoElement)) return;
+      if (!isVisible(video)) return;
 
-      const hasDescriptionTrack = Array.from(videoEl.textTracks || []).some(
+      // ─────────────────────────────
+      // 1. Native + runtime tracks
+      // ─────────────────────────────
+
+      const tracks = Array.from(video.textTracks || []);
+
+      const hasCaptions = tracks.some(
+        (t: any) => t.kind === "captions" || t.kind === "subtitles",
+      );
+
+      const hasDescriptions = tracks.some(
         (t: any) => t.kind === "descriptions",
       );
 
-      const hasRenderedDescriptions = !!el
-        .closest(".video-js")
-        ?.querySelector(".vjs-text-track-cue");
+      // ─────────────────────────────
+      // 2. Video.js detection (CRITICAL)
+      // ─────────────────────────────
 
-      const nearbyText = (
-        el.parentElement?.textContent ||
-        el.closest("figure, section, article, div")?.textContent ||
-        ""
-      ).toLowerCase();
+      const videoJsContainer = video.closest(".video-js");
 
-      const hasTranscriptHint = /transcript/i.test(nearbyText);
-      // Video.js fallback (rendered cues)
-      const hasAnyCaptions = hasCaptions || hasRenderedCaptions;
+      const hasVideoJsCaptions =
+        !!videoJsContainer?.querySelector(
+          ".vjs-subs-caps-button:not(.vjs-hidden)",
+        ) &&
+        !!videoJsContainer?.querySelector(
+          ".vjs-menu-item.vjs-selected.vjs-subtitles-menu-item",
+        );
 
-      if (!hasDescriptionTrack && !hasRenderedDescriptions) {
+      const hasVideoJsDescriptions = !!videoJsContainer?.querySelector(
+        ".vjs-descriptions-button:not(.vjs-disabled):not(.vjs-hidden)",
+      );
+
+      // ─────────────────────────────
+      // 3. Final decision (Siteimprove logic)
+      // ─────────────────────────────
+
+      const hasAnyCaptions = hasCaptions || hasVideoJsCaptions;
+
+      const hasAnyDescriptions = hasDescriptions || hasVideoJsDescriptions;
+
+      //  KEY: captions act as fallback → don't flag
+      if (!hasAnyDescriptions && !hasAnyCaptions) {
         results.push({
           ruleId: "SIA-R37",
           type: "Potential Issue",
           impact: "serious",
           description:
             "Video element is missing an audio description track (<track kind='descriptions'>)",
-          element: outerHtmlSnippet(el),
-          selector: getSelector(el),
+          element: outerHtmlSnippet(video),
+          selector: getSelector(video),
         });
       }
     });
-
-    // Extra fallback for players that render captions/descriptions outside <track>
-    document.querySelectorAll(".video-js, video").forEach((container) => {
-      const hasVideo =
-        container.querySelector?.("video") ?? container.tagName === "VIDEO";
-      if (!hasVideo) return;
-      const text = (container.textContent || "").toLowerCase();
-      const hasVttReference =
-        /\.vtt(\?|$)|captions?|subtitles?|descriptions?|transcript/i.test(text);
-      if (hasVttReference) return;
-      if (container.querySelector?.("track")) return;
-      if (
-        container.querySelector?.(
-          ".vjs-subs-caps-button, .vjs-descriptions-button",
-        )
-      )
-        return;
-      results.push({
-        ruleId: "SIA-R37",
-        type: "Potential Issue",
-        impact: "serious",
-        description:
-          "Video container appears to have no caption or description resources available.",
-        element: outerHtmlSnippet(container as Element),
-        selector: getSelector(container as Element),
-      });
-    });
-
     // ─── SIA-R17(1): Role with implied hidden content has keyboard focus ────────────────────────────
     const interactiveSelector =
       "a[href], button, input, select, textarea, [role='button'], [role='link'], [role='menuitem'], [role='tab'], [tabindex]:not([tabindex='-1'])";
@@ -4235,7 +4397,7 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       }
     });
 
-    // ─── SIA-R70: Deprecated HTML elements ──────────────────────────────────
+    // ─── SIA-R70: Deprecated HTML elements   �f��────────────────────────────────
     {
       const DEPRECATED = [
         "marquee",

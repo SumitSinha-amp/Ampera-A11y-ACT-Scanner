@@ -2,6 +2,7 @@ import { Link, useLocation } from "wouter";
 import {
   Activity,
   BookOpen,
+  GitCompare,
   LayoutDashboard,
   Plus,
   Settings,
@@ -57,24 +58,36 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <nav className="flex-1 px-4 py-4 space-y-1">
-            <Link href="/">
-              <Button
-                variant={location === "/" ? "secondary" : "ghost"}
-                className="w-full justify-start gap-2"
-              >
+            <Button
+              variant={location === "/" ? "secondary" : "ghost"}
+              className="w-full justify-start gap-2"
+              asChild
+            >
+              <Link href="/">
                 <Plus className="w-4 h-4" />
                 New Scan
-              </Button>
-            </Link>
-            <Link href="/scans">
-              <Button
-                variant={location.startsWith("/scans") ? "secondary" : "ghost"}
-                className="w-full justify-start gap-2"
-              >
+              </Link>
+            </Button>
+            <Button
+              variant={location.startsWith("/scans") ? "secondary" : "ghost"}
+              className="w-full justify-start gap-2"
+              asChild
+            >
+              <Link href="/scans">
                 <LayoutDashboard className="w-4 h-4" />
                 Scan History
-              </Button>
-            </Link>
+              </Link>
+            </Button>
+            <Button
+              variant={location.startsWith("/compare") ? "secondary" : "ghost"}
+              className="w-full justify-start gap-2"
+              asChild
+            >
+              <Link href="/compare">
+                <GitCompare className="w-4 h-4" />
+                Compare Scans
+              </Link>
+            </Button>
           </nav>
           <div className="px-4 pb-4 mt-auto space-y-1">
             <div className="text-xs text-sidebar-foreground/50 px-2 pt-2">

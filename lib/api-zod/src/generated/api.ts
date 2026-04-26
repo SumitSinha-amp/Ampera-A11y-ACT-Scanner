@@ -21,6 +21,8 @@ export const HealthCheckResponse = zod.object({
  */
 export const ListScansResponseItem = zod.object({
   id: zod.number(),
+  projectId: zod.number().nullable(),
+  projectName: zod.string().nullable(),
   name: zod.string().nullable(),
   status: zod.enum(["pending", "running", "completed", "cancelled", "failed"]),
   totalUrls: zod.number(),
@@ -39,7 +41,10 @@ export const ListScansResponse = zod.array(ListScansResponseItem);
  */
 export const CreateScanBody = zod.object({
   urls: zod.array(zod.string()),
-  name: zod.string().nullish(),
+  name: zod.string().min(1),
+  projectId: zod.number().int().positive().optional().nullable(),
+  initiatorName: zod.string().optional().nullable(),
+  initiatorRole: zod.string().optional().nullable(),
   options: zod
     .object({
       waitForNetworkIdle: zod.boolean().optional(),
@@ -216,4 +221,18 @@ export const ParseSitemapBody = zod.object({
 export const ParseSitemapResponse = zod.object({
   urls: zod.array(zod.string()),
   count: zod.number(),
+});
+
+/**
+ * Update scan name / initiator fields
+ * @summary Update a scan
+ */
+export const UpdateScanParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateScanBody = zod.object({
+  name: zod.string().min(1).optional(),
+  initiatorName: zod.string().optional().nullable(),
+  initiatorRole: zod.string().optional().nullable(),
 });

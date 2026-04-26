@@ -10,6 +10,7 @@ import ScanDetail from "@/pages/scan-detail";
 import ScanReport from "@/pages/scan-report";
 import Settings from "@/pages/settings";
 import Documentation from "@/pages/documentation";
+import ScanCompare from "@/pages/scan-compare";
 
 const queryClient = new QueryClient();
 
@@ -21,6 +22,7 @@ function Router() {
         <Route path="/scans" component={ScanList} />
         <Route path="/scans/:id" component={ScanDetail} />
         <Route path="/scans/:id/report" component={ScanReport} />
+        <Route path="/compare" component={ScanCompare} />
         <Route path="/settings" component={Settings} />
         <Route path="/documentation" component={Documentation} />
         <Route component={NotFound} />

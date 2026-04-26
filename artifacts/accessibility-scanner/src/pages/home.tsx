@@ -46,9 +46,10 @@ import {
   Pause,
   Play,
   Timer,
+  CopyCheck,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
-import { getActiveProxy, ACTIVE_PROXY_KEY } from "@/pages/settings";
+import { getActiveProxy, ACTIVE_PROXY_KEY, isUrlLimitEnabled, getUrlLimitValue } from "@/pages/settings";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getStatusBadge } from "@/lib/status-badge";
@@ -64,6 +65,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 const ALL_RULES: { id: string; label: string }[] = [
   { id: "SIA-R1", label: "Page has no title (WCAG 2.4.2)" },
@@ -427,6 +436,9 @@ function InlineScanMonitor({
   });
 
   const isRunning = scan?.status === "running" || scan?.status === "pending";
+  const initiatorText = (scan as { initiatorName?: string | null; initiatorRole?: string | null } | undefined)?.initiatorName
+    ? `Initiated by ${(scan as { initiatorName?: string | null; initiatorRole?: string | null }).initiatorName}${(scan as { initiatorName?: string | null; initiatorRole?: string | null }).initiatorRole ? ` · ${(scan as { initiatorName?: string | null; initiatorRole?: string | null }).initiatorRole}` : ""}`
+    : null;
 
   const { data: liveStatus } = useGetScanStatus(scanId, {
     query: {
@@ -595,6 +607,11 @@ function InlineScanMonitor({
         {liveStatus?.currentUrl && (
           <CardDescription className="font-mono text-xs truncate mt-1">
             Scanning: {liveStatus.currentUrl}
+          </CardDescription>
+        )}
+        {initiatorText && (
+          <CardDescription className="text-xs mt-1">
+            {initiatorText}
           </CardDescription>
         )}
       </CardHeader>
@@ -899,6 +916,8 @@ export default function Home() {
   const [projectId, setProjectId] = useState<number | null>(null);
   const [projectName, setProjectName] = useState<string | null>(null);
   const [scanName, setScanName] = useState("");
+  const [initiatorName, setInitiatorName] = useState("");
+  const [initiatorRole, setInitiatorRole] = useState("");
   const [scanNameError, setScanNameError] = useState(false);
   const [projectError, setProjectError] = useState(false);
   const [selectedRules, setSelectedRules] = useState<string[]>([]);
@@ -906,28 +925,93 @@ export default function Home() {
 
   const [manualUrls, setManualUrls] = useState("");
   const [sitemapUrl, setSitemapUrl] = useState("");
+  const [urlPrefix, setUrlPrefix] = useState("");
   const parseSitemap = useParseSitemap();
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [parsedUrls, setParsedUrls] = useState<string[]>([]);
   const [startingScan, setStartingScan] = useState(false);
+  const [dupDialogOpen, setDupDialogOpen] = useState(false);
+
+  // Compute duplicate URLs: a map of url -> count, filtered to count > 1
+  const duplicateMap = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const url of parsedUrls) counts.set(url, (counts.get(url) ?? 0) + 1);
+    const dupes = new Map<string, number>();
+    for (const [url, count] of counts) if (count > 1) dupes.set(url, count);
+    return dupes;
+  }, [parsedUrls]);
+
+  const totalDuplicateRows = useMemo(() => {
+    let extra = 0;
+    for (const count of duplicateMap.values()) extra += count - 1;
+    return extra;
+  }, [duplicateMap]);
+
+  const handleRemoveDuplicates = () => {
+    const seen = new Set<string>();
+    const deduped = parsedUrls.filter((url) => {
+      if (seen.has(url)) return false;
+      seen.add(url);
+      return true;
+    });
+    setParsedUrls(deduped);
+    setManualUrls(deduped.join("\n"));
+    setDupDialogOpen(false);
+    toast({ title: `Removed ${totalDuplicateRows} duplicate URL${totalDuplicateRows !== 1 ? "s" : ""}`, description: `${deduped.length} unique URL${deduped.length !== 1 ? "s" : ""} remaining.` });
+  };
 
   // Proxy PAC state — PAC URL is managed in Settings; here we just toggle it on/off
   const [proxyEnabled, setProxyEnabled] = useState(false);
   const [activeProxyPac, setActiveProxyPac] = useState<string>("");
 
+  // URL limit state — toggled/configured in Settings
+  const [urlLimitOn, setUrlLimitOn] = useState(false);
+  const [urlLimit, setUrlLimit] = useState(100);
+
   useEffect(() => {
     setActiveProxyPac(getActiveProxy());
+    setUrlLimitOn(isUrlLimitEnabled());
+    setUrlLimit(getUrlLimitValue());
+
     const onStorage = (e: StorageEvent) => {
       if (e.key === ACTIVE_PROXY_KEY) setActiveProxyPac(e.newValue || "");
     };
+    const onLimitChanged = () => {
+      setUrlLimitOn(isUrlLimitEnabled());
+      setUrlLimit(getUrlLimitValue());
+    };
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    window.addEventListener("a11y-url-limit-changed", onLimitChanged);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("a11y-url-limit-changed", onLimitChanged);
+    };
   }, []);
 
   const createScan = useCreateScan();
 
-  const URL_LIMIT = 20;
+  const transformUrlWithPrefix = (value: string, prefix: string) => {
+    const input = value.trim();
+    const cleanPrefix = prefix.trim();
+    if (!input || !cleanPrefix) return input;
+    try {
+      const url = new URL(input);
+      if (url.protocol !== "https:") return input;
+      if (cleanPrefix.includes("/") || cleanPrefix.includes("?") || cleanPrefix.includes("#")) return input;
+      const host = url.hostname;
+      const parts = host.split(".");
+      if (parts.length < 2) return input;
+      const domainIndex = parts.length - 2;
+      const baseHost = parts.slice(domainIndex).join(".");
+      const nextHost = `${cleanPrefix}${baseHost}`;
+      if (!nextHost || nextHost.length > 253) return input;
+      url.hostname = nextHost;
+      return url.toString();
+    } catch {
+      return input;
+    }
+  };
 
   const handleManualUrlsChange = (
     e: React.ChangeEvent<HTMLTextAreaElement>,
@@ -937,16 +1021,29 @@ export default function Home() {
       .split("\n")
       .map((u) => u.trim())
       .filter(Boolean);
-    if (urls.length > URL_LIMIT) {
-      setParsedUrls(urls.slice(0, URL_LIMIT));
+    const transformed = urls.map((u) => transformUrlWithPrefix(u, urlPrefix));
+
+    if (urlLimitOn && transformed.length > urlLimit) {
+      const trimmed = transformed.slice(0, urlLimit);
+      setParsedUrls(trimmed);
       toast({
-        title: `Limit reached — first ${URL_LIMIT} URLs kept`,
-        description: `Batches are capped at ${URL_LIMIT} URLs. Remove excess lines to scan different pages.`,
+        title: `URL limit reached (${urlLimit})`,
+        description: `Only the first ${urlLimit} URLs will be scanned. Adjust the limit in Settings.`,
         variant: "destructive",
       });
     } else {
-      setParsedUrls(urls);
+      setParsedUrls(transformed);
     }
+  };
+
+  const handleUrlPrefixChange = (value: string) => {
+    setUrlPrefix(value);
+    const urls = manualUrls
+      .split("\n")
+      .map((u) => u.trim())
+      .filter(Boolean)
+      .map((u) => transformUrlWithPrefix(u, value));
+    setParsedUrls(urls);
   };
 
   const handleParseSitemap = () => {
@@ -955,15 +1052,20 @@ export default function Home() {
       { data: { url: sitemapUrl } },
       {
         onSuccess: (data) => {
-          const limited = data.urls.slice(0, URL_LIMIT);
-          setParsedUrls(limited);
-          toast({
-            title: "Sitemap Parsed",
-            description:
-              data.count > URL_LIMIT
-                ? `Found ${data.count} URLs — showing first ${URL_LIMIT} (batch limit).`
-                : `Found ${data.count} URLs.`,
-          });
+          if (urlLimitOn && data.urls.length > urlLimit) {
+            setParsedUrls(data.urls.slice(0, urlLimit));
+            toast({
+              title: `URL limit reached (${urlLimit})`,
+              description: `Sitemap has ${data.urls.length} URLs but only the first ${urlLimit} will be scanned. Adjust the limit in Settings.`,
+              variant: "destructive",
+            });
+          } else {
+            setParsedUrls(data.urls);
+            toast({
+              title: "Sitemap Parsed",
+              description: `Found ${data.count} URLs.`,
+            });
+          }
         },
         onError: () => {
           toast({
@@ -988,15 +1090,20 @@ export default function Home() {
       });
       if (!res.ok) throw new Error("Upload failed");
       const data = await res.json();
-      const limited = data.urls.slice(0, URL_LIMIT);
-      setParsedUrls(limited);
-      toast({
-        title: "CSV Parsed",
-        description:
-          data.count > URL_LIMIT
-            ? `Found ${data.count} URLs — using first ${URL_LIMIT} (batch limit).`
-            : `Found ${data.count} URLs.`,
-      });
+      if (urlLimitOn && data.urls.length > urlLimit) {
+        setParsedUrls(data.urls.slice(0, urlLimit));
+        toast({
+          title: `URL limit reached (${urlLimit})`,
+          description: `CSV has ${data.urls.length} URLs but only the first ${urlLimit} will be scanned. Adjust the limit in Settings.`,
+          variant: "destructive",
+        });
+      } else {
+        setParsedUrls(data.urls);
+        toast({
+          title: "CSV Parsed",
+          description: `Found ${data.count} URLs.`,
+        });
+      }
     } catch {
       toast({ title: "Error parsing CSV", variant: "destructive" });
     } finally {
@@ -1099,6 +1206,8 @@ export default function Home() {
             ...(selectedRules.length > 0 ? { rules: selectedRules } : {}),
             ...(effectiveProxy ? { proxyPacUrl: effectiveProxy } : {}),
           },
+          initiatorName: initiatorName.trim() || undefined,
+          initiatorRole: initiatorRole || undefined,
         },
       },
       {
@@ -1128,6 +1237,8 @@ export default function Home() {
     setProjectName(null);
     setProjectError(false);
     setSelectedRules([]);
+    setInitiatorName("");
+    setInitiatorRole("");
     // Proxy settings intentionally kept so user can re-scan the same environment
   };
 
@@ -1197,6 +1308,31 @@ export default function Home() {
               )}
             </div>
 
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="initiatorName">Scan Initiator Name</Label>
+                <Input
+                  id="initiatorName"
+                  placeholder="Optional"
+                  value={initiatorName}
+                  onChange={(e) => setInitiatorName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="initiatorRole">Role</Label>
+                <select
+                  id="initiatorRole"
+                  value={initiatorRole}
+                  onChange={(e) => setInitiatorRole(e.target.value)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">Optional</option>
+                  <option value="Developer">Developer</option>
+                  <option value="QA">QA</option>
+                </select>
+              </div>
+            </div>
+
             <div className="space-y-2">
               <Label>URL Input Method</Label>
               <Tabs defaultValue="manual" className="w-full">
@@ -1213,16 +1349,42 @@ export default function Home() {
                 </TabsList>
 
                 <TabsContent value="manual" className="mt-4">
-                  <div className="space-y-2">
-                    <Label>URLs (one per line)</Label>
+                  <div className="space-y-3">
+                    <div className="flex items-end gap-2">
+                      <div className="flex-1 space-y-2">
+                        <Label>URL Rewrite</Label>
+                        <Input
+                          placeholder="stg.example.com"
+                          value={urlPrefix}
+                          onChange={(e) => handleUrlPrefixChange(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Replace the host before the domain. Example: <span className="font-mono">https://www.example.com/path</span> → <span className="font-mono">https://stg.example.com/path</span>.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label>URLs (one per line)</Label>
+                      {urlLimitOn && (
+                        <span className={`text-xs font-medium tabular-nums ${parsedUrls.length >= urlLimit ? "text-destructive" : "text-muted-foreground"}`}>
+                          {parsedUrls.length} / {urlLimit} URLs
+                        </span>
+                      )}
+                    </div>
                     <Textarea
                       placeholder={
                         "https://example.com\nhttps://example.com/about"
                       }
-                      className="min-h-[160px] font-mono text-sm"
+                      className={`min-h-[160px] font-mono text-sm ${urlLimitOn && parsedUrls.length >= urlLimit ? "border-destructive focus-visible:ring-destructive" : ""}`}
                       value={manualUrls}
                       onChange={handleManualUrlsChange}
                     />
+                    {urlLimitOn && parsedUrls.length >= urlLimit && (
+                      <p className="text-xs text-destructive flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        URL limit of {urlLimit} reached. Go to Settings to increase it.
+                      </p>
+                    )}
                   </div>
                 </TabsContent>
 
@@ -1299,17 +1461,72 @@ export default function Home() {
               </Tabs>
             </div>
 
+            {/* Duplicate URL review dialog */}
+            <Dialog open={dupDialogOpen} onOpenChange={setDupDialogOpen}>
+              <DialogContent className="sm:max-w-xl max-h-[80vh] flex flex-col">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <CopyCheck className="w-5 h-5 text-amber-500" />
+                    Duplicate URLs Found
+                  </DialogTitle>
+                  <DialogDescription>
+                    {duplicateMap.size} URL{duplicateMap.size !== 1 ? "s appear" : " appears"} more than once ({totalDuplicateRows} extra entr{totalDuplicateRows !== 1 ? "ies" : "y"}). Removing duplicates will keep only the first occurrence of each URL.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="overflow-y-auto flex-1 border rounded-md">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-muted border-b">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">#</th>
+                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">URL</th>
+                        <th className="text-right px-3 py-2 font-medium text-muted-foreground">Count</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Array.from(duplicateMap.entries()).map(([url, count], i) => (
+                        <tr key={url} className={i % 2 === 0 ? "bg-background" : "bg-muted/30"}>
+                          <td className="px-3 py-2 text-muted-foreground tabular-nums">{i + 1}</td>
+                          <td className="px-3 py-2 font-mono text-xs break-all">{url}</td>
+                          <td className="px-3 py-2 text-right">
+                            <span className="inline-flex items-center justify-center rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 font-bold text-xs px-2 py-0.5 min-w-[2rem]">
+                              ×{count}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <DialogFooter className="mt-4 gap-2">
+                  <Button variant="outline" onClick={() => setDupDialogOpen(false)}>Cancel</Button>
+                  <Button onClick={handleRemoveDuplicates} className="bg-amber-600 hover:bg-amber-700 text-white">
+                    <X className="w-4 h-4 mr-2" />
+                    Remove {totalDuplicateRows} Duplicate{totalDuplicateRows !== 1 ? "s" : ""}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
             {parsedUrls.length > 0 && (
               <Alert className="bg-muted border-muted-foreground/20">
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle className="flex items-center gap-2">
                   Ready to scan {parsedUrls.length} URL
                   {parsedUrls.length !== 1 ? "s" : ""}
-                  <span
-                    className={`ml-1 text-xs font-mono px-1.5 py-0.5 rounded ${parsedUrls.length >= URL_LIMIT ? "bg-destructive/15 text-destructive" : "bg-muted-foreground/15 text-muted-foreground"}`}
-                  >
-                    {parsedUrls.length} / {URL_LIMIT}
+                  <span className="ml-1 text-xs font-mono px-1.5 py-0.5 rounded bg-muted-foreground/15 text-muted-foreground">
+                    {parsedUrls.length}
                   </span>
+                  {duplicateMap.size > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="ml-auto h-7 px-2 text-xs border-amber-400 text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-900/20"
+                      onClick={() => setDupDialogOpen(true)}
+                    >
+                      <CopyCheck className="w-3.5 h-3.5 mr-1.5" />
+                      {duplicateMap.size} duplicate{duplicateMap.size !== 1 ? "s" : ""} found
+                    </Button>
+                  )}
                 </AlertTitle>
                 <AlertDescription>
                   <div className="mt-2 text-xs font-mono max-h-24 overflow-y-auto space-y-1 text-muted-foreground">

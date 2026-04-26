@@ -26,6 +26,7 @@ import type {
   ScanSession,
   ScanSessionDetail,
   ScanStatus,
+  UpdateScanBody,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -688,6 +689,76 @@ export function useGetScanReport<
   };
 
   return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update a scan's name and initiator fields
+ */
+export const getUpdateScanUrl = (id: number) => {
+  return `/api/scans/${id}`;
+};
+
+export const updateScan = async (
+  id: number,
+  updateScanBody: UpdateScanBody,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getUpdateScanUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateScanBody),
+  });
+};
+
+export const getUpdateScanMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateScan>>,
+    TError,
+    { id: number; data: BodyType<UpdateScanBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateScan>>,
+  TError,
+  { id: number; data: BodyType<UpdateScanBody> },
+  TContext
+> => {
+  const mutationKey = ["updateScan"];
+  const { mutation: mutationOptions, request: requestOptions } = options ?? {};
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateScan>>,
+    { id: number; data: BodyType<UpdateScanBody> }
+  > = ({ id, data }) => updateScan(id, data, requestOptions);
+  return { mutationKey, mutationFn, ...mutationOptions };
+};
+
+export type UpdateScanMutationResult = NonNullable<Awaited<ReturnType<typeof updateScan>>>;
+export type UpdateScanMutationBody = BodyType<UpdateScanBody>;
+export type UpdateScanMutationError = ErrorType<ErrorResponse>;
+
+export function useUpdateScan<
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateScan>>,
+    TError,
+    { id: number; data: BodyType<UpdateScanBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateScan>>,
+  TError,
+  { id: number; data: BodyType<UpdateScanBody> },
+  TContext
+> {
+  return useMutation(getUpdateScanMutationOptions(options));
 }
 
 /**

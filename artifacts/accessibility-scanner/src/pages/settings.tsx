@@ -1,11 +1,28 @@
 import React, { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Shield, ShieldCheck, Trash2, CheckCircle2, Plus, Eye, Sun, Moon, Monitor } from "lucide-react";
+import {
+  Shield,
+  ShieldCheck,
+  Trash2,
+  CheckCircle2,
+  Plus,
+  Eye,
+  Sun,
+  Moon,
+  Monitor,
+  ListFilter,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export const ELEMENT_VIEWER_LS_KEY = "a11y-element-viewer-enabled";
@@ -21,6 +38,27 @@ export function isElementViewerEnabled(): boolean {
 export const PROXY_LS_KEY = "a11y-scanner-proxy-pacs";
 export const ACTIVE_PROXY_KEY = "a11y-scanner-active-proxy";
 
+export const URL_LIMIT_LS_KEY = "a11y-url-limit-enabled";
+export const URL_LIMIT_VALUE_LS_KEY = "a11y-url-limit-value";
+export const DEFAULT_URL_LIMIT = 100;
+
+export function isUrlLimitEnabled(): boolean {
+  try {
+    return localStorage.getItem(URL_LIMIT_LS_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function getUrlLimitValue(): number {
+  try {
+    const v = parseInt(localStorage.getItem(URL_LIMIT_VALUE_LS_KEY) ?? "", 10);
+    return Number.isFinite(v) && v > 0 ? v : DEFAULT_URL_LIMIT;
+  } catch {
+    return DEFAULT_URL_LIMIT;
+  }
+}
+
 export const THEME_LS_KEY = "a11y-theme";
 export type Theme = "light" | "dark" | "system";
 
@@ -28,7 +66,9 @@ export function getSavedTheme(): Theme {
   try {
     const v = localStorage.getItem(THEME_LS_KEY);
     if (v === "light" || v === "dark" || v === "system") return v;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return "system";
 }
 
@@ -39,7 +79,11 @@ export function applyTheme(theme: Theme) {
 }
 
 export function loadSavedProxies(): string[] {
-  try { return JSON.parse(localStorage.getItem(PROXY_LS_KEY) || "[]"); } catch { return []; }
+  try {
+    return JSON.parse(localStorage.getItem(PROXY_LS_KEY) || "[]");
+  } catch {
+    return [];
+  }
 }
 
 export function getActiveProxy(): string {
@@ -51,21 +95,31 @@ export default function Settings() {
   const [savedProxies, setSavedProxies] = useState<string[]>([]);
   const [activeProxy, setActiveProxy] = useState<string>("");
   const [newPacUrl, setNewPacUrl] = useState("");
-  const [elementViewerEnabled, setElementViewerEnabledState] = useState<boolean>(false);
+  const [elementViewerEnabled, setElementViewerEnabledState] =
+    useState<boolean>(false);
   const [theme, setThemeState] = useState<Theme>("system");
+  const [urlLimitEnabled, setUrlLimitEnabledState] = useState(false);
+  const [urlLimitValue, setUrlLimitValueState] = useState(DEFAULT_URL_LIMIT);
+  const [urlLimitInput, setUrlLimitInput] = useState(String(DEFAULT_URL_LIMIT));
 
   useEffect(() => {
     setSavedProxies(loadSavedProxies());
     setActiveProxy(getActiveProxy());
     setElementViewerEnabledState(isElementViewerEnabled());
     setThemeState(getSavedTheme());
+    setUrlLimitEnabledState(isUrlLimitEnabled());
+    const saved = getUrlLimitValue();
+    setUrlLimitValueState(saved);
+    setUrlLimitInput(String(saved));
   }, []);
 
   const handleThemeChange = (t: Theme) => {
     setThemeState(t);
     localStorage.setItem(THEME_LS_KEY, t);
     applyTheme(t);
-    toast({ title: `Theme set to ${t === "system" ? "system default" : t === "dark" ? "dark" : "light"}` });
+    toast({
+      title: `Theme set to ${t === "system" ? "system default" : t === "dark" ? "dark" : "light"}`,
+    });
   };
 
   const addProxy = () => {
@@ -108,7 +162,6 @@ export default function Settings() {
 
   return (
     <div className="space-y-6 max-w-2xl">
-
       {/* Theme */}
       <Card>
         <CardHeader>
@@ -125,7 +178,7 @@ export default function Settings() {
             {(
               [
                 { value: "light", label: "Light", icon: Sun },
-                { value: "dark",  label: "Dark",  icon: Moon },
+                { value: "dark", label: "Dark", icon: Moon },
                 { value: "system", label: "System", icon: Monitor },
               ] as { value: Theme; label: string; icon: React.ElementType }[]
             ).map(({ value, label, icon: Icon }) => (
@@ -146,7 +199,92 @@ export default function Settings() {
           </div>
         </CardContent>
       </Card>
+      {/* URL Limit */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <ListFilter className="w-5 h-5 text-muted-foreground" />
+            <CardTitle>URL Limit</CardTitle>
+          </div>
+          <CardDescription>
+            Restrict the number of URLs that can be added to a scan. When
+            enabled, adding URLs beyond the limit is blocked and an alert is
+            shown.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Enable URL limit</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {urlLimitEnabled
+                  ? `Scans are limited to ${urlLimitValue} URL${urlLimitValue === 1 ? "" : "s"}`
+                  : "No limit — scans can include any number of URLs"}
+              </p>
+            </div>
+            <Switch
+              checked={urlLimitEnabled}
+              onCheckedChange={(v) => {
+                setUrlLimitEnabledState(v);
+                localStorage.setItem(URL_LIMIT_LS_KEY, String(v));
+                window.dispatchEvent(new CustomEvent("a11y-url-limit-changed"));
+                toast({
+                  title: v
+                    ? `URL limit enabled (${urlLimitValue})`
+                    : "URL limit disabled",
+                });
+              }}
+            />
+          </div>
 
+          {urlLimitEnabled && (
+            <div className="space-y-2 pt-1 border-t">
+              <Label htmlFor="url-limit-input">Maximum number of URLs</Label>
+              <div className="flex gap-2 items-center max-w-xs">
+                <Input
+                  id="url-limit-input"
+                  type="number"
+                  min={1}
+                  max={10000}
+                  value={urlLimitInput}
+                  onChange={(e) => setUrlLimitInput(e.target.value)}
+                  onBlur={() => {
+                    const n = parseInt(urlLimitInput, 10);
+                    if (!Number.isFinite(n) || n < 1) {
+                      setUrlLimitInput(String(urlLimitValue));
+                      return;
+                    }
+                    const clamped = Math.min(Math.max(n, 1), 10000);
+                    setUrlLimitValueState(clamped);
+                    setUrlLimitInput(String(clamped));
+                    localStorage.setItem(
+                      URL_LIMIT_VALUE_LS_KEY,
+                      String(clamped),
+                    );
+                    window.dispatchEvent(
+                      new CustomEvent("a11y-url-limit-changed"),
+                    );
+                    toast({ title: `URL limit set to ${clamped}` });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter")
+                      (e.target as HTMLInputElement).blur();
+                  }}
+                  className="w-32"
+                />
+                <span className="text-sm text-muted-foreground">
+                  URLs maximum
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Enter a number between 1 and 10,000. Changes take effect
+                immediately on the scan page.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      {/* Proxy PAC Setting */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -154,8 +292,9 @@ export default function Settings() {
             <CardTitle>Proxy PAC Configuration</CardTitle>
           </div>
           <CardDescription>
-            Add and manage PAC file URLs for scanning environments behind a corporate proxy.
-            The active PAC URL is used when proxy mode is enabled on the scan page.
+            Add and manage PAC file URLs for scanning environments behind a
+            corporate proxy. The active PAC URL is used when proxy mode is
+            enabled on the scan page.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -190,7 +329,9 @@ export default function Settings() {
                 placeholder="http://example.com/proxy/autoproxy.pac"
                 value={newPacUrl}
                 onChange={(e) => setNewPacUrl(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") addProxy(); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") addProxy();
+                }}
                 className="font-mono text-sm"
               />
               <Button onClick={addProxy} disabled={!newPacUrl.trim()}>
@@ -209,7 +350,10 @@ export default function Settings() {
                     key={pac}
                     className={`flex items-center gap-3 px-4 py-3 group ${activeProxy === pac ? "bg-blue-50 dark:bg-blue-950/20" : "hover:bg-muted/40"}`}
                   >
-                    <code className="flex-1 text-xs font-mono truncate" title={pac}>
+                    <code
+                      className="flex-1 text-xs font-mono truncate"
+                      title={pac}
+                    >
                       {pac}
                     </code>
                     <div className="flex items-center gap-2 shrink-0">
@@ -246,7 +390,9 @@ export default function Settings() {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No PAC URLs saved yet. Add one above.</p>
+            <p className="text-sm text-muted-foreground">
+              No PAC URLs saved yet. Add one above.
+            </p>
           )}
         </CardContent>
       </Card>
@@ -259,9 +405,10 @@ export default function Settings() {
             <CardTitle>Element Viewer</CardTitle>
           </div>
           <CardDescription>
-            When enabled, a side panel appears next to Page Results on each scan detail page.
-            Click any issue occurrence to inspect its HTML source and live page preview, and
-            navigate between occurrences with Prev / Next controls.
+            When enabled, a side panel appears next to Page Results on each scan
+            detail page. Click any issue occurrence to inspect its HTML source
+            and live page preview, and navigate between occurrences with Prev /
+            Next controls.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -269,7 +416,8 @@ export default function Settings() {
             <div>
               <p className="text-sm font-medium">Enable Element Viewer</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Shows HTML source viewer and live page preview alongside issue results
+                Shows HTML source viewer and live page preview alongside issue
+                results
               </p>
             </div>
             <Switch
@@ -278,7 +426,11 @@ export default function Settings() {
                 setElementViewerEnabledState(v);
                 localStorage.setItem(ELEMENT_VIEWER_LS_KEY, String(v));
                 window.dispatchEvent(new Event("storage"));
-                toast({ title: v ? "Element Viewer enabled" : "Element Viewer disabled" });
+                toast({
+                  title: v
+                    ? "Element Viewer enabled"
+                    : "Element Viewer disabled",
+                });
               }}
             />
           </div>

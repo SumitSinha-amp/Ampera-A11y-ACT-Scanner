@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, jsonb, real } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, jsonb, real, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -12,6 +12,8 @@ export const scanSessionsTable = pgTable("scan_sessions", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").references(() => projectsTable.id, { onDelete: "set null" }),
   name: text("name"),
+  initiatorName: text("initiator_name"),
+  initiatorRole: text("initiator_role"),
   status: text("status").notNull().default("pending"),
   totalUrls: integer("total_urls").notNull().default(0),
   scannedUrls: integer("scanned_urls").notNull().default(0),
@@ -34,7 +36,9 @@ export const pageResultsTable = pgTable("page_results", {
   scannedAt: timestamp("scanned_at"),
   screenshot: text("screenshot"),
   pageHtml: text("page_html"),
-});
+}, (t) => [
+  index("page_results_scan_id_idx").on(t.scanId),
+]);
 
 export const accessibilityIssuesTable = pgTable("accessibility_issues", {
   id: serial("id").primaryKey(),
@@ -52,7 +56,9 @@ export const accessibilityIssuesTable = pgTable("accessibility_issues", {
   bboxY: real("bbox_y"),
   bboxWidth: real("bbox_width"),
   bboxHeight: real("bbox_height"),
-});
+}, (t) => [
+  index("accessibility_issues_page_id_idx").on(t.pageId),
+]);
 
 export const insertProjectSchema = createInsertSchema(projectsTable).omit({ id: true, createdAt: true });
 export type InsertProject = z.infer<typeof insertProjectSchema>;

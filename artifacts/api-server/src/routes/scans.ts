@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
 import { db, scanSessionsTable, pageResultsTable, accessibilityIssuesTable, projectsTable } from "@workspace/db";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import {
   CreateScanBody,
   GetScanParams,
@@ -10,8 +10,10 @@ import {
   CancelScanParams,
   GetScanReportParams,
   ParseSitemapBody,
+  UpdateScanParams,
+  UpdateScanBody,
 } from "@workspace/api-zod";
-import { startScan, cancelScan, pauseScan, resumeScan, isScanPaused } from "../lib/scanQueue";
+import { startScan, cancelScan, pauseScan, resumeScan, isScanActive, queueRetryUrl } from "../lib/scanQueue";
 import { fetchSitemapUrls, parseUrlsFromCsv } from "../lib/sitemap";
 import { logger } from "../lib/logger";
 
@@ -25,6 +27,8 @@ router.get("/scans", async (req, res): Promise<void> => {
       projectId: scanSessionsTable.projectId,
       projectName: projectsTable.name,
       name: scanSessionsTable.name,
+      initiatorName: scanSessionsTable.initiatorName,
+      initiatorRole: scanSessionsTable.initiatorRole,
       status: scanSessionsTable.status,
       totalUrls: scanSessionsTable.totalUrls,
       scannedUrls: scanSessionsTable.scannedUrls,
@@ -55,7 +59,7 @@ router.post("/scans", async (req, res): Promise<void> => {
     return;
   }
 
-  const { urls, name, projectId, options } = parsed.data;
+  const { urls, name, projectId, options, initiatorName, initiatorRole } = parsed.data;
 
   if (!urls || urls.length === 0) {
     res.status(400).json({ error: "At least one URL is required" });
@@ -74,6 +78,8 @@ router.post("/scans", async (req, res): Promise<void> => {
   const [session] = await db.insert(scanSessionsTable).values({
     name: name || null,
     projectId: projectId ?? null,
+    initiatorName: initiatorName ?? null,
+    initiatorRole: initiatorRole ?? null,
     status: "pending",
     totalUrls: validUrls.length,
     scannedUrls: 0,
@@ -102,6 +108,8 @@ router.post("/scans", async (req, res): Promise<void> => {
     ...session,
     createdAt: session.createdAt.toISOString(),
     completedAt: null,
+    initiatorName: session.initiatorName ?? null,
+    initiatorRole: session.initiatorRole ?? null,
   });
 });
 
@@ -137,6 +145,199 @@ router.post("/scans/upload-csv", upload.single("file"), async (req, res): Promis
   res.json({ urls, count: urls.length });
 });
 
+// ── Shared helper: build comparison data from two scan IDs ────────────────────
+async function buildComparison(scan1Id: number, scan2Id: number, strip1?: string, strip2?: string) {
+  const selectSession = {
+    id: scanSessionsTable.id,
+    projectId: scanSessionsTable.projectId,
+    projectName: projectsTable.name,
+    name: scanSessionsTable.name,
+    initiatorName: scanSessionsTable.initiatorName,
+    initiatorRole: scanSessionsTable.initiatorRole,
+    status: scanSessionsTable.status,
+    totalUrls: scanSessionsTable.totalUrls,
+    scannedUrls: scanSessionsTable.scannedUrls,
+    failedUrls: scanSessionsTable.failedUrls,
+    totalIssues: scanSessionsTable.totalIssues,
+    criticalIssues: scanSessionsTable.criticalIssues,
+    createdAt: scanSessionsTable.createdAt,
+    completedAt: scanSessionsTable.completedAt,
+  };
+
+  const [[row1], [row2], pages1raw, pages2raw] = await Promise.all([
+    db.select(selectSession).from(scanSessionsTable)
+      .leftJoin(projectsTable, eq(scanSessionsTable.projectId, projectsTable.id))
+      .where(eq(scanSessionsTable.id, scan1Id)),
+    db.select(selectSession).from(scanSessionsTable)
+      .leftJoin(projectsTable, eq(scanSessionsTable.projectId, projectsTable.id))
+      .where(eq(scanSessionsTable.id, scan2Id)),
+    db.select({ id: pageResultsTable.id, url: pageResultsTable.url, status: pageResultsTable.status, issueCount: pageResultsTable.issueCount, criticalCount: pageResultsTable.criticalCount })
+      .from(pageResultsTable).where(eq(pageResultsTable.scanId, scan1Id)),
+    db.select({ id: pageResultsTable.id, url: pageResultsTable.url, status: pageResultsTable.status, issueCount: pageResultsTable.issueCount, criticalCount: pageResultsTable.criticalCount })
+      .from(pageResultsTable).where(eq(pageResultsTable.scanId, scan2Id)),
+  ]);
+
+  if (!row1 || !row2) return null;
+
+  // Normalise a URL by stripping a base-URL prefix (e.g. "https://stgwww.example.com")
+  // so pages from two environments can be matched on their path alone.
+  const norm = (url: string, strip?: string) => {
+    let n = url.replace(/\/+$/, "").toLowerCase();
+    if (strip) {
+      const s = strip.replace(/\/+$/, "").toLowerCase();
+      if (n.startsWith(s)) n = n.slice(s.length) || "/";
+    }
+    return n;
+  };
+  const map1 = new Map(pages1raw.map(p => [norm(p.url, strip1), p]));
+  const map2 = new Map(pages2raw.map(p => [norm(p.url, strip2), p]));
+
+  const matchedNorm = [...map1.keys()].filter(u => map2.has(u));
+  const onlyInScan1 = pages1raw.filter(p => !map2.has(norm(p.url, strip1))).map(p => p.url);
+  const onlyInScan2 = pages2raw.filter(p => !map1.has(norm(p.url, strip2))).map(p => p.url);
+
+  const page1Ids = matchedNorm.map(u => map1.get(u)!.id);
+  const page2Ids = matchedNorm.map(u => map2.get(u)!.id);
+
+  const [issues1all, issues2all] = await Promise.all([
+    page1Ids.length > 0
+      ? db.select({ pageId: accessibilityIssuesTable.pageId, ruleId: accessibilityIssuesTable.ruleId, impact: accessibilityIssuesTable.impact, description: accessibilityIssuesTable.description, selector: accessibilityIssuesTable.selector, wcagCriteria: accessibilityIssuesTable.wcagCriteria, wcagLevel: accessibilityIssuesTable.wcagLevel })
+          .from(accessibilityIssuesTable).where(inArray(accessibilityIssuesTable.pageId, page1Ids))
+      : Promise.resolve([] as { pageId: number; ruleId: string; impact: string; description: string; selector: string | null; wcagCriteria: string | null; wcagLevel: string | null }[]),
+    page2Ids.length > 0
+      ? db.select({ pageId: accessibilityIssuesTable.pageId, ruleId: accessibilityIssuesTable.ruleId, impact: accessibilityIssuesTable.impact, description: accessibilityIssuesTable.description, selector: accessibilityIssuesTable.selector, wcagCriteria: accessibilityIssuesTable.wcagCriteria, wcagLevel: accessibilityIssuesTable.wcagLevel })
+          .from(accessibilityIssuesTable).where(inArray(accessibilityIssuesTable.pageId, page2Ids))
+      : Promise.resolve([] as { pageId: number; ruleId: string; impact: string; description: string; selector: string | null; wcagCriteria: string | null; wcagLevel: string | null }[]),
+  ]);
+
+  const byPage1 = new Map<number, typeof issues1all>();
+  for (const i of issues1all) {
+    if (!byPage1.has(i.pageId)) byPage1.set(i.pageId, []);
+    byPage1.get(i.pageId)!.push(i);
+  }
+  const byPage2 = new Map<number, typeof issues2all>();
+  for (const i of issues2all) {
+    if (!byPage2.has(i.pageId)) byPage2.set(i.pageId, []);
+    byPage2.get(i.pageId)!.push(i);
+  }
+
+  const issueKey = (i: { ruleId: string; selector: string | null }) =>
+    `${i.ruleId}||${i.selector ?? ""}`;
+
+  const pages = matchedNorm.map(nu => {
+    const p1 = map1.get(nu)!;
+    const p2 = map2.get(nu)!;
+    const i1 = byPage1.get(p1.id) ?? [];
+    const i2 = byPage2.get(p2.id) ?? [];
+    const keys1 = new Set(i1.map(issueKey));
+    const keys2 = new Set(i2.map(issueKey));
+    const newIssues      = i2.filter(i => !keys1.has(issueKey(i)));
+    const fixedIssues    = i1.filter(i => !keys2.has(issueKey(i)));
+    const persistingIssues = i2.filter(i => keys1.has(issueKey(i)));
+    return {
+      url: p1.url,
+      scan1Page: { status: p1.status, issueCount: p1.issueCount, criticalCount: p1.criticalCount },
+      scan2Page: { status: p2.status, issueCount: p2.issueCount, criticalCount: p2.criticalCount },
+      newIssues:        newIssues.map(i => ({ ruleId: i.ruleId, impact: i.impact, description: i.description, selector: i.selector, wcagCriteria: i.wcagCriteria, wcagLevel: i.wcagLevel })),
+      fixedIssues:      fixedIssues.map(i => ({ ruleId: i.ruleId, impact: i.impact, description: i.description, selector: i.selector, wcagCriteria: i.wcagCriteria, wcagLevel: i.wcagLevel })),
+      persistingIssues: persistingIssues.map(i => ({ ruleId: i.ruleId, impact: i.impact, description: i.description, selector: i.selector, wcagCriteria: i.wcagCriteria, wcagLevel: i.wcagLevel })),
+    };
+  });
+
+  const totalNew       = pages.reduce((s, p) => s + p.newIssues.length, 0);
+  const totalFixed     = pages.reduce((s, p) => s + p.fixedIssues.length, 0);
+  const totalPersisting = pages.reduce((s, p) => s + p.persistingIssues.length, 0);
+
+  const fmtSession = (s: typeof row1) => ({
+    id: s.id, projectId: s.projectId, projectName: s.projectName ?? null,
+    name: s.name, initiatorName: s.initiatorName, initiatorRole: s.initiatorRole,
+    status: s.status, totalUrls: s.totalUrls, scannedUrls: s.scannedUrls,
+    failedUrls: s.failedUrls, totalIssues: s.totalIssues, criticalIssues: s.criticalIssues,
+    createdAt: s.createdAt.toISOString(), completedAt: s.completedAt?.toISOString() ?? null,
+  });
+
+  return {
+    scan1: fmtSession(row1),
+    scan2: fmtSession(row2),
+    summary: { pagesCompared: matchedNorm.length, pagesOnlyInScan1: onlyInScan1.length, pagesOnlyInScan2: onlyInScan2.length, totalNew, totalFixed, totalPersisting },
+    pages,
+    onlyInScan1,
+    onlyInScan2,
+  };
+}
+
+// ── GET /scans/compare  (JSON) ─────────────────────────────────────────────
+router.get("/scans/compare", async (req, res): Promise<void> => {
+  const scan1Id = parseInt(req.query.scan1Id as string, 10);
+  const scan2Id = parseInt(req.query.scan2Id as string, 10);
+  if (isNaN(scan1Id) || isNaN(scan2Id)) {
+    res.status(400).json({ error: "scan1Id and scan2Id query params are required" });
+    return;
+  }
+  const strip1 = (req.query.strip1 as string) || undefined;
+  const strip2 = (req.query.strip2 as string) || undefined;
+  const result = await buildComparison(scan1Id, scan2Id, strip1, strip2);
+  if (!result) { res.status(404).json({ error: "One or both scans not found" }); return; }
+  res.json(result);
+});
+
+// ── GET /scans/compare/csv  (CSV download) ─────────────────────────────────
+router.get("/scans/compare/csv", async (req, res): Promise<void> => {
+  const scan1Id = parseInt(req.query.scan1Id as string, 10);
+  const scan2Id = parseInt(req.query.scan2Id as string, 10);
+  if (isNaN(scan1Id) || isNaN(scan2Id)) {
+    res.status(400).json({ error: "scan1Id and scan2Id query params are required" });
+    return;
+  }
+  const strip1 = (req.query.strip1 as string) || undefined;
+  const strip2 = (req.query.strip2 as string) || undefined;
+  const result = await buildComparison(scan1Id, scan2Id, strip1, strip2);
+  if (!result) { res.status(404).json({ error: "One or both scans not found" }); return; }
+
+  const escCsv = (v: string | null | undefined) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+
+  const headerRow = ["URL", "Baseline Issues (A)", "Current Issues (B)", "New Issues", "Fixed Issues", "Persisting", "Net Change"].join(",");
+  const dataRows = result.pages.map(p =>
+    [p.url, p.scan1Page.issueCount, p.scan2Page.issueCount, p.newIssues.length, p.fixedIssues.length, p.persistingIssues.length, p.newIssues.length - p.fixedIssues.length].join(",")
+  );
+
+  // Issue detail rows
+  const detailHeader = ["", "Type", "Rule ID", "Impact", "WCAG", "Selector", "Description"].join(",");
+  const detailRows: string[] = [];
+  for (const p of result.pages) {
+    if (p.newIssues.length + p.fixedIssues.length + p.persistingIssues.length === 0) continue;
+    detailRows.push(escCsv(p.url));
+    for (const i of p.newIssues)       detailRows.push(["", "NEW",       escCsv(i.ruleId), escCsv(i.impact), escCsv(i.wcagCriteria), escCsv(i.selector), escCsv(i.description)].join(","));
+    for (const i of p.fixedIssues)     detailRows.push(["", "FIXED",     escCsv(i.ruleId), escCsv(i.impact), escCsv(i.wcagCriteria), escCsv(i.selector), escCsv(i.description)].join(","));
+    for (const i of p.persistingIssues) detailRows.push(["", "PERSISTING", escCsv(i.ruleId), escCsv(i.impact), escCsv(i.wcagCriteria), escCsv(i.selector), escCsv(i.description)].join(","));
+  }
+
+  const csv = [
+    `Scan Comparison: ${result.scan1.name ?? `Scan #${scan1Id}`} vs ${result.scan2.name ?? `Scan #${scan2Id}`}`,
+    `Generated: ${new Date().toISOString()}`,
+    "",
+    "SUMMARY",
+    `Pages Compared,${result.summary.pagesCompared}`,
+    `New Issues,${result.summary.totalNew}`,
+    `Fixed Issues,${result.summary.totalFixed}`,
+    `Persisting Issues,${result.summary.totalPersisting}`,
+    `Pages only in Scan A,${result.summary.pagesOnlyInScan1}`,
+    `Pages only in Scan B,${result.summary.pagesOnlyInScan2}`,
+    "",
+    "PAGE SUMMARY",
+    headerRow,
+    ...dataRows,
+    "",
+    "ISSUE DETAIL",
+    detailHeader,
+    ...detailRows,
+  ].join("\n");
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="comparison-scan${scan1Id}-vs-scan${scan2Id}.csv"`);
+  res.send(csv);
+});
+
 router.get("/scans/:id", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = GetScanParams.safeParse({ id: parseInt(raw, 10) });
@@ -151,6 +352,8 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
       projectId: scanSessionsTable.projectId,
       projectName: projectsTable.name,
       name: scanSessionsTable.name,
+      initiatorName: scanSessionsTable.initiatorName,
+      initiatorRole: scanSessionsTable.initiatorRole,
       status: scanSessionsTable.status,
       totalUrls: scanSessionsTable.totalUrls,
       scannedUrls: scanSessionsTable.scannedUrls,
@@ -170,20 +373,44 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const pages = await db.select()
-    .from(pageResultsTable)
+  // Exclude screenshot and pageHtml — these are large blobs served via
+  // dedicated snapshot endpoints and are never needed on the detail page.
+  const pages = await db.select({
+    id: pageResultsTable.id,
+    scanId: pageResultsTable.scanId,
+    url: pageResultsTable.url,
+    status: pageResultsTable.status,
+    issueCount: pageResultsTable.issueCount,
+    criticalCount: pageResultsTable.criticalCount,
+    errorMessage: pageResultsTable.errorMessage,
+    scannedAt: pageResultsTable.scannedAt,
+  }).from(pageResultsTable)
     .where(eq(pageResultsTable.scanId, row.id));
 
-  const pagesWithIssues = await Promise.all(pages.map(async page => {
-    const issues = await db.select()
-      .from(accessibilityIssuesTable)
-      .where(eq(accessibilityIssuesTable.pageId, page.id));
+  // Only load full issue details when the scan is finished.
+  // During active scans (running / paused / pending) the live view doesn't
+  // need issue details, so skip that expensive query entirely.
+  const scanIsActive = ["running", "paused", "pending"].includes(row.status);
 
-    return {
-      ...page,
-      scannedAt: page.scannedAt?.toISOString() ?? null,
-      issues,
-    };
+  type IssueRow = typeof accessibilityIssuesTable.$inferSelect;
+  const issuesByPageId = new Map<number, IssueRow[]>();
+
+  if (!scanIsActive && pages.length > 0) {
+    const allIssues = await db.select()
+      .from(accessibilityIssuesTable)
+      .where(inArray(accessibilityIssuesTable.pageId, pages.map(p => p.id)));
+
+    for (const issue of allIssues) {
+      const list = issuesByPageId.get(issue.pageId) ?? [];
+      list.push(issue);
+      issuesByPageId.set(issue.pageId, list);
+    }
+  }
+
+  const pagesWithIssues = pages.map(page => ({
+    ...page,
+    scannedAt: page.scannedAt?.toISOString() ?? null,
+    issues: issuesByPageId.get(page.id) ?? [],
   }));
 
   res.json({
@@ -191,8 +418,42 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
     projectName: row.projectName ?? null,
     createdAt: row.createdAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,
+    initiatorName: row.initiatorName ?? null,
+    initiatorRole: row.initiatorRole ?? null,
     pages: pagesWithIssues,
   });
+});
+
+router.patch("/scans/:id", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const params = UpdateScanParams.safeParse({ id: parseInt(raw, 10) });
+  if (!params.success) {
+    res.status(400).json({ error: "Invalid scan ID" });
+    return;
+  }
+  const parsed = UpdateScanBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const { name, initiatorName, initiatorRole } = parsed.data;
+  const updates: Record<string, unknown> = {};
+  if (name !== undefined) updates.name = name;
+  if (initiatorName !== undefined) updates.initiatorName = initiatorName;
+  if (initiatorRole !== undefined) updates.initiatorRole = initiatorRole;
+  if (Object.keys(updates).length === 0) {
+    res.status(400).json({ error: "No fields to update" });
+    return;
+  }
+  const [updated] = await db.update(scanSessionsTable)
+    .set(updates)
+    .where(eq(scanSessionsTable.id, params.data.id))
+    .returning({ id: scanSessionsTable.id });
+  if (!updated) {
+    res.status(404).json({ error: "Scan not found" });
+    return;
+  }
+  res.status(204).send();
 });
 
 router.delete("/scans/:id", async (req, res): Promise<void> => {
@@ -245,6 +506,8 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
   res.json({
     id: session.id,
     status: session.status,
+    initiatorName: session.initiatorName ?? null,
+    initiatorRole: session.initiatorRole ?? null,
     totalUrls: session.totalUrls,
     scannedUrls: session.scannedUrls,
     failedUrls: session.failedUrls,
@@ -310,11 +573,14 @@ router.post("/scans/:id/pause", async (req, res): Promise<void> => {
     return;
   }
 
-  const paused = pauseScan(scanId);
-  if (!paused) {
+  if (session.status !== "running") {
     res.status(409).json({ error: "Scan is not currently running" });
     return;
   }
+
+  // Signal the in-memory worker (if running) and update DB.
+  // Works for live scans and zombie scans (server restarted mid-scan).
+  pauseScan(scanId);
 
   await db.update(scanSessionsTable)
     .set({ status: "paused" })
@@ -340,20 +606,59 @@ router.post("/scans/:id/resume", async (req, res): Promise<void> => {
     return;
   }
 
-  if (!isScanPaused(scanId)) {
+  // Use DB status as the source of truth (in-memory state is lost on restart)
+  if (session.status !== "paused") {
     res.status(409).json({ error: "Scan is not paused" });
     return;
   }
 
-  const resumed = resumeScan(scanId);
-  if (!resumed) {
-    res.status(409).json({ error: "Scan is not paused" });
-    return;
-  }
+  if (isScanActive(scanId)) {
+    // Live worker exists — just signal it to continue
+    resumeScan(scanId);
+    await db.update(scanSessionsTable)
+      .set({ status: "running" })
+      .where(eq(scanSessionsTable.id, scanId));
+  } else {
+    // Zombie scan: server was restarted while the scan was running.
+    // Reset any pages that were mid-flight back to "pending" so they get re-scanned.
+    await db.update(pageResultsTable)
+      .set({ status: "pending" })
+      .where(and(
+        eq(pageResultsTable.scanId, scanId),
+        inArray(pageResultsTable.status, ["navigating", "scanning", "saving"]),
+      ));
 
-  await db.update(scanSessionsTable)
-    .set({ status: "running" })
-    .where(eq(scanSessionsTable.id, scanId));
+    const remainingPages = await db
+      .select({ url: pageResultsTable.url })
+      .from(pageResultsTable)
+      .where(and(
+        eq(pageResultsTable.scanId, scanId),
+        inArray(pageResultsTable.status, ["pending", "requeued"]),
+      ));
+
+    if (remainingPages.length === 0) {
+      // Nothing left to scan — mark as completed
+      await db.update(scanSessionsTable)
+        .set({ status: "completed", completedAt: new Date() })
+        .where(eq(scanSessionsTable.id, scanId));
+      res.json({ id: scanId, status: "completed" });
+      return;
+    }
+
+    await db.update(scanSessionsTable)
+      .set({ status: "running" })
+      .where(eq(scanSessionsTable.id, scanId));
+
+    const urls = remainingPages.map(p => p.url);
+    startScan(scanId, urls, {
+      ...(session.options as Record<string, unknown> ?? {}),
+      skipCompletedPages: true,
+    }).catch(err => {
+      logger.error({ scanId, err }, "Zombie scan restart failed");
+    });
+
+    logger.info({ scanId, urlCount: urls.length }, "Restarted zombie scan worker");
+  }
 
   res.json({ id: scanId, status: "running" });
 });
@@ -387,6 +692,8 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
       name: scanSessionsTable.name,
       status: scanSessionsTable.status,
       options: scanSessionsTable.options,
+      initiatorName: scanSessionsTable.initiatorName,
+      initiatorRole: scanSessionsTable.initiatorRole,
     })
     .from(scanSessionsTable)
     .leftJoin(projectsTable, eq(scanSessionsTable.projectId, projectsTable.id))
@@ -417,12 +724,26 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
   } else if (original.name) {
     const base = original.name.replace(/\s*\(retry(?:\s+\d+|failed)?\)/gi, "").trim();
     const m = original.name.match(/\(retry\s+(\d+)\)/i);
-    const n = m ? parseInt(m[1]) + 1 : 2;
+    const n = m ? parseInt(m[1]) + 1 : 1;
     retryName = `${base} (retry ${n})`;
   }
 
-  const completedPages = originalPages.filter(p => p.status === "completed");
-  const pendingPages   = originalPages.filter(p => p.status !== "completed");
+  // Deduplicate: keep only the best-status row per URL.
+  // Priority: completed > not_available > failed > (anything else/pending)
+  const statusPriority = (s: string) =>
+    s === "completed" ? 3 : s === "not_available" ? 2 : s === "failed" ? 1 : 0;
+
+  const bestByUrl = new Map<string, typeof originalPages[number]>();
+  for (const p of originalPages) {
+    const existing = bestByUrl.get(p.url);
+    if (!existing || statusPriority(p.status) > statusPriority(existing.status)) {
+      bestByUrl.set(p.url, p);
+    }
+  }
+  const dedupedPages = Array.from(bestByUrl.values());
+
+  const completedPages = dedupedPages.filter(p => p.status === "completed");
+  const pendingPages   = dedupedPages.filter(p => p.status !== "completed");
 
   // Compute totals for the pre-populated completed pages
   const preScanned   = completedPages.length;
@@ -431,17 +752,19 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
 
   const opts = (original.options ?? {}) as Record<string, unknown>;
 
-  // Create new scan session (carries over project association)
+  // Create new scan session (carries over project association and initiator)
   const [newSession] = await db.insert(scanSessionsTable).values({
     name: retryName,
     projectId: original.projectId ?? null,
     status: pendingPages.length === 0 ? "completed" : "pending",
-    totalUrls: originalPages.length,
+    totalUrls: dedupedPages.length,
     scannedUrls: preScanned,
     failedUrls: 0,
     totalIssues: preTotalIssues,
     criticalIssues: preCriticalIssues,
     options: original.options ?? null,
+    initiatorName: original.initiatorName ?? null,
+    initiatorRole: original.initiatorRole ?? null,
     ...(pendingPages.length === 0 ? { completedAt: new Date() } : {}),
   }).returning();
 
@@ -509,7 +832,7 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
   // Start scanning only the pages that need re-scanning
   const urlsToScan = pendingPages.map(p => p.url);
   if (urlsToScan.length > 0) {
-    startScan(newSession.id, urlsToScan, opts as Parameters<typeof startScan>[2]).catch(err => {
+    startScan(newSession.id, urlsToScan, { ...(opts as Parameters<typeof startScan>[2]), skipCompletedPages: true }).catch(err => {
       logger.error({ scanId: newSession.id, err }, "Background retry scan failed");
     });
   }
@@ -518,6 +841,88 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
     ...newSession,
     createdAt: newSession.createdAt.toISOString(),
     completedAt: newSession.completedAt?.toISOString() ?? null,
+  });
+});
+
+router.post("/scans/:id/retry-url", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const scanId = parseInt(raw, 10);
+  const url = typeof req.body?.url === "string" ? req.body.url.trim() : "";
+  if (isNaN(scanId) || !url) {
+    res.status(400).json({ error: "Invalid scan ID or URL" });
+    return;
+  }
+
+  const [session] = await db.select()
+    .from(scanSessionsTable)
+    .where(eq(scanSessionsTable.id, scanId));
+
+  if (!session) {
+    res.status(404).json({ error: "Scan not found" });
+    return;
+  }
+
+  const [page] = await db.select()
+    .from(pageResultsTable)
+    .where(and(eq(pageResultsTable.scanId, scanId), eq(pageResultsTable.url, url)));
+
+  if (!page) {
+    res.status(404).json({ error: "Page not found in scan" });
+    return;
+  }
+
+  if (page.status !== "failed" && page.status !== "pending" && page.status !== "requeued") {
+    res.status(409).json({ error: "Only failed or pending URLs can be retried" });
+    return;
+  }
+
+  if (session.status === "running" || session.status === "paused" || session.status === "pending") {
+    const queued = queueRetryUrl(scanId, url);
+    if (!queued) {
+      res.status(409).json({ error: "Scan is not running" });
+      return;
+    }
+    await db.update(pageResultsTable)
+      .set({ status: "requeued", errorMessage: null, scannedAt: null, issueCount: 0, criticalCount: 0 })
+      .where(and(eq(pageResultsTable.scanId, scanId), eq(pageResultsTable.url, url)));
+    res.status(202).json({
+      id: scanId,
+      status: session.status,
+      queued: true,
+    });
+    return;
+  }
+
+  const [newSession] = await db.insert(scanSessionsTable).values({
+    name: `${session.name ?? `Scan #${scanId}`} (URL retry)`,
+    projectId: session.projectId ?? null,
+    status: "pending",
+    totalUrls: 1,
+    scannedUrls: 0,
+    failedUrls: 0,
+    totalIssues: 0,
+    criticalIssues: 0,
+    options: session.options ?? null,
+    initiatorName: session.initiatorName ?? null,
+    initiatorRole: session.initiatorRole ?? null,
+  }).returning();
+
+  await db.insert(pageResultsTable).values({
+    scanId: newSession.id,
+    url,
+    status: "pending",
+    issueCount: 0,
+    criticalCount: 0,
+  });
+
+  startScan(newSession.id, [url], { ...(session.options as Record<string, unknown>), skipCompletedPages: true }).catch(err => {
+    logger.error({ scanId: newSession.id, err }, "Background URL retry failed");
+  });
+
+  res.status(201).json({
+    ...newSession,
+    createdAt: newSession.createdAt.toISOString(),
+    completedAt: null,
   });
 });
 

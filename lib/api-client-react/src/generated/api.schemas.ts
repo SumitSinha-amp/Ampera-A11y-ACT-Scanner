@@ -221,3 +221,11 @@ export interface ParseSitemapResponse {
   urls: string[];
   count: number;
 }
+
+export interface UpdateScanBody {
+  name?: string;
+  /** @nullable */
+  initiatorName?: string | null;
+  /** @nullable */
+  initiatorRole?: string | null;
+}

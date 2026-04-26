@@ -1,23 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { pool } from "@workspace/db";
-import path from "path";
-
-
-const __dirname = new URL('.', import.meta.url).pathname;
-
-// Serve frontend static files
-app.use(
-  (await import("express")).default.static(
-    path.join(__dirname, "../../accessibility-scanner/dist/public")
-  )
-);
-// Fallback route (VERY IMPORTANT)
-app.get(/.*/, (req, res) => {
-  res.sendFile(
-    path.join(__dirname, "../../accessibility-scanner/dist/public/index.html")
-  );
-});
 
 /**
  * Idempotent startup migration.
@@ -55,6 +38,31 @@ async function runStartupMigrations(): Promise<void> {
       $$
     `);
 
+    // 3. Add initiator metadata columns to scan_sessions if they do not exist yet.
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'scan_sessions'
+            AND column_name = 'initiator_name'
+        ) THEN
+          ALTER TABLE scan_sessions
+            ADD COLUMN initiator_name TEXT;
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'scan_sessions'
+            AND column_name = 'initiator_role'
+        ) THEN
+          ALTER TABLE scan_sessions
+            ADD COLUMN initiator_role TEXT;
+        END IF;
+      END
+      $$
+    `);
+
     await client.query("COMMIT");
     logger.info("Startup migrations completed");
   } catch (err) {
@@ -65,11 +73,7 @@ async function runStartupMigrations(): Promise<void> {
   }
 }
 
-const rawPort = process.env.PORT || 8080;
-
-app.listen(rawPort, () => {
-  console.log(`Server running on port ${rawPort}`);
-});
+const rawPort = process.env["PORT"];
 
 if (!rawPort) {
   throw new Error(
@@ -77,20 +81,23 @@ if (!rawPort) {
   );
 }
 
-const port = Number(process.env.PORT || 8080);
+const port = Number(rawPort);
 
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-// Run migrations before accepting traffic
-runStartupMigrations()
-  .then(() => {
-    app.listen(port, () => {
-      logger.info({ port }, "Server listening");
-    });
-  })
-  .catch((err) => {
-    logger.error({ err }, "Failed to run startup migrations");
-    process.exit(1);
+// Run migrations before accepting traffic.
+runStartupMigrations().then(() => {
+  app.listen(port, (err) => {
+    if (err) {
+      logger.error({ err }, "Error listening on port");
+      process.exit(1);
+    }
+
+    logger.info({ port }, "Server listening");
+  });
+}).catch((err) => {
+  logger.error({ err }, "Failed to run startup migrations");
+  process.exit(1);
 });

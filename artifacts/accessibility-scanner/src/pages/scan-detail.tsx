@@ -5,6 +5,7 @@ import {
   useGetScan,
   useGetScanStatus,
   useCancelScan,
+  useUpdateScan,
   getGetScanStatusQueryKey,
   getGetScanQueryKey,
 } from "@workspace/api-client-react";
@@ -20,6 +21,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -38,6 +40,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Loader2,
@@ -63,6 +66,8 @@ import {
   Globe,
   Cpu,
   Save,
+  Ban,
+  Pencil,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -168,6 +173,7 @@ interface IssueFilters {
   ruleId: string;
   severity: string;
   wcag: string;
+  level: string;
 }
 function getLegalText(issue: Issue) {
   if (!issue.legal) return "";
@@ -207,7 +213,9 @@ function IssueFilterBar({
     [issues, selectedRules],
   );
   const wcagCriteria = useMemo(() => {
-    const fromIssues = issues.map((i) => i.wcagCriteria).filter(Boolean) as string[];
+    const fromIssues = issues
+      .map((i) => i.wcagCriteria)
+      .filter(Boolean) as string[];
     const fromSelected = (selectedRules ?? [])
       .map((id) => ruleInfoMap?.[id]?.wcagCriteria)
       .filter(Boolean) as string[];
@@ -218,7 +226,8 @@ function IssueFilterBar({
     filters.search ||
     filters.ruleId !== "all" ||
     filters.severity !== "all" ||
-    filters.wcag !== "all";
+    filters.wcag !== "all" ||
+    filters.level !== "all";
 
   if (singleRule) return null;
 
@@ -233,7 +242,13 @@ function IssueFilterBar({
             size="sm"
             className="ml-auto h-6 px-2 text-xs text-muted-foreground"
             onClick={() =>
-              onChange({ search: "", ruleId: "all", severity: "all", wcag: "all" })
+              onChange({
+                search: "",
+                ruleId: "all",
+                severity: "all",
+                wcag: "all",
+                level: "all",
+              })
             }
           >
             <X className="w-3 h-3 mr-1" />
@@ -244,7 +259,9 @@ function IssueFilterBar({
 
       <div className="flex flex-wrap gap-3">
         <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
-          <span className="text-xs text-muted-foreground font-medium">Search</span>
+          <span className="text-xs text-muted-foreground font-medium">
+            Search
+          </span>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <Input
@@ -257,7 +274,9 @@ function IssueFilterBar({
         </div>
 
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground font-medium">Rule</span>
+          <span className="text-xs text-muted-foreground font-medium">
+            Rule
+          </span>
           <Select
             value={filters.ruleId}
             onValueChange={(v) => onChange({ ...filters, ruleId: v })}
@@ -277,7 +296,9 @@ function IssueFilterBar({
         </div>
 
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground font-medium">Severity</span>
+          <span className="text-xs text-muted-foreground font-medium">
+            Severity
+          </span>
           <Select
             value={filters.severity}
             onValueChange={(v) => onChange({ ...filters, severity: v })}
@@ -297,7 +318,9 @@ function IssueFilterBar({
 
         {wcagCriteria.length > 0 && (
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground font-medium">WCAG</span>
+            <span className="text-xs text-muted-foreground font-medium">
+              WCAG
+            </span>
             <Select
               value={filters.wcag}
               onValueChange={(v) => onChange({ ...filters, wcag: v })}
@@ -316,6 +339,26 @@ function IssueFilterBar({
             </Select>
           </div>
         )}
+
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground font-medium">
+            Level
+          </span>
+          <Select
+            value={filters.level}
+            onValueChange={(v) => onChange({ ...filters, level: v })}
+          >
+            <SelectTrigger className="h-8 text-xs w-[100px]">
+              <SelectValue placeholder="Level" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="A">A</SelectItem>
+              <SelectItem value="AA">AA</SelectItem>
+              <SelectItem value="AAA">AAA</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
     </div>
   );
@@ -326,6 +369,23 @@ interface RuleInfo {
   impact: string;
   wcagCriteria: string | null;
   wcagLevel: string | null;
+}
+
+function getSelectedRuleSummary(selectedRules: string[]) {
+  if (selectedRules.length === 0) return null;
+  if (selectedRules.length === Object.keys(SIA_RULES).length)
+    return "Scanning for all rules";
+  if (selectedRules.length === 1) return `Rule ${selectedRules[0]}`;
+  return `${selectedRules.length} selected rules`;
+}
+
+function formatEta(minutes: number) {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "ETA unknown";
+  if (minutes < 1) return "ETA < 1 min";
+  if (minutes < 60) return `ETA ~${Math.round(minutes)} min`;
+  const hrs = Math.floor(minutes / 60);
+  const mins = Math.round(minutes % 60);
+  return `ETA ~${hrs}h ${mins}m`;
 }
 
 function IssueGroupList({
@@ -369,6 +429,8 @@ function IssueGroupList({
         return false;
       if (filters.wcag !== "all" && issue.wcagCriteria !== filters.wcag)
         return false;
+      if (filters.level !== "all" && issue.wcagLevel !== filters.level)
+        return false;
       return true;
     });
   }, [issues, filters]);
@@ -394,7 +456,8 @@ function IssueGroupList({
     (selectedRules?.length ?? 0) >= 2 &&
     filters.severity === "all" &&
     !filters.search &&
-    filters.wcag === "all";
+    filters.wcag === "all" &&
+    filters.level === "all";
 
   const issueRuleIds = new Set(filteredIssues.map((i) => i.ruleId));
   const zeroRules = showZeroRows
@@ -765,7 +828,9 @@ function IssueGroupList({
                 <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-foreground/80 break-words">
-                    {SIA_RULES[ruleId]?.title ?? info?.description ?? "No issues detected for this rule on this page."}
+                    {SIA_RULES[ruleId]?.title ??
+                      info?.description ??
+                      "No issues detected for this rule on this page."}
                   </p>
                   {SIA_RULES[ruleId]?.detail && (
                     <p className="text-xs text-muted-foreground mt-0.5 break-words">
@@ -809,11 +874,14 @@ function IssueGroupList({
 interface ExportIssueRow {
   pageUrl: string;
   ruleId: string;
+  ruleLabel: string;
   description: string;
   impact: string;
   wcagCriteria: string;
   wcagLevel: string;
   legalText: string;
+  selectedRules: string;
+  scanLabel: string;
   selector: string;
   element: string;
   remediation: string;
@@ -822,18 +890,36 @@ interface ExportIssueRow {
 function buildExportRows(scan: {
   name?: string | null;
   pages?: Array<{ url: string; issues?: Issue[] }>;
+  options?: { rules?: string[] };
+  id: number;
 }): ExportIssueRow[] {
   const rows: ExportIssueRow[] = [];
+  const selectedRules = scan.options?.rules ?? [];
+  const allRules = selectedRules.length === Object.keys(SIA_RULES).length;
+  const selectedRulesLabel =
+    selectedRules.length === 0
+      ? "All rules"
+      : allRules
+        ? "All rules"
+        : selectedRules
+            .map((ruleId) =>
+              `${ruleId} — ${SIA_RULES[ruleId]?.title ?? ""}`.trim(),
+            )
+            .join("; ");
+  const scanLabel = scan.name || `Scan #${scan.id}`;
   for (const page of scan.pages ?? []) {
     for (const issue of page.issues ?? []) {
       rows.push({
         pageUrl: page.url,
         ruleId: issue.ruleId,
+        ruleLabel: SIA_RULES[issue.ruleId]?.title ?? issue.description,
         description: issue.description,
         impact: issue.impact,
         wcagCriteria: issue.wcagCriteria ?? "",
         wcagLevel: issue.wcagLevel ?? "",
         legalText: issue.legalText ?? getLegalText(issue),
+        selectedRules: selectedRulesLabel,
+        scanLabel,
         selector: issue.selector ?? "",
         element: issue.element ?? "",
         remediation: issue.remediation ?? "",
@@ -863,8 +949,11 @@ function ExportButtons({
       return;
     }
     const header = [
+      "Scan Name",
+      "Selected Rules",
       "Page URL",
       "Rule ID",
+      "Rule Label",
       "Description",
       "Impact",
       "WCAG Criterion",
@@ -879,8 +968,11 @@ function ExportButtons({
       header.map(escape).join(","),
       ...rows.map((r) =>
         [
+          r.scanLabel,
+          r.selectedRules,
           r.pageUrl,
           r.ruleId,
+          r.ruleLabel,
           r.description,
           r.impact,
           r.wcagCriteria,
@@ -913,8 +1005,11 @@ function ExportButtons({
     const XLSX = (await import("xlsx")).default;
     const ws = XLSX.utils.json_to_sheet(
       rows.map((r) => ({
+        "Scan Name": r.scanLabel,
+        "Selected Rules": r.selectedRules,
         "Page URL": r.pageUrl,
         "Rule ID": r.ruleId,
+        "Rule Label": r.ruleLabel,
         Description: r.description,
         Impact: r.impact,
         "WCAG Criterion": r.wcagCriteria,
@@ -972,8 +1067,11 @@ function ExportButtons({
       head: [
         [
           "#",
+          "Scan Name",
+          "Selected Rules",
           "Page URL",
           "Rule ID",
+          "Rule Label",
           "Impact",
           "WCAG",
           "Description",
@@ -983,8 +1081,11 @@ function ExportButtons({
       ],
       body: rows.map((r, i) => [
         i + 1,
+        r.scanLabel,
+        r.selectedRules,
         r.pageUrl,
         r.ruleId,
+        r.ruleLabel,
         r.impact,
         r.wcagCriteria ? `${r.wcagCriteria} (${r.wcagLevel})` : "",
         r.description,
@@ -999,13 +1100,16 @@ function ExportButtons({
       },
       columnStyles: {
         0: { cellWidth: 22 },
-        1: { cellWidth: 120 },
-        2: { cellWidth: 40 },
-        3: { cellWidth: 42 },
-        4: { cellWidth: 50 },
-        5: { cellWidth: 130 },
-        6: { cellWidth: 100 },
-        7: { cellWidth: 130 },
+        1: { cellWidth: 70 },
+        2: { cellWidth: 90 },
+        3: { cellWidth: 110 },
+        4: { cellWidth: 42 },
+        5: { cellWidth: 62 },
+        6: { cellWidth: 50 },
+        7: { cellWidth: 50 },
+        8: { cellWidth: 110 },
+        9: { cellWidth: 100 },
+        10: { cellWidth: 130 },
       },
       alternateRowStyles: { fillColor: [248, 246, 255] },
     });
@@ -1041,6 +1145,76 @@ function ExportButtons({
   );
 }
 
+function RulesBadges({ selectedRules }: { selectedRules: string[] }) {
+  if (selectedRules.length === 0) return null;
+  const allRules = selectedRules.length === Object.keys(SIA_RULES).length;
+  return (
+    <div className="flex flex-wrap gap-2 mt-2">
+      <Badge variant="secondary" className="text-xs">
+        {allRules ? "All rules" : `${selectedRules.length} rules`}
+      </Badge>
+      {allRules ? (
+        <Badge variant="outline" className="text-xs">
+          Scanning / scanned for all rules
+        </Badge>
+      ) : (
+        selectedRules.slice(0, 6).map((ruleId) => (
+          <Badge key={ruleId} variant="outline" className="text-xs font-mono">
+            {ruleId}
+          </Badge>
+        ))
+      )}
+    </div>
+  );
+}
+
+function formatElapsedTime(
+  startedAt?: string | null,
+  endedAt?: string | null,
+): string | null {
+  if (!startedAt) return null;
+  const start = new Date(startedAt).getTime();
+  const end = endedAt ? new Date(endedAt).getTime() : Date.now();
+  const ms = end - start;
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const secs = Math.max(0, Math.round(ms / 1000));
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const rem = secs % 60;
+  if (mins < 60) return rem ? `${mins}m ${rem}s` : `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  const minsRem = mins % 60;
+  return minsRem ? `${hrs}h ${minsRem}m` : `${hrs}h`;
+}
+
+function UrlCell({ url }: { url: string }) {
+  const { toast } = useToast();
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      <span className="min-w-0 break-all whitespace-normal">{url}</span>
+      <button
+        type="button"
+        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        onClick={async () => {
+          await navigator.clipboard.writeText(url);
+          toast({ title: "URL copied" });
+        }}
+        aria-label="Copy URL"
+      >
+        <Copy className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function applyPrefix(urls: string[], prefix: string) {
+  const p = prefix.trim();
+  if (!p) return urls;
+  return urls.map((u) =>
+    u.startsWith("http://") || u.startsWith("https://") ? u : `${p}${u}`,
+  );
+}
+
 export default function ScanDetail() {
   const { id } = useParams();
   const scanId = Number(id);
@@ -1053,9 +1227,44 @@ export default function ScanDetail() {
     ruleId: "all",
     severity: "all",
     wcag: "all",
+    level: "all",
   });
 
-  const [viewerEnabled, setViewerEnabled] = useState<boolean>(() => isElementViewerEnabled());
+  const [pageStatusFilter, setPageStatusFilter] = useState<string>("all");
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editInitiatorName, setEditInitiatorName] = useState("");
+  const [editInitiatorRole, setEditInitiatorRole] = useState("");
+  const updateScanMutation = useUpdateScan();
+
+  const openEditDialog = () => {
+    setEditName(scan?.name ?? "");
+    setEditInitiatorName((scan as { initiatorName?: string | null } | undefined)?.initiatorName ?? "");
+    setEditInitiatorRole((scan as { initiatorRole?: string | null } | undefined)?.initiatorRole ?? "");
+    setEditOpen(true);
+  };
+
+  const handleSaveEdit = () => {
+    if (!scan) return;
+    updateScanMutation.mutate(
+      { id: scan.id, data: { name: editName.trim() || undefined, initiatorName: editInitiatorName.trim() || null, initiatorRole: editInitiatorRole.trim() || null } },
+      {
+        onSuccess: () => {
+          toast({ title: "Scan updated" });
+          queryClient.invalidateQueries({ queryKey: getGetScanQueryKey(scan.id) });
+          setEditOpen(false);
+        },
+        onError: () => {
+          toast({ title: "Failed to update scan", variant: "destructive" });
+        },
+      }
+    );
+  };
+
+  const [viewerEnabled, setViewerEnabled] = useState<boolean>(() =>
+    isElementViewerEnabled(),
+  );
 
   useEffect(() => {
     const syncViewer = () => setViewerEnabled(isElementViewerEnabled());
@@ -1103,7 +1312,15 @@ export default function ScanDetail() {
   const canRetry =
     scan?.status === "failed" ||
     scan?.status === "cancelled" ||
-    (scan?.pages ?? []).some((p) => p.status === "failed" || p.status === "pending");
+    (scan?.pages ?? []).some(
+      (p) => p.status === "failed" || p.status === "pending",
+    );
+  const isAutoRetrying =
+    isRunning &&
+    (scan?.pages ?? []).some(
+      (p) => p.status === "failed" || p.status === "pending",
+    );
+  const elapsedText = formatElapsedTime(scan?.createdAt, scan?.completedAt);
 
   const { data: liveStatus } = useGetScanStatus(scanId, {
     query: {
@@ -1118,7 +1335,9 @@ export default function ScanDetail() {
   const retryClone = useMutation({
     mutationFn: async () => {
       const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
-      const res = await fetch(`${BASE}/api/scans/${scanId}/retry`, { method: "POST" });
+      const res = await fetch(`${BASE}/api/scans/${scanId}/retry`, {
+        method: "POST",
+      });
       if (!res.ok) throw new Error(await res.text());
       return res.json() as Promise<{ id: number }>;
     },
@@ -1127,14 +1346,18 @@ export default function ScanDetail() {
   const pauseScanMutation = useMutation({
     mutationFn: async () => {
       const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
-      const res = await fetch(`${BASE}/api/scans/${scanId}/pause`, { method: "POST" });
+      const res = await fetch(`${BASE}/api/scans/${scanId}/pause`, {
+        method: "POST",
+      });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
     onSuccess: () => {
       toast({ title: "Scan paused" });
       queryClient.invalidateQueries({ queryKey: getGetScanQueryKey(scanId) });
-      queryClient.invalidateQueries({ queryKey: getGetScanStatusQueryKey(scanId) });
+      queryClient.invalidateQueries({
+        queryKey: getGetScanStatusQueryKey(scanId),
+      });
     },
     onError: () => {
       toast({ title: "Could not pause scan", variant: "destructive" });
@@ -1144,14 +1367,18 @@ export default function ScanDetail() {
   const resumeScanMutation = useMutation({
     mutationFn: async () => {
       const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
-      const res = await fetch(`${BASE}/api/scans/${scanId}/resume`, { method: "POST" });
+      const res = await fetch(`${BASE}/api/scans/${scanId}/resume`, {
+        method: "POST",
+      });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
     onSuccess: () => {
       toast({ title: "Scan resumed" });
       queryClient.invalidateQueries({ queryKey: getGetScanQueryKey(scanId) });
-      queryClient.invalidateQueries({ queryKey: getGetScanStatusQueryKey(scanId) });
+      queryClient.invalidateQueries({
+        queryKey: getGetScanStatusQueryKey(scanId),
+      });
     },
     onError: () => {
       toast({ title: "Could not resume scan", variant: "destructive" });
@@ -1189,14 +1416,16 @@ export default function ScanDetail() {
     retryClone.mutate(undefined, {
       onSuccess: (data: { id: number }) => {
         const failedCount = pages.filter(
-          (p: { status: string }) => p.status === "failed" || p.status === "pending"
+          (p: { status: string }) =>
+            p.status === "failed" || p.status === "pending",
         ).length;
         const copiedCount = pages.length - failedCount;
         toast({
           title: "Retry scan started",
-          description: copiedCount > 0
-            ? `${copiedCount} completed page${copiedCount !== 1 ? "s" : ""} carried over · ${failedCount} page${failedCount !== 1 ? "s" : ""} queued for re-scan`
-            : `${failedCount} page${failedCount !== 1 ? "s" : ""} queued for re-scan`,
+          description:
+            copiedCount > 0
+              ? `${copiedCount} completed page${copiedCount !== 1 ? "s" : ""} carried over · ${failedCount} page${failedCount !== 1 ? "s" : ""} queued for re-scan`
+              : `${failedCount} page${failedCount !== 1 ? "s" : ""} queued for re-scan`,
         });
         setLocation(`/scans/${data.id}`);
       },
@@ -1209,10 +1438,19 @@ export default function ScanDetail() {
     });
   };
 
+  const handleCopyAllUrls = async () => {
+    if (!scan?.pages?.length) return;
+    await navigator.clipboard.writeText(
+      scan.pages.map((page) => page.url).join("\n"),
+    );
+    toast({ title: "Copied all URLs" });
+  };
+
   // Must be before any early return to satisfy Rules of Hooks.
   // Uses scan?.pages so it's safe when scan is still loading.
   const allIssues = useMemo(
-    () => scan?.pages?.flatMap((p: { issues?: Issue[] }) => p.issues || []) ?? [],
+    () =>
+      scan?.pages?.flatMap((p: { issues?: Issue[] }) => p.issues || []) ?? [],
     [scan],
   );
 
@@ -1235,6 +1473,14 @@ export default function ScanDetail() {
     const opts = (scan?.options ?? {}) as Record<string, unknown>;
     return Array.isArray(opts.rules) ? (opts.rules as string[]) : [];
   }, [scan?.options]);
+  const estimatedMinutes = useMemo(() => {
+    if (!scan) return 0;
+    const remaining = Math.max(
+      (scan.totalUrls ?? 0) - (scan.scannedUrls ?? 0),
+      0,
+    );
+    return remaining * 1.5;
+  }, [scan]);
 
   if (scanLoading || !scan) {
     return (
@@ -1244,7 +1490,9 @@ export default function ScanDetail() {
     );
   }
 
-  const displayStatus = isUpdatingResults ? "updating" : (liveStatus?.status || scan.status);
+  const displayStatus = isUpdatingResults
+    ? "updating"
+    : liveStatus?.status || scan.status;
   const totalUrls = liveStatus?.totalUrls || scan.totalUrls;
   const scannedUrls = liveStatus?.scannedUrls || scan.scannedUrls;
   const progressPercent =
@@ -1252,9 +1500,57 @@ export default function ScanDetail() {
   const hasLoadedResults = !!scan.pages?.length;
   const showUpdatingResults =
     isUpdatingResults || (scan.status === "completed" && !hasLoadedResults);
+  const initiatorText = scan.initiatorName
+    ? `Initiated by ${scan.initiatorName}${scan.initiatorRole ? ` · ${scan.initiatorRole}` : ""}`
+    : null;
 
   return (
     <div className="space-y-8">
+      {/* Edit Scan Dialog */}
+      <Dialog open={editOpen} onOpenChange={(v) => { if (!v) setEditOpen(false); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Scan Details</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="detail-edit-name">Scan Name</Label>
+              <Input
+                id="detail-edit-name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="Enter scan name"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="detail-edit-initiator">Scan Initiator</Label>
+              <Input
+                id="detail-edit-initiator"
+                value={editInitiatorName}
+                onChange={(e) => setEditInitiatorName(e.target.value)}
+                placeholder="e.g. Jane Smith"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="detail-edit-role">Initiator Role</Label>
+              <Input
+                id="detail-edit-role"
+                value={editInitiatorRole}
+                onChange={(e) => setEditInitiatorRole(e.target.value)}
+                placeholder="e.g. QA Engineer"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveEdit} disabled={updateScanMutation.isPending}>
+              {updateScanMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex justify-between items-start">
         <div>
           <Button
@@ -1263,11 +1559,13 @@ export default function ScanDetail() {
             className="mb-3 -ml-2"
             onClick={() => setLocation("/scans")}
           >
-            Back to Scan History
+            &lt; Back to Scan History
           </Button>
           {(scan as { projectName?: string | null }).projectName && (
             <div className="flex items-center gap-1.5 mb-1">
-              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Project</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Project
+              </span>
               <span className="text-xs font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
                 {(scan as { projectName: string }).projectName}
               </span>
@@ -1277,11 +1575,40 @@ export default function ScanDetail() {
             <h1 className="text-3xl font-bold tracking-tight">
               {scan.name || `Scan #${scan.id}`}
             </h1>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              title="Edit scan details"
+              onClick={openEditDialog}
+            >
+              <Pencil className="w-4 h-4" />
+            </Button>
             {getStatusBadge(displayStatus)}
+            {elapsedText && (
+              <Badge variant="outline" className="text-xs">
+                {isRunning || isPaused ? "Elapsed" : "Time taken"} {elapsedText}
+              </Badge>
+            )}
           </div>
           <p className="text-muted-foreground font-mono text-sm">
             ID: {scan.id} | Created: {new Date(scan.createdAt).toLocaleString()}
           </p>
+          {initiatorText && (
+            <p className="text-muted-foreground text-sm mt-1">
+              {initiatorText}
+            </p>
+          )}
+          <RulesBadges selectedRules={selectedRules} />
+          <div className="mt-2 flex flex-wrap gap-2">
+            {scan.status === "running" ||
+            scan.status === "pending" ||
+            scan.status === "paused" ? (
+              <Badge variant="secondary" className="text-xs">
+                {formatEta(estimatedMinutes)}
+              </Badge>
+            ) : null}
+          </div>
         </div>
         <div className="flex gap-2">
           {isRunning && (
@@ -1328,18 +1655,28 @@ export default function ScanDetail() {
             </Button>
           )}
           {canRetry && (
-            <Button
-              variant="outline"
-              onClick={handleRetry}
-              disabled={retryClone.isPending}
-            >
-              {retryClone.isPending ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <RotateCcw className="w-4 h-4 mr-2" />
+            <div className="relative">
+              {isAutoRetrying && (
+                <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5 z-10">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+                </span>
               )}
-              Retry Scan
-            </Button>
+              <Button
+                variant="outline"
+                onClick={handleRetry}
+                disabled={retryClone.isPending}
+              >
+                {retryClone.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <RotateCcw
+                    className={`w-4 h-4 mr-2 ${isAutoRetrying ? "text-amber-500" : ""}`}
+                  />
+                )}
+                Retry Scan
+              </Button>
+            </div>
           )}
           {!isRunning && scan.status === "completed" && !isUpdatingResults && (
             <Link href={`/scans/${scan.id}/report`}>
@@ -1356,7 +1693,7 @@ export default function ScanDetail() {
         <CardHeader>
           <CardTitle>Scan Progress</CardTitle>
           {liveStatus?.currentUrl && (
-            <CardDescription className="font-mono truncate">
+            <CardDescription className="font-mono break-all">
               Currently scanning: {liveStatus.currentUrl}
             </CardDescription>
           )}
@@ -1378,171 +1715,206 @@ export default function ScanDetail() {
       </Card>
 
       {/* Completed page results */}
-      {!showUpdatingResults && !isActive && scan.pages && scan.pages.length > 0 && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-semibold tracking-tight">
-              Page Results
-            </h2>
-            <div className="flex items-center gap-2">
-              {allIssues.length > 0 && <ExportButtons scan={scan} />}
-            </div>
-          </div>
-
-          <Accordion type="multiple" className="space-y-4">
-            {scan.pages.map((page) => {
-              const pageIssues = page.issues || [];
-              return (
-                <AccordionItem
-                  key={page.id}
-                  value={`page-${page.id}`}
-                  className="border bg-card rounded-lg px-4 shadow-sm"
+      {!showUpdatingResults &&
+        !isActive &&
+        scan.pages &&
+        scan.pages.length > 0 && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-semibold tracking-tight">
+                Page Results
+              </h2>
+              <div className="flex items-center gap-2">
+                <Select value={pageStatusFilter} onValueChange={setPageStatusFilter}>
+                  <SelectTrigger className="w-40 h-9">
+                    <SelectValue placeholder="All statuses" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All statuses</SelectItem>
+                    <SelectItem value="completed">Done</SelectItem>
+                    <SelectItem value="failed">Failed</SelectItem>
+                    <SelectItem value="not_available">Not Available</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  onClick={handleCopyAllUrls}
+                  disabled={scan.pages.length === 0}
                 >
-                  <AccordionTrigger className="hover:no-underline py-4">
-                    <div className="flex items-center justify-between w-full pr-4">
-                      <div className="flex items-center gap-3 overflow-hidden">
-                        {page.status === "completed" ? (
-                          <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
-                        ) : page.status === "failed" ? (
-                          <XCircle className="w-5 h-5 text-red-500 shrink-0" />
-                        ) : (
-                          <Clock className="w-5 h-5 text-yellow-500 shrink-0" />
-                        )}
-                        <span
-                          className="font-mono text-sm truncate max-w-lg"
-                          title={page.url}
-                        >
-                          {page.url}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-4 shrink-0">
-                        {page.status === "failed" && (
-                          <Badge variant="destructive" className="ml-auto">
-                            Failed
-                          </Badge>
-                        )}
-                        {page.issueCount > 0 && (
-                          <div className="flex items-center gap-2">
-                            <Badge variant="secondary" className="font-mono">
-                              {page.issueCount} total
-                            </Badge>
-                            {page.criticalCount > 0 && (
-                              <Badge
-                                variant="default"
-                                className="bg-[#E11D48] hover:bg-[#E11D48] font-mono"
-                              >
-                                {page.criticalCount} critical
-                              </Badge>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent className="pt-2 pb-4">
-                    {page.errorMessage && (
-                      <div className="p-4 bg-destructive/10 text-destructive text-sm rounded-md mb-4 border border-destructive/20">
-                        {page.errorMessage.includes("Cloudflare") ||
-                        page.errorMessage.includes("Bot Protection") ? (
-                          <div className="flex items-start gap-2">
-                            <span className="text-lg shrink-0">🛡️</span>
-                            <div>
-                              <p className="font-semibold mb-1">
-                                Cloudflare Bot Protection blocked this page
-                              </p>
-                              <p className="text-xs opacity-80">
-                                This website uses Cloudflare's bot detection and
-                                did not allow the scanner through.
-                              </p>
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="font-mono">
-                            Error: {page.errorMessage}
-                          </span>
-                        )}
-                      </div>
-                    )}
+                  Copy all URLs
+                </Button>
+                {allIssues.length > 0 && <ExportButtons scan={scan} />}
+              </div>
+            </div>
 
-                    {pageIssues.length > 0 || selectedRules.length >= 2 ? (
-                      <div className="space-y-3">
-                        {pageIssues.length > 0 || selectedRules.length >= 2 ? (
-                          <IssueFilterBar
+            <Accordion type="multiple" className="space-y-4">
+              {scan.pages.filter((page) => pageStatusFilter === "all" || page.status === pageStatusFilter).map((page) => {
+                const pageIssues = page.issues || [];
+                return (
+                  <AccordionItem
+                    key={page.id}
+                    value={`page-${page.id}`}
+                    className="border bg-card rounded-lg px-4 shadow-sm"
+                  >
+                    <AccordionTrigger className="hover:no-underline py-4">
+                      <div className="flex items-center justify-between w-full pr-4">
+                        <div className="flex items-center gap-3 overflow-hidden">
+                          {page.status === "completed" ? (
+                            <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
+                          ) : page.status === "failed" ? (
+                            <XCircle className="w-5 h-5 text-red-500 shrink-0" />
+                          ) : page.status === "not_available" ? (
+                            <Ban className="w-5 h-5 text-slate-400 shrink-0" />
+                          ) : page.status === "requeued" ? (
+                            <RotateCcw className="w-5 h-5 text-indigo-500 shrink-0" />
+                          ) : (
+                            <Clock className="w-5 h-5 text-yellow-500 shrink-0" />
+                          )}
+                          <div className="min-w-0 max-w-full">
+                            <UrlCell url={page.url} />
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4 shrink-0">
+                          {page.status === "failed" && (
+                            <Badge variant="destructive" className="ml-auto">
+                              Failed
+                            </Badge>
+                          )}
+                          {page.status === "requeued" && (
+                            <Badge variant="outline" className="ml-auto bg-indigo-50 text-indigo-600 border-indigo-200">
+                              Requeued
+                            </Badge>
+                          )}
+                          {page.status === "not_available" && (
+                            <Badge variant="outline" className="ml-auto bg-slate-50 text-slate-500 border-slate-200">
+                              Not Available
+                            </Badge>
+                          )}
+                          {page.issueCount > 0 && (
+                            <div className="flex items-center gap-2">
+                              <Badge variant="secondary" className="font-mono">
+                                {page.issueCount} total
+                              </Badge>
+                              {page.criticalCount > 0 && (
+                                <Badge
+                                  variant="default"
+                                  className="bg-[#E11D48] hover:bg-[#E11D48] font-mono"
+                                >
+                                  {page.criticalCount} critical
+                                </Badge>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="pt-2 pb-4">
+                      {page.errorMessage && (
+                        <div className="p-4 bg-destructive/10 text-destructive text-sm rounded-md mb-4 border border-destructive/20">
+                          {page.errorMessage.includes("Cloudflare") ||
+                          page.errorMessage.includes("Bot Protection") ? (
+                            <div className="flex items-start gap-2">
+                              <span className="text-lg shrink-0">🛡️</span>
+                              <div>
+                                <p className="font-semibold mb-1">
+                                  Cloudflare Bot Protection blocked this page
+                                </p>
+                                <p className="text-xs opacity-80">
+                                  This website uses Cloudflare's bot detection
+                                  and did not allow the scanner through.
+                                </p>
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="font-mono">
+                              Error: {page.errorMessage}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {pageIssues.length > 0 || selectedRules.length >= 2 ? (
+                        <div className="space-y-3">
+                          {pageIssues.length > 0 ||
+                          selectedRules.length >= 2 ? (
+                            <IssueFilterBar
+                              issues={pageIssues}
+                              filters={filters}
+                              onChange={setFilters}
+                              singleRule={selectedRules.length === 1}
+                              selectedRules={selectedRules}
+                              ruleInfoMap={ruleInfoMap}
+                            />
+                          ) : null}
+                          {pageIssues.length === 0 &&
+                            page.status === "completed" && (
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                                <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                                No accessibility issues found on this page.
+                              </div>
+                            )}
+                          <IssueGroupList
                             issues={pageIssues}
                             filters={filters}
-                            onChange={setFilters}
-                            singleRule={selectedRules.length === 1}
+                            pageUrl={page.url}
                             selectedRules={selectedRules}
                             ruleInfoMap={ruleInfoMap}
+                            selectedIssueId={
+                              viewerSel?.pageUrl === page.url
+                                ? viewerSel.issue.id
+                                : undefined
+                            }
+                            onSelectOccurrence={
+                              viewerEnabled
+                                ? (issue, group) =>
+                                    handleSelectOccurrence(
+                                      issue,
+                                      group,
+                                      page.url,
+                                      page.id,
+                                    )
+                                : undefined
+                            }
                           />
-                        ) : null}
-                        {pageIssues.length === 0 && page.status === "completed" && (
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                            <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-                            No accessibility issues found on this page.
-                          </div>
-                        )}
-                        <IssueGroupList
-                          issues={pageIssues}
-                          filters={filters}
-                          pageUrl={page.url}
-                          selectedRules={selectedRules}
-                          ruleInfoMap={ruleInfoMap}
-                          selectedIssueId={
-                            viewerSel?.pageUrl === page.url
-                              ? viewerSel.issue.id
-                              : undefined
-                          }
-                          onSelectOccurrence={
-                            viewerEnabled
-                              ? (issue, group) =>
-                                  handleSelectOccurrence(
-                                    issue,
-                                    group,
-                                    page.url,
-                                    page.id,
-                                  )
-                              : undefined
-                          }
-                        />
-                      </div>
-                    ) : page.status === "completed" ? (
-                      <div className="p-8 text-center text-muted-foreground border rounded-md mt-4 border-dashed bg-muted/10">
-                        <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto mb-2 opacity-50" />
-                        No accessibility issues found on this page.
-                      </div>
-                    ) : null}
-                  </AccordionContent>
-                </AccordionItem>
-              );
-            })}
-          </Accordion>
+                        </div>
+                      ) : page.status === "completed" ? (
+                        <div className="p-8 text-center text-muted-foreground border rounded-md mt-4 border-dashed bg-muted/10">
+                          <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto mb-2 opacity-50" />
+                          No accessibility issues found on this page.
+                        </div>
+                      ) : null}
+                    </AccordionContent>
+                  </AccordionItem>
+                );
+              })}
+            </Accordion>
 
-          {/* Cross-page filter summary when filters are active */}
-          {(filters.search ||
-            filters.ruleId !== "all" ||
-            filters.severity !== "all" ||
-            filters.wcag !== "all") &&
-            allIssues.length > 0 && (
-              <div className="text-sm text-muted-foreground text-center">
-                Filters applied across all pages. &nbsp;
-                <button
-                  className="text-primary underline underline-offset-2"
-                  onClick={() =>
-                    setFilters({
-                      search: "",
-                      ruleId: "all",
-                      severity: "all",
-                      wcag: "all",
-                    })
-                  }
-                >
-                  Clear all filters
-                </button>
-              </div>
-            )}
-        </div>
-      )}
+            {/* Cross-page filter summary when filters are active */}
+            {(filters.search ||
+              filters.ruleId !== "all" ||
+              filters.severity !== "all" ||
+              filters.wcag !== "all") &&
+              allIssues.length > 0 && (
+                <div className="text-sm text-muted-foreground text-center">
+                  Filters applied across all pages. &nbsp;
+                  <button
+                    className="text-primary underline underline-offset-2"
+                    onClick={() =>
+                      setFilters({
+                        search: "",
+                        ruleId: "all",
+                        severity: "all",
+                        wcag: "all",
+                      })
+                    }
+                  >
+                    Clear all filters
+                  </button>
+                </div>
+              )}
+          </div>
+        )}
 
       {/* Live running state view */}
       {isActive && liveStatus?.pages && liveStatus.pages.length > 0 && (
@@ -1550,12 +1922,84 @@ export default function ScanDetail() {
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-lg">Live Progress</h3>
             {isPaused && (
-              <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300">
+              <Badge
+                variant="outline"
+                className="bg-amber-50 text-amber-700 border-amber-300"
+              >
                 <Pause className="w-3 h-3 mr-1" />
                 Paused — waiting for next batch
               </Badge>
             )}
           </div>
+
+          {/* Real-time stats counter row */}
+          {(() => {
+            const activeSet = new Set(["rendering","analyzing","saving","scanning"]);
+            const inQueue     = liveStatus.pages.filter(p => p.status === "navigating").length;
+            const scanning    = liveStatus.pages.filter(p => activeSet.has(p.status)).length;
+            const done        = liveStatus.pages.filter(p => p.status === "completed").length;
+            const pending     = liveStatus.pages.filter(p => p.status === "pending").length;
+            const retry       = liveStatus.pages.filter(p => p.status === "requeued").length;
+            const failed      = liveStatus.pages.filter(p => p.status === "failed").length;
+            const notAvail    = liveStatus.pages.filter(p => p.status === "not_available").length;
+            return (
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+                <div className="flex items-center gap-2.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2.5">
+                  <Globe className="w-4 h-4 text-violet-500 shrink-0 animate-pulse" />
+                  <div>
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-violet-600">In Queue</p>
+                    <p className="text-xl font-bold text-violet-700 leading-none mt-0.5">{inQueue}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5">
+                  <div className="relative flex h-2.5 w-2.5 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-blue-600">Scanning</p>
+                    <p className="text-xl font-bold text-blue-700 leading-none mt-0.5">{scanning}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 rounded-lg border border-green-200 bg-green-50 px-3 py-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-green-600">Done</p>
+                    <p className="text-xl font-bold text-green-700 leading-none mt-0.5">{done}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+                  <Clock className="w-4 h-4 text-slate-400 shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">Pending</p>
+                    <p className="text-xl font-bold text-slate-600 leading-none mt-0.5">{pending}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2.5">
+                  <RotateCcw className="w-4 h-4 text-indigo-500 shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-indigo-500">Retry</p>
+                    <p className="text-xl font-bold text-indigo-600 leading-none mt-0.5">{retry}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
+                  <XCircle className="w-4 h-4 text-red-500 shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-red-500">Failed</p>
+                    <p className="text-xl font-bold text-red-600 leading-none mt-0.5">{failed}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2.5">
+                  <Ban className="w-4 h-4 text-slate-400 shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">Not Available</p>
+                    <p className="text-xl font-bold text-slate-500 leading-none mt-0.5">{notAvail}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="border rounded-lg bg-card overflow-hidden">
             <div className="max-h-[500px] overflow-y-auto">
               <table className="w-full text-sm">
@@ -1564,15 +2008,19 @@ export default function ScanDetail() {
                     <th className="text-left p-3 font-medium">URL</th>
                     <th className="text-left p-3 font-medium">Stage</th>
                     <th className="text-right p-3 font-medium">Issues</th>
+                    <th className="text-right p-3 font-medium">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {liveStatus.pages.map((p, i) => (
+                  {[...liveStatus.pages].sort((a, b) => {
+                    const rank = (s: string) =>
+                      s === "navigating" ? 0
+                      : s === "rendering" || s === "analyzing" || s === "saving" || s === "scanning" ? 1
+                      : 2;
+                    return rank(a.status) - rank(b.status);
+                  }).map((p, i) => (
                     <tr key={i} className="border-t">
-                      <td
-                        className="p-3 font-mono text-xs truncate max-w-[300px]"
-                        title={p.url}
-                      >
+                      <td className="p-3 font-mono text-xs break-all">
                         {p.url}
                       </td>
                       <td className="p-3">
@@ -1611,6 +2059,19 @@ export default function ScanDetail() {
                             <XCircle className="w-3 h-3 mr-2" />
                             Failed
                           </span>
+                        ) : p.status === "requeued" ? (
+                          <span className="flex items-center text-indigo-500">
+                            <span className="relative flex h-2 w-2 mr-2 shrink-0">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" />
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500" />
+                            </span>
+                            Requeued
+                          </span>
+                        ) : p.status === "not_available" ? (
+                          <span className="flex items-center text-slate-500">
+                            <Ban className="w-3 h-3 mr-2" />
+                            Not Available
+                          </span>
                         ) : (
                           <span className="flex items-center text-muted-foreground">
                             <Clock className="w-3 h-3 mr-2" />
@@ -1621,6 +2082,22 @@ export default function ScanDetail() {
                       <td className="p-3 text-right">
                         {p.issueCount > 0 ? (
                           <span className="font-mono">{p.issueCount}</span>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-right">
+                        {p.status === "failed" || p.status === "pending" ? (
+                          <span
+                            className="inline-flex items-center gap-1.5 text-amber-500"
+                            title="Auto retrying"
+                          >
+                            <span className="relative flex h-2 w-2 shrink-0">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+                            </span>
+                            <RotateCcw className="w-3 h-3" />
+                          </span>
                         ) : (
                           <span className="text-muted-foreground">-</span>
                         )}
