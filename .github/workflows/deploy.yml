@@ -23,8 +23,10 @@ jobs:
         run: pnpm install --no-frozen-lockfile
 
       - name: Install Puppeteer browsers
-        run: npx puppeteer browsers install chrome
-        
+        run: |
+        export PUPPETEER_CACHE_DIR=./.cache/puppeteer
+        npx puppeteer browsers install chrome
+
       - name: Build API
         run: pnpm --filter @workspace/api-server run build
 
