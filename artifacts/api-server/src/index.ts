@@ -1,4 +1,6 @@
 import app from "./app";
+import path from "path";
+import express from "express";
 import { logger } from "./lib/logger";
 import { pool } from "@workspace/db";
 
@@ -8,6 +10,22 @@ import { pool } from "@workspace/db";
  * production databases catch up automatically on the next deploy without
  * requiring a manual drizzle-kit push.
  */
+// Serve frontend
+const __dirname = new URL('.', import.meta.url).pathname;
+
+app.use(
+  express.static(
+    path.join(__dirname, "../../accessibility-scanner/dist/public")
+  )
+);
+
+//  Express v5 safe fallback
+app.get(/.*/, (req, res) => {
+  res.sendFile(
+    path.join(__dirname, "../../accessibility-scanner/dist/public/index.html")
+  );
+});
+
 async function runStartupMigrations(): Promise<void> {
   const client = await pool.connect();
   try {
