@@ -24,8 +24,8 @@ jobs:
 
       - name: Install Puppeteer browsers
         run: |
-        export PUPPETEER_CACHE_DIR=./.cache/puppeteer
-        npx puppeteer browsers install chrome
+         export PUPPETEER_CACHE_DIR=./.cache/puppeteer
+         npx puppeteer browsers install chrome
 
       - name: Build API
         run: pnpm --filter @workspace/api-server run build
