@@ -1,7 +1,8 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
+import { getAuth } from "@clerk/express";
 import { db, scanSessionsTable, pageResultsTable, accessibilityIssuesTable, projectsTable } from "@workspace/db";
-import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, inArray, isNull, or } from "drizzle-orm";
 import {
   CreateScanBody,
   GetScanParams,
@@ -20,7 +21,20 @@ import { logger } from "../lib/logger";
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
+const FALLBACK_USER_ID = "shared-user";
+
+function getAuthUserId(req: any): string {
+  const auth = getAuth(req);
+  return auth?.userId ?? FALLBACK_USER_ID;
+}
+
 router.get("/scans", async (req, res): Promise<void> => {
+  const userId = getAuthUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const sessions = await db
     .select({
       id: scanSessionsTable.id,
@@ -53,6 +67,12 @@ router.get("/scans", async (req, res): Promise<void> => {
 });
 
 router.post("/scans", async (req, res): Promise<void> => {
+  const userId = getAuthUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const parsed = CreateScanBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -76,6 +96,7 @@ router.post("/scans", async (req, res): Promise<void> => {
   }
 
   const [session] = await db.insert(scanSessionsTable).values({
+    userId,
     name: name || null,
     projectId: projectId ?? null,
     initiatorName: initiatorName ?? null,
@@ -268,6 +289,12 @@ async function buildComparison(scan1Id: number, scan2Id: number, strip1?: string
 
 // ── GET /scans/compare  (JSON) ─────────────────────────────────────────────
 router.get("/scans/compare", async (req, res): Promise<void> => {
+  const userId = getAuthUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const scan1Id = parseInt(req.query.scan1Id as string, 10);
   const scan2Id = parseInt(req.query.scan2Id as string, 10);
   if (isNaN(scan1Id) || isNaN(scan2Id)) {
@@ -283,6 +310,12 @@ router.get("/scans/compare", async (req, res): Promise<void> => {
 
 // ── GET /scans/compare/csv  (CSV download) ─────────────────────────────────
 router.get("/scans/compare/csv", async (req, res): Promise<void> => {
+  const userId = getAuthUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const scan1Id = parseInt(req.query.scan1Id as string, 10);
   const scan2Id = parseInt(req.query.scan2Id as string, 10);
   if (isNaN(scan1Id) || isNaN(scan2Id)) {
@@ -339,6 +372,12 @@ router.get("/scans/compare/csv", async (req, res): Promise<void> => {
 });
 
 router.get("/scans/:id", async (req, res): Promise<void> => {
+  const userId = getAuthUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = GetScanParams.safeParse({ id: parseInt(raw, 10) });
   if (!params.success) {
@@ -425,6 +464,12 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
 });
 
 router.patch("/scans/:id", async (req, res): Promise<void> => {
+  const userId = getAuthUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = UpdateScanParams.safeParse({ id: parseInt(raw, 10) });
   if (!params.success) {
@@ -457,6 +502,12 @@ router.patch("/scans/:id", async (req, res): Promise<void> => {
 });
 
 router.delete("/scans/:id", async (req, res): Promise<void> => {
+  const userId = getAuthUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = DeleteScanParams.safeParse({ id: parseInt(raw, 10) });
   if (!params.success) {
@@ -479,6 +530,12 @@ router.delete("/scans/:id", async (req, res): Promise<void> => {
 });
 
 router.get("/scans/:id/status", async (req, res): Promise<void> => {
+  const userId = getAuthUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = GetScanStatusParams.safeParse({ id: parseInt(raw, 10) });
   if (!params.success) {
@@ -523,6 +580,12 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
 });
 
 router.post("/scans/:id/cancel", async (req, res): Promise<void> => {
+  const userId = getAuthUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = CancelScanParams.safeParse({ id: parseInt(raw, 10) });
   if (!params.success) {
@@ -557,6 +620,12 @@ router.post("/scans/:id/cancel", async (req, res): Promise<void> => {
 });
 
 router.post("/scans/:id/pause", async (req, res): Promise<void> => {
+  const userId = getAuthUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const scanId = parseInt(raw, 10);
   if (isNaN(scanId)) {
@@ -590,6 +659,12 @@ router.post("/scans/:id/pause", async (req, res): Promise<void> => {
 });
 
 router.post("/scans/:id/resume", async (req, res): Promise<void> => {
+  const userId = getAuthUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const scanId = parseInt(raw, 10);
   if (isNaN(scanId)) {
@@ -607,8 +682,10 @@ router.post("/scans/:id/resume", async (req, res): Promise<void> => {
   }
 
   // Use DB status as the source of truth (in-memory state is lost on restart)
-  if (session.status !== "paused") {
-    res.status(409).json({ error: "Scan is not paused" });
+  // Allow resuming scans stuck in "pending" (orphaned before startScan ran)
+  // as well as "paused" scans.
+  if (session.status !== "paused" && session.status !== "pending") {
+    res.status(409).json({ error: "Scan is not paused or pending" });
     return;
   }
 
@@ -677,6 +754,12 @@ router.post("/scans/:id/resume", async (req, res): Promise<void> => {
  *  - name  (optional) – override the default retry name
  */
 router.post("/scans/:id/retry", async (req, res): Promise<void> => {
+  const userId = getAuthUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const originalId = parseInt(raw, 10);
   if (isNaN(originalId)) {
@@ -754,6 +837,7 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
 
   // Create new scan session (carries over project association and initiator)
   const [newSession] = await db.insert(scanSessionsTable).values({
+    userId,
     name: retryName,
     projectId: original.projectId ?? null,
     status: pendingPages.length === 0 ? "completed" : "pending",
@@ -768,9 +852,10 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
     ...(pendingPages.length === 0 ? { completedAt: new Date() } : {}),
   }).returning();
 
-  // Insert completed pages with their data copied verbatim
+  // Insert completed pages with their data copied verbatim (bulk)
+  let insertedCompleted: (typeof pageResultsTable.$inferSelect)[] = [];
   if (completedPages.length > 0) {
-    const insertedCompleted = await db.insert(pageResultsTable).values(
+    insertedCompleted = await db.insert(pageResultsTable).values(
       completedPages.map(p => ({
         scanId: newSession.id,
         url: p.url,
@@ -783,40 +868,9 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
         pageHtml: p.pageHtml ?? null,
       }))
     ).returning();
-
-    // Copy issues for each completed page
-    for (const [idx, origPage] of completedPages.entries()) {
-      const newPage = insertedCompleted[idx];
-      if (!newPage) continue;
-
-      const origIssues = await db.select()
-        .from(accessibilityIssuesTable)
-        .where(eq(accessibilityIssuesTable.pageId, origPage.id));
-
-      if (origIssues.length > 0) {
-        await db.insert(accessibilityIssuesTable).values(
-          origIssues.map(iss => ({
-            pageId: newPage.id,
-            ruleId: iss.ruleId,
-            impact: iss.impact,
-            description: iss.description,
-            element: iss.element ?? null,
-            wcagCriteria: iss.wcagCriteria ?? null,
-            wcagLevel: iss.wcagLevel ?? null,
-            legalText: iss.legalText ?? null,
-            selector: iss.selector ?? null,
-            remediation: iss.remediation ?? null,
-            bboxX: iss.bboxX ?? null,
-            bboxY: iss.bboxY ?? null,
-            bboxWidth: iss.bboxWidth ?? null,
-            bboxHeight: iss.bboxHeight ?? null,
-          }))
-        );
-      }
-    }
   }
 
-  // Insert pending pages (failed/pending from original)
+  // Insert pending pages (failed/pending from original) — bulk
   if (pendingPages.length > 0) {
     await db.insert(pageResultsTable).values(
       pendingPages.map(p => ({
@@ -837,11 +891,66 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
     });
   }
 
+  // Respond immediately so the client isn't blocked while issues are copied
   res.status(201).json({
     ...newSession,
     createdAt: newSession.createdAt.toISOString(),
     completedAt: newSession.completedAt?.toISOString() ?? null,
   });
+
+  // Copy issues for completed pages in the background (one bulk select + bulk inserts)
+  if (insertedCompleted.length > 0) {
+    (async () => {
+      try {
+        const origPageIds = completedPages.map(p => p.id);
+        const allOrigIssues = await db.select()
+          .from(accessibilityIssuesTable)
+          .where(inArray(accessibilityIssuesTable.pageId, origPageIds));
+
+        if (allOrigIssues.length === 0) return;
+
+        // Build a map from original page id → new page id
+        const origToNew = new Map<number, number>();
+        for (let i = 0; i < completedPages.length; i++) {
+          const orig = completedPages[i];
+          const inserted = insertedCompleted[i];
+          if (orig && inserted) origToNew.set(orig.id, inserted.id);
+        }
+
+        const issueRows = allOrigIssues
+          .map(iss => {
+            const newPageId = origToNew.get(iss.pageId);
+            if (!newPageId) return null;
+            return {
+              pageId: newPageId,
+              ruleId: iss.ruleId,
+              impact: iss.impact,
+              description: iss.description,
+              element: iss.element ?? null,
+              wcagCriteria: iss.wcagCriteria ?? null,
+              wcagLevel: iss.wcagLevel ?? null,
+              legalText: iss.legalText ?? null,
+              selector: iss.selector ?? null,
+              remediation: iss.remediation ?? null,
+              bboxX: iss.bboxX ?? null,
+              bboxY: iss.bboxY ?? null,
+              bboxWidth: iss.bboxWidth ?? null,
+              bboxHeight: iss.bboxHeight ?? null,
+            };
+          })
+          .filter(Boolean) as (typeof accessibilityIssuesTable.$inferInsert)[];
+
+        // Insert in chunks to avoid hitting DB parameter limits
+        const CHUNK = 500;
+        for (let i = 0; i < issueRows.length; i += CHUNK) {
+          await db.insert(accessibilityIssuesTable).values(issueRows.slice(i, i + CHUNK));
+        }
+        logger.info({ scanId: newSession.id, issues: issueRows.length }, "Retry: background issue copy complete");
+      } catch (err) {
+        logger.error({ scanId: newSession.id, err }, "Retry: background issue copy failed");
+      }
+    })();
+  }
 });
 
 router.post("/scans/:id/retry-url", async (req, res): Promise<void> => {
