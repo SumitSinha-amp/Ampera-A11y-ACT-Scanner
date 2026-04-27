@@ -49,7 +49,12 @@ import {
   CopyCheck,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
-import { getActiveProxy, ACTIVE_PROXY_KEY, isUrlLimitEnabled, getUrlLimitValue } from "@/pages/settings";
+import {
+  getActiveProxy,
+  ACTIVE_PROXY_KEY,
+  isUrlLimitEnabled,
+  getUrlLimitValue,
+} from "@/pages/settings";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getStatusBadge } from "@/lib/status-badge";
@@ -117,10 +122,6 @@ const ALL_RULES: { id: string; label: string }[] = [
   { id: "SIA-R21", label: "Invalid ARIA role used (WCAG 4.1.2)" },
   { id: "SIA-R22", label: "Video without captions (WCAG 1.2.2)" },
   { id: "SIA-R23", label: "Audio/video without transcript (WCAG 1.2.1)" },
-  {
-    id: "SIA-R25",
-    label: "Accessible name does not match visible label (WCAG 2.5.3)",
-  },
   { id: "SIA-R26", label: "Abbreviation has no expansion (WCAG 3.1.4)" },
   {
     id: "SIA-R27",
@@ -436,7 +437,11 @@ function InlineScanMonitor({
   });
 
   const isRunning = scan?.status === "running" || scan?.status === "pending";
-  const initiatorText = (scan as { initiatorName?: string | null; initiatorRole?: string | null } | undefined)?.initiatorName
+  const initiatorText = (
+    scan as
+      | { initiatorName?: string | null; initiatorRole?: string | null }
+      | undefined
+  )?.initiatorName
     ? `Initiated by ${(scan as { initiatorName?: string | null; initiatorRole?: string | null }).initiatorName}${(scan as { initiatorName?: string | null; initiatorRole?: string | null }).initiatorRole ? ` · ${(scan as { initiatorName?: string | null; initiatorRole?: string | null }).initiatorRole}` : ""}`
     : null;
 
@@ -958,7 +963,10 @@ export default function Home() {
     setParsedUrls(deduped);
     setManualUrls(deduped.join("\n"));
     setDupDialogOpen(false);
-    toast({ title: `Removed ${totalDuplicateRows} duplicate URL${totalDuplicateRows !== 1 ? "s" : ""}`, description: `${deduped.length} unique URL${deduped.length !== 1 ? "s" : ""} remaining.` });
+    toast({
+      title: `Removed ${totalDuplicateRows} duplicate URL${totalDuplicateRows !== 1 ? "s" : ""}`,
+      description: `${deduped.length} unique URL${deduped.length !== 1 ? "s" : ""} remaining.`,
+    });
   };
 
   // Proxy PAC state — PAC URL is managed in Settings; here we just toggle it on/off
@@ -998,7 +1006,12 @@ export default function Home() {
     try {
       const url = new URL(input);
       if (url.protocol !== "https:") return input;
-      if (cleanPrefix.includes("/") || cleanPrefix.includes("?") || cleanPrefix.includes("#")) return input;
+      if (
+        cleanPrefix.includes("/") ||
+        cleanPrefix.includes("?") ||
+        cleanPrefix.includes("#")
+      )
+        return input;
       const host = url.hostname;
       const parts = host.split(".");
       if (parts.length < 2) return input;
@@ -1356,17 +1369,29 @@ export default function Home() {
                         <Input
                           placeholder="stg.example.com"
                           value={urlPrefix}
-                          onChange={(e) => handleUrlPrefixChange(e.target.value)}
+                          onChange={(e) =>
+                            handleUrlPrefixChange(e.target.value)
+                          }
                         />
                         <p className="text-xs text-muted-foreground">
-                          Replace the host before the domain. Example: <span className="font-mono">https://www.example.com/path</span> → <span className="font-mono">https://stg.example.com/path</span>.
+                          Replace the host before the domain. Example:{" "}
+                          <span className="font-mono">
+                            https://www.example.com/path
+                          </span>{" "}
+                          →{" "}
+                          <span className="font-mono">
+                            https://stg.example.com/path
+                          </span>
+                          .
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center justify-between">
                       <Label>URLs (one per line)</Label>
                       {urlLimitOn && (
-                        <span className={`text-xs font-medium tabular-nums ${parsedUrls.length >= urlLimit ? "text-destructive" : "text-muted-foreground"}`}>
+                        <span
+                          className={`text-xs font-medium tabular-nums ${parsedUrls.length >= urlLimit ? "text-destructive" : "text-muted-foreground"}`}
+                        >
                           {parsedUrls.length} / {urlLimit} URLs
                         </span>
                       )}
@@ -1382,7 +1407,8 @@ export default function Home() {
                     {urlLimitOn && parsedUrls.length >= urlLimit && (
                       <p className="text-xs text-destructive flex items-center gap-1">
                         <AlertCircle className="w-3 h-3 shrink-0" />
-                        URL limit of {urlLimit} reached. Go to Settings to increase it.
+                        URL limit of {urlLimit} reached. Go to Settings to
+                        increase it.
                       </p>
                     )}
                   </div>
@@ -1470,38 +1496,68 @@ export default function Home() {
                     Duplicate URLs Found
                   </DialogTitle>
                   <DialogDescription>
-                    {duplicateMap.size} URL{duplicateMap.size !== 1 ? "s appear" : " appears"} more than once ({totalDuplicateRows} extra entr{totalDuplicateRows !== 1 ? "ies" : "y"}). Removing duplicates will keep only the first occurrence of each URL.
+                    {duplicateMap.size} URL
+                    {duplicateMap.size !== 1 ? "s appear" : " appears"} more
+                    than once ({totalDuplicateRows} extra entr
+                    {totalDuplicateRows !== 1 ? "ies" : "y"}). Removing
+                    duplicates will keep only the first occurrence of each URL.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="overflow-y-auto flex-1 border rounded-md">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-muted border-b">
                       <tr>
-                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">#</th>
-                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">URL</th>
-                        <th className="text-right px-3 py-2 font-medium text-muted-foreground">Count</th>
+                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">
+                          #
+                        </th>
+                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">
+                          URL
+                        </th>
+                        <th className="text-right px-3 py-2 font-medium text-muted-foreground">
+                          Count
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {Array.from(duplicateMap.entries()).map(([url, count], i) => (
-                        <tr key={url} className={i % 2 === 0 ? "bg-background" : "bg-muted/30"}>
-                          <td className="px-3 py-2 text-muted-foreground tabular-nums">{i + 1}</td>
-                          <td className="px-3 py-2 font-mono text-xs break-all">{url}</td>
-                          <td className="px-3 py-2 text-right">
-                            <span className="inline-flex items-center justify-center rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 font-bold text-xs px-2 py-0.5 min-w-[2rem]">
-                              ×{count}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                      {Array.from(duplicateMap.entries()).map(
+                        ([url, count], i) => (
+                          <tr
+                            key={url}
+                            className={
+                              i % 2 === 0 ? "bg-background" : "bg-muted/30"
+                            }
+                          >
+                            <td className="px-3 py-2 text-muted-foreground tabular-nums">
+                              {i + 1}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-xs break-all">
+                              {url}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <span className="inline-flex items-center justify-center rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 font-bold text-xs px-2 py-0.5 min-w-[2rem]">
+                                ×{count}
+                              </span>
+                            </td>
+                          </tr>
+                        ),
+                      )}
                     </tbody>
                   </table>
                 </div>
                 <DialogFooter className="mt-4 gap-2">
-                  <Button variant="outline" onClick={() => setDupDialogOpen(false)}>Cancel</Button>
-                  <Button onClick={handleRemoveDuplicates} className="bg-amber-600 hover:bg-amber-700 text-white">
+                  <Button
+                    variant="outline"
+                    onClick={() => setDupDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleRemoveDuplicates}
+                    className="bg-amber-600 hover:bg-amber-700 text-white"
+                  >
                     <X className="w-4 h-4 mr-2" />
-                    Remove {totalDuplicateRows} Duplicate{totalDuplicateRows !== 1 ? "s" : ""}
+                    Remove {totalDuplicateRows} Duplicate
+                    {totalDuplicateRows !== 1 ? "s" : ""}
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -1524,7 +1580,8 @@ export default function Home() {
                       onClick={() => setDupDialogOpen(true)}
                     >
                       <CopyCheck className="w-3.5 h-3.5 mr-1.5" />
-                      {duplicateMap.size} duplicate{duplicateMap.size !== 1 ? "s" : ""} found
+                      {duplicateMap.size} duplicate
+                      {duplicateMap.size !== 1 ? "s" : ""} found
                     </Button>
                   )}
                 </AlertTitle>

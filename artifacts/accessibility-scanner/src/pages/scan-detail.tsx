@@ -1440,10 +1440,17 @@ export default function ScanDetail() {
 
   const handleCopyAllUrls = async () => {
     if (!scan?.pages?.length) return;
-    await navigator.clipboard.writeText(
-      scan.pages.map((page) => page.url).join("\n"),
-    );
-    toast({ title: "Copied all URLs" });
+    const filtered = pageStatusFilter === "all"
+      ? scan.pages
+      : scan.pages.filter((p) => p.status === pageStatusFilter);
+    if (!filtered.length) {
+      toast({ title: "No URLs match the current filter" });
+      return;
+    }
+    await navigator.clipboard.writeText(filtered.map((p) => p.url).join("\n"));
+    toast({
+      title: `Copied ${filtered.length} URL${filtered.length !== 1 ? "s" : ""}`,
+    });
   };
 
   // Must be before any early return to satisfy Rules of Hooks.
@@ -1742,7 +1749,7 @@ export default function ScanDetail() {
                   onClick={handleCopyAllUrls}
                   disabled={scan.pages.length === 0}
                 >
-                  Copy all URLs
+                  {pageStatusFilter === "all" ? "Copy all URLs" : "Copy filtered URLs"}
                 </Button>
                 {allIssues.length > 0 && <ExportButtons scan={scan} />}
               </div>

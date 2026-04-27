@@ -84,7 +84,6 @@ const WCAG_MAPPING: Record<string, { sc: string[]; level: string[] }> = {
   "SIA-R21": { sc: ["1.2.2"], level: ["A"] },
   "SIA-R22": { sc: ["1.2.2"], level: ["A"] },
   "SIA-R23": { sc: ["1.2.1", "1.2.3"], level: ["A"] },
-  "SIA-R25": { sc: ["2.5.3"], level: ["A"] },
   "SIA-R26": { sc: ["1.2.1"], level: ["A"] },
   "SIA-R27": { sc: ["1.2.2"], level: ["A"] },
   "SIA-R28": { sc: ["1.1.1", "4.1.2"], level: ["A"] },
@@ -256,7 +255,7 @@ const RULE_DESCRIPTIONS: Record<
   },
   "SIA-R14": {
     type: "Issue",
-    description: "Visible label is not included in the accessible name",
+    description: "Visible label & accessible name do not match",
     remediation: "Ensure accessible name contains the visible label text",
   },
   "SIA-R15": {
@@ -314,11 +313,6 @@ const RULE_DESCRIPTIONS: Record<
     type: "Potential Issue",
     description: "Media alternative may be insufficient",
     remediation: "Ensure media alternatives fully convey the same information",
-  },
-  "SIA-R25": {
-    type: "Issue",
-    description: "Accessible name does not match visible label",
-    remediation: "Ensure accessible name matches or includes visible text",
   },
   "SIA-R26": {
     type: "Best Practice",
@@ -1077,9 +1071,22 @@ async function _scanPageInternal(
 
     // Detect hard HTTP 4xx/5xx errors immediately (before any CF challenge handling)
     const httpStatus = httpResponse?.status() ?? 200;
-    if (httpStatus === 404 || httpStatus === 410 || httpStatus === 403 || httpStatus >= 500) {
-      logger.info({ url, httpStatus }, "HTTP error status — marking page as not available");
-      return { url, issues: [], notAvailable: true, error: `HTTP ${httpStatus} – Page Not Available` };
+    if (
+      httpStatus === 404 ||
+      httpStatus === 410 ||
+      httpStatus === 403 ||
+      httpStatus >= 500
+    ) {
+      logger.info(
+        { url, httpStatus },
+        "HTTP error status — marking page as not available",
+      );
+      return {
+        url,
+        issues: [],
+        notAvailable: true,
+        error: `HTTP ${httpStatus} – Page Not Available`,
+      };
     }
 
     await onStage?.("rendering");
@@ -1199,7 +1206,10 @@ async function _scanPageInternal(
     // causes false positives when nav/footer menus mention these phrases.
     const isContentNotAvailable = await page.evaluate((): boolean => {
       const title = document.title.toLowerCase();
-      const h1 = (document.querySelector("h1") as HTMLElement | null)?.innerText?.toLowerCase() ?? "";
+      const h1 =
+        (
+          document.querySelector("h1") as HTMLElement | null
+        )?.innerText?.toLowerCase() ?? "";
       const checks = [
         "that page is not available",
         "page is not available",
@@ -1220,8 +1230,16 @@ async function _scanPageInternal(
     });
 
     if (isContentNotAvailable) {
-      logger.info({ url }, "Page content indicates 'not available' — skipping scan");
-      return { url, issues: [], notAvailable: true, error: "Page Not Available" };
+      logger.info(
+        { url },
+        "Page content indicates 'not available' — skipping scan",
+      );
+      return {
+        url,
+        issues: [],
+        notAvailable: true,
+        error: "Page Not Available",
+      };
     }
 
     logger.info({ url }, "Scrolling page to trigger lazy-loaded content");
@@ -1952,35 +1970,12 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
             ruleId: "SIA-R14",
             type: "Issue",
             impact: "moderate",
-            description: "Visible label not included in accessible name",
+            description: "Visible label and accessible name do not match",
             element: outerHtmlSnippet(el),
             selector: getSelector(el),
           });
         }
       });
-    // SIA-R25: Label in Name — visible label not in accessible name
-    document
-      .querySelectorAll("a[href], button, [role='button'], [role='link']")
-      .forEach((el) => {
-        if (!isVisible(el)) return;
-
-        const visibleText = (el as HTMLElement).innerText?.trim();
-        const accName = getAccessibleName(el);
-
-        if (!visibleText || !accName) return;
-
-        if (!accName.toLowerCase().includes(visibleText.toLowerCase())) {
-          results.push({
-            ruleId: "SIA-R25",
-            type: "Issue",
-            impact: "moderate",
-            description: "Visible text not included in accessible name",
-            element: outerHtmlSnippet(el),
-            selector: getSelector(el),
-          });
-        }
-      });
-
     // SIA-R64- Empty headings
     document.querySelectorAll("h1,h2,h3,h4,h5,h6").forEach((h) => {
       if (!isVisible(h)) return;
@@ -1999,6 +1994,7 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     // Also check buttons, links, tabs for label-in-name
     // Use el.innerText (browser-rendered text) so sr-only spans are excluded,
     // and use getAccessibleName (handles aria-label AND aria-labelledby)
+    // SIA-R14: Label in Name — visible label not in accessible name
     document
       .querySelectorAll(
         "a[href], button, [role='button'], [role='link'], [role='tab'], [role='menuitem']",
