@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useAuth } from "@/contexts/auth";
 import { SIA_RULES } from "@/lib/siaRules";
 import { useParams, Link, useLocation } from "wouter";
 import {
@@ -68,7 +69,9 @@ import {
   Save,
   Ban,
   Pencil,
+  Flag,
 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -166,6 +169,8 @@ interface Issue {
   bboxY?: number | null;
   bboxWidth?: number | null;
   bboxHeight?: number | null;
+  falsePositive?: boolean;
+  falsePositiveNote?: string | null;
 }
 
 interface IssueFilters {
@@ -174,6 +179,7 @@ interface IssueFilters {
   severity: string;
   wcag: string;
   level: string;
+  hideFalsePositives: boolean;
 }
 function getLegalText(issue: Issue) {
   if (!issue.legal) return "";
@@ -236,6 +242,16 @@ function IssueFilterBar({
       <div className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
         <Filter className="w-3.5 h-3.5" />
         <span>Filters</span>
+        <Button
+          variant={filters.hideFalsePositives ? "secondary" : "ghost"}
+          size="sm"
+          className={`ml-2 h-6 px-2 text-xs gap-1 ${filters.hideFalsePositives ? "text-foreground" : "text-muted-foreground"}`}
+          onClick={() => onChange({ ...filters, hideFalsePositives: !filters.hideFalsePositives })}
+          title={filters.hideFalsePositives ? "False positives are hidden — click to show" : "Click to hide false positives"}
+        >
+          <Flag className="w-3 h-3" />
+          {filters.hideFalsePositives ? "FP hidden" : "Show FP"}
+        </Button>
         {hasFilters && (
           <Button
             variant="ghost"
@@ -248,6 +264,7 @@ function IssueFilterBar({
                 severity: "all",
                 wcag: "all",
                 level: "all",
+                hideFalsePositives: true,
               })
             }
           >
@@ -396,6 +413,7 @@ function IssueGroupList({
   selectedIssueId,
   selectedRules,
   ruleInfoMap,
+  onFlagIssue,
 }: {
   issues: Issue[];
   filters: IssueFilters;
@@ -404,6 +422,7 @@ function IssueGroupList({
   selectedIssueId?: number;
   selectedRules?: string[];
   ruleInfoMap?: Record<string, RuleInfo>;
+  onFlagIssue?: (issue: Issue) => void;
 }) {
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
@@ -418,6 +437,7 @@ function IssueGroupList({
 
   const filteredIssues = useMemo(() => {
     return issues.filter((issue) => {
+      if (filters.hideFalsePositives && issue.falsePositive) return false;
       if (
         filters.search &&
         !issue.description.toLowerCase().includes(filters.search.toLowerCase())
@@ -584,15 +604,18 @@ function IssueGroupList({
                           const hasVariantDesc =
                             issue.description !== first.description;
                           const isSelected = selectedIssueId === issue.id;
+                          const isFlagged = issue.falsePositive === true;
                           return (
                             <div key={issue.id} className="contents">
                               <tr
                                 className={`border-t cursor-pointer select-none transition-colors ${
-                                  isSelected
-                                    ? "bg-primary/10 ring-1 ring-inset ring-primary/30"
-                                    : isExpanded
-                                      ? "bg-primary/5"
-                                      : "hover:bg-muted/40"
+                                  isFlagged
+                                    ? "bg-amber-50/40 dark:bg-amber-900/10"
+                                    : isSelected
+                                      ? "bg-primary/10 ring-1 ring-inset ring-primary/30"
+                                      : isExpanded
+                                        ? "bg-primary/5"
+                                        : "hover:bg-muted/40"
                                 }`}
                                 onClick={() => toggleRow(issue.id)}
                               >
@@ -680,6 +703,20 @@ function IssueGroupList({
                                     <ChevronDown
                                       className={`w-3.5 h-3.5 shrink-0 transition-transform duration-150 ${isExpanded ? "rotate-180" : ""}`}
                                     />
+                                    {onFlagIssue && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className={`h-6 w-6 shrink-0 ${isFlagged ? "text-amber-500 hover:text-amber-600" : "text-muted-foreground/40 hover:text-amber-500"}`}
+                                        title={isFlagged ? "Remove false positive flag" : "Flag as false positive"}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onFlagIssue(issue);
+                                        }}
+                                      >
+                                        <Flag className={`w-3.5 h-3.5 ${isFlagged ? "fill-amber-400" : ""}`} />
+                                      </Button>
+                                    )}
                                     {onSelectOccurrence && (
                                       <Button
                                         variant="outline"
@@ -713,6 +750,17 @@ function IssueGroupList({
                                     className="px-4 py-4"
                                   >
                                     <div className="space-y-3">
+                                      {isFlagged && (
+                                        <div className="flex items-start gap-2 p-2 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                                          <Flag className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5 fill-amber-400" />
+                                          <div className="text-xs">
+                                            <span className="font-semibold text-amber-700 dark:text-amber-400">Marked as false positive</span>
+                                            {issue.falsePositiveNote && (
+                                              <p className="text-amber-600 dark:text-amber-300 mt-0.5">{issue.falsePositiveNote}</p>
+                                            )}
+                                          </div>
+                                        </div>
+                                      )}
                                       {pageUrl && (
                                         <div>
                                           <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
@@ -935,19 +983,17 @@ function ExportButtons({
   scan: {
     id: number;
     name?: string | null;
-    pages?: Array<{ url: string; issues?: Issue[] }>;
+    pages?: Array<{ url: string; status?: string; issues?: Issue[] }>;
+    options?: { rules?: string[] };
   };
 }) {
   const { toast } = useToast();
   const scanLabel = scan.name || `scan-${scan.id}`;
   const safeLabel = scanLabel.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
+  const pageCount = scan.pages?.length ?? 0;
 
   const exportCsv = useCallback(() => {
     const rows = buildExportRows(scan);
-    if (rows.length === 0) {
-      toast({ title: "No issues to export" });
-      return;
-    }
     const header = [
       "Scan Name",
       "Selected Rules",
@@ -964,28 +1010,29 @@ function ExportButtons({
       "Remediation",
     ];
     const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
-    const csv = [
-      header.map(escape).join(","),
-      ...rows.map((r) =>
-        [
-          r.scanLabel,
-          r.selectedRules,
-          r.pageUrl,
-          r.ruleId,
-          r.ruleLabel,
-          r.description,
-          r.impact,
-          r.wcagCriteria,
-          r.wcagLevel,
-          r.legalText,
-          r.selector,
-          r.element,
-          r.remediation,
-        ]
-          .map(escape)
-          .join(","),
-      ),
-    ].join("\n");
+    const dataRows =
+      rows.length === 0
+        ? [[escape("No accessibility issues found"), ...header.slice(1).map(() => escape(""))].join(",")]
+        : rows.map((r) =>
+            [
+              r.scanLabel,
+              r.selectedRules,
+              r.pageUrl,
+              r.ruleId,
+              r.ruleLabel,
+              r.description,
+              r.impact,
+              r.wcagCriteria,
+              r.wcagLevel,
+              r.legalText,
+              r.selector,
+              r.element,
+              r.remediation,
+            ]
+              .map(escape)
+              .join(","),
+          );
+    const csv = [header.map(escape).join(","), ...dataRows].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -993,33 +1040,31 @@ function ExportButtons({
     a.download = `${safeLabel}-a11y-report.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    toast({ title: "CSV exported" });
+    toast({ title: rows.length === 0 ? "CSV exported — no issues found" : "CSV exported" });
   }, [scan, safeLabel, toast]);
 
   const exportExcel = useCallback(async () => {
     const rows = buildExportRows(scan);
-    if (rows.length === 0) {
-      toast({ title: "No issues to export" });
-      return;
-    }
     const XLSX = (await import("xlsx")).default;
-    const ws = XLSX.utils.json_to_sheet(
-      rows.map((r) => ({
-        "Scan Name": r.scanLabel,
-        "Selected Rules": r.selectedRules,
-        "Page URL": r.pageUrl,
-        "Rule ID": r.ruleId,
-        "Rule Label": r.ruleLabel,
-        Description: r.description,
-        Impact: r.impact,
-        "WCAG Criterion": r.wcagCriteria,
-        "WCAG Level": r.wcagLevel,
-        Compliance: r.legalText,
-        "CSS Selector": r.selector,
-        "Element HTML": r.element,
-        Remediation: r.remediation,
-      })),
-    );
+    const sheetData =
+      rows.length === 0
+        ? [{ "Scan Name": scanLabel, "Selected Rules": "", "Page URL": "", "Rule ID": "", "Rule Label": "No accessibility issues found", Description: "", Impact: "", "WCAG Criterion": "", "WCAG Level": "", Compliance: "", "CSS Selector": "", "Element HTML": "", Remediation: "" }]
+        : rows.map((r) => ({
+            "Scan Name": r.scanLabel,
+            "Selected Rules": r.selectedRules,
+            "Page URL": r.pageUrl,
+            "Rule ID": r.ruleId,
+            "Rule Label": r.ruleLabel,
+            Description: r.description,
+            Impact: r.impact,
+            "WCAG Criterion": r.wcagCriteria,
+            "WCAG Level": r.wcagLevel,
+            Compliance: r.legalText,
+            "CSS Selector": r.selector,
+            "Element HTML": r.element,
+            Remediation: r.remediation,
+          }));
+    const ws = XLSX.utils.json_to_sheet(sheetData);
     ws["!cols"] = [
       { wch: 60 },
       { wch: 10 },
@@ -1034,15 +1079,11 @@ function ExportButtons({
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Issues");
     XLSX.writeFile(wb, `${safeLabel}-a11y-report.xlsx`);
-    toast({ title: "Excel file exported" });
-  }, [scan, safeLabel, toast]);
+    toast({ title: rows.length === 0 ? "Excel exported — no issues found" : "Excel file exported" });
+  }, [scan, scanLabel, safeLabel, toast]);
 
   const exportPdf = useCallback(async () => {
     const rows = buildExportRows(scan);
-    if (rows.length === 0) {
-      toast({ title: "No issues to export" });
-      return;
-    }
     const { jsPDF } = await import("jspdf");
     const autoTable = (await import("jspdf-autotable")).default;
     const doc = new jsPDF({
@@ -1056,67 +1097,74 @@ function ExportButtons({
     doc.setFontSize(10);
     doc.setTextColor(120);
     doc.text(
-      `Generated: ${new Date().toLocaleString()} — ${rows.length} issue${rows.length !== 1 ? "s" : ""} across ${scan.pages?.length ?? 0} page${(scan.pages?.length ?? 0) !== 1 ? "s" : ""}`,
+      `Generated: ${new Date().toLocaleString()} — ${rows.length} issue${rows.length !== 1 ? "s" : ""} across ${pageCount} page${pageCount !== 1 ? "s" : ""}`,
       40,
       58,
     );
     doc.setTextColor(0);
 
-    autoTable(doc, {
-      startY: 70,
-      head: [
-        [
-          "#",
-          "Scan Name",
-          "Selected Rules",
-          "Page URL",
-          "Rule ID",
-          "Rule Label",
-          "Impact",
-          "WCAG",
-          "Description",
-          "Selector",
-          "Remediation",
+    if (rows.length === 0) {
+      doc.setFontSize(12);
+      doc.setTextColor(34, 197, 94);
+      doc.text("✓ No accessibility issues found across all scanned pages.", 40, 90);
+      doc.setTextColor(0);
+    } else {
+      autoTable(doc, {
+        startY: 70,
+        head: [
+          [
+            "#",
+            "Scan Name",
+            "Selected Rules",
+            "Page URL",
+            "Rule ID",
+            "Rule Label",
+            "Impact",
+            "WCAG",
+            "Description",
+            "Selector",
+            "Remediation",
+          ],
         ],
-      ],
-      body: rows.map((r, i) => [
-        i + 1,
-        r.scanLabel,
-        r.selectedRules,
-        r.pageUrl,
-        r.ruleId,
-        r.ruleLabel,
-        r.impact,
-        r.wcagCriteria ? `${r.wcagCriteria} (${r.wcagLevel})` : "",
-        r.description,
-        r.selector,
-        r.remediation,
-      ]),
-      styles: { fontSize: 7, cellPadding: 4, overflow: "linebreak" },
-      headStyles: {
-        fillColor: [109, 40, 217],
-        textColor: 255,
-        fontStyle: "bold",
-      },
-      columnStyles: {
-        0: { cellWidth: 22 },
-        1: { cellWidth: 70 },
-        2: { cellWidth: 90 },
-        3: { cellWidth: 110 },
-        4: { cellWidth: 42 },
-        5: { cellWidth: 62 },
-        6: { cellWidth: 50 },
-        7: { cellWidth: 50 },
-        8: { cellWidth: 110 },
-        9: { cellWidth: 100 },
-        10: { cellWidth: 130 },
-      },
-      alternateRowStyles: { fillColor: [248, 246, 255] },
-    });
+        body: rows.map((r, i) => [
+          i + 1,
+          r.scanLabel,
+          r.selectedRules,
+          r.pageUrl,
+          r.ruleId,
+          r.ruleLabel,
+          r.impact,
+          r.wcagCriteria ? `${r.wcagCriteria} (${r.wcagLevel})` : "",
+          r.description,
+          r.selector,
+          r.remediation,
+        ]),
+        styles: { fontSize: 7, cellPadding: 4, overflow: "linebreak" },
+        headStyles: {
+          fillColor: [109, 40, 217],
+          textColor: 255,
+          fontStyle: "bold",
+        },
+        columnStyles: {
+          0: { cellWidth: 22 },
+          1: { cellWidth: 70 },
+          2: { cellWidth: 90 },
+          3: { cellWidth: 110 },
+          4: { cellWidth: 42 },
+          5: { cellWidth: 62 },
+          6: { cellWidth: 50 },
+          7: { cellWidth: 50 },
+          8: { cellWidth: 110 },
+          9: { cellWidth: 100 },
+          10: { cellWidth: 130 },
+        },
+        alternateRowStyles: { fillColor: [248, 246, 255] },
+      });
+    }
 
     doc.save(`${safeLabel}-a11y-report.pdf`);
-    toast({ title: "PDF exported" });
-  }, [scan, scanLabel, safeLabel, toast]);
+    toast({ title: rows.length === 0 ? "PDF exported — no issues found" : "PDF exported" });
+  }, [scan, scanLabel, safeLabel, pageCount, toast]);
 
   return (
     <DropdownMenu>
@@ -1228,14 +1276,73 @@ export default function ScanDetail() {
     severity: "all",
     wcag: "all",
     level: "all",
+    hideFalsePositives: true,
   });
 
   const [pageStatusFilter, setPageStatusFilter] = useState<string>("all");
 
+  const [fpOverrides, setFpOverrides] = useState<Record<number, { falsePositive: boolean; falsePositiveNote: string | null }>>({});
+  const [fpDialogIssue, setFpDialogIssue] = useState<Issue | null>(null);
+  const [fpNote, setFpNote] = useState("");
+
+  const flagMutation = useMutation({
+    mutationFn: async ({ id, falsePositive, note }: { id: number; falsePositive: boolean; note: string | null }) => {
+      const resp = await fetch(`/api/issues/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ falsePositive, note }),
+        credentials: "include",
+      });
+      if (!resp.ok) throw new Error("Failed to update issue");
+      return resp.json() as Promise<{ id: number; falsePositive: boolean; falsePositiveNote: string | null }>;
+    },
+    onSuccess: (data) => {
+      setFpOverrides((prev) => ({
+        ...prev,
+        [data.id]: { falsePositive: data.falsePositive, falsePositiveNote: data.falsePositiveNote },
+      }));
+    },
+    onError: () => {
+      toast({ title: "Failed to update false positive flag", variant: "destructive" });
+    },
+  });
+
+  const handleOpenFlagDialog = (issue: Issue) => {
+    const override = fpOverrides[issue.id];
+    const currentNote = override !== undefined ? override.falsePositiveNote : (issue.falsePositiveNote ?? null);
+    setFpNote(currentNote ?? "");
+    setFpDialogIssue(issue);
+  };
+
+  const handleFlagConfirm = () => {
+    if (!fpDialogIssue) return;
+    const newNote = fpNote.trim() ? fpNote.trim() : null;
+    setFpOverrides((prev) => ({
+      ...prev,
+      [fpDialogIssue.id]: { falsePositive: true, falsePositiveNote: newNote },
+    }));
+    flagMutation.mutate({ id: fpDialogIssue.id, falsePositive: true, note: newNote });
+    setFpDialogIssue(null);
+  };
+
+  const handleRemoveFlagConfirm = () => {
+    if (!fpDialogIssue) return;
+    setFpOverrides((prev) => ({
+      ...prev,
+      [fpDialogIssue.id]: { falsePositive: false, falsePositiveNote: null },
+    }));
+    flagMutation.mutate({ id: fpDialogIssue.id, falsePositive: false, note: null });
+    setFpDialogIssue(null);
+  };
+
+  const { user: authUser } = useAuth();
+  const isSuperAdmin = authUser?.role === "super_admin";
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState("");
   const [editInitiatorName, setEditInitiatorName] = useState("");
   const [editInitiatorRole, setEditInitiatorRole] = useState("");
+  const [editAllUsers, setEditAllUsers] = useState<{ id: number; fullName: string; username: string; groups: { id: number; name: string }[] }[]>([]);
+  const editUsersFetched = useRef(false);
   const updateScanMutation = useUpdateScan();
 
   const openEditDialog = () => {
@@ -1245,10 +1352,30 @@ export default function ScanDetail() {
     setEditOpen(true);
   };
 
+  // Fetch all users once for superadmin initiator dropdown
+  useEffect(() => {
+    if (!isSuperAdmin || !editOpen || editUsersFetched.current) return;
+    const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+    fetch(`${BASE}/api/admin/users`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : [])
+      .then((data: { id: number; fullName: string; username: string; groups: { id: number; name: string }[] }[]) => {
+        setEditAllUsers(data);
+        editUsersFetched.current = true;
+      })
+      .catch(() => {});
+  }, [isSuperAdmin, editOpen]);
+
   const handleSaveEdit = () => {
     if (!scan) return;
+    const data: Parameters<typeof updateScanMutation.mutate>[0]["data"] = {
+      name: editName.trim() || undefined,
+      ...(isSuperAdmin ? {
+        initiatorName: editInitiatorName.trim() || null,
+        initiatorRole: editInitiatorRole.trim() || null,
+      } : {}),
+    };
     updateScanMutation.mutate(
-      { id: scan.id, data: { name: editName.trim() || undefined, initiatorName: editInitiatorName.trim() || null, initiatorRole: editInitiatorRole.trim() || null } },
+      { id: scan.id, data },
       {
         onSuccess: () => {
           toast({ title: "Scan updated" });
@@ -1335,11 +1462,32 @@ export default function ScanDetail() {
   const retryClone = useMutation({
     mutationFn: async () => {
       const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
-      const res = await fetch(`${BASE}/api/scans/${scanId}/retry`, {
-        method: "POST",
-      });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json() as Promise<{ id: number }>;
+      let lastError: Error = new Error("Unknown error");
+      for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt));
+        try {
+          const res = await fetch(`${BASE}/api/scans/${scanId}/retry`, {
+            method: "POST",
+            credentials: "include",
+          });
+          if (!res.ok) {
+            const text = await res.text();
+            // Don't retry on definitive errors (auth, not found, bad request)
+            if (res.status === 401 || res.status === 403 || res.status === 404 || res.status === 400) {
+              throw new Error(text);
+            }
+            lastError = new Error(text);
+            continue;
+          }
+          return res.json() as Promise<{ id: number }>;
+        } catch (err) {
+          if (err instanceof Error && (err.message.includes("401") || err.message.includes("403") || err.message.includes("404") || err.message.includes("400"))) {
+            throw err;
+          }
+          lastError = err as Error;
+        }
+      }
+      throw lastError;
     },
   });
 
@@ -1348,6 +1496,7 @@ export default function ScanDetail() {
       const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
       const res = await fetch(`${BASE}/api/scans/${scanId}/pause`, {
         method: "POST",
+        credentials: "include",
       });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
@@ -1369,6 +1518,7 @@ export default function ScanDetail() {
       const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
       const res = await fetch(`${BASE}/api/scans/${scanId}/resume`, {
         method: "POST",
+        credentials: "include",
       });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
@@ -1438,11 +1588,21 @@ export default function ScanDetail() {
     });
   };
 
+  const matchesPageFilter = useCallback(
+    (p: { status: string; issueCount: number }) => {
+      if (pageStatusFilter === "all") return true;
+      if (pageStatusFilter === "completed_with_issues") return p.status === "completed" && p.issueCount > 0;
+      if (pageStatusFilter === "completed_no_issues") return p.status === "completed" && p.issueCount === 0;
+      return p.status === pageStatusFilter;
+    },
+    [pageStatusFilter],
+  );
+
   const handleCopyAllUrls = async () => {
     if (!scan?.pages?.length) return;
     const filtered = pageStatusFilter === "all"
       ? scan.pages
-      : scan.pages.filter((p) => p.status === pageStatusFilter);
+      : scan.pages.filter(matchesPageFilter);
     if (!filtered.length) {
       toast({ title: "No URLs match the current filter" });
       return;
@@ -1501,7 +1661,15 @@ export default function ScanDetail() {
     ? "updating"
     : liveStatus?.status || scan.status;
   const totalUrls = liveStatus?.totalUrls || scan.totalUrls;
-  const scannedUrls = liveStatus?.scannedUrls || scan.scannedUrls;
+  // Prefer counting completed pages directly from the live page list — it is
+  // always in sync with the DONE counter shown in Live Progress.  Fall back to
+  // the session-level scannedUrls counter only when page data isn't loaded yet.
+  const scannedUrls = Math.min(
+    liveStatus?.pages?.length
+      ? liveStatus.pages.filter(p => p.status === "completed").length
+      : (liveStatus?.scannedUrls || scan.scannedUrls || 0),
+    totalUrls || 0,
+  );
   const progressPercent =
     totalUrls > 0 ? Math.round((scannedUrls / totalUrls) * 100) : 0;
   const hasLoadedResults = !!scan.pages?.length;
@@ -1517,7 +1685,7 @@ export default function ScanDetail() {
       <Dialog open={editOpen} onOpenChange={(v) => { if (!v) setEditOpen(false); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit Scan Details</DialogTitle>
+            <DialogTitle>Edit Scan</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
@@ -1529,24 +1697,63 @@ export default function ScanDetail() {
                 placeholder="Enter scan name"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="detail-edit-initiator">Scan Initiator</Label>
-              <Input
-                id="detail-edit-initiator"
-                value={editInitiatorName}
-                onChange={(e) => setEditInitiatorName(e.target.value)}
-                placeholder="e.g. Jane Smith"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="detail-edit-role">Initiator Role</Label>
-              <Input
-                id="detail-edit-role"
-                value={editInitiatorRole}
-                onChange={(e) => setEditInitiatorRole(e.target.value)}
-                placeholder="e.g. QA Engineer"
-              />
-            </div>
+
+            {isSuperAdmin ? (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Scan Initiator</Label>
+                  {editAllUsers.length > 0 ? (
+                    <Select value={editInitiatorName} onValueChange={(fullName) => {
+                      setEditInitiatorName(fullName);
+                      const selected = editAllUsers.find(u => u.fullName === fullName);
+                      if (selected && selected.groups.length > 0) {
+                        setEditInitiatorRole(selected.groups[0].name);
+                      }
+                    }}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select user…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {editAllUsers.map(u => (
+                          <SelectItem key={u.id} value={u.fullName}>
+                            {u.fullName}{" "}
+                            <span className="text-muted-foreground text-xs">({u.username})</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={editInitiatorName}
+                      onChange={(e) => setEditInitiatorName(e.target.value)}
+                      placeholder="e.g. Jane Smith"
+                    />
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Initiator Role</Label>
+                  <Input
+                    value={editInitiatorRole}
+                    readOnly
+                    className="bg-muted cursor-not-allowed"
+                    placeholder="Auto-filled from user's group"
+                  />
+                </div>
+              </>
+            ) : (
+              (scan?.initiatorName || scan?.initiatorRole) && (
+                <div className="rounded-md bg-muted/50 border px-3 py-2.5 space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Scan metadata (read-only)</p>
+                  {scan?.initiatorName && (
+                    <p className="text-sm">Initiator: <span className="font-medium">{scan.initiatorName}</span></p>
+                  )}
+                  {scan?.initiatorRole && (
+                    <p className="text-sm">Role: <span className="font-medium">{scan.initiatorRole}</span></p>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">Only a super administrator can change these fields.</p>
+                </div>
+              )
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
@@ -1557,6 +1764,60 @@ export default function ScanDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* False positive dialog */}
+      {fpDialogIssue && (() => {
+        const override = fpOverrides[fpDialogIssue.id];
+        const isFlagged = override !== undefined ? override.falsePositive : (fpDialogIssue.falsePositive ?? false);
+        return (
+          <Dialog open={true} onOpenChange={(v) => { if (!v) setFpDialogIssue(null); }}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Flag className={`w-4 h-4 ${isFlagged ? "text-amber-500 fill-amber-400" : "text-muted-foreground"}`} />
+                  {isFlagged ? "Manage false positive flag" : "Flag as false positive"}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 py-1">
+                <p className="text-sm text-muted-foreground">
+                  {isFlagged
+                    ? "This occurrence is flagged as a false positive and hidden from default view."
+                    : "Mark this occurrence as a false positive to exclude it from issue counts and hide it by default."}
+                </p>
+                <div className="space-y-1">
+                  <Label htmlFor="fp-note" className="text-xs font-medium">
+                    Note <span className="text-muted-foreground font-normal">(optional)</span>
+                  </Label>
+                  <Textarea
+                    id="fp-note"
+                    placeholder="Why is this a false positive?"
+                    value={fpNote}
+                    onChange={(e) => setFpNote(e.target.value)}
+                    rows={3}
+                    className="text-sm resize-none"
+                  />
+                </div>
+              </div>
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button variant="outline" onClick={() => setFpDialogIssue(null)}>Cancel</Button>
+                {isFlagged && (
+                  <Button variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10" onClick={handleRemoveFlagConfirm}>
+                    Remove flag
+                  </Button>
+                )}
+                <Button
+                  variant={isFlagged ? "default" : "default"}
+                  className={isFlagged ? "" : "bg-amber-500 hover:bg-amber-600 text-white border-transparent"}
+                  onClick={handleFlagConfirm}
+                >
+                  <Flag className="w-3.5 h-3.5 mr-1.5" />
+                  {isFlagged ? "Update note" : "Flag as false positive"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       <div className="flex justify-between items-start">
         <div>
@@ -1733,12 +1994,14 @@ export default function ScanDetail() {
               </h2>
               <div className="flex items-center gap-2">
                 <Select value={pageStatusFilter} onValueChange={setPageStatusFilter}>
-                  <SelectTrigger className="w-40 h-9">
+                  <SelectTrigger className="w-48 h-9">
                     <SelectValue placeholder="All statuses" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All statuses</SelectItem>
-                    <SelectItem value="completed">Done</SelectItem>
+                    <SelectItem value="completed_with_issues">Done with issues</SelectItem>
+                    <SelectItem value="completed_no_issues">Done — no issues</SelectItem>
+                    <SelectItem value="completed">Done (all)</SelectItem>
                     <SelectItem value="failed">Failed</SelectItem>
                     <SelectItem value="not_available">Not Available</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
@@ -1751,13 +2014,16 @@ export default function ScanDetail() {
                 >
                   {pageStatusFilter === "all" ? "Copy all URLs" : "Copy filtered URLs"}
                 </Button>
-                {allIssues.length > 0 && <ExportButtons scan={scan} />}
+                <ExportButtons scan={scan} />
               </div>
             </div>
 
             <Accordion type="multiple" className="space-y-4">
-              {scan.pages.filter((page) => pageStatusFilter === "all" || page.status === pageStatusFilter).map((page) => {
-                const pageIssues = page.issues || [];
+              {scan.pages.filter(matchesPageFilter).map((page) => {
+                const pageIssues = (page.issues || []).map((issue: Issue) => {
+                  const override = fpOverrides[issue.id];
+                  return override !== undefined ? { ...issue, ...override } : issue;
+                });
                 return (
                   <AccordionItem
                     key={page.id}
@@ -1872,6 +2138,7 @@ export default function ScanDetail() {
                                 ? viewerSel.issue.id
                                 : undefined
                             }
+                            onFlagIssue={handleOpenFlagDialog}
                             onSelectOccurrence={
                               viewerEnabled
                                 ? (issue, group) =>
@@ -1942,15 +2209,16 @@ export default function ScanDetail() {
           {/* Real-time stats counter row */}
           {(() => {
             const activeSet = new Set(["rendering","analyzing","saving","scanning"]);
-            const inQueue     = liveStatus.pages.filter(p => p.status === "navigating").length;
-            const scanning    = liveStatus.pages.filter(p => activeSet.has(p.status)).length;
-            const done        = liveStatus.pages.filter(p => p.status === "completed").length;
-            const pending     = liveStatus.pages.filter(p => p.status === "pending").length;
-            const retry       = liveStatus.pages.filter(p => p.status === "requeued").length;
-            const failed      = liveStatus.pages.filter(p => p.status === "failed").length;
-            const notAvail    = liveStatus.pages.filter(p => p.status === "not_available").length;
+            const inQueue        = liveStatus.pages.filter(p => p.status === "navigating").length;
+            const scanning       = liveStatus.pages.filter(p => activeSet.has(p.status)).length;
+            const done           = liveStatus.pages.filter(p => p.status === "completed").length;
+            const pending        = liveStatus.pages.filter(p => p.status === "pending").length;
+            const retry          = liveStatus.pages.filter(p => p.status === "requeued").length;
+            const failed         = liveStatus.pages.filter(p => p.status === "failed").length;
+            const notAvail       = liveStatus.pages.filter(p => p.status === "not_available").length;
+            const pagesWithIssues = liveStatus.pages.filter(p => p.status === "completed" && (p.issueCount ?? 0) > 0).length;
             return (
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
                 <div className="flex items-center gap-2.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2.5">
                   <Globe className="w-4 h-4 text-violet-500 shrink-0 animate-pulse" />
                   <div>
@@ -2001,6 +2269,13 @@ export default function ScanDetail() {
                   <div>
                     <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">Not Available</p>
                     <p className="text-xl font-bold text-slate-500 leading-none mt-0.5">{notAvail}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2.5">
+                  <AlertTriangle className="w-4 h-4 text-orange-500 shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-orange-600">Pages w/ Issues</p>
+                    <p className="text-xl font-bold text-orange-700 leading-none mt-0.5">{pagesWithIssues}</p>
                   </div>
                 </div>
               </div>

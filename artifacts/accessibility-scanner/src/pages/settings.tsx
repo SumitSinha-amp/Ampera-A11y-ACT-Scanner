@@ -22,6 +22,7 @@ import {
   Moon,
   Monitor,
   ListFilter,
+  Clock,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -56,6 +57,18 @@ export function getUrlLimitValue(): number {
     return Number.isFinite(v) && v > 0 ? v : DEFAULT_URL_LIMIT;
   } catch {
     return DEFAULT_URL_LIMIT;
+  }
+}
+
+export const SCAN_TIMEOUT_LS_KEY = "a11y-scan-timeout-mins";
+export const DEFAULT_SCAN_TIMEOUT_MINS = 3;
+
+export function getScanTimeoutMs(): number {
+  try {
+    const v = parseInt(localStorage.getItem(SCAN_TIMEOUT_LS_KEY) ?? "", 10);
+    return Number.isFinite(v) && v >= 1 ? v * 60_000 : DEFAULT_SCAN_TIMEOUT_MINS * 60_000;
+  } catch {
+    return DEFAULT_SCAN_TIMEOUT_MINS * 60_000;
   }
 }
 
@@ -101,6 +114,8 @@ export default function Settings() {
   const [urlLimitEnabled, setUrlLimitEnabledState] = useState(false);
   const [urlLimitValue, setUrlLimitValueState] = useState(DEFAULT_URL_LIMIT);
   const [urlLimitInput, setUrlLimitInput] = useState(String(DEFAULT_URL_LIMIT));
+  const [scanTimeoutMins, setScanTimeoutMins] = useState(DEFAULT_SCAN_TIMEOUT_MINS);
+  const [scanTimeoutInput, setScanTimeoutInput] = useState(String(DEFAULT_SCAN_TIMEOUT_MINS));
 
   useEffect(() => {
     setSavedProxies(loadSavedProxies());
@@ -111,6 +126,9 @@ export default function Settings() {
     const saved = getUrlLimitValue();
     setUrlLimitValueState(saved);
     setUrlLimitInput(String(saved));
+    const savedMins = Math.round(getScanTimeoutMs() / 60_000);
+    setScanTimeoutMins(savedMins);
+    setScanTimeoutInput(String(savedMins));
   }, []);
 
   const handleThemeChange = (t: Theme) => {
@@ -284,6 +302,79 @@ export default function Settings() {
           )}
         </CardContent>
       </Card>
+      {/* Scan Timeout */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Clock className="w-5 h-5 text-muted-foreground" />
+            <CardTitle>Scan Timeout</CardTitle>
+          </div>
+          <CardDescription>
+            Maximum time allowed for each page to load and be analysed. If a
+            page does not respond within this time it is marked as failed and the
+            scan moves on. Default is 3 minutes. Applies to all new scans.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-end gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="scan-timeout-input">Timeout per page</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="scan-timeout-input"
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={scanTimeoutInput}
+                  onChange={(e) => setScanTimeoutInput(e.target.value)}
+                  onBlur={() => {
+                    const n = parseInt(scanTimeoutInput, 10);
+                    if (!Number.isFinite(n) || n < 1) {
+                      setScanTimeoutInput(String(scanTimeoutMins));
+                      return;
+                    }
+                    const clamped = Math.min(Math.max(n, 1), 30);
+                    setScanTimeoutMins(clamped);
+                    setScanTimeoutInput(String(clamped));
+                    localStorage.setItem(SCAN_TIMEOUT_LS_KEY, String(clamped));
+                    window.dispatchEvent(new CustomEvent("a11y-scan-timeout-changed"));
+                    toast({ title: `Scan timeout set to ${clamped} minute${clamped === 1 ? "" : "s"}` });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  }}
+                  className="w-24"
+                />
+                <span className="text-sm text-muted-foreground">
+                  minute{scanTimeoutMins === 1 ? "" : "s"} per page
+                </span>
+              </div>
+            </div>
+            {scanTimeoutMins !== DEFAULT_SCAN_TIMEOUT_MINS && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground mb-0.5"
+                onClick={() => {
+                  setScanTimeoutMins(DEFAULT_SCAN_TIMEOUT_MINS);
+                  setScanTimeoutInput(String(DEFAULT_SCAN_TIMEOUT_MINS));
+                  localStorage.setItem(SCAN_TIMEOUT_LS_KEY, String(DEFAULT_SCAN_TIMEOUT_MINS));
+                  window.dispatchEvent(new CustomEvent("a11y-scan-timeout-changed"));
+                  toast({ title: `Scan timeout reset to ${DEFAULT_SCAN_TIMEOUT_MINS} minutes` });
+                }}
+              >
+                Reset to default
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Enter a value between 1 and 30 minutes. The hard kill deadline is
+            30 seconds beyond the configured timeout. Changes take effect on
+            the next scan you start.
+          </p>
+        </CardContent>
+      </Card>
+
       {/* Proxy PAC Setting */}
       <Card>
         <CardHeader>

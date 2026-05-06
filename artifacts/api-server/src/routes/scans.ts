@@ -1,6 +1,5 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
-import { getAuth } from "@clerk/express";
 import { db, scanSessionsTable, pageResultsTable, accessibilityIssuesTable, projectsTable } from "@workspace/db";
 import { eq, and, desc, sql, inArray, isNull, or } from "drizzle-orm";
 import {
@@ -17,46 +16,65 @@ import {
 import { startScan, cancelScan, pauseScan, resumeScan, isScanActive, queueRetryUrl } from "../lib/scanQueue";
 import { fetchSitemapUrls, parseUrlsFromCsv } from "../lib/sitemap";
 import { logger } from "../lib/logger";
+import { requireAuth } from "../middlewares/authMiddleware";
+import { getEffectivePermissions } from "../lib/permissions";
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-const FALLBACK_USER_ID = "shared-user";
-
 function getAuthUserId(req: any): string {
-  const auth = getAuth(req);
-  return auth?.userId ?? FALLBACK_USER_ID;
+  return req.session?.user?.id?.toString() ?? "";
 }
 
-router.get("/scans", async (req, res): Promise<void> => {
+function isAdminUser(req: any): boolean {
+  const role = req.session?.user?.role;
+  return role === "super_admin" || role === "admin";
+}
+
+router.get("/scans", requireAuth, async (req, res): Promise<void> => {
   const userId = getAuthUserId(req);
-  if (!userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
+  const adminUser = isAdminUser(req);
+  const role = req.session?.user?.role ?? "user";
+
+  let canViewAll = adminUser;
+  if (!canViewAll) {
+    const perms = await getEffectivePermissions(parseInt(userId, 10), role);
+    canViewAll = perms.canViewAllScans;
   }
 
-  const sessions = await db
-    .select({
-      id: scanSessionsTable.id,
-      projectId: scanSessionsTable.projectId,
-      projectName: projectsTable.name,
-      name: scanSessionsTable.name,
-      initiatorName: scanSessionsTable.initiatorName,
-      initiatorRole: scanSessionsTable.initiatorRole,
-      status: scanSessionsTable.status,
-      totalUrls: scanSessionsTable.totalUrls,
-      scannedUrls: scanSessionsTable.scannedUrls,
-      failedUrls: scanSessionsTable.failedUrls,
-      totalIssues: scanSessionsTable.totalIssues,
-      criticalIssues: scanSessionsTable.criticalIssues,
-      options: scanSessionsTable.options,
-      createdAt: scanSessionsTable.createdAt,
-      completedAt: scanSessionsTable.completedAt,
-    })
-    .from(scanSessionsTable)
-    .leftJoin(projectsTable, eq(scanSessionsTable.projectId, projectsTable.id))
-    .orderBy(desc(scanSessionsTable.createdAt))
-    .limit(50);
+  const selectCols = {
+    id: scanSessionsTable.id,
+    projectId: scanSessionsTable.projectId,
+    projectName: projectsTable.name,
+    name: scanSessionsTable.name,
+    initiatorName: scanSessionsTable.initiatorName,
+    initiatorRole: scanSessionsTable.initiatorRole,
+    status: scanSessionsTable.status,
+    totalUrls: scanSessionsTable.totalUrls,
+    scannedUrls: scanSessionsTable.scannedUrls,
+    failedUrls: scanSessionsTable.failedUrls,
+    totalIssues: scanSessionsTable.totalIssues,
+    criticalIssues: scanSessionsTable.criticalIssues,
+    options: scanSessionsTable.options,
+    createdAt: scanSessionsTable.createdAt,
+    completedAt: scanSessionsTable.completedAt,
+    userId: scanSessionsTable.userId,
+  };
+
+  const sessions = canViewAll
+    ? await db
+        .select(selectCols)
+        .from(scanSessionsTable)
+        .leftJoin(projectsTable, eq(scanSessionsTable.projectId, projectsTable.id))
+        .orderBy(desc(scanSessionsTable.createdAt))
+        .limit(200)
+    : await db
+        .select(selectCols)
+        .from(scanSessionsTable)
+        .leftJoin(projectsTable, eq(scanSessionsTable.projectId, projectsTable.id))
+        .where(eq(scanSessionsTable.userId, userId))
+        .orderBy(desc(scanSessionsTable.createdAt))
+        .limit(100);
 
   res.json(sessions.map(s => ({
     ...s,
@@ -66,7 +84,7 @@ router.get("/scans", async (req, res): Promise<void> => {
   })));
 });
 
-router.post("/scans", async (req, res): Promise<void> => {
+router.post("/scans", requireAuth, async (req, res): Promise<void> => {
   const userId = getAuthUserId(req);
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -79,7 +97,7 @@ router.post("/scans", async (req, res): Promise<void> => {
     return;
   }
 
-  const { urls, name, projectId, options, initiatorName, initiatorRole } = parsed.data;
+  const { urls, name, projectId, groupId, options, initiatorName, initiatorRole } = parsed.data;
 
   if (!urls || urls.length === 0) {
     res.status(400).json({ error: "At least one URL is required" });
@@ -99,6 +117,7 @@ router.post("/scans", async (req, res): Promise<void> => {
     userId,
     name: name || null,
     projectId: projectId ?? null,
+    groupId: groupId ?? null,
     initiatorName: initiatorName ?? null,
     initiatorRole: initiatorRole ?? null,
     status: "pending",
@@ -469,6 +488,12 @@ router.patch("/scans/:id", async (req, res): Promise<void> => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  const role = req.session?.user?.role ?? "user";
+  const perms = await getEffectivePermissions(parseInt(userId, 10), role);
+  if (!perms.canEditScan) {
+    res.status(403).json({ error: "You don't have permission to edit scans" });
+    return;
+  }
 
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = UpdateScanParams.safeParse({ id: parseInt(raw, 10) });
@@ -481,11 +506,15 @@ router.patch("/scans/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  const isSuperAdmin = role === "super_admin";
   const { name, initiatorName, initiatorRole } = parsed.data;
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name;
-  if (initiatorName !== undefined) updates.initiatorName = initiatorName;
-  if (initiatorRole !== undefined) updates.initiatorRole = initiatorRole;
+  // Only super_admin can change initiator metadata
+  if (isSuperAdmin) {
+    if (initiatorName !== undefined) updates.initiatorName = initiatorName;
+    if (initiatorRole !== undefined) updates.initiatorRole = initiatorRole;
+  }
   if (Object.keys(updates).length === 0) {
     res.status(400).json({ error: "No fields to update" });
     return;
@@ -505,6 +534,12 @@ router.delete("/scans/:id", async (req, res): Promise<void> => {
   const userId = getAuthUserId(req);
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const role = req.session?.user?.role ?? "user";
+  const perms = await getEffectivePermissions(parseInt(userId, 10), role);
+  if (!perms.canDeleteScan) {
+    res.status(403).json({ error: "You don't have permission to delete scans" });
     return;
   }
 
@@ -585,6 +620,12 @@ router.post("/scans/:id/cancel", async (req, res): Promise<void> => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  const role = req.session?.user?.role ?? "user";
+  const perms = await getEffectivePermissions(parseInt(userId, 10), role);
+  if (!perms.canManageScan) {
+    res.status(403).json({ error: "You don't have permission to cancel scans" });
+    return;
+  }
 
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = CancelScanParams.safeParse({ id: parseInt(raw, 10) });
@@ -625,6 +666,12 @@ router.post("/scans/:id/pause", async (req, res): Promise<void> => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  const role = req.session?.user?.role ?? "user";
+  const perms = await getEffectivePermissions(parseInt(userId, 10), role);
+  if (!perms.canManageScan) {
+    res.status(403).json({ error: "You don't have permission to pause scans" });
+    return;
+  }
 
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const scanId = parseInt(raw, 10);
@@ -662,6 +709,12 @@ router.post("/scans/:id/resume", async (req, res): Promise<void> => {
   const userId = getAuthUserId(req);
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const role = req.session?.user?.role ?? "user";
+  const perms = await getEffectivePermissions(parseInt(userId, 10), role);
+  if (!perms.canManageScan) {
+    res.status(403).json({ error: "You don't have permission to resume scans" });
     return;
   }
 
@@ -757,6 +810,12 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
   const userId = getAuthUserId(req);
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const role = req.session?.user?.role ?? "user";
+  const perms = await getEffectivePermissions(parseInt(userId, 10), role);
+  if (!perms.canManageScan) {
+    res.status(403).json({ error: "You don't have permission to retry scans" });
     return;
   }
 
@@ -1194,6 +1253,38 @@ router.get("/page-source", async (req, res): Promise<void> => {
         error: `Failed to fetch: ${err instanceof Error ? err.message : String(err)}`,
       });
   }
+});
+
+// ── False-positive flag ──────────────────────────────────────────────────────
+router.patch("/issues/:id", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid issue ID" });
+    return;
+  }
+
+  const { falsePositive, note } = req.body as { falsePositive?: unknown; note?: unknown };
+  if (typeof falsePositive !== "boolean") {
+    res.status(400).json({ error: "'falsePositive' must be a boolean" });
+    return;
+  }
+
+  const [updated] = await db
+    .update(accessibilityIssuesTable)
+    .set({
+      falsePositive,
+      falsePositiveNote: falsePositive && typeof note === "string" && note.trim() ? note.trim() : null,
+    })
+    .where(eq(accessibilityIssuesTable.id, id))
+    .returning();
+
+  if (!updated) {
+    res.status(404).json({ error: "Issue not found" });
+    return;
+  }
+
+  res.json(updated);
 });
 
 export default router;

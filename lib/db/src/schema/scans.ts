@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, jsonb, real, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, jsonb, real, index, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -10,7 +10,9 @@ export const projectsTable = pgTable("projects", {
 
 export const scanSessionsTable = pgTable("scan_sessions", {
   id: serial("id").primaryKey(),
+  userId: text("user_id"),
   projectId: integer("project_id").references(() => projectsTable.id, { onDelete: "set null" }),
+  groupId: integer("group_id"), // references user_groups(id) — managed via startup migration
   name: text("name"),
   initiatorName: text("initiator_name"),
   initiatorRole: text("initiator_role"),
@@ -56,6 +58,8 @@ export const accessibilityIssuesTable = pgTable("accessibility_issues", {
   bboxY: real("bbox_y"),
   bboxWidth: real("bbox_width"),
   bboxHeight: real("bbox_height"),
+  falsePositive: boolean("false_positive").default(false).notNull(),
+  falsePositiveNote: text("false_positive_note"),
 }, (t) => [
   index("accessibility_issues_page_id_idx").on(t.pageId),
 ]);

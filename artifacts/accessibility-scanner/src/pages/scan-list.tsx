@@ -1,9 +1,32 @@
-import { useMemo, useState } from "react";
-import { useListScans, useDeleteScan, useUpdateScan, getListScansQueryKey, getGetScanQueryKey } from "@workspace/api-client-react";
+import { useMemo, useState, useEffect } from "react";
+import {
+  useListScans,
+  useDeleteScan,
+  useUpdateScan,
+  getListScansQueryKey,
+  getGetScanQueryKey,
+} from "@workspace/api-client-react";
+import { useAuth } from "@/contexts/auth";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Trash2, FileText, Loader2, Search, X, CalendarDays, FolderOpen, Pencil } from "lucide-react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Trash2,
+  FileText,
+  Loader2,
+  Search,
+  X,
+  CalendarDays,
+  FolderOpen,
+  Pencil,
+} from "lucide-react";
 import { getStatusBadge } from "@/lib/status-badge";
 import { formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -28,24 +51,66 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface EditScanDialogProps {
-  scan: { id: number; name: string | null; initiatorName?: string | null; initiatorRole?: string | null };
+  scan: {
+    id: number;
+    name: string | null;
+    initiatorName?: string | null;
+    initiatorRole?: string | null;
+  };
   open: boolean;
   onClose: () => void;
 }
 
+const BASE_URL = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+
+type AdminUser = { id: number; fullName: string; username: string; groups: { id: number; name: string }[] };
+
 function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const updateScan = useUpdateScan();
   const [name, setName] = useState(scan.name ?? "");
   const [initiatorName, setInitiatorName] = useState(scan.initiatorName ?? "");
   const [initiatorRole, setInitiatorRole] = useState(scan.initiatorRole ?? "");
+  const [allUsers, setAllUsers] = useState<AdminUser[]>([]);
+
+  useEffect(() => {
+    if (!isSuperAdmin || !open) return;
+    fetch(`${BASE_URL}/api/admin/users`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : [])
+      .then((data: AdminUser[]) => setAllUsers(data))
+      .catch(() => {});
+  }, [isSuperAdmin, open]);
+
+  const handleUserSelect = (fullName: string) => {
+    setInitiatorName(fullName);
+    const selected = allUsers.find(u => u.fullName === fullName);
+    if (selected && selected.groups.length > 0) {
+      setInitiatorRole(selected.groups[0].name);
+    }
+  };
 
   const handleSave = () => {
+    const data: Parameters<typeof updateScan.mutate>[0]["data"] = {
+      name: name.trim() || undefined,
+      ...(isSuperAdmin ? {
+        initiatorName: initiatorName.trim() || null,
+        initiatorRole: initiatorRole.trim() || null,
+      } : {}),
+    };
     updateScan.mutate(
-      { id: scan.id, data: { name: name.trim() || undefined, initiatorName: initiatorName.trim() || null, initiatorRole: initiatorRole.trim() || null } },
+      { id: scan.id, data },
       {
         onSuccess: () => {
           toast({ title: "Scan updated" });
@@ -56,7 +121,7 @@ function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
         onError: () => {
           toast({ title: "Failed to update scan", variant: "destructive" });
         },
-      }
+      },
     );
   };
 
@@ -64,7 +129,7 @@ function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Edit Scan Details</DialogTitle>
+          <DialogTitle>Edit Scan</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
@@ -76,29 +141,65 @@ function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
               placeholder="Enter scan name"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="edit-initiator-name">Scan Initiator</Label>
-            <Input
-              id="edit-initiator-name"
-              value={initiatorName}
-              onChange={(e) => setInitiatorName(e.target.value)}
-              placeholder="e.g. Jane Smith"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="edit-initiator-role">Initiator Role</Label>
-            <Input
-              id="edit-initiator-role"
-              value={initiatorRole}
-              onChange={(e) => setInitiatorRole(e.target.value)}
-              placeholder="e.g. QA Engineer"
-            />
-          </div>
+
+          {isSuperAdmin ? (
+            <>
+              <div className="space-y-1.5">
+                <Label>Scan Initiator</Label>
+                {allUsers.length > 0 ? (
+                  <Select value={initiatorName} onValueChange={handleUserSelect}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select user…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {allUsers.map(u => (
+                        <SelectItem key={u.id} value={u.fullName}>
+                          {u.fullName}{" "}
+                          <span className="text-muted-foreground text-xs">({u.username})</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    value={initiatorName}
+                    onChange={(e) => setInitiatorName(e.target.value)}
+                    placeholder="e.g. Jane Smith"
+                  />
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label>Initiator Role</Label>
+                <Input
+                  value={initiatorRole}
+                  onChange={(e) => setInitiatorRole(e.target.value)}
+                  placeholder="e.g. QA Engineer"
+                />
+              </div>
+            </>
+          ) : (
+            (scan.initiatorName || scan.initiatorRole) && (
+              <div className="rounded-md bg-muted/50 border px-3 py-2.5 space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Scan metadata (read-only)</p>
+                {scan.initiatorName && (
+                  <p className="text-sm">Initiator: <span className="font-medium">{scan.initiatorName}</span></p>
+                )}
+                {scan.initiatorRole && (
+                  <p className="text-sm">Role: <span className="font-medium">{scan.initiatorRole}</span></p>
+                )}
+                <p className="text-xs text-muted-foreground mt-1">Only a super administrator can change these fields.</p>
+              </div>
+            )
+          )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
           <Button onClick={handleSave} disabled={updateScan.isPending}>
-            {updateScan.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+            {updateScan.isPending ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : null}
             Save
           </Button>
         </DialogFooter>
@@ -116,11 +217,22 @@ export default function ScanList() {
   const [initiatorFilter, setInitiatorFilter] = useState("");
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
-  const [editingScan, setEditingScan] = useState<{ id: number; name: string | null; initiatorName?: string | null; initiatorRole?: string | null } | null>(null);
+  const [editingScan, setEditingScan] = useState<{
+    id: number;
+    name: string | null;
+    initiatorName?: string | null;
+    initiatorRole?: string | null;
+  } | null>(null);
 
-  const formatElapsed = (scan: { createdAt: string; completedAt?: string | null; status: string }) => {
+  const formatElapsed = (scan: {
+    createdAt: string;
+    completedAt?: string | null;
+    status: string;
+  }) => {
     const start = new Date(scan.createdAt).getTime();
-    const end = scan.completedAt ? new Date(scan.completedAt).getTime() : Date.now();
+    const end = scan.completedAt
+      ? new Date(scan.completedAt).getTime()
+      : Date.now();
     const diff = Math.max(0, end - start);
     const mins = Math.round(diff / 60000);
     if (mins < 1) return "< 1 min";
@@ -130,7 +242,12 @@ export default function ScanList() {
     return `${hrs}h ${rem}m`;
   };
 
-  const formatEta = (scan: { createdAt: string; scannedUrls: number; totalUrls: number; status: string }) => {
+  const formatEta = (scan: {
+    createdAt: string;
+    scannedUrls: number;
+    totalUrls: number;
+    status: string;
+  }) => {
     if (scan.status !== "running" && scan.status !== "pending") return "—";
     if (scan.scannedUrls <= 0 || scan.totalUrls <= 0) return "ETA unknown";
     const elapsed = Date.now() - new Date(scan.createdAt).getTime();
@@ -146,33 +263,62 @@ export default function ScanList() {
 
   const filteredScans = useMemo(() => {
     return (scans ?? []).filter((scan) => {
-      const s = scan as typeof scan & { projectName?: string | null; initiatorName?: string | null; initiatorRole?: string | null };
-      const searchTarget = [scan.name, s.projectName, s.initiatorName, s.initiatorRole, `scan #${scan.id}`].filter(Boolean).join(" ").toLowerCase();
-      const matchesName = !nameFilter || searchTarget.includes(nameFilter.toLowerCase());
+      const s = scan as typeof scan & {
+        projectName?: string | null;
+        initiatorName?: string | null;
+        initiatorRole?: string | null;
+      };
+      const searchTarget = [
+        scan.name,
+        s.projectName,
+        s.initiatorName,
+        s.initiatorRole,
+        `scan #${scan.id}`,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const matchesName =
+        !nameFilter || searchTarget.includes(nameFilter.toLowerCase());
       const matchesInitiator =
         !initiatorFilter ||
-        (s.initiatorName ?? "").toLowerCase().includes(initiatorFilter.toLowerCase());
+        (s.initiatorName ?? "")
+          .toLowerCase()
+          .includes(initiatorFilter.toLowerCase());
       const createdDate = new Date(scan.createdAt).toISOString().slice(0, 10);
       const matchesDateFrom = !dateFromFilter || createdDate >= dateFromFilter;
       const matchesDateTo = !dateToFilter || createdDate <= dateToFilter;
-      return matchesName && matchesInitiator && matchesDateFrom && matchesDateTo;
+      return (
+        matchesName && matchesInitiator && matchesDateFrom && matchesDateTo
+      );
     });
   }, [scans, nameFilter, initiatorFilter, dateFromFilter, dateToFilter]);
 
   const handleDelete = (id: number) => {
-    deleteScan.mutate({ id }, {
-      onSuccess: () => {
-        toast({ title: "Scan deleted" });
-        queryClient.invalidateQueries({ queryKey: getListScansQueryKey() });
+    deleteScan.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          toast({ title: "Scan deleted" });
+          queryClient.invalidateQueries({ queryKey: getListScansQueryKey() });
+        },
+        onError: () => {
+          toast({
+            title: "Error deleting scan",
+            description: "Could not delete the scan",
+            variant: "destructive",
+          });
+        },
       },
-      onError: () => {
-        toast({ title: "Error deleting scan", description: "Could not delete the scan", variant: "destructive" });
-      }
-    });
+    );
   };
 
   if (isLoading) {
-    return <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>;
+    return (
+      <div className="flex justify-center p-12">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
   return (
@@ -188,7 +334,9 @@ export default function ScanList() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Scan History</h1>
-          <p className="text-muted-foreground mt-2">View past audits and reports.</p>
+          <p className="text-muted-foreground mt-2">
+            View past audits and reports.
+          </p>
         </div>
         <Link href="/">
           <Button>New Scan</Button>
@@ -241,7 +389,15 @@ export default function ScanList() {
           </div>
         </div>
         {(nameFilter || dateFromFilter || dateToFilter) && (
-          <Button variant="ghost" onClick={() => { setNameFilter(""); setInitiatorFilter(""); setDateFromFilter(""); setDateToFilter(""); }}>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setNameFilter("");
+              setInitiatorFilter("");
+              setDateFromFilter("");
+              setDateToFilter("");
+            }}
+          >
             <X className="w-4 h-4 mr-2" />
             Clear
           </Button>
@@ -264,97 +420,137 @@ export default function ScanList() {
           <TableBody>
             {filteredScans.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                <TableCell
+                  colSpan={6}
+                  className="text-center py-12 text-muted-foreground"
+                >
                   No scans found. Start your first audit!
                 </TableCell>
               </TableRow>
             ) : (
               filteredScans.map((scan) => {
-                const s = scan as typeof scan & { projectName?: string | null; initiatorName?: string | null; initiatorRole?: string | null };
+                const s = scan as typeof scan & {
+                  projectName?: string | null;
+                  initiatorName?: string | null;
+                  initiatorRole?: string | null;
+                };
                 return (
-                <TableRow key={scan.id}>
-                  <TableCell className="font-medium">
-                    {s.projectName && (
-                      <div className="flex items-center gap-1 mb-0.5">
-                        <FolderOpen className="w-3 h-3 text-muted-foreground shrink-0" />
-                        <span className="text-xs text-muted-foreground truncate">{s.projectName}</span>
-                      </div>
-                    )}
-                    <Link href={`/scans/${scan.id}`} className="hover:underline text-primary">
-                      {scan.name || `Scan #${scan.id}`}
-                    </Link>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      {s.initiatorName || s.initiatorRole ? (
-                        <>
-                          Initiated by {s.initiatorName || "Unknown"}
-                          {s.initiatorRole ? ` · ${s.initiatorRole}` : ""}
-                        </>
-                      ) : (
-                        "Initiated by —"
+                  <TableRow key={scan.id}>
+                    <TableCell className="font-medium">
+                      {s.projectName && (
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <FolderOpen className="w-3 h-3 text-muted-foreground shrink-0" />
+                          <span className="text-xs text-muted-foreground truncate">
+                            {s.projectName}
+                          </span>
+                        </div>
                       )}
-                    </div>
-                  </TableCell>
-                  <TableCell>{getStatusBadge(scan.status)}</TableCell>
-                <TableCell className="text-muted-foreground">
-                  {scan.scannedUrls} / {scan.totalUrls} URLs
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  <div className="flex flex-col">
-                    <span>{formatEta(scan)}</span>
-                    <span>{scan.completedAt ? `Time taken ${formatElapsed(scan)}` : `Elapsed ${formatElapsed(scan)}`}</span>
-                  </div>
-                </TableCell>
-                  <TableCell>
-                    {scan.totalIssues > 0 ? (
-                      <span className="font-mono">
-                        {scan.totalIssues} <span className="text-chart-1 font-bold">({scan.criticalIssues})</span>
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {formatDate(scan.createdAt)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Link href={`/scans/${scan.id}`}>
-                        <Button variant="ghost" size="icon" title="View Detail">
-                          <FileText className="w-4 h-4" />
-                        </Button>
-                      </Link>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Edit scan details"
-                        onClick={() => setEditingScan({ id: scan.id, name: scan.name, initiatorName: s.initiatorName, initiatorRole: s.initiatorRole })}
+                      <Link
+                        href={`/scans/${scan.id}`}
+                        className="hover:underline text-primary"
                       >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive hover:bg-destructive/10" title="Delete">
-                            <Trash2 className="w-4 h-4" />
+                        {scan.name || `Scan #${scan.id}`}
+                      </Link>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {s.initiatorName || s.initiatorRole ? (
+                          <>
+                            Initiated by {s.initiatorName || "Unknown"}
+                            {s.initiatorRole ? ` · ${s.initiatorRole}` : ""}
+                          </>
+                        ) : (
+                          "Initiated by —"
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>{getStatusBadge(scan.status)}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {scan.scannedUrls} / {scan.totalUrls} URLs
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      <div className="flex flex-col">
+                        <span>{formatEta(scan)}</span>
+                        <span>
+                          {scan.completedAt
+                            ? `Time taken ${formatElapsed(scan)}`
+                            : `Elapsed ${formatElapsed(scan)}`}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {scan.totalIssues > 0 ? (
+                        <span className="font-mono">
+                          {scan.totalIssues}{" "}
+                          <span className="text-chart-1 font-bold">
+                            ({scan.criticalIssues})
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {formatDate(scan.createdAt)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Link href={`/scans/${scan.id}`}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="View Detail"
+                          >
+                            <FileText className="w-4 h-4" />
                           </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Scan</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Are you sure you want to delete this scan? This action cannot be undone and will permanently remove all associated issue data.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => handleDelete(scan.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </TableCell>
-                </TableRow>
+                        </Link>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Edit scan details"
+                          onClick={() =>
+                            setEditingScan({
+                              id: scan.id,
+                              name: scan.name,
+                              initiatorName: s.initiatorName,
+                              initiatorRole: s.initiatorRole,
+                            })
+                          }
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Scan</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to delete this scan? This
+                                action cannot be undone and will permanently
+                                remove all associated issue data.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => handleDelete(scan.id)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 );
               })
             )}

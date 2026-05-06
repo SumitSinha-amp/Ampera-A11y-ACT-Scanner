@@ -1,3 +1,4 @@
+@layer theme, base, components, utilities;
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -195,8 +196,8 @@
     @apply border-border;
   }
 
-  body {
-    @apply font-sans antialiased bg-background text-foreground;
+  html, body {
+    @apply font-sans antialiased bg-background text-foreground overflow-x-hidden;
   }
 }
 

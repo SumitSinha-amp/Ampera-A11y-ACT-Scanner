@@ -861,6 +861,11 @@ async function getBrowser(): Promise<Browser> {
       `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     ),
     args: PUPPETEER_LAUNCH_ARGS,
+    // Cap how long Puppeteer waits for any single Chrome DevTools Protocol
+    // message.  Without this the default (180 s) allows a stuck page.goto()
+    // to hang far beyond our own hard-deadline timer.
+    // Set slightly above the hard deadline (120 s page timeout + 30 s buffer + 5 s margin).
+    protocolTimeout: 155_000,
   };
 
   try {
@@ -996,6 +1001,7 @@ export function scanPage(
     rules?: string[];
     proxyPacUrl?: string;
     onStage?: (stage: string) => void | Promise<void>;
+    signal?: AbortSignal;
   } = {},
 ): Promise<PageScanResult> {
   const result = _scanMutex.then(() => _scanPageInternal(url, options));
@@ -1016,22 +1022,41 @@ async function _scanPageInternal(
     rules?: string[];
     proxyPacUrl?: string;
     onStage?: (stage: string) => void | Promise<void>;
+    signal?: AbortSignal;
   } = {},
 ): Promise<PageScanResult> {
   const {
-    timeout = 180000,
+    timeout = 60000,
     waitForNetworkIdle = true,
     bypassCSP = true,
     onStage,
   } = options;
 
   let page: Page | null = null;
+  // When the external hard-timeout AbortSignal fires, force-close the page so
+  // that any pending page.goto() / page.evaluate() throws immediately and the
+  // mutex is released for the next URL.
+  let abortHandler: (() => void) | null = null;
 
   try {
+    // Bail out early if already aborted before we even open a page
+    if (options.signal?.aborted) {
+      return { url, issues: [], error: "URL scan aborted before navigation" };
+    }
+
     const browser = options.proxyPacUrl
       ? await getProxyBrowser(options.proxyPacUrl)
       : await getBrowser();
     page = await browser.newPage();
+
+    // Wire abort signal → force page close so the mutex releases immediately
+    if (options.signal) {
+      const capturedPage = page;
+      abortHandler = () => {
+        capturedPage.close().catch(() => {});
+      };
+      options.signal.addEventListener("abort", abortHandler, { once: true });
+    }
 
     if (bypassCSP) {
       await page.setBypassCSP(true);
@@ -1039,6 +1064,7 @@ async function _scanPageInternal(
 
     await page.setViewport({ width: 1440, height: 900 });
     page.setDefaultNavigationTimeout(timeout);
+    page.setDefaultTimeout(timeout);
 
     // Set a realistic Chrome user-agent and request headers to minimise bot detection
     await page.setUserAgent(
@@ -1347,6 +1373,10 @@ async function _scanPageInternal(
     logger.warn({ url, error: msg }, "Failed to scan page");
     return { url, issues: [], error: msg };
   } finally {
+    // Always clean up the abort listener to avoid memory leaks
+    if (abortHandler && options.signal) {
+      options.signal.removeEventListener("abort", abortHandler);
+    }
     if (page) {
       await page.close().catch(() => {});
     }
@@ -1784,7 +1814,7 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
         )
       );
     };
-    const isScrollable = (el: HTMLElement | null) => {
+    /* const isScrollable = (el: HTMLElement | null) => {
       if (!el || !(el instanceof HTMLElement)) return false;
 
       const style = window.getComputedStyle(el);
@@ -1808,35 +1838,60 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
         isVerticallyScrollable || isHorizontallyScrollable || hasHoverClass(el)
       );
     };
+    const isLikelyWidget = (el: HTMLElement) => {
+      return (
+        el.id?.toLowerCase().includes("widget") ||
+        el.className.toLowerCase().includes("widget") ||
+        el.className.toLowerCase().includes("tooltip")
+      );
+    };*/
+    const isScrollable = (el: HTMLElement) => {
+      if (!el) return false;
 
+      const style = window.getComputedStyle(el);
+      const overflowY = style.overflowY;
+      const overflowX = style.overflowX;
+
+      // Only flag elements where the browser actually allows scrolling.
+      // overflow:hidden clips content — the user can never scroll it — so we
+      // must not count scrollHeight > clientHeight there (sr-only spans fail here).
+      const canScrollY = (overflowY === "auto" || overflowY === "scroll") &&
+        el.scrollHeight > el.clientHeight + 4;
+      const canScrollX = (overflowX === "auto" || overflowX === "scroll") &&
+        el.scrollWidth > el.clientWidth + 4;
+
+      return canScrollY || canScrollX;
+    };
     const hasScrollableContentDeep = (el: HTMLElement) => {
-      // check self
-      if (el.scrollHeight > el.clientHeight + 1) return true;
-
-      // check children
+      // Check only direct/nested children that have an overflow property that
+      // actually permits scrolling.  Do NOT check bare scrollHeight on self here
+      // because overflow:hidden elements (sr-only spans, etc.) have a scrollHeight
+      // larger than clientHeight yet can never be scrolled by the user.
       const children = el.querySelectorAll<HTMLElement>(
-        ".hover, [role='region'], a[href], button, [role='button'], [role='link']",
+        "[role='region'], a[href], button, [role='button'], [role='link']",
       );
 
       for (const child of Array.from(children)) {
         if (!child || !(child instanceof HTMLElement)) continue;
 
         const style = window.getComputedStyle(child);
-
         const canScroll =
           ["auto", "scroll"].includes(style.overflowY) ||
           ["auto", "scroll"].includes(style.overflowX);
 
         if (!canScroll) continue;
 
-        if (child.scrollHeight > child.clientHeight + 1) {
+        if (
+          child.scrollHeight > child.clientHeight + 4 ||
+          child.scrollWidth > child.clientWidth + 4
+        ) {
           return true;
         }
       }
 
       return false;
     };
-    const isKeyboardAccessible = (el: HTMLElement) => {
+    /*const isKeyboardAccessible = (el: HTMLElement) => {
       if (!el) return false;
 
       // Pass if the element itself is in the tab order
@@ -1853,8 +1908,43 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       });
 
       return hasAccessibleFocus;
-    };
+    };*/
+    const isKeyboardAccessible = (el: HTMLElement) => {
+      if (!el) return false;
 
+      // Must be tabbable (not just focusable)
+      if (el.tabIndex >= 0) return true;
+
+      // OR must contain tabbable elements
+      const focusable = el.querySelectorAll(
+        'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+
+      return focusable.length > 0;
+    };
+    /*const isInvalidScrollableRole = (el: HTMLElement) => {
+      const role = el.getAttribute("role");
+      const nonScrollableRoles = ["tooltip", "img", "heading", "text"];
+      return role && nonScrollableRoles.includes(role);
+    };
+    const isFloatingUI = (el: HTMLElement) => {
+      const style = window.getComputedStyle(el);
+
+      return style.position === "fixed" || style.position === "absolute";
+    };*/
+    const isTooltipLike = (el: HTMLElement) => {
+      const role = el.getAttribute("role");
+
+      return (
+        role === "tooltip" ||
+        el.className.toLowerCase().includes("tooltip") ||
+        el.id.toLowerCase().includes("tooltip")
+      );
+    };
+    const isVisibleRect = (el: HTMLElement) => {
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
     const hasHoverReveal = (el: HTMLElement) => {
       // check inline styles (rare but cheap)
       const style = window.getComputedStyle(el);
@@ -1914,18 +2004,45 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       });
     };
 
+    // Helper: exclude elements that can never be meaningfully scrolled by a user
+    const isExcludedFromR84 = (el: HTMLElement) => {
+      // sr-only / visually-hidden elements — hidden from sighted users, not scrollable UI
+      const cls = typeof el.className === "string" ? el.className : "";
+      if (
+        cls.includes("sr-only") ||
+        cls.includes("visually-hidden") ||
+        cls.includes("screen-reader-only")
+      ) return true;
+      // Inside an aria-hidden subtree — not part of the accessible UI
+      if (el.closest('[aria-hidden="true"]')) return true;
+      // Fully hidden from layout
+      const style = window.getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden") return true;
+      return false;
+    };
+
     // 3. The final integrated detection
     const scrollableCandidates = Array.from(document.querySelectorAll("*"))
       .filter((el): el is HTMLElement => el instanceof HTMLElement)
       .filter((el) => !isRootElement(el))
-      // We remove the top-level 'isVisible' filter because .card-hover is hidden by default
-      .filter(isScrollable);
+      .filter((el) => !isExcludedFromR84(el))
+      .filter((el) => isScrollable(el) || hasScrollableContentDeep(el));
+    const tooltipCandidates = Array.from(document.querySelectorAll("*"))
+      .filter((el): el is HTMLElement => el instanceof HTMLElement)
+      .filter((el) => !isRootElement(el))
+      .filter((el) => !isExcludedFromR84(el))
+      .filter((el) => isTooltipLike(el))
+      .filter(isVisibleRect);
 
-    const inaccessibleScrollables = scrollableCandidates.filter(
+    const allCandidates = [...scrollableCandidates, ...tooltipCandidates];
+    // Only report elements that are NOT keyboard accessible — this is the
+    // actual WCAG 2.1.1 violation. inaccessibleScrollables was computed above
+    // but previously unused (bug); now it drives the final output.
+    const inaccessibleScrollables = allCandidates.filter(
       (el) => !isKeyboardAccessible(el),
     );
 
-    // Filter for deepest elements to avoid redundant flags
+    // Filter for deepest elements to avoid redundant flags on ancestor/descendant pairs
     const finalElements = getDeepestElements(inaccessibleScrollables);
 
     // Output results
@@ -1941,7 +2058,7 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     });
     // SIA-R8: Select without accessible name
     document.querySelectorAll("select").forEach((sel) => {
-      if (!isVisible(sel)) return;
+      if (!isVisibleRect(sel)) return;
       if (!getAccessibleName(sel)) {
         results.push({
           ruleId: "SIA-R8",
@@ -1958,7 +2075,7 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     document
       .querySelectorAll("input:not([type='hidden']), select, textarea")
       .forEach((el) => {
-        if (!isVisible(el)) return;
+        if (!isVisibleRect(el)) return;
 
         const visibleLabel = getVisibleLabel(el);
         const accName = getAccessibleName(el);
@@ -1978,7 +2095,7 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       });
     // SIA-R64- Empty headings
     document.querySelectorAll("h1,h2,h3,h4,h5,h6").forEach((h) => {
-      if (!isVisible(h)) return;
+      if (!isVisibleRect(h)) return;
 
       if (!h.textContent || h.textContent.trim() === "") {
         results.push({
@@ -2000,7 +2117,7 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
         "a[href], button, [role='button'], [role='link'], [role='tab'], [role='menuitem']",
       )
       .forEach((el) => {
-        if (!isVisible(el)) return;
+        if (!isVisibleRect(el)) return;
         // Only check elements that have an explicit accessible name override
         const hasAriaLabel = el.hasAttribute("aria-label");
         const hasAriaLabelledby = el.hasAttribute("aria-labelledby");

@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Redirect, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -8,39 +8,142 @@ import Home from "@/pages/home";
 import ScanList from "@/pages/scan-list";
 import ScanDetail from "@/pages/scan-detail";
 import ScanReport from "@/pages/scan-report";
-import Settings from "@/pages/settings";
-import Documentation from "@/pages/documentation";
 import ScanCompare from "@/pages/scan-compare";
+import Documentation from "@/pages/documentation";
+import LoginPage from "@/pages/login";
+import ResetPasswordPage from "@/pages/reset-password";
+import ChangePasswordPage from "@/pages/change-password";
+import AdminUsersPage from "@/pages/admin/users";
+import AdminGroupsPage from "@/pages/admin/groups";
+import AdminDashboardPage from "@/pages/admin/dashboard";
+import AdminPermissionsPage from "@/pages/admin/permissions";
+import AdminSettingsPage from "@/pages/admin/settings";
+import TicketsPage from "@/pages/tickets";
+import { AuthProvider, useAuth } from "@/contexts/auth";
+import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+function AuthGuard({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  const [location] = useLocation();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Redirect to="/login" />;
+  }
+
+  if (user.mustResetPassword && location !== "/change-password") {
+    return <Redirect to="/change-password" />;
+  }
+
+  return <>{children}</>;
+}
+
+function AdminGuard({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (!user || (user.role !== "super_admin" && user.role !== "admin")) {
+    return <Redirect to="/scans" />;
+  }
+  return <>{children}</>;
+}
+
+function SuperAdminGuard({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (!user || user.role !== "super_admin") {
+    return <Redirect to="/scans" />;
+  }
+  return <>{children}</>;
+}
 
 function Router() {
   return (
-    <Layout>
-      <Switch>
-        <Route path="/" component={Home} />
-        <Route path="/scans" component={ScanList} />
-        <Route path="/scans/:id" component={ScanDetail} />
-        <Route path="/scans/:id/report" component={ScanReport} />
-        <Route path="/compare" component={ScanCompare} />
-        <Route path="/settings" component={Settings} />
-        <Route path="/documentation" component={Documentation} />
-        <Route component={NotFound} />
-      </Switch>
-    </Layout>
+    <Switch>
+      {/* Public routes */}
+      <Route path="/login">
+        <LoginPage />
+      </Route>
+      <Route path="/reset-password">
+        <ResetPasswordPage />
+      </Route>
+
+      {/* Password change (requires auth but no layout) */}
+      <Route path="/change-password">
+        <AuthGuard>
+          <ChangePasswordPage />
+        </AuthGuard>
+      </Route>
+
+      {/* Protected app routes */}
+      <Route path="/">
+        <AuthGuard><Redirect to="/scans" /></AuthGuard>
+      </Route>
+      <Route path="/new">
+        <AuthGuard><Layout><Home /></Layout></AuthGuard>
+      </Route>
+      <Route path="/scans/:id/report">
+        <AuthGuard><Layout><ScanReport /></Layout></AuthGuard>
+      </Route>
+      <Route path="/scans/:id">
+        <AuthGuard><Layout><ScanDetail /></Layout></AuthGuard>
+      </Route>
+      <Route path="/scans">
+        <AuthGuard><Layout><ScanList /></Layout></AuthGuard>
+      </Route>
+      <Route path="/compare">
+        <AuthGuard><Layout><ScanCompare /></Layout></AuthGuard>
+      </Route>
+      <Route path="/documentation">
+        <AuthGuard><Layout><Documentation /></Layout></AuthGuard>
+      </Route>
+      <Route path="/tickets">
+        <AuthGuard><Layout><TicketsPage /></Layout></AuthGuard>
+      </Route>
+
+      {/* Admin-only routes */}
+      <Route path="/admin/dashboard">
+        <AuthGuard><AdminGuard><Layout><AdminDashboardPage /></Layout></AdminGuard></AuthGuard>
+      </Route>
+      <Route path="/admin/users">
+        <AuthGuard><AdminGuard><Layout><AdminUsersPage /></Layout></AdminGuard></AuthGuard>
+      </Route>
+      <Route path="/admin/groups">
+        <AuthGuard><AdminGuard><Layout><AdminGroupsPage /></Layout></AdminGuard></AuthGuard>
+      </Route>
+
+      {/* Super-admin-only routes */}
+      <Route path="/admin/permissions">
+        <AuthGuard><SuperAdminGuard><Layout><AdminPermissionsPage /></Layout></SuperAdminGuard></AuthGuard>
+      </Route>
+      <Route path="/admin/settings">
+        <AuthGuard><SuperAdminGuard><Layout><AdminSettingsPage /></Layout></SuperAdminGuard></AuthGuard>
+      </Route>
+
+      <Route component={NotFound} />
+    </Switch>
   );
 }
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router />
-        </WouterRouter>
-        <Toaster />
-      </TooltipProvider>
-    </QueryClientProvider>
+    <WouterRouter base={basePath}>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <TooltipProvider>
+            <Router />
+            <Toaster />
+          </TooltipProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </WouterRouter>
   );
 }
 

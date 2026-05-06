@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
+import { useAuth } from "@/contexts/auth";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -54,6 +55,7 @@ import {
   ACTIVE_PROXY_KEY,
   isUrlLimitEnabled,
   getUrlLimitValue,
+  getScanTimeoutMs,
 } from "@/pages/settings";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -506,7 +508,15 @@ function InlineScanMonitor({
 
   const displayStatus = liveStatus?.status || scan.status;
   const totalUrls = liveStatus?.totalUrls || scan.totalUrls || 1;
-  const scannedUrls = liveStatus?.scannedUrls || scan.scannedUrls || 0;
+  // Prefer counting completed pages directly from the live page list so this
+  // stays in sync with the DONE counter.  Fall back to the session counter when
+  // page data isn't loaded yet.
+  const scannedUrls = Math.min(
+    liveStatus?.pages?.length
+      ? liveStatus.pages.filter((p: { status: string }) => p.status === "completed").length
+      : (liveStatus?.scannedUrls || scan.scannedUrls || 0),
+    totalUrls,
+  );
   const progressPercent =
     totalUrls > 0 ? Math.round((scannedUrls / totalUrls) * 100) : 0;
   const isPaused = scan.status === "paused";
@@ -918,11 +928,30 @@ function InlineScanMonitor({
 
 export default function Home() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [projectId, setProjectId] = useState<number | null>(null);
   const [projectName, setProjectName] = useState<string | null>(null);
   const [scanName, setScanName] = useState("");
-  const [initiatorName, setInitiatorName] = useState("");
+  const [initiatorName] = useState(() => user?.fullName ?? "");
   const [initiatorRole, setInitiatorRole] = useState("");
+  const [groupId, setGroupId] = useState<number | null>(null);
+  const [myGroups, setMyGroups] = useState<{ id: number; name: string; roleLabel: string | null }[]>([]);
+
+  useEffect(() => {
+    const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+    fetch(`${BASE}/api/auth/my-groups`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : [])
+      .then((groups: { id: number; name: string; roleLabel: string | null }[]) => {
+        setMyGroups(groups);
+        // Auto-select if the user belongs to exactly one group
+        if (groups.length === 1) {
+          setGroupId(groups[0].id);
+          setInitiatorRole(groups[0].name);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const [scanNameError, setScanNameError] = useState(false);
   const [projectError, setProjectError] = useState(false);
   const [selectedRules, setSelectedRules] = useState<string[]>([]);
@@ -1214,8 +1243,10 @@ export default function Home() {
           urls: parsedUrls,
           name: scanName.trim(),
           projectId,
+          groupId: groupId ?? undefined,
           options: {
             maxConcurrency: 5,
+            timeout: getScanTimeoutMs(),
             ...(selectedRules.length > 0 ? { rules: selectedRules } : {}),
             ...(effectiveProxy ? { proxyPacUrl: effectiveProxy } : {}),
           },
@@ -1250,8 +1281,14 @@ export default function Home() {
     setProjectName(null);
     setProjectError(false);
     setSelectedRules([]);
-    setInitiatorName("");
-    setInitiatorRole("");
+    // Re-apply auto-select if user is in exactly one group
+    if (myGroups.length === 1) {
+      setGroupId(myGroups[0].id);
+      setInitiatorRole(myGroups[0].name);
+    } else {
+      setInitiatorRole("");
+      setGroupId(null);
+    }
     // Proxy settings intentionally kept so user can re-scan the same environment
   };
 
@@ -1323,26 +1360,36 @@ export default function Home() {
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="initiatorName">Scan Initiator Name</Label>
+                <Label htmlFor="initiatorName">Scan Initiator</Label>
                 <Input
                   id="initiatorName"
-                  placeholder="Optional"
                   value={initiatorName}
-                  onChange={(e) => setInitiatorName(e.target.value)}
+                  readOnly
+                  disabled
+                  className="bg-muted cursor-not-allowed"
+                  title="Automatically set to your account"
                 />
+                <p className="text-xs text-muted-foreground">Locked to your account</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="initiatorRole">Role</Label>
+                <Label htmlFor="groupId">Group</Label>
                 <select
-                  id="initiatorRole"
-                  value={initiatorRole}
-                  onChange={(e) => setInitiatorRole(e.target.value)}
+                  id="groupId"
+                  value={groupId ?? ""}
+                  onChange={(e) => {
+                    const id = e.target.value ? Number(e.target.value) : null;
+                    setGroupId(id);
+                    const g = myGroups.find((g) => g.id === id);
+                    setInitiatorRole(g ? g.name : "");
+                  }}
                   className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 >
-                  <option value="">Optional</option>
-                  <option value="Developer">Developer</option>
-                  <option value="QA">QA</option>
+                  <option value="">No group</option>
+                  {myGroups.map((g) => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
                 </select>
+                <p className="text-xs text-muted-foreground">Group is used as the scan role</p>
               </div>
             </div>
 
