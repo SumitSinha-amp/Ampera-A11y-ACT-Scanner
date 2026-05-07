@@ -37,7 +37,15 @@ async function getSmtpConfig() {
 async function createTransport() {
   const { host, port, user, pass } = await getSmtpConfig();
   if (!host || !user || !pass) return null;
-  return nodemailer.createTransport({ host, port, secure: port === 465, auth: { user, pass } });
+  const secure = port === 465;
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    requireTLS: !secure,
+    tls: { rejectUnauthorized: false },
+    auth: { user, pass },
+  });
 }
 
 export async function sendInviteEmail(opts: {

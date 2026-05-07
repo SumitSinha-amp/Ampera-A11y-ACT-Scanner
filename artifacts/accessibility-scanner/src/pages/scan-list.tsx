@@ -26,13 +26,22 @@ import {
   CalendarDays,
   FolderOpen,
   Pencil,
+  ChevronDown,
+  Pause,
+  Play,
 } from "lucide-react";
 import { getStatusBadge } from "@/lib/status-badge";
 import { formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -73,6 +82,93 @@ interface EditScanDialogProps {
 const BASE_URL = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
 type AdminUser = { id: number; fullName: string; username: string; groups: { id: number; name: string }[] };
+
+const ALL_STATUSES = [
+  { value: "running",   label: "Running" },
+  { value: "paused",    label: "Paused" },
+  { value: "pending",   label: "Pending" },
+  { value: "completed", label: "Completed" },
+  { value: "failed",    label: "Failed" },
+  { value: "cancelled", label: "Cancelled" },
+];
+
+function MultiSelectFilter({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  selected: string[];
+  onChange: (val: string[]) => void;
+}) {
+  const toggle = (value: string) => {
+    onChange(
+      selected.includes(value)
+        ? selected.filter((v) => v !== value)
+        : [...selected, value],
+    );
+  };
+
+  const displayLabel =
+    selected.length === 0
+      ? label
+      : selected.length === 1
+        ? options.find((o) => o.value === selected[0])?.label ?? selected[0]
+        : `${selected.length} selected`;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          className="flex items-center gap-2 h-10 font-normal"
+        >
+          <span className="truncate max-w-[120px]">{displayLabel}</span>
+          {selected.length > 0 && (
+            <span className="ml-auto flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground font-bold">
+              {selected.length}
+            </span>
+          )}
+          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-52 p-2">
+        <p className="text-xs font-semibold text-muted-foreground px-2 py-1.5 uppercase tracking-wide">
+          {label}
+        </p>
+        <div className="space-y-0.5">
+          {options.map((opt) => (
+            <label
+              key={opt.value}
+              className="flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer text-sm"
+            >
+              <Checkbox
+                checked={selected.includes(opt.value)}
+                onCheckedChange={() => toggle(opt.value)}
+              />
+              {opt.label}
+            </label>
+          ))}
+        </div>
+        {selected.length > 0 && (
+          <>
+            <div className="my-1.5 border-t" />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full h-7 text-xs text-muted-foreground"
+              onClick={() => onChange([])}
+            >
+              Clear
+            </Button>
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
   const { user } = useAuth();
@@ -172,8 +268,9 @@ function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
                 <Label>Initiator Role</Label>
                 <Input
                   value={initiatorRole}
-                  onChange={(e) => setInitiatorRole(e.target.value)}
-                  placeholder="e.g. QA Engineer"
+                  readOnly
+                  className="bg-muted cursor-not-allowed"
+                  placeholder="Auto-filled from user's group"
                 />
               </div>
             </>
@@ -217,12 +314,44 @@ export default function ScanList() {
   const [initiatorFilter, setInitiatorFilter] = useState("");
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [projectFilter, setProjectFilter] = useState<string[]>([]);
   const [editingScan, setEditingScan] = useState<{
     id: number;
     name: string | null;
     initiatorName?: string | null;
     initiatorRole?: string | null;
   } | null>(null);
+
+  const pauseScan = useMutation({
+    mutationFn: async (scanId: number) => {
+      const res = await fetch(`${BASE_URL}/api/scans/${scanId}/pause`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to pause");
+    },
+    onSuccess: () => {
+      toast({ title: "Scan paused" });
+      queryClient.invalidateQueries({ queryKey: getListScansQueryKey() });
+    },
+    onError: () => toast({ title: "Could not pause scan", variant: "destructive" }),
+  });
+
+  const resumeScan = useMutation({
+    mutationFn: async (scanId: number) => {
+      const res = await fetch(`${BASE_URL}/api/scans/${scanId}/resume`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to resume");
+    },
+    onSuccess: () => {
+      toast({ title: "Scan resumed" });
+      queryClient.invalidateQueries({ queryKey: getListScansQueryKey() });
+    },
+    onError: () => toast({ title: "Could not resume scan", variant: "destructive" }),
+  });
 
   const formatElapsed = (scan: {
     createdAt: string;
@@ -261,6 +390,15 @@ export default function ScanList() {
     return `ETA ~${hrs}h ${mins}m`;
   };
 
+  const projectOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const scan of scans ?? []) {
+      const s = scan as typeof scan & { projectName?: string | null };
+      if (s.projectName) names.add(s.projectName);
+    }
+    return Array.from(names).sort().map((n) => ({ value: n, label: n }));
+  }, [scans]);
+
   const filteredScans = useMemo(() => {
     return (scans ?? []).filter((scan) => {
       const s = scan as typeof scan & {
@@ -288,11 +426,21 @@ export default function ScanList() {
       const createdDate = new Date(scan.createdAt).toISOString().slice(0, 10);
       const matchesDateFrom = !dateFromFilter || createdDate >= dateFromFilter;
       const matchesDateTo = !dateToFilter || createdDate <= dateToFilter;
+      const matchesStatus =
+        statusFilter.length === 0 || statusFilter.includes(scan.status);
+      const matchesProject =
+        projectFilter.length === 0 ||
+        (s.projectName ? projectFilter.includes(s.projectName) : false);
       return (
-        matchesName && matchesInitiator && matchesDateFrom && matchesDateTo
+        matchesName && matchesInitiator && matchesDateFrom && matchesDateTo &&
+        matchesStatus && matchesProject
       );
     });
-  }, [scans, nameFilter, initiatorFilter, dateFromFilter, dateToFilter]);
+  }, [scans, nameFilter, initiatorFilter, dateFromFilter, dateToFilter, statusFilter, projectFilter]);
+
+  const hasActiveFilters =
+    nameFilter || initiatorFilter || dateFromFilter || dateToFilter ||
+    statusFilter.length > 0 || projectFilter.length > 0;
 
   const handleDelete = (id: number) => {
     deleteScan.mutate(
@@ -343,66 +491,107 @@ export default function ScanList() {
         </Link>
       </div>
 
-      <div className="flex flex-col md:flex-row md:items-end gap-3 p-4 border rounded-lg bg-card">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            value={nameFilter}
-            onChange={(e) => setNameFilter(e.target.value)}
-            placeholder="Filter by scan name"
-            className="pl-9"
-          />
-        </div>
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            value={initiatorFilter}
-            onChange={(e) => setInitiatorFilter(e.target.value)}
-            placeholder="Filter by initiator name"
-            className="pl-9"
-          />
-        </div>
-        <div className="space-y-1 w-full md:w-44 shrink-0">
-          <Label className="text-xs text-muted-foreground">From</Label>
-          <div className="relative">
-            <CalendarDays className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              type="date"
-              value={dateFromFilter}
-              onChange={(e) => setDateFromFilter(e.target.value)}
-              className="pl-9"
-              aria-label="From date"
+      <div className="p-3 border rounded-lg bg-card">
+        <div className="flex items-end gap-2 w-full">
+          <div className="flex-1 min-w-0 space-y-1">
+            <Label className="text-xs text-muted-foreground">Scan Name</Label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+              <Input
+                value={nameFilter}
+                onChange={(e) => setNameFilter(e.target.value)}
+                placeholder="Filter by scan name…"
+                className="pl-8 h-9 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="flex-1 min-w-0 space-y-1">
+            <Label className="text-xs text-muted-foreground">Initiator</Label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+              <Input
+                value={initiatorFilter}
+                onChange={(e) => setInitiatorFilter(e.target.value)}
+                placeholder="Filter by initiator…"
+                className="pl-8 h-9 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="shrink-0 space-y-1">
+            <Label className="text-xs text-muted-foreground">Status</Label>
+            <MultiSelectFilter
+              label="Status"
+              options={ALL_STATUSES}
+              selected={statusFilter}
+              onChange={setStatusFilter}
             />
           </div>
-        </div>
-        <div className="space-y-1 w-full md:w-44 shrink-0">
-          <Label className="text-xs text-muted-foreground">To</Label>
-          <div className="relative">
-            <CalendarDays className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              type="date"
-              value={dateToFilter}
-              onChange={(e) => setDateToFilter(e.target.value)}
-              className="pl-9"
-              aria-label="To date"
-            />
+
+          {projectOptions.length > 0 && (
+            <div className="shrink-0 space-y-1">
+              <Label className="text-xs text-muted-foreground">Project</Label>
+              <MultiSelectFilter
+                label="Project"
+                options={projectOptions}
+                selected={projectFilter}
+                onChange={setProjectFilter}
+              />
+            </div>
+          )}
+
+          <div className="shrink-0 space-y-1">
+            <Label className="text-xs text-muted-foreground">Date Range</Label>
+            <div className="flex items-center gap-1.5 border rounded-md px-2.5 h-9 bg-background">
+              <CalendarDays className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <input
+                type="date"
+                value={dateFromFilter}
+                onChange={(e) => setDateFromFilter(e.target.value)}
+                aria-label="From date"
+                className="bg-transparent text-sm outline-none w-[118px] text-foreground [color-scheme:dark]"
+              />
+              <span className="text-muted-foreground text-xs">–</span>
+              <input
+                type="date"
+                value={dateToFilter}
+                onChange={(e) => setDateToFilter(e.target.value)}
+                aria-label="To date"
+                className="bg-transparent text-sm outline-none w-[118px] text-foreground [color-scheme:dark]"
+              />
+            </div>
           </div>
+
+          {hasActiveFilters && (
+            <div className="shrink-0 space-y-1">
+              <div className="h-4" />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setNameFilter("");
+                  setInitiatorFilter("");
+                  setDateFromFilter("");
+                  setDateToFilter("");
+                  setStatusFilter([]);
+                  setProjectFilter([]);
+                }}
+                className="h-9 text-muted-foreground"
+              >
+                <X className="w-3.5 h-3.5 mr-1.5" />
+                Clear
+              </Button>
+            </div>
+          )}
         </div>
-        {(nameFilter || dateFromFilter || dateToFilter) && (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setNameFilter("");
-              setInitiatorFilter("");
-              setDateFromFilter("");
-              setDateToFilter("");
-            }}
-          >
-            <X className="w-4 h-4 mr-2" />
-            Clear
-          </Button>
-        )}
       </div>
+
+      {hasActiveFilters && (
+        <p className="text-sm text-muted-foreground -mt-2 px-1">
+          Showing {filteredScans.length} of {(scans ?? []).length} scans
+        </p>
+      )}
 
       <div className="border rounded-lg bg-card">
         <Table>
@@ -421,10 +610,13 @@ export default function ScanList() {
             {filteredScans.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={7}
                   className="text-center py-12 text-muted-foreground"
                 >
-                  No scans found. Start your first audit!
+                  No scans found.{" "}
+                  {hasActiveFilters
+                    ? "Try adjusting your filters."
+                    : "Start your first audit!"}
                 </TableCell>
               </TableRow>
             ) : (
@@ -434,6 +626,8 @@ export default function ScanList() {
                   initiatorName?: string | null;
                   initiatorRole?: string | null;
                 };
+                const isRunning = scan.status === "running";
+                const isPaused = scan.status === "paused";
                 return (
                   <TableRow key={scan.id}>
                     <TableCell className="font-medium">
@@ -492,7 +686,37 @@ export default function ScanList() {
                       {formatDate(scan.createdAt)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
+                      <div className="flex justify-end gap-1">
+                        {isRunning && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Pause scan"
+                            onClick={() => pauseScan.mutate(scan.id)}
+                            disabled={pauseScan.isPending}
+                          >
+                            {pauseScan.isPending ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Pause className="w-4 h-4" />
+                            )}
+                          </Button>
+                        )}
+                        {isPaused && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Resume scan"
+                            onClick={() => resumeScan.mutate(scan.id)}
+                            disabled={resumeScan.isPending}
+                          >
+                            {resumeScan.isPending ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Play className="w-4 h-4" />
+                            )}
+                          </Button>
+                        )}
                         <Link href={`/scans/${scan.id}`}>
                           <Button
                             variant="ghost"
