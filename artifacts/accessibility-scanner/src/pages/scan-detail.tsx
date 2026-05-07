@@ -1665,9 +1665,10 @@ export default function ScanDetail() {
   // always in sync with the DONE counter shown in Live Progress.  Fall back to
   // the session-level scannedUrls counter only when page data isn't loaded yet.
   const scannedUrls = Math.min(
-    liveStatus?.pages?.length
-      ? liveStatus.pages.filter(p => p.status === "completed").length
-      : (liveStatus?.scannedUrls || scan.scannedUrls || 0),
+    liveStatus?.counts?.["completed"]
+      ?? (liveStatus?.pages?.length
+        ? liveStatus.pages.filter(p => p.status === "completed").length
+        : (liveStatus?.scannedUrls || scan.scannedUrls || 0)),
     totalUrls || 0,
   );
   const progressPercent =
@@ -2191,7 +2192,7 @@ export default function ScanDetail() {
         )}
 
       {/* Live running state view */}
-      {isActive && liveStatus?.pages && liveStatus.pages.length > 0 && (
+      {isActive && liveStatus && (liveStatus.counts || (liveStatus.pages && liveStatus.pages.length > 0)) && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-lg">Live Progress</h3>
@@ -2209,14 +2210,19 @@ export default function ScanDetail() {
           {/* Real-time stats counter row */}
           {(() => {
             const activeSet = new Set(["rendering","analyzing","saving","scanning"]);
-            const inQueue        = liveStatus.pages.filter(p => p.status === "navigating").length;
-            const scanning       = liveStatus.pages.filter(p => activeSet.has(p.status)).length;
-            const done           = liveStatus.pages.filter(p => p.status === "completed").length;
-            const pending        = liveStatus.pages.filter(p => p.status === "pending").length;
-            const retry          = liveStatus.pages.filter(p => p.status === "requeued").length;
-            const failed         = liveStatus.pages.filter(p => p.status === "failed").length;
-            const notAvail       = liveStatus.pages.filter(p => p.status === "not_available").length;
-            const pagesWithIssues = liveStatus.pages.filter(p => p.status === "completed" && (p.issueCount ?? 0) > 0).length;
+            const c = liveStatus!.counts;
+            const pages = liveStatus!.pages ?? [];
+            const inQueue        = c?.["navigating"]   ?? pages.filter(p => p.status === "navigating").length;
+            const scanning       = c
+              ? (["rendering","analyzing","saving","scanning"] as const).reduce((s, k) => s + (c[k] ?? 0), 0)
+              : pages.filter(p => activeSet.has(p.status)).length;
+            const done           = c?.["completed"]    ?? pages.filter(p => p.status === "completed").length;
+            const pending        = c?.["pending"]      ?? pages.filter(p => p.status === "pending").length;
+            const retry          = c?.["requeued"]     ?? pages.filter(p => p.status === "requeued").length;
+            const failed         = c?.["failed"]       ?? pages.filter(p => p.status === "failed").length;
+            const notAvail       = c?.["not_available"]?? pages.filter(p => p.status === "not_available").length;
+            const pagesWithIssues = liveStatus!.pagesWithIssues
+              ?? (pages.filter(p => p.status === "completed" && (p.issueCount ?? 0) > 0).length);
             return (
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
                 <div className="flex items-center gap-2.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2.5">

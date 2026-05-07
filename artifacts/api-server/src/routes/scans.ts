@@ -583,22 +583,64 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
     return;
   }
 
-  const [session] = await db.select()
-    .from(scanSessionsTable)
-    .where(eq(scanSessionsTable.id, params.data.id));
+  const scanId = params.data.id;
+
+  const [session] = await db.select({
+    id: scanSessionsTable.id,
+    status: scanSessionsTable.status,
+    initiatorName: scanSessionsTable.initiatorName,
+    initiatorRole: scanSessionsTable.initiatorRole,
+    totalUrls: scanSessionsTable.totalUrls,
+    scannedUrls: scanSessionsTable.scannedUrls,
+    failedUrls: scanSessionsTable.failedUrls,
+  }).from(scanSessionsTable)
+    .where(eq(scanSessionsTable.id, scanId));
 
   if (!session) {
     res.status(404).json({ error: "Scan not found" });
     return;
   }
 
-  const pages = await db.select()
-    .from(pageResultsTable)
-    .where(eq(pageResultsTable.scanId, params.data.id));
+  // Use SQL GROUP BY to get counts per status — vastly cheaper than loading
+  // all rows into Node.js, especially on large scans (thousands of pages).
+  const countResult = await pool.query<{ status: string; cnt: string; issues: string; critical: string }>(
+    `SELECT status,
+            COUNT(*)::text            AS cnt,
+            SUM(issue_count)::text    AS issues,
+            SUM(critical_count)::text AS critical
+     FROM page_results WHERE scan_id = $1 GROUP BY status`,
+    [scanId],
+  );
 
-  const ACTIVE_STAGES = ["scanning", "navigating", "rendering", "analyzing", "saving"];
-  const scanning = pages.find(p => ACTIVE_STAGES.includes(p.status));
-  const currentUrl = scanning ? scanning.url : null;
+  const counts: Record<string, number> = {};
+  for (const row of countResult.rows) {
+    counts[row.status] = parseInt(row.cnt, 10);
+  }
+
+  // Count completed pages that have at least one issue — single cheap query
+  const pagesWithIssuesResult = await pool.query<{ cnt: string }>(
+    `SELECT COUNT(*)::text AS cnt FROM page_results WHERE scan_id = $1 AND status = 'completed' AND issue_count > 0`,
+    [scanId],
+  );
+  const pagesWithIssues = parseInt(pagesWithIssuesResult.rows[0]?.cnt || "0", 10);
+
+  // Only load individual rows for non-completed pages (active, pending, failed, requeued).
+  // Completed pages may number in the thousands — they don't need to be in the live feed.
+  const NON_COMPLETED = ["navigating", "rendering", "analyzing", "saving", "scanning", "pending", "failed", "requeued", "not_available"] as const;
+  const activePages = await db.select({
+    url: pageResultsTable.url,
+    status: pageResultsTable.status,
+    issueCount: pageResultsTable.issueCount,
+    criticalCount: pageResultsTable.criticalCount,
+    errorMessage: pageResultsTable.errorMessage,
+  }).from(pageResultsTable)
+    .where(and(
+      eq(pageResultsTable.scanId, scanId),
+      inArray(pageResultsTable.status, [...NON_COMPLETED]),
+    ));
+
+  const ACTIVE_STAGES = new Set(["scanning", "navigating", "rendering", "analyzing", "saving"]);
+  const currentUrl = activePages.find(p => ACTIVE_STAGES.has(p.status))?.url ?? null;
 
   res.json({
     id: session.id,
@@ -609,7 +651,9 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
     scannedUrls: session.scannedUrls,
     failedUrls: session.failedUrls,
     currentUrl,
-    pages: pages.map(p => ({
+    counts,
+    pagesWithIssues,
+    pages: activePages.map(p => ({
       url: p.url,
       status: p.status,
       issueCount: p.issueCount,
