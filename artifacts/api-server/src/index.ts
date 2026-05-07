@@ -1,8 +1,8 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { pool, db, scanSessionsTable, pageResultsTable, usersTable } from "@workspace/db";
-import { inArray, eq, and } from "drizzle-orm";
-import { startScan } from "./lib/scanQueue";
+import { inArray, eq, and, lt } from "drizzle-orm";
+import { startScan, startScanWatchdog } from "./lib/scanQueue";
 import bcrypt from "bcryptjs";
 import { execSync } from "child_process";
 import { existsSync, readdirSync } from "fs";
@@ -254,10 +254,21 @@ async function seedDefaultAdmin(): Promise<void> {
 
 async function recoverOrphanedScans(): Promise<void> {
   try {
+    // Skip scans created in the last 3 minutes — the retry endpoint can take
+    // ~30 s to bulk-insert pages for large scans.  If a new container starts
+    // during that window, "pending" scans will have 0 page rows, causing
+    // orphan recovery to incorrectly mark them "completed".
+    const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000);
+
     const orphaned = await db
       .select()
       .from(scanSessionsTable)
-      .where(inArray(scanSessionsTable.status, ["pending", "running"]));
+      .where(
+        and(
+          inArray(scanSessionsTable.status, ["pending", "running"]),
+          lt(scanSessionsTable.createdAt, threeMinutesAgo),
+        ),
+      );
 
     if (orphaned.length === 0) {
       logger.info("No orphaned scans to recover");
@@ -326,28 +337,6 @@ async function recoverOrphanedScans(): Promise<void> {
   }
 }
 
-/*const rawPort = process.env["PORT"];
-if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
-
-const port = Number(rawPort);
-if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT value: "${rawPort}"`);
-
-runStartupMigrations()
-  .then(() => seedDefaultAdmin())
-  .then(() => recoverOrphanedScans())
-  .then(() => {
-    app.listen(port, (err) => {
-      if (err) {
-        logger.error({ err }, "Error listening on port");
-        process.exit(1);
-      }
-      logger.info({ port }, "Server listening");
-    });
-  })
-  .catch((err) => {
-    logger.error({ err }, "Startup failed");
-    process.exit(1);
-  });*/
 /**
  * On Linux (Azure App Service, Docker, etc.) the Puppeteer-bundled Chrome
  * binary requires several system shared libraries that may not be present in
@@ -368,7 +357,11 @@ async function ensureChromeDependencies(): Promise<void> {
       return;
     }
 
-    const linuxDirs = readdirSync(cacheDir).filter((d) => d.startsWith("linux-"));
+    // Sort descending so the highest version number is first (e.g. linux-148 > linux-147).
+    const linuxDirs = readdirSync(cacheDir)
+      .filter((d) => d.startsWith("linux-"))
+      .sort()
+      .reverse();
     if (linuxDirs.length === 0) {
       logger.info("No linux-* Chrome version dirs found — skipping dependency check");
       return;
@@ -437,18 +430,46 @@ if (!rawPort) throw new Error("PORT environment variable is required but was not
 const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT value: "${rawPort}"`);
 
+/**
+ * Bind the server to the given port, retrying on EADDRINUSE.
+ *
+ * Azure App Service (and some other PaaS platforms) can start the new process
+ * before the previous one has fully released the port.  Rather than crashing
+ * immediately (which triggers another restart and creates a loop), we wait up
+ * to MAX_RETRIES × RETRY_DELAY_MS for the port to free up.
+ */
+function startListening(port: number, remainingRetries = 8, retryDelayMs = 2000): void {
+  const server = app.listen(port);
+
+  server.on("listening", () => {
+    logger.info({ port }, "Server listening");
+    startScanWatchdog();
+  });
+
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    server.close();
+    if (err.code === "EADDRINUSE") {
+      if (remainingRetries > 0) {
+        logger.warn(
+          { port, remainingRetries, retryDelayMs },
+          "Port already in use — previous process still shutting down, will retry",
+        );
+        setTimeout(() => startListening(port, remainingRetries - 1, retryDelayMs), retryDelayMs);
+      } else {
+        logger.error({ port }, "Port still in use after all retries — giving up");
+        process.exit(1);
+      }
+    } else {
+      logger.error({ err }, "Error listening on port");
+      process.exit(1);
+    }
+  });
+}
+
 runStartupMigrations()
   .then(() => Promise.all([seedDefaultAdmin(), ensureChromeDependencies()]))
   .then(() => recoverOrphanedScans())
-  .then(() => {
-    app.listen(port, (err) => {
-      if (err) {
-        logger.error({ err }, "Error listening on port");
-        process.exit(1);
-      }
-      logger.info({ port }, "Server listening");
-    });
-  })
+  .then(() => startListening(port))
   .catch((err) => {
     logger.error({ err }, "Startup failed");
     process.exit(1);

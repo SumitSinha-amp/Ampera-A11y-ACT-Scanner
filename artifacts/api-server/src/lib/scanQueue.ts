@@ -1,5 +1,5 @@
 import { db, scanSessionsTable, pageResultsTable, accessibilityIssuesTable } from "@workspace/db";
-import { eq, and, sql, or } from "drizzle-orm";
+import { eq, and, sql, or, inArray, lt } from "drizzle-orm";
 import { scanPage } from "./scanner";
 import { logger } from "./logger";
 
@@ -454,4 +454,84 @@ export function isScanActive(scanId: number): boolean {
 
 export function isScanPaused(scanId: number): boolean {
   return pausedScans.has(scanId);
+}
+
+/**
+ * Periodic watchdog that detects scans marked "running" in the DB but not
+ * present in the in-memory activeScanControllers (which happens when Azure
+ * App Service restarts the container mid-scan).
+ *
+ * For each stuck scan it:
+ *   1. Resets any mid-flight page rows (navigating/scanning/saving/…) → pending
+ *   2. Re-queues all pending/requeued pages and calls startScan()
+ *   3. If no pages remain it marks the session "completed"
+ *
+ * A 3-minute creation-age guard prevents recovering a scan whose page rows
+ * haven't been inserted yet (the retry endpoint can take ~30 s for large scans).
+ */
+export function startScanWatchdog(intervalMs = 60_000): void {
+  const MID_FLIGHT = ["navigating", "scanning", "rendering", "analyzing", "saving"] as const;
+  const RESTARTABLE = ["pending", "requeued"] as const;
+
+  setInterval(async () => {
+    try {
+      const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000);
+
+      const runningSessions = await db
+        .select({ id: scanSessionsTable.id, options: scanSessionsTable.options })
+        .from(scanSessionsTable)
+        .where(
+          and(
+            inArray(scanSessionsTable.status, ["running", "pending"]),
+            lt(scanSessionsTable.createdAt, threeMinutesAgo),
+          ),
+        );
+
+      for (const session of runningSessions) {
+        if (activeScanControllers.has(session.id)) continue;
+
+        logger.warn({ scanId: session.id }, "Watchdog: detected stuck scan — attempting recovery");
+
+        await db
+          .update(pageResultsTable)
+          .set({ status: "pending" })
+          .where(
+            and(
+              eq(pageResultsTable.scanId, session.id),
+              inArray(pageResultsTable.status, [...MID_FLIGHT]),
+            ),
+          );
+
+        const remaining = await db
+          .select({ url: pageResultsTable.url })
+          .from(pageResultsTable)
+          .where(
+            and(
+              eq(pageResultsTable.scanId, session.id),
+              inArray(pageResultsTable.status, [...RESTARTABLE]),
+            ),
+          );
+
+        if (remaining.length === 0) {
+          await db
+            .update(scanSessionsTable)
+            .set({ status: "completed", completedAt: new Date() })
+            .where(eq(scanSessionsTable.id, session.id));
+          logger.info({ scanId: session.id }, "Watchdog: stuck scan had no remaining pages — marked completed");
+          continue;
+        }
+
+        const urls = remaining.map((r) => r.url);
+        logger.info({ scanId: session.id, urlCount: urls.length }, "Watchdog: restarting stuck scan");
+        startScan(session.id, urls, {
+          ...((session.options as Record<string, unknown>) ?? {}),
+          skipCompletedPages: true,
+        }).catch((err) => {
+          logger.error({ scanId: session.id, err }, "Watchdog: stuck scan restart failed");
+        });
+      }
+    } catch (err) {
+      logger.error({ err }, "Scan watchdog encountered an error");
+    }
+  }, intervalMs);
 }
