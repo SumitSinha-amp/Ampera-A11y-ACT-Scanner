@@ -326,7 +326,7 @@ async function recoverOrphanedScans(): Promise<void> {
   }
 }
 
-const rawPort = process.env["PORT"];
+/*const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
 
 const port = Number(rawPort);
@@ -347,7 +347,7 @@ runStartupMigrations()
   .catch((err) => {
     logger.error({ err }, "Startup failed");
     process.exit(1);
-  });
+  });*/
 /**
  * On Linux (Azure App Service, Docker, etc.) the Puppeteer-bundled Chrome
  * binary requires several system shared libraries that may not be present in
@@ -431,11 +431,11 @@ async function ensureChromeDependencies(): Promise<void> {
   }
 }
 
-//const rawPort = process.env["PORT"];
-//if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
+const rawPort = process.env["PORT"];
+if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
 
-//const port = Number(rawPort);
-//if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT value: "${rawPort}"`);
+const port = Number(rawPort);
+if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT value: "${rawPort}"`);
 
 runStartupMigrations()
   .then(() => Promise.all([seedDefaultAdmin(), ensureChromeDependencies()]))
