@@ -445,11 +445,11 @@ router.post("/admin/settings/test-email", requireSuperAdmin, async (req, res): P
   if (!to) { res.status(400).json({ error: "Recipient email required" }); return; }
 
   const { sendTestEmail } = await import("../lib/email");
-  const ok = await sendTestEmail({ to });
-  if (ok) {
+  const result = await sendTestEmail({ to });
+  if (result.ok) {
     res.json({ ok: true });
   } else {
-    res.status(502).json({ error: "Failed to send test email. Check SMTP configuration." });
+    res.status(502).json({ error: result.error ?? "Failed to send test email. Check SMTP configuration." });
   }
 });
 

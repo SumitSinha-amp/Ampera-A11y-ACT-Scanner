@@ -77,10 +77,10 @@ export async function sendInviteEmail(opts: {
   }
 }
 
-export async function sendTestEmail(opts: { to: string }): Promise<boolean> {
+export async function sendTestEmail(opts: { to: string }): Promise<{ ok: boolean; error?: string }> {
   const { from } = await getSmtpConfig();
   const transport = await createTransport();
-  if (!transport) return false;
+  if (!transport) return { ok: false, error: "SMTP not configured — host, user, or password is missing." };
   try {
     await transport.sendMail({
       from,
@@ -88,10 +88,11 @@ export async function sendTestEmail(opts: { to: string }): Promise<boolean> {
       subject: "A11y ACT Tool — SMTP Test",
       text: "This is a test email from the A11y ACT Tool. Your SMTP configuration is working correctly.",
     });
-    return true;
+    return { ok: true };
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     logger.error({ err }, "Failed to send test email");
-    return false;
+    return { ok: false, error: message };
   }
 }
 
