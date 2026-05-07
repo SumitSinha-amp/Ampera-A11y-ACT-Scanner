@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Loader2, Plus, Pencil, Trash2, RefreshCw, Copy, CheckCheck, Shield, ShieldOff, Mail,
+  Loader2, Plus, Pencil, Trash2, Copy, CheckCheck, Shield, ShieldOff, Mail, KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -92,7 +92,8 @@ export default function AdminUsersPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editUser, setEditUser] = useState<AppUser | null>(null);
   const [deleteUser, setDeleteUser] = useState<AppUser | null>(null);
-  const [inviteResult, setInviteResult] = useState<{ tempPassword?: string; inviteLink?: string } | null>(null);
+  const [resetPwUser, setResetPwUser] = useState<AppUser | null>(null);
+  const [inviteResult, setInviteResult] = useState<{ tempPassword?: string; inviteLink?: string; title?: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
@@ -202,13 +203,30 @@ export default function AdminUsersPage() {
       const res = await fetch(`${BASE}/api/admin/users/${u.id}/reset-invite`, { method: "POST", credentials: "include" });
       const data = await res.json();
       if (data.tempPassword || data.inviteLink) {
-        setInviteResult({ tempPassword: data.tempPassword, inviteLink: data.inviteLink });
+        setInviteResult({ tempPassword: data.tempPassword, inviteLink: data.inviteLink, title: "Invite Resent" });
       } else {
         toast({ title: "Invite resent", description: "A new invite email has been sent." });
       }
       loadAll();
     } catch {
       toast({ title: "Failed to resend invite", variant: "destructive" });
+    }
+  }
+
+  async function handleResetPassword() {
+    if (!resetPwUser) return;
+    try {
+      const res = await fetch(`${BASE}/api/admin/users/${resetPwUser.id}/reset-invite`, { method: "POST", credentials: "include" });
+      const data = await res.json();
+      setResetPwUser(null);
+      if (data.tempPassword || data.inviteLink) {
+        setInviteResult({ tempPassword: data.tempPassword, inviteLink: data.inviteLink, title: "Password Reset" });
+      } else {
+        toast({ title: "Password reset", description: "A reset email has been sent to the user." });
+      }
+      loadAll();
+    } catch {
+      toast({ title: "Failed to reset password", variant: "destructive" });
     }
   }
 
@@ -281,9 +299,11 @@ export default function AdminUsersPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleResendInvite(u)} title="Resend invite">
-                          <RefreshCw className="w-3.5 h-3.5" />
-                        </Button>
+                        {u.id !== currentUser?.id && (
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30" onClick={() => setResetPwUser(u)} title="Reset password & send email">
+                            <KeyRound className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(u)} title="Edit user">
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
@@ -414,11 +434,31 @@ export default function AdminUsersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Invite Result Dialog */}
+      {/* Reset Password Confirm */}
+      <Dialog open={!!resetPwUser} onOpenChange={v => !v && setResetPwUser(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><KeyRound className="w-4 h-4 text-amber-600" />Reset Password</DialogTitle>
+            <DialogDescription>
+              Generate a new temporary password for <strong>{resetPwUser?.fullName}</strong>? They will be required to change it on next login.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetPwUser(null)}>Cancel</Button>
+            <Button onClick={handleResetPassword}>Reset Password</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Invite / Reset Result Dialog */}
       <Dialog open={!!inviteResult} onOpenChange={v => !v && setInviteResult(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Mail className="w-5 h-5" />User Created</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              {inviteResult?.title === "Password Reset"
+                ? <><KeyRound className="w-5 h-5 text-amber-600" />Password Reset</>
+                : <><Mail className="w-5 h-5" />{inviteResult?.title ?? "User Created"}</>}
+            </DialogTitle>
             <DialogDescription>SMTP is not configured — share these credentials manually with the user.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
