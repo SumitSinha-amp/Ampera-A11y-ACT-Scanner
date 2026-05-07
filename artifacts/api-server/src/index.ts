@@ -4,6 +4,9 @@ import { pool, db, scanSessionsTable, pageResultsTable, usersTable } from "@work
 import { inArray, eq, and } from "drizzle-orm";
 import { startScan } from "./lib/scanQueue";
 import bcrypt from "bcryptjs";
+import { execSync } from "child_process";
+import { existsSync, readdirSync } from "fs";
+import path from "path";
 
 async function runStartupMigrations(): Promise<void> {
   const client = await pool.connect();
@@ -331,6 +334,111 @@ if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT value: "${raw
 
 runStartupMigrations()
   .then(() => seedDefaultAdmin())
+  .then(() => recoverOrphanedScans())
+  .then(() => {
+    app.listen(port, (err) => {
+      if (err) {
+        logger.error({ err }, "Error listening on port");
+        process.exit(1);
+      }
+      logger.info({ port }, "Server listening");
+    });
+  })
+  .catch((err) => {
+    logger.error({ err }, "Startup failed");
+    process.exit(1);
+  });
+/**
+ * On Linux (Azure App Service, Docker, etc.) the Puppeteer-bundled Chrome
+ * binary requires several system shared libraries that may not be present in
+ * a fresh container.  This function detects missing libraries via `ldd` and
+ * installs them automatically so that Chrome works without any manual setup.
+ *
+ * It is a no-op on non-Linux platforms and safe to call on every startup
+ * (apt-get is idempotent — already-installed packages are skipped instantly).
+ */
+async function ensureChromeDependencies(): Promise<void> {
+  if (process.platform !== "linux") return;
+
+  try {
+    // Locate the Puppeteer-bundled Chrome binary in the project cache.
+    const cacheDir = path.join(process.cwd(), ".cache", "puppeteer", "chrome");
+    if (!existsSync(cacheDir)) {
+      logger.info("Puppeteer Chrome cache not found — skipping dependency check");
+      return;
+    }
+
+    const linuxDirs = readdirSync(cacheDir).filter((d) => d.startsWith("linux-"));
+    if (linuxDirs.length === 0) {
+      logger.info("No linux-* Chrome version dirs found — skipping dependency check");
+      return;
+    }
+
+    const chromePath = path.join(cacheDir, linuxDirs[0], "chrome-linux64", "chrome");
+    if (!existsSync(chromePath)) {
+      logger.info({ chromePath }, "Chrome binary not found at expected path — skipping");
+      return;
+    }
+
+    // ldd exits 1 when any library is missing — we must capture stdout from the thrown error.
+    let lddOut = "";
+    try {
+      lddOut = execSync(`ldd "${chromePath}"`, { encoding: "utf-8", timeout: 10_000 });
+    } catch (lddErr: unknown) {
+      const e = lddErr as { stdout?: string; stderr?: string };
+      lddOut = (e?.stdout ?? "") + (e?.stderr ?? "");
+    }
+
+    if (!lddOut.includes("not found")) {
+      logger.info("Chrome shared libraries all present — no installation needed");
+      return;
+    }
+
+    const missingLibs = lddOut
+      .split("\n")
+      .filter((l) => l.includes("not found"))
+      .map((l) => l.trim());
+
+    logger.warn({ chromePath, missingLibs }, "Chrome missing shared libraries — auto-installing via apt-get");
+
+    // Full set of libraries required by headless Chrome on Ubuntu/Debian.
+    const CHROME_DEPS = [
+      "libglib2.0-0", "libnss3", "libnspr4",
+      "libatk1.0-0", "libatk-bridge2.0-0",
+      "libcups2", "libdrm2", "libxkbcommon0",
+      "libxcomposite1", "libxdamage1", "libxfixes3", "libxrandr2",
+      "libgbm1", "libpango-1.0-0", "libcairo2",
+      "libasound2", "libatspi2.0-0",
+      "libx11-6", "libxcb1", "libxext6", "libxrender1", "libx11-xcb1",
+    ].join(" ");
+
+    try {
+      execSync(`apt-get install -y --no-install-recommends ${CHROME_DEPS}`, {
+        encoding: "utf-8",
+        timeout: 120_000,
+        stdio: "pipe",
+      });
+      logger.info("Chrome shared libraries installed successfully");
+    } catch (aptErr: unknown) {
+      const e = aptErr as { stderr?: string; message?: string };
+      logger.error(
+        { err: e?.stderr ?? e?.message ?? String(aptErr) },
+        "apt-get install failed — Chrome scans may continue to fail until libs are present",
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, "ensureChromeDependencies — unexpected error (non-fatal)");
+  }
+}
+
+//const rawPort = process.env["PORT"];
+//if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
+
+//const port = Number(rawPort);
+//if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT value: "${rawPort}"`);
+
+runStartupMigrations()
+  .then(() => Promise.all([seedDefaultAdmin(), ensureChromeDependencies()]))
   .then(() => recoverOrphanedScans())
   .then(() => {
     app.listen(port, (err) => {
