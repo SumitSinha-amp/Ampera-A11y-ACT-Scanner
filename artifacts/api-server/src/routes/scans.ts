@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
-import { db, scanSessionsTable, pageResultsTable, accessibilityIssuesTable, projectsTable } from "@workspace/db";
+import { db, pool, scanSessionsTable, pageResultsTable, accessibilityIssuesTable, projectsTable } from "@workspace/db";
 import { eq, and, desc, sql, inArray, isNull, or } from "drizzle-orm";
 import {
   CreateScanBody,
@@ -61,6 +61,8 @@ router.get("/scans", requireAuth, async (req, res): Promise<void> => {
     userId: scanSessionsTable.userId,
   };
 
+  const currentUserFullName = req.session?.user?.fullName ?? "";
+
   const sessions = canViewAll
     ? await db
         .select(selectCols)
@@ -72,7 +74,10 @@ router.get("/scans", requireAuth, async (req, res): Promise<void> => {
         .select(selectCols)
         .from(scanSessionsTable)
         .leftJoin(projectsTable, eq(scanSessionsTable.projectId, projectsTable.id))
-        .where(eq(scanSessionsTable.userId, userId))
+        .where(or(
+          eq(scanSessionsTable.userId, userId),
+          ...(currentUserFullName ? [eq(scanSessionsTable.initiatorName, currentUserFullName)] : []),
+        ))
         .orderBy(desc(scanSessionsTable.createdAt))
         .limit(100);
 
@@ -848,9 +853,15 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
     return;
   }
 
-  // Fetch all pages + their issues in one pass
-  const originalPages = await db.select()
-    .from(pageResultsTable)
+  // Fetch ONLY metadata columns — never load screenshot/pageHtml into Node.js memory
+  const originalPages = await db.select({
+    id: pageResultsTable.id,
+    url: pageResultsTable.url,
+    status: pageResultsTable.status,
+    issueCount: pageResultsTable.issueCount,
+    criticalCount: pageResultsTable.criticalCount,
+    scannedAt: pageResultsTable.scannedAt,
+  }).from(pageResultsTable)
     .where(eq(pageResultsTable.scanId, originalId));
 
   if (originalPages.length === 0) {
@@ -888,8 +899,8 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
   const pendingPages   = dedupedPages.filter(p => p.status !== "completed");
 
   // Compute totals for the pre-populated completed pages
-  const preScanned   = completedPages.length;
-  const preTotalIssues   = completedPages.reduce((s, p) => s + (p.issueCount ?? 0), 0);
+  const preScanned        = completedPages.length;
+  const preTotalIssues    = completedPages.reduce((s, p) => s + (p.issueCount ?? 0), 0);
   const preCriticalIssues = completedPages.reduce((s, p) => s + (p.criticalCount ?? 0), 0);
 
   const opts = (original.options ?? {}) as Record<string, unknown>;
@@ -911,25 +922,20 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
     ...(pendingPages.length === 0 ? { completedAt: new Date() } : {}),
   }).returning();
 
-  // Insert completed pages with their data copied verbatim (bulk)
-  let insertedCompleted: (typeof pageResultsTable.$inferSelect)[] = [];
-  if (completedPages.length > 0) {
-    insertedCompleted = await db.insert(pageResultsTable).values(
-      completedPages.map(p => ({
-        scanId: newSession.id,
-        url: p.url,
-        status: "completed" as const,
-        issueCount: p.issueCount ?? 0,
-        criticalCount: p.criticalCount ?? 0,
-        errorMessage: null,
-        scannedAt: p.scannedAt ?? new Date(),
-        screenshot: p.screenshot ?? null,
-        pageHtml: p.pageHtml ?? null,
-      }))
-    ).returning();
+  // Copy completed pages directly inside the DB (INSERT...SELECT) — screenshot/pageHtml
+  // never pass through Node.js memory, preventing OOM on large scans.
+  const completedPageIds = completedPages.map(p => p.id);
+  if (completedPageIds.length > 0) {
+    await pool.query(
+      `INSERT INTO page_results (scan_id, url, status, issue_count, critical_count, error_message, scanned_at, screenshot, page_html)
+       SELECT $1, url, 'completed', issue_count, critical_count, NULL, scanned_at, screenshot, page_html
+       FROM page_results
+       WHERE id = ANY($2)`,
+      [newSession.id, completedPageIds],
+    );
   }
 
-  // Insert pending pages (failed/pending from original) — bulk
+  // Insert pending pages (no large data to copy)
   if (pendingPages.length > 0) {
     await db.insert(pageResultsTable).values(
       pendingPages.map(p => ({
@@ -950,61 +956,34 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
     });
   }
 
-  // Respond immediately so the client isn't blocked while issues are copied
+  // Respond immediately
   res.status(201).json({
     ...newSession,
     createdAt: newSession.createdAt.toISOString(),
     completedAt: newSession.completedAt?.toISOString() ?? null,
   });
 
-  // Copy issues for completed pages in the background (one bulk select + bulk inserts)
-  if (insertedCompleted.length > 0) {
+  // Copy issues in the background using INSERT...SELECT with a URL-based join —
+  // all data stays inside the DB, no large arrays loaded into Node.js memory.
+  if (completedPageIds.length > 0) {
     (async () => {
       try {
-        const origPageIds = completedPages.map(p => p.id);
-        const allOrigIssues = await db.select()
-          .from(accessibilityIssuesTable)
-          .where(inArray(accessibilityIssuesTable.pageId, origPageIds));
-
-        if (allOrigIssues.length === 0) return;
-
-        // Build a map from original page id → new page id
-        const origToNew = new Map<number, number>();
-        for (let i = 0; i < completedPages.length; i++) {
-          const orig = completedPages[i];
-          const inserted = insertedCompleted[i];
-          if (orig && inserted) origToNew.set(orig.id, inserted.id);
-        }
-
-        const issueRows = allOrigIssues
-          .map(iss => {
-            const newPageId = origToNew.get(iss.pageId);
-            if (!newPageId) return null;
-            return {
-              pageId: newPageId,
-              ruleId: iss.ruleId,
-              impact: iss.impact,
-              description: iss.description,
-              element: iss.element ?? null,
-              wcagCriteria: iss.wcagCriteria ?? null,
-              wcagLevel: iss.wcagLevel ?? null,
-              legalText: iss.legalText ?? null,
-              selector: iss.selector ?? null,
-              remediation: iss.remediation ?? null,
-              bboxX: iss.bboxX ?? null,
-              bboxY: iss.bboxY ?? null,
-              bboxWidth: iss.bboxWidth ?? null,
-              bboxHeight: iss.bboxHeight ?? null,
-            };
-          })
-          .filter(Boolean) as (typeof accessibilityIssuesTable.$inferInsert)[];
-
-        // Insert in chunks to avoid hitting DB parameter limits
-        const CHUNK = 500;
-        for (let i = 0; i < issueRows.length; i += CHUNK) {
-          await db.insert(accessibilityIssuesTable).values(issueRows.slice(i, i + CHUNK));
-        }
-        logger.info({ scanId: newSession.id, issues: issueRows.length }, "Retry: background issue copy complete");
+        await pool.query(
+          `INSERT INTO accessibility_issues
+             (page_id, rule_id, impact, description, element, wcag_criteria, wcag_level,
+              legal_text, selector, remediation, bbox_x, bbox_y, bbox_width, bbox_height,
+              false_positive, false_positive_note)
+           SELECT new_pr.id, ai.rule_id, ai.impact, ai.description, ai.element,
+                  ai.wcag_criteria, ai.wcag_level, ai.legal_text, ai.selector, ai.remediation,
+                  ai.bbox_x, ai.bbox_y, ai.bbox_width, ai.bbox_height,
+                  ai.false_positive, ai.false_positive_note
+           FROM accessibility_issues ai
+           JOIN page_results orig_pr ON orig_pr.id = ai.page_id
+           JOIN page_results new_pr  ON new_pr.scan_id = $1 AND new_pr.url = orig_pr.url
+           WHERE orig_pr.id = ANY($2)`,
+          [newSession.id, completedPageIds],
+        );
+        logger.info({ scanId: newSession.id }, "Retry: background issue copy complete");
       } catch (err) {
         logger.error({ scanId: newSession.id, err }, "Retry: background issue copy failed");
       }
