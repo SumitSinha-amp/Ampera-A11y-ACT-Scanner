@@ -3,6 +3,8 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
+import path from "path";
+import { fileURLToPath } from "url";
 import { pool } from "@workspace/db";
 import router from "./routes";
 import { logger } from "./lib/logger";
@@ -11,6 +13,8 @@ const PgStore = connectPgSimple(session);
 
 const app: Express = express();
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 app.use(
   pinoHttp({
     logger,
@@ -51,5 +55,18 @@ app.use(
 );
 
 app.use("/api", router);
+
+// Serve frontend static files
+const frontendPath = path.join(
+  __dirname,
+  "../../accessibility-scanner/dist/public"
+);
+
+app.use(express.static(frontendPath));
+
+// SPA fallback
+app.get("*", (_req, res) => {
+  res.sendFile(path.join(frontendPath, "index.html"));
+});
 
 export default app;
