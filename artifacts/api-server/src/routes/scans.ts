@@ -1278,6 +1278,139 @@ router.get("/page-source", async (req, res): Promise<void> => {
   }
 });
 
+// ── Smart Analysis ───────────────────────────────────────────────────────────
+
+/** Extract the AEM component block name from a single selector part's classes.
+ *  BEM convention: cmp-navigation__item-link → block is "cmp-navigation"
+ *  Plain:          cmp-teaser               → block is "cmp-teaser"
+ */
+function cmpFromSelectorPart(part: string): string | null {
+  // BEM element/modifier suffix — extract block only
+  const bem = part.match(/\bcmp-([\w-]+?)__/);
+  if (bem) return `cmp-${bem[1]}`;
+  // Plain cmp- class (no BEM suffix)
+  const plain = part.match(/\bcmp-([\w-]+)/);
+  if (plain) return `cmp-${plain[1]}`;
+  return null;
+}
+
+function extractComponent(element: string | null, selector: string | null): { name: string; tag: string; hierarchy: string } {
+  const tagMatch = element?.match(/^<(\w+)/i);
+  const tag = tagMatch ? tagMatch[1].toLowerCase() : "unknown";
+
+  // Priority 1: explicit AEM data attributes on the element HTML itself
+  if (element) {
+    const cmpIs = element.match(/data-cmp-is=["']([^"']+)["']/);
+    if (cmpIs) return { name: cmpIs[1], tag, hierarchy: cmpIs[1] };
+
+    const dataComp = element.match(/data-component=["']([^"']+)["']/);
+    if (dataComp) return { name: dataComp[1], tag, hierarchy: dataComp[1] };
+
+    const dataModule = element.match(/data-module=["']([^"']+)["']/);
+    if (dataModule) return { name: dataModule[1], tag, hierarchy: dataModule[1] };
+  }
+
+  // Priority 2: walk the full selector right-to-left (element → ancestors)
+  // Collect all cmp- names found at each level to build a hierarchy string
+  if (selector) {
+    const parts = selector.split(/\s*>\s*/);
+    const cmpLevels: string[] = [];
+
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const cmp = cmpFromSelectorPart(parts[i]);
+      if (cmp && !cmpLevels.includes(cmp)) cmpLevels.push(cmp);
+    }
+
+    if (cmpLevels.length > 0) {
+      // Nearest component is [0], outermost is last — reverse for parent > child display
+      const hierarchy = [...cmpLevels].reverse().join(" > ");
+      return { name: cmpLevels[0], tag, hierarchy: `${hierarchy} > <${tag}>` };
+    }
+  }
+
+  // Priority 3: fallback to element tag
+  return { name: `<${tag}>`, tag, hierarchy: `<${tag}>` };
+}
+
+router.get("/scans/:id/smart-analysis", requireAuth, async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const scanId = parseInt(raw, 10);
+  if (isNaN(scanId)) { res.status(400).json({ error: "Invalid scan ID" }); return; }
+
+  const [session] = await db.select({ id: scanSessionsTable.id })
+    .from(scanSessionsTable).where(eq(scanSessionsTable.id, scanId));
+  if (!session) { res.status(404).json({ error: "Scan not found" }); return; }
+
+  const rows = await db.select({
+    ruleId: accessibilityIssuesTable.ruleId,
+    impact: accessibilityIssuesTable.impact,
+    element: accessibilityIssuesTable.element,
+    selector: accessibilityIssuesTable.selector,
+    description: accessibilityIssuesTable.description,
+    pageUrl: pageResultsTable.url,
+  })
+    .from(accessibilityIssuesTable)
+    .innerJoin(pageResultsTable, eq(accessibilityIssuesTable.pageId, pageResultsTable.id))
+    .where(and(
+      eq(pageResultsTable.scanId, scanId),
+      eq(accessibilityIssuesTable.falsePositive, false),
+    ));
+
+  const IMPACT_ORDER: Record<string, number> = { critical: 0, serious: 1, moderate: 2, minor: 3 };
+
+  type Entry = {
+    componentName: string;
+    tag: string;
+    hierarchy: string;
+    ruleIds: Set<string>;
+    impacts: Set<string>;
+    totalOccurrences: number;
+    affectedPages: Set<string>;
+    sampleDescriptions: string[];
+  };
+
+  const map = new Map<string, Entry>();
+
+  for (const row of rows) {
+    const { name, tag, hierarchy } = extractComponent(row.element, row.selector);
+    // Group by component name + tag so cmp-nav><a and cmp-nav><img are separate rows
+    const key = `${name}::${tag}`;
+    let entry = map.get(key);
+    if (!entry) {
+      entry = { componentName: name, tag, hierarchy, ruleIds: new Set(), impacts: new Set(), totalOccurrences: 0, affectedPages: new Set(), sampleDescriptions: [] };
+      map.set(key, entry);
+    }
+    entry.ruleIds.add(row.ruleId);
+    entry.impacts.add(row.impact);
+    entry.totalOccurrences++;
+    entry.affectedPages.add(row.pageUrl);
+    if (entry.sampleDescriptions.length < 3 && row.description && !entry.sampleDescriptions.includes(row.description)) {
+      entry.sampleDescriptions.push(row.description);
+    }
+  }
+
+  const components = [...map.values()]
+    .map(e => ({
+      componentName: e.componentName,
+      tag: e.tag,
+      hierarchy: e.hierarchy,
+      ruleIds: [...e.ruleIds].sort(),
+      worstImpact: [...e.impacts].sort((a, b) => (IMPACT_ORDER[a] ?? 9) - (IMPACT_ORDER[b] ?? 9))[0] ?? "minor",
+      totalOccurrences: e.totalOccurrences,
+      affectedPageCount: e.affectedPages.size,
+      topPages: [...e.affectedPages].slice(0, 20),
+      sampleDescriptions: e.sampleDescriptions,
+    }))
+    .sort((a, b) => b.totalOccurrences - a.totalOccurrences);
+
+  res.json({
+    scanId,
+    totalIssues: rows.length,
+    totalComponents: components.length,
+    components,
+  });
+});
+
 // ── False-positive flag ──────────────────────────────────────────────────────
 router.patch("/issues/:id", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -1309,5 +1442,6 @@ router.patch("/issues/:id", async (req, res): Promise<void> => {
 
   res.json(updated);
 });
+
 
 export default router;

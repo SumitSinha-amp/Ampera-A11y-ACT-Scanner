@@ -70,6 +70,9 @@ import {
   Ban,
   Pencil,
   Flag,
+  Sparkles,
+  ChevronRight,
+  TrendingUp,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -1335,6 +1338,67 @@ export default function ScanDetail() {
     setFpDialogIssue(null);
   };
 
+  // ── Smart Analysis state ──────────────────────────────────────────────────
+  type SmartComponent = {
+    componentName: string;
+    tag: string;
+    hierarchy: string;
+    ruleIds: string[];
+    worstImpact: string;
+    totalOccurrences: number;
+    affectedPageCount: number;
+    topPages: string[];
+    sampleDescriptions: string[];
+  };
+  type SmartAnalysisData = {
+    scanId: number;
+    totalIssues: number;
+    totalComponents: number;
+    components: SmartComponent[];
+  };
+
+  const [smartOpen, setSmartOpen] = useState(false);
+  const [smartLoading, setSmartLoading] = useState(false);
+  const [smartData, setSmartData] = useState<SmartAnalysisData | null>(null);
+  const [smartSearch, setSmartSearch] = useState("");
+  const [smartImpact, setSmartImpact] = useState("all");
+  const [smartRule, setSmartRule] = useState("all");
+  const [smartExpanded, setSmartExpanded] = useState<Set<string>>(new Set());
+
+  async function openSmartAnalysis() {
+    setSmartOpen(true);
+    if (smartData?.scanId === scanId) return;
+    setSmartLoading(true);
+    setSmartData(null);
+    try {
+      const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+      const res = await fetch(`${BASE}/api/scans/${scanId}/smart-analysis`, { credentials: "include" });
+      if (res.ok) setSmartData(await res.json());
+    } finally {
+      setSmartLoading(false);
+    }
+  }
+
+  function toggleSmartExpanded(name: string) {
+    setSmartExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  }
+
+  const IMPACT_ORDER: Record<string, number> = { critical: 0, serious: 1, moderate: 2, minor: 3 };
+
+  const filteredSmartComponents = (smartData?.components ?? []).filter(c => {
+    if (smartImpact !== "all" && c.worstImpact !== smartImpact) return false;
+    if (smartRule !== "all" && !c.ruleIds.includes(smartRule)) return false;
+    if (smartSearch && !c.componentName.toLowerCase().includes(smartSearch.toLowerCase())) return false;
+    return true;
+  });
+
+  const allSmartRules = [...new Set((smartData?.components ?? []).flatMap(c => c.ruleIds))].sort();
+
+  // ── Edit Scan state ───────────────────────────────────────────────────────
   const { user: authUser } = useAuth();
   const isSuperAdmin = authUser?.role === "super_admin";
   const [editOpen, setEditOpen] = useState(false);
@@ -1682,6 +1746,224 @@ export default function ScanDetail() {
 
   return (
     <div className="space-y-8">
+      {/* Smart Analysis Dialog */}
+      <Dialog open={smartOpen} onOpenChange={setSmartOpen}>
+        <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col gap-0 p-0">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <Sparkles className="w-5 h-5 text-violet-500" />
+              Smart Analysis
+            </DialogTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Component-level breakdown of accessibility issues — grouped by AEM component or element type across all scanned pages.
+            </p>
+          </DialogHeader>
+
+          {smartLoading && (
+            <div className="flex flex-col items-center justify-center gap-3 py-16">
+              <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
+              <p className="text-sm text-muted-foreground">Analysing issues across all pages…</p>
+            </div>
+          )}
+
+          {!smartLoading && smartData && (
+            <div className="flex flex-col flex-1 overflow-hidden">
+              {/* Stats bar */}
+              <div className="flex gap-3 px-6 py-3 bg-muted/40 border-b shrink-0 flex-wrap">
+                <div className="flex items-center gap-2 text-sm">
+                  <TrendingUp className="w-4 h-4 text-violet-500" />
+                  <span className="font-semibold">{smartData.totalIssues.toLocaleString()}</span>
+                  <span className="text-muted-foreground">total issues</span>
+                </div>
+                <div className="text-muted-foreground">·</div>
+                <div className="flex items-center gap-2 text-sm">
+                  <Cpu className="w-4 h-4 text-blue-500" />
+                  <span className="font-semibold">{smartData.totalComponents}</span>
+                  <span className="text-muted-foreground">unique components / elements</span>
+                </div>
+                {filteredSmartComponents.length !== smartData.components.length && (
+                  <>
+                    <div className="text-muted-foreground">·</div>
+                    <div className="text-sm text-muted-foreground">
+                      Showing <span className="font-semibold text-foreground">{filteredSmartComponents.length}</span> filtered
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Filters */}
+              <div className="flex gap-2 px-6 py-3 border-b shrink-0 flex-wrap">
+                <div className="relative flex-1 min-w-48">
+                  <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-muted-foreground" />
+                  <input
+                    value={smartSearch}
+                    onChange={e => setSmartSearch(e.target.value)}
+                    placeholder="Filter by component name…"
+                    className="pl-8 pr-3 py-1.5 text-sm w-full rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <select
+                  value={smartImpact}
+                  onChange={e => setSmartImpact(e.target.value)}
+                  className="text-sm px-3 py-1.5 rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="all">All impacts</option>
+                  <option value="critical">Critical</option>
+                  <option value="serious">Serious</option>
+                  <option value="moderate">Moderate</option>
+                  <option value="minor">Minor</option>
+                </select>
+                <select
+                  value={smartRule}
+                  onChange={e => setSmartRule(e.target.value)}
+                  className="text-sm px-3 py-1.5 rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="all">All rules</option>
+                  {allSmartRules.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+                {(smartSearch || smartImpact !== "all" || smartRule !== "all") && (
+                  <button
+                    onClick={() => { setSmartSearch(""); setSmartImpact("all"); setSmartRule("all"); }}
+                    className="text-sm px-3 py-1.5 rounded-md border border-input hover:bg-muted flex items-center gap-1"
+                  >
+                    <X className="w-3.5 h-3.5" /> Clear
+                  </button>
+                )}
+              </div>
+
+              {/* Table */}
+              <div className="overflow-y-auto flex-1">
+                {filteredSmartComponents.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-sm gap-2">
+                    <Filter className="w-6 h-6" />
+                    No components match your filters.
+                  </div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 z-10 bg-background border-b">
+                      <tr>
+                        <th className="text-left px-6 py-3 font-medium text-muted-foreground w-8"></th>
+                        <th className="text-left px-3 py-3 font-medium text-muted-foreground">Component Hierarchy</th>
+                        <th className="text-left px-3 py-3 font-medium text-muted-foreground">Rules</th>
+                        <th className="text-left px-3 py-3 font-medium text-muted-foreground">Worst Impact</th>
+                        <th className="text-right px-3 py-3 font-medium text-muted-foreground">Occurrences</th>
+                        <th className="text-right px-6 py-3 font-medium text-muted-foreground">Pages Affected</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredSmartComponents.map((comp, idx) => {
+                        const rowKey = `${comp.componentName}::${comp.tag}`;
+                        const isExpanded = smartExpanded.has(rowKey);
+                        const impactColors: Record<string, string> = {
+                          critical: "bg-[#E11D48] text-white",
+                          serious: "bg-[#EA580C] text-white",
+                          moderate: "bg-[#EAB308] text-black",
+                          minor: "bg-[#3B82F6] text-white",
+                        };
+                        const barWidth = smartData.components[0]?.totalOccurrences
+                          ? Math.round((comp.totalOccurrences / smartData.components[0].totalOccurrences) * 100)
+                          : 0;
+
+                        // Render hierarchy as breadcrumb chips
+                        const hierParts = (comp.hierarchy ?? comp.componentName).split(" > ");
+
+                        return (
+                          <>
+                            <tr
+                              key={rowKey}
+                              className={`border-b hover:bg-muted/30 cursor-pointer ${idx % 2 === 0 ? "" : "bg-muted/10"}`}
+                              onClick={() => toggleSmartExpanded(rowKey)}
+                            >
+                              <td className="px-6 py-3 text-muted-foreground">
+                                <ChevronRight className={`w-4 h-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                              </td>
+                              <td className="px-3 py-3 max-w-sm">
+                                <div className="flex items-center flex-wrap gap-0.5">
+                                  {hierParts.map((part, i) => (
+                                    <span key={i} className="flex items-center gap-0.5">
+                                      {i > 0 && <span className="text-muted-foreground/50 text-xs mx-0.5">›</span>}
+                                      <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-mono border ${
+                                        i === hierParts.length - 1
+                                          ? "bg-violet-50 border-violet-200 text-violet-800 dark:bg-violet-950/30 dark:border-violet-800 dark:text-violet-300 font-semibold"
+                                          : "bg-muted border-border text-muted-foreground"
+                                      }`}>
+                                        {part}
+                                      </span>
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td className="px-3 py-3">
+                                <div className="flex flex-wrap gap-1">
+                                  {comp.ruleIds.slice(0, 3).map(r => (
+                                    <span key={r} className="inline-block px-1.5 py-0.5 rounded text-xs bg-muted font-mono border">{r}</span>
+                                  ))}
+                                  {comp.ruleIds.length > 3 && (
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-xs bg-muted font-mono border text-muted-foreground">+{comp.ruleIds.length - 3}</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-3 py-3">
+                                <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${impactColors[comp.worstImpact] ?? "bg-muted"}`}>
+                                  {comp.worstImpact.charAt(0).toUpperCase() + comp.worstImpact.slice(1)}
+                                </span>
+                              </td>
+                              <td className="px-3 py-3 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <div className="w-20 bg-muted rounded-full h-1.5 hidden sm:block">
+                                    <div className="bg-violet-500 h-1.5 rounded-full" style={{ width: `${barWidth}%` }} />
+                                  </div>
+                                  <span className="font-semibold tabular-nums">{comp.totalOccurrences.toLocaleString()}</span>
+                                </div>
+                              </td>
+                              <td className="px-6 py-3 text-right tabular-nums text-muted-foreground">
+                                {comp.affectedPageCount.toLocaleString()}
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr key={`${comp.componentName}-expanded`} className="border-b bg-muted/20">
+                                <td colSpan={7} className="px-10 py-4">
+                                  <div className="space-y-3">
+                                    {comp.sampleDescriptions.length > 0 && (
+                                      <div>
+                                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Sample Issue Descriptions</p>
+                                        <ul className="space-y-1">
+                                          {comp.sampleDescriptions.map((d, i) => (
+                                            <li key={i} className="text-xs text-foreground bg-background rounded px-3 py-2 border">
+                                              {d}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    <div>
+                                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+                                        Top Affected Pages ({comp.topPages.length}{comp.affectedPageCount > comp.topPages.length ? ` of ${comp.affectedPageCount}` : ""})
+                                      </p>
+                                      <ul className="space-y-1">
+                                        {comp.topPages.map((url, i) => (
+                                          <li key={i} className="text-xs font-mono break-all text-muted-foreground">
+                                            <a href={url} target="_blank" rel="noopener noreferrer" className="hover:text-foreground hover:underline">{url}</a>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Scan Dialog */}
       <Dialog open={editOpen} onOpenChange={(v) => { if (!v) setEditOpen(false); }}>
         <DialogContent className="sm:max-w-md">
@@ -1948,12 +2230,18 @@ export default function ScanDetail() {
             </div>
           )}
           {!isRunning && scan.status === "completed" && !isUpdatingResults && (
-            <Link href={`/scans/${scan.id}/report`}>
-              <Button>
-                <BarChart2 className="w-4 h-4 mr-2" />
-                View Report
+            <>
+              <Button variant="outline" onClick={openSmartAnalysis}>
+                <Sparkles className="w-4 h-4 mr-2 text-violet-500" />
+                Smart Analysis
               </Button>
-            </Link>
+              <Link href={`/scans/${scan.id}/report`}>
+                <Button>
+                  <BarChart2 className="w-4 h-4 mr-2" />
+                  View Report
+                </Button>
+              </Link>
+            </>
           )}
         </div>
       </div>
