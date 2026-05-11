@@ -1294,24 +1294,52 @@ function cmpFromSelectorPart(part: string): string | null {
   return null;
 }
 
-function extractComponent(element: string | null, selector: string | null): { name: string; tag: string; hierarchy: string } {
+/** Build a short readable label from a CSS selector part, e.g. "ul.nav-list" or "li". */
+function selectorPartLabel(part: string): string {
+  // strip pseudo-classes/attributes
+  const clean = part.replace(/::?[\w-]+(\([^)]*\))?/g, "").replace(/\[[^\]]*\]/g, "").trim();
+  const tagMatch = clean.match(/^([\w-]+)/);
+  const tag = tagMatch ? tagMatch[1] : "div";
+  // prefer first class
+  const cls = clean.match(/\.([\w-]+)/);
+  if (cls) return `${tag}.${cls[1]}`;
+  // or id
+  const id = clean.match(/#([\w-]+)/);
+  if (id) return `${tag}#${id[1]}`;
+  return tag;
+}
+
+function extractAemComponent(element: string | null, selector: string | null): { name: string; tag: string; hierarchy: string } {
   const tagMatch = element?.match(/^<(\w+)/i);
   const tag = tagMatch ? tagMatch[1].toLowerCase() : "unknown";
+
+  // ── helper: build ancestor context from selector for a given component name ──
+  const ancestorContext = (componentName: string): string => {
+    if (!selector) return componentName;
+    const parts = selector.split(/\s*>\s*/);
+    const ancestorCmps: string[] = [];
+    for (let i = 0; i < parts.length - 1; i++) {
+      const cmp = cmpFromSelectorPart(parts[i]);
+      if (cmp && !ancestorCmps.includes(cmp) && cmp !== componentName) ancestorCmps.push(cmp);
+    }
+    return ancestorCmps.length > 0
+      ? `${ancestorCmps.join(" > ")} > ${componentName}`
+      : componentName;
+  };
 
   // Priority 1: explicit AEM data attributes on the element HTML itself
   if (element) {
     const cmpIs = element.match(/data-cmp-is=["']([^"']+)["']/);
-    if (cmpIs) return { name: cmpIs[1], tag, hierarchy: cmpIs[1] };
+    if (cmpIs) { const h = ancestorContext(cmpIs[1]); return { name: cmpIs[1], tag, hierarchy: h }; }
 
     const dataComp = element.match(/data-component=["']([^"']+)["']/);
-    if (dataComp) return { name: dataComp[1], tag, hierarchy: dataComp[1] };
+    if (dataComp) { const h = ancestorContext(dataComp[1]); return { name: dataComp[1], tag, hierarchy: h }; }
 
     const dataModule = element.match(/data-module=["']([^"']+)["']/);
-    if (dataModule) return { name: dataModule[1], tag, hierarchy: dataModule[1] };
+    if (dataModule) { const h = ancestorContext(dataModule[1]); return { name: dataModule[1], tag, hierarchy: h }; }
   }
 
-  // Priority 2: walk the full selector right-to-left (element → ancestors)
-  // Collect all cmp- names found at each level to build a hierarchy string
+  // Priority 2: walk the full selector right-to-left (element → ancestors) for cmp- classes
   if (selector) {
     const parts = selector.split(/\s*>\s*/);
     const cmpLevels: string[] = [];
@@ -1326,9 +1354,27 @@ function extractComponent(element: string | null, selector: string | null): { na
       const hierarchy = [...cmpLevels].reverse().join(" > ");
       return { name: cmpLevels[0], tag, hierarchy: `${hierarchy} > <${tag}>` };
     }
+
+    // Priority 3: no AEM components found — show DOM ancestry from selector
+    // Take up to 4 ancestor parts + the element tag for context
+    const SKIP_TAGS = new Set(["html","body","main","div","span","section","article","aside","header","footer"]);
+    // try to include non-generic parts first, else just take last 4
+    const meaningfulParts = parts.slice(0, -1).filter(p => {
+      const lbl = selectorPartLabel(p);
+      // include if it has a class/id or is a semantic tag
+      return /[.#]/.test(lbl) || !SKIP_TAGS.has(lbl.split(".")[0]);
+    });
+    const ancestorParts = meaningfulParts.length > 0
+      ? meaningfulParts.slice(-3)
+      : parts.slice(-Math.min(4, parts.length), -1);
+
+    const ancestorLabels = ancestorParts.map(p => selectorPartLabel(p));
+    const hierStr = [...ancestorLabels, `<${tag}>`].join(" > ");
+    const name = ancestorLabels.length > 0 ? ancestorLabels[ancestorLabels.length - 1] : `<${tag}>`;
+    return { name, tag, hierarchy: hierStr };
   }
 
-  // Priority 3: fallback to element tag
+  // Priority 4: final fallback
   return { name: `<${tag}>`, tag, hierarchy: `<${tag}>` };
 }
 
@@ -1372,7 +1418,7 @@ router.get("/scans/:id/smart-analysis", requireAuth, async (req, res): Promise<v
   const map = new Map<string, Entry>();
 
   for (const row of rows) {
-    const { name, tag, hierarchy } = extractComponent(row.element, row.selector);
+    const { name, tag, hierarchy } = extractAemComponent(row.element, row.selector);
     // Group by component name + tag so cmp-nav><a and cmp-nav><img are separate rows
     const key = `${name}::${tag}`;
     let entry = map.get(key);
@@ -1442,6 +1488,5 @@ router.patch("/issues/:id", async (req, res): Promise<void> => {
 
   res.json(updated);
 });
-
 
 export default router;

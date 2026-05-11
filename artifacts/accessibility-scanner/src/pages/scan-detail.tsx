@@ -73,6 +73,7 @@ import {
   Sparkles,
   ChevronRight,
   TrendingUp,
+  CircleSlash,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -1662,6 +1663,19 @@ export default function ScanDetail() {
     [pageStatusFilter],
   );
 
+  const pageStatusCounts = useMemo(() => {
+    const pages = scan?.pages ?? [];
+    return {
+      all: pages.length,
+      completed_with_issues: pages.filter(p => p.status === "completed" && (p.issueCount ?? 0) > 0).length,
+      completed_no_issues: pages.filter(p => p.status === "completed" && (p.issueCount ?? 0) === 0).length,
+      completed: pages.filter(p => p.status === "completed").length,
+      failed: pages.filter(p => p.status === "failed").length,
+      not_available: pages.filter(p => p.status === "not_available").length,
+      pending: pages.filter(p => p.status === "pending").length,
+    };
+  }, [scan?.pages]);
+
   const handleCopyAllUrls = async () => {
     if (!scan?.pages?.length) return;
     const filtered = pageStatusFilter === "all"
@@ -2246,30 +2260,40 @@ export default function ScanDetail() {
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Scan Progress</CardTitle>
-          {liveStatus?.currentUrl && (
-            <CardDescription className="font-mono break-all">
-              Currently scanning: {liveStatus.currentUrl}
-            </CardDescription>
-          )}
-          {showUpdatingResults && (
-            <CardDescription className="text-amber-600">
-              Updating results, please wait...
-            </CardDescription>
-          )}
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex justify-between text-sm font-medium">
-            <span>
-              {scannedUrls} of {totalUrls} URLs scanned
-            </span>
-            <span>{progressPercent}%</span>
-          </div>
-          <Progress value={progressPercent} className="h-3" />
-        </CardContent>
-      </Card>
+      {/* Progress card — only shown while scan is active */}
+      {isActive && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Scan Progress</CardTitle>
+            {liveStatus?.currentUrl && (
+              <CardDescription className="font-mono break-all">
+                Currently scanning: {liveStatus.currentUrl}
+              </CardDescription>
+            )}
+            {showUpdatingResults && (
+              <CardDescription className="text-amber-600">
+                Updating results, please wait...
+              </CardDescription>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex justify-between text-sm font-medium">
+              <span>
+                {scannedUrls} of {totalUrls} URLs scanned
+              </span>
+              <span>{progressPercent}%</span>
+            </div>
+            <Progress value={progressPercent} className="h-3" />
+          </CardContent>
+        </Card>
+      )}
+
+      {showUpdatingResults && (
+        <div className="flex items-center gap-2 text-sm text-amber-600 py-1">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          Updating results, please wait...
+        </div>
+      )}
 
       {/* Completed page results */}
       {!showUpdatingResults &&
@@ -2277,25 +2301,16 @@ export default function ScanDetail() {
         scan.pages &&
         scan.pages.length > 0 && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-semibold tracking-tight">
-                Page Results
-              </h2>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <h2 className="text-2xl font-semibold tracking-tight">
+                  Page Results
+                </h2>
+                <span className="text-base text-muted-foreground font-medium">
+                  {scannedUrls.toLocaleString()} of {totalUrls.toLocaleString()} URLs scanned · {progressPercent}%
+                </span>
+              </div>
               <div className="flex items-center gap-2">
-                <Select value={pageStatusFilter} onValueChange={setPageStatusFilter}>
-                  <SelectTrigger className="w-48 h-9">
-                    <SelectValue placeholder="All statuses" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All statuses</SelectItem>
-                    <SelectItem value="completed_with_issues">Done with issues</SelectItem>
-                    <SelectItem value="completed_no_issues">Done — no issues</SelectItem>
-                    <SelectItem value="completed">Done (all)</SelectItem>
-                    <SelectItem value="failed">Failed</SelectItem>
-                    <SelectItem value="not_available">Not Available</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                  </SelectContent>
-                </Select>
                 <Button
                   variant="outline"
                   onClick={handleCopyAllUrls}
@@ -2306,6 +2321,60 @@ export default function ScanDetail() {
                 <ExportButtons scan={scan} />
               </div>
             </div>
+
+            {/* Status filter tiles */}
+            {(() => {
+              type TileDef = { value: string; label: string; count: number; activeClass: string; Icon: React.ElementType };
+              const tiles: TileDef[] = [
+                { value: "all",                    label: "All Pages",    count: pageStatusCounts.all,                    activeClass: "border-slate-400 bg-slate-50 dark:bg-slate-900/40 dark:border-slate-500",       Icon: Globe },
+                { value: "completed_with_issues",  label: "With Issues",  count: pageStatusCounts.completed_with_issues,  activeClass: "border-amber-400 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-500",        Icon: AlertCircle },
+                { value: "completed_no_issues",    label: "No Issues",    count: pageStatusCounts.completed_no_issues,    activeClass: "border-green-400 bg-green-50 dark:bg-green-950/30 dark:border-green-500",        Icon: CheckCircle2 },
+                { value: "failed",                 label: "Failed",       count: pageStatusCounts.failed,                 activeClass: "border-red-400 bg-red-50 dark:bg-red-950/30 dark:border-red-500",               Icon: XCircle },
+                { value: "not_available",          label: "Not Available",count: pageStatusCounts.not_available,          activeClass: "border-slate-400 bg-slate-50 dark:bg-slate-900/40 dark:border-slate-500",       Icon: CircleSlash },
+                { value: "pending",                label: "Pending",      count: pageStatusCounts.pending,                activeClass: "border-yellow-400 bg-yellow-50 dark:bg-yellow-950/30 dark:border-yellow-500",    Icon: Clock },
+              ].filter(t => t.value === "all" || t.count > 0);
+              const iconColors: Record<string, string> = {
+                all: "text-slate-500",
+                completed_with_issues: "text-amber-500",
+                completed_no_issues: "text-green-500",
+                failed: "text-red-500",
+                not_available: "text-slate-400",
+                pending: "text-yellow-500",
+              };
+              const countColors: Record<string, string> = {
+                all: "text-slate-700 dark:text-slate-200",
+                completed_with_issues: "text-amber-700 dark:text-amber-300",
+                completed_no_issues: "text-green-700 dark:text-green-300",
+                failed: "text-red-700 dark:text-red-300",
+                not_available: "text-slate-600 dark:text-slate-300",
+                pending: "text-yellow-700 dark:text-yellow-300",
+              };
+              return (
+                <div className="flex flex-wrap gap-2">
+                  {tiles.map(({ value, label, count, activeClass, Icon }) => {
+                    const isActive = pageStatusFilter === value;
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setPageStatusFilter(value)}
+                        className={`flex items-center gap-3 rounded-lg border px-5 py-3 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+                          isActive
+                            ? `${activeClass} shadow-sm`
+                            : "border-border bg-card hover:bg-muted/50 hover:border-muted-foreground/30"
+                        }`}
+                      >
+                        <Icon className={`w-5 h-5 shrink-0 ${isActive ? iconColors[value] : "text-muted-foreground"}`} />
+                        <div>
+                          <p className={`text-xs font-semibold uppercase tracking-wide leading-none mb-1 ${isActive ? iconColors[value] : "text-muted-foreground"}`}>{label}</p>
+                          <p className={`text-2xl font-bold leading-none ${isActive ? countColors[value] : "text-foreground"}`}>{count.toLocaleString()}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
 
             <Accordion type="multiple" className="space-y-4">
               {scan.pages.filter(matchesPageFilter).map((page) => {
