@@ -960,6 +960,7 @@ export default function Home() {
   const [manualUrls, setManualUrls] = useState("");
   const [sitemapUrl, setSitemapUrl] = useState("");
   const [urlPrefix, setUrlPrefix] = useState("");
+  const [urlFixCount, setUrlFixCount] = useState(0);
   const parseSitemap = useParseSitemap();
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -1028,6 +1029,28 @@ export default function Home() {
 
   const createScan = useCreateScan();
 
+  /** Fix common URL mistakes automatically. Returns the corrected URL. */
+  const sanitizeUrl = (raw: string): string => {
+    let u = raw.trim();
+    if (!u) return u;
+
+    // Fix garbled/truncated protocol prefix: "rhttps://", "htps://", "hhttps://", etc.
+    // Strip any non-protocol leading chars before a recognisable http(s)://
+    u = u.replace(/^[^h]*?(https?:\/\/)/i, "$1");
+
+    // Fix missing protocol: bare "www." → "https://www."
+    if (/^www\./i.test(u)) u = "https://" + u;
+
+    // Fix repeated file extensions anywhere in path or before query/hash
+    // e.g. .html.html.html.html → .html  (handles .html, .htm, .asp, .aspx, .php, .jsp, .cfm, .shtml)
+    u = u.replace(/(\.(html?|aspx?|php|jsp|cfm|shtml))(\1)+/gi, "$1");
+
+    // Fix double (or more) slashes in the path portion, but NOT in "://"
+    u = u.replace(/([^:])\/\/+/g, "$1/");
+
+    return u;
+  };
+
   const transformUrlWithPrefix = (value: string, prefix: string) => {
     const input = value.trim();
     const cleanPrefix = prefix.trim();
@@ -1058,8 +1081,22 @@ export default function Home() {
   const handleManualUrlsChange = (
     e: React.ChangeEvent<HTMLTextAreaElement>,
   ) => {
-    setManualUrls(e.target.value);
-    const urls = e.target.value
+    const raw = e.target.value;
+    // Sanitize each non-empty line and track how many changed
+    const lines = raw.split("\n");
+    const sanitized = lines.map((line) => {
+      const t = line.trim();
+      if (!t) return line; // preserve blank lines as-is
+      const fixed = sanitizeUrl(t);
+      return fixed;
+    });
+    const fixCount = lines.filter((l, i) => l.trim() && sanitized[i] !== l).length;
+    const sanitizedText = sanitized.join("\n");
+    setManualUrls(sanitizedText);
+    if (fixCount > 0) setUrlFixCount(fixCount);
+    else setUrlFixCount(0);
+
+    const urls = sanitizedText
       .split("\n")
       .map((u) => u.trim())
       .filter(Boolean);
@@ -1082,7 +1119,7 @@ export default function Home() {
     setUrlPrefix(value);
     const urls = manualUrls
       .split("\n")
-      .map((u) => u.trim())
+      .map((u) => sanitizeUrl(u.trim()))
       .filter(Boolean)
       .map((u) => transformUrlWithPrefix(u, value));
     setParsedUrls(urls);
@@ -1094,15 +1131,16 @@ export default function Home() {
       { data: { url: sitemapUrl } },
       {
         onSuccess: (data) => {
-          if (urlLimitOn && data.urls.length > urlLimit) {
-            setParsedUrls(data.urls.slice(0, urlLimit));
+          const cleaned = data.urls.map((u: string) => sanitizeUrl(u));
+          if (urlLimitOn && cleaned.length > urlLimit) {
+            setParsedUrls(cleaned.slice(0, urlLimit));
             toast({
               title: `URL limit reached (${urlLimit})`,
-              description: `Sitemap has ${data.urls.length} URLs but only the first ${urlLimit} will be scanned. Adjust the limit in Settings.`,
+              description: `Sitemap has ${cleaned.length} URLs but only the first ${urlLimit} will be scanned. Adjust the limit in Settings.`,
               variant: "destructive",
             });
           } else {
-            setParsedUrls(data.urls);
+            setParsedUrls(cleaned);
             toast({
               title: "Sitemap Parsed",
               description: `Found ${data.count} URLs.`,
@@ -1132,15 +1170,16 @@ export default function Home() {
       });
       if (!res.ok) throw new Error("Upload failed");
       const data = await res.json();
-      if (urlLimitOn && data.urls.length > urlLimit) {
-        setParsedUrls(data.urls.slice(0, urlLimit));
+      const cleaned = data.urls.map((u: string) => sanitizeUrl(u));
+      if (urlLimitOn && cleaned.length > urlLimit) {
+        setParsedUrls(cleaned.slice(0, urlLimit));
         toast({
           title: `URL limit reached (${urlLimit})`,
-          description: `CSV has ${data.urls.length} URLs but only the first ${urlLimit} will be scanned. Adjust the limit in Settings.`,
+          description: `CSV has ${cleaned.length} URLs but only the first ${urlLimit} will be scanned. Adjust the limit in Settings.`,
           variant: "destructive",
         });
       } else {
-        setParsedUrls(data.urls);
+        setParsedUrls(cleaned);
         toast({
           title: "CSV Parsed",
           description: `Found ${data.count} URLs.`,
@@ -1434,7 +1473,14 @@ export default function Home() {
                       </div>
                     </div>
                     <div className="flex items-center justify-between">
-                      <Label>URLs (one per line)</Label>
+                      <div className="flex items-center gap-2">
+                        <Label>URLs (one per line)</Label>
+                        {urlFixCount > 0 && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-700">
+                            ✓ {urlFixCount} URL{urlFixCount !== 1 ? "s" : ""} auto-corrected
+                          </span>
+                        )}
+                      </div>
                       {urlLimitOn && (
                         <span
                           className={`text-xs font-medium tabular-nums ${parsedUrls.length >= urlLimit ? "text-destructive" : "text-muted-foreground"}`}

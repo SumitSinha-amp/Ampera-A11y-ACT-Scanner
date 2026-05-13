@@ -1366,6 +1366,128 @@ export default function ScanDetail() {
   const [smartRule, setSmartRule] = useState("all");
   const [smartExpanded, setSmartExpanded] = useState<Set<string>>(new Set());
 
+  async function exportSmartPDF() {
+    if (!smartData) return;
+    const { default: jsPDF } = await import("jspdf");
+    const { default: autoTable } = await import("jspdf-autotable");
+    const doc = new jsPDF({ orientation: "landscape" });
+    const scanLabel = scan?.name || `scan-${scanId}`;
+    const now = new Date().toLocaleString();
+
+    doc.setFontSize(18);
+    doc.setTextColor(109, 40, 217);
+    doc.text("Smart Analysis Report", 14, 18);
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(10);
+    doc.text(`Scan: ${scanLabel}`, 14, 26);
+    doc.text(`Generated: ${now}`, 14, 31);
+    doc.text(
+      `Total Issues: ${smartData.totalIssues.toLocaleString()}   ·   Unique Components / Elements: ${smartData.totalComponents}` +
+      (filteredSmartComponents.length !== smartData.components.length
+        ? `   ·   Showing ${filteredSmartComponents.length} filtered`
+        : ""),
+      14, 36
+    );
+
+    autoTable(doc, {
+      startY: 42,
+      head: [["#", "Component Hierarchy", "Rules", "Worst Impact", "Occurrences", "Pages Affected", "Sample Issue"]],
+      body: filteredSmartComponents.map((c, i) => [
+        i + 1,
+        c.hierarchy,
+        c.ruleIds.join(", "),
+        c.worstImpact.charAt(0).toUpperCase() + c.worstImpact.slice(1),
+        c.totalOccurrences.toLocaleString(),
+        c.affectedPageCount.toLocaleString(),
+        c.sampleDescriptions[0] ?? "",
+      ]),
+      styles: { fontSize: 7.5, cellPadding: 3 },
+      headStyles: { fillColor: [109, 40, 217], textColor: 255, fontStyle: "bold" },
+      columnStyles: {
+        0: { cellWidth: 8, halign: "center" },
+        1: { cellWidth: 65 },
+        2: { cellWidth: 42 },
+        3: { cellWidth: 22 },
+        4: { cellWidth: 22, halign: "right" },
+        5: { cellWidth: 22, halign: "right" },
+        6: { cellWidth: 85 },
+      },
+      alternateRowStyles: { fillColor: [248, 245, 255] },
+    });
+
+    const pageCount = (doc as unknown as { internal: { getNumberOfPages: () => number } }).internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(150);
+      doc.text(`Page ${i} of ${pageCount}  ·  Ampera A11y ACT Tool`, 14, doc.internal.pageSize.height - 8);
+    }
+
+    doc.save(`smart-analysis-${scanLabel.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.pdf`);
+  }
+
+  async function exportSmartExcel() {
+    if (!smartData) return;
+    const XLSX = await import("xlsx");
+    const scanLabel = scan?.name || `scan-${scanId}`;
+    const now = new Date().toLocaleString();
+    const wb = XLSX.utils.book_new();
+
+    // Sheet 1 — Summary
+    const summarySheet = XLSX.utils.aoa_to_sheet([
+      ["Smart Analysis Report"],
+      [],
+      ["Scan Name", scanLabel],
+      ["Generated", now],
+      ["Total Issues", smartData.totalIssues],
+      ["Unique Components / Elements", smartData.totalComponents],
+      ...(filteredSmartComponents.length !== smartData.components.length
+        ? [["Filtered (showing)", filteredSmartComponents.length]]
+        : []),
+    ]);
+    summarySheet["A1"].s = { font: { bold: true, sz: 14 } };
+    XLSX.utils.book_append_sheet(wb, summarySheet, "Summary");
+
+    // Sheet 2 — Components
+    const compHeaders = [
+      "Rank", "Component Hierarchy", "Component Name", "Element Tag",
+      "Rules", "Worst Impact", "Occurrences", "Pages Affected",
+      "Sample Issue 1", "Sample Issue 2", "Sample Issue 3",
+    ];
+    const compRows = filteredSmartComponents.map((c, i) => [
+      i + 1,
+      c.hierarchy,
+      c.componentName,
+      c.tag !== "unknown" ? `<${c.tag}>` : "",
+      c.ruleIds.join(", "),
+      c.worstImpact.charAt(0).toUpperCase() + c.worstImpact.slice(1),
+      c.totalOccurrences,
+      c.affectedPageCount,
+      c.sampleDescriptions[0] ?? "",
+      c.sampleDescriptions[1] ?? "",
+      c.sampleDescriptions[2] ?? "",
+    ]);
+    const compSheet = XLSX.utils.aoa_to_sheet([compHeaders, ...compRows]);
+    // column widths
+    compSheet["!cols"] = [
+      { wch: 6 }, { wch: 55 }, { wch: 28 }, { wch: 14 },
+      { wch: 35 }, { wch: 14 }, { wch: 14 }, { wch: 16 },
+      { wch: 60 }, { wch: 60 }, { wch: 60 },
+    ];
+    XLSX.utils.book_append_sheet(wb, compSheet, "Components");
+
+    // Sheet 3 — Top Affected Pages
+    const pageHeaders = ["Rank", "Component Hierarchy", "Occurrences", "Page URL"];
+    const pageRows = filteredSmartComponents.flatMap((c, i) =>
+      c.topPages.map(url => [i + 1, c.hierarchy, c.totalOccurrences, url])
+    );
+    const pageSheet = XLSX.utils.aoa_to_sheet([pageHeaders, ...pageRows]);
+    pageSheet["!cols"] = [{ wch: 6 }, { wch: 55 }, { wch: 14 }, { wch: 90 }];
+    XLSX.utils.book_append_sheet(wb, pageSheet, "Top Affected Pages");
+
+    XLSX.writeFile(wb, `smart-analysis-${scanLabel.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  }
+
   async function openSmartAnalysis() {
     setSmartOpen(true);
     if (smartData?.scanId === scanId) return;
@@ -1783,7 +1905,7 @@ export default function ScanDetail() {
           {!smartLoading && smartData && (
             <div className="flex flex-col flex-1 overflow-hidden">
               {/* Stats bar */}
-              <div className="flex gap-3 px-6 py-3 bg-muted/40 border-b shrink-0 flex-wrap">
+              <div className="flex items-center gap-3 px-6 py-3 bg-muted/40 border-b shrink-0 flex-wrap">
                 <div className="flex items-center gap-2 text-sm">
                   <TrendingUp className="w-4 h-4 text-violet-500" />
                   <span className="font-semibold">{smartData.totalIssues.toLocaleString()}</span>
@@ -1803,6 +1925,24 @@ export default function ScanDetail() {
                     </div>
                   </>
                 )}
+                <div className="ml-auto flex items-center gap-1.5">
+                  <button
+                    onClick={exportSmartExcel}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/50 transition-colors"
+                    title="Export to Excel"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    Excel
+                  </button>
+                  <button
+                    onClick={exportSmartPDF}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/30 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/50 transition-colors"
+                    title="Export to PDF"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    PDF
+                  </button>
+                </div>
               </div>
 
               {/* Filters */}
