@@ -1395,7 +1395,7 @@ export default function ScanDetail() {
       14, 36
     );
 
-    // ── Summary table ──
+    // ── Sheet 1: Component summary table ──
     autoTable(doc, {
       startY: 42,
       head: [["#", "Component Hierarchy", "Rules", "Worst Impact", "Occurrences", "Pages Affected"]],
@@ -1407,79 +1407,82 @@ export default function ScanDetail() {
         c.totalOccurrences.toLocaleString(),
         c.affectedPageCount.toLocaleString(),
       ]),
-      styles: { fontSize: 7.5, cellPadding: 3 },
+      styles: { fontSize: 7.5, cellPadding: 2.5, overflow: "linebreak" },
       headStyles: { fillColor: [109, 40, 217], textColor: 255, fontStyle: "bold" },
       columnStyles: {
         0: { cellWidth: 8, halign: "center" },
-        1: { cellWidth: 80 },
-        2: { cellWidth: 50 },
+        1: { cellWidth: 75 },
+        2: { cellWidth: 55 },
         3: { cellWidth: 22 },
         4: { cellWidth: 22, halign: "right" },
         5: { cellWidth: 22, halign: "right" },
       },
       alternateRowStyles: { fillColor: [248, 245, 255] },
+      didDrawPage: (_data) => {
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        doc.text("Ampera A11y ACT Tool  ·  Smart Analysis Report", 14, doc.internal.pageSize.height - 8);
+      },
     });
 
-    // ── Detailed breakdown: one section per component ──
-    doc.addPage();
-    doc.setFontSize(14);
-    doc.setTextColor(109, 40, 217);
-    doc.text("Detailed Issue Breakdown", 14, 18);
-    doc.setTextColor(0, 0, 0);
-
-    let yPos = 26;
-    const pageH = doc.internal.pageSize.height;
-    const marginBottom = 16;
-
+    // ── Sheet 2: Detailed breakdown — one row per issue-description × URL ──
+    // Build flat rows: [rank, component, issue description, pages-for-this-issue, url]
+    const detailRows: (string | number)[][] = [];
     for (let ci = 0; ci < filteredSmartComponents.length; ci++) {
       const c = filteredSmartComponents[ci];
       const variants = c.issueVariants ?? [];
-
-      // Component header
-      if (yPos + 12 > pageH - marginBottom) { doc.addPage(); yPos = 14; }
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(30, 30, 30);
-      doc.text(`${ci + 1}. ${c.hierarchy}`, 14, yPos);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7.5);
-      doc.setTextColor(100);
-      doc.text(`${c.ruleIds.join(", ")}  ·  ${c.worstImpact}  ·  ${c.totalOccurrences.toLocaleString()} occurrences  ·  ${c.affectedPageCount.toLocaleString()} pages`, 14, yPos + 4);
-      yPos += 10;
-
       for (const variant of variants) {
-        // Issue description row
-        if (yPos + 8 > pageH - marginBottom) { doc.addPage(); yPos = 14; }
-        doc.setFontSize(7.5);
-        doc.setTextColor(30, 30, 30);
-        doc.setFont("helvetica", "bold");
-        const descLines = doc.splitTextToSize(`• ${variant.description}`, 260);
-        doc.text(descLines, 18, yPos);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(120);
-        doc.text(`(${variant.occurrences} page${variant.occurrences !== 1 ? "s" : ""})`, 282, yPos, { align: "right" });
-        yPos += descLines.length * 4 + 1;
-
-        // Affected URLs
         for (const url of variant.pages) {
-          if (yPos + 5 > pageH - marginBottom) { doc.addPage(); yPos = 14; }
-          doc.setFontSize(6.5);
-          doc.setTextColor(80, 80, 200);
-          const urlLines = doc.splitTextToSize(url, 255);
-          doc.text(urlLines, 22, yPos);
-          yPos += urlLines.length * 3.5 + 0.5;
+          detailRows.push([
+            ci + 1,
+            c.hierarchy,
+            variant.description ?? "",
+            variant.occurrences,
+            url,
+          ]);
         }
-        yPos += 2;
       }
-      yPos += 4;
     }
 
+    doc.addPage();
+    doc.setFontSize(14);
+    doc.setTextColor(109, 40, 217);
+    doc.text("Issues & Affected URLs", 14, 14);
+    doc.setTextColor(80, 80, 80);
+    doc.setFontSize(8);
+    doc.text(
+      `${detailRows.length.toLocaleString()} rows — one per issue description × affected page`,
+      14, 20
+    );
+
+    autoTable(doc, {
+      startY: 25,
+      head: [["#", "Component Hierarchy", "Issue Description", "Pages", "Affected Page URL"]],
+      body: detailRows,
+      styles: { fontSize: 6.5, cellPadding: 2, overflow: "linebreak" },
+      headStyles: { fillColor: [109, 40, 217], textColor: 255, fontStyle: "bold" },
+      columnStyles: {
+        0: { cellWidth: 8, halign: "center" },
+        1: { cellWidth: 55 },
+        2: { cellWidth: 90 },
+        3: { cellWidth: 12, halign: "right" },
+        4: { cellWidth: 90 },
+      },
+      alternateRowStyles: { fillColor: [248, 245, 255] },
+      didDrawPage: (_data) => {
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        doc.text("Ampera A11y ACT Tool  ·  Issues & Affected URLs", 14, doc.internal.pageSize.height - 8);
+      },
+    });
+
+    // ── Page numbers ──
     const pageCount = (doc as unknown as { internal: { getNumberOfPages: () => number } }).internal.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i);
       doc.setFontSize(8);
-      doc.setTextColor(150);
-      doc.text(`Page ${i} of ${pageCount}  ·  Ampera A11y ACT Tool`, 14, doc.internal.pageSize.height - 8);
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Page ${i} of ${pageCount}`, doc.internal.pageSize.width - 14, doc.internal.pageSize.height - 8, { align: "right" });
     }
 
     doc.save(`smart-analysis-${scanLabel.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.pdf`);
