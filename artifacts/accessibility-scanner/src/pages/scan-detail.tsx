@@ -1373,12 +1373,18 @@ export default function ScanDetail() {
   const [smartExpanded, setSmartExpanded] = useState<Set<string>>(new Set());
 
   async function exportSmartPDF() {
-    if (!smartData) return;
+    const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+    const freshRes = await fetch(`${BASE}/api/scans/${scanId}/smart-analysis`, { credentials: "include" });
+    if (!freshRes.ok) return;
+    const freshData: SmartAnalysisData = await freshRes.json();
+
     const { default: jsPDF } = await import("jspdf");
     const { default: autoTable } = await import("jspdf-autotable");
     const doc = new jsPDF({ orientation: "landscape" });
     const scanLabel = scan?.name || `scan-${scanId}`;
     const now = new Date().toLocaleString();
+
+    const exportComponents = freshData.components;
 
     doc.setFontSize(18);
     doc.setTextColor(109, 40, 217);
@@ -1388,10 +1394,7 @@ export default function ScanDetail() {
     doc.text(`Scan: ${scanLabel}`, 14, 26);
     doc.text(`Generated: ${now}`, 14, 31);
     doc.text(
-      `Total Issues: ${smartData.totalIssues.toLocaleString()}   ·   Unique Components / Elements: ${smartData.totalComponents}` +
-      (filteredSmartComponents.length !== smartData.components.length
-        ? `   ·   Showing ${filteredSmartComponents.length} filtered`
-        : ""),
+      `Total Issues: ${freshData.totalIssues.toLocaleString()}   ·   Unique Components / Elements: ${freshData.totalComponents}`,
       14, 36
     );
 
@@ -1399,7 +1402,7 @@ export default function ScanDetail() {
     autoTable(doc, {
       startY: 42,
       head: [["#", "Component Hierarchy", "Rules", "Worst Impact", "Occurrences", "Pages Affected"]],
-      body: filteredSmartComponents.map((c, i) => [
+      body: exportComponents.map((c, i) => [
         i + 1,
         c.hierarchy,
         c.ruleIds.join(", "),
@@ -1426,10 +1429,9 @@ export default function ScanDetail() {
     });
 
     // ── Sheet 2: Detailed breakdown — one row per issue-description × URL ──
-    // Build flat rows: [rank, component, issue description, pages-for-this-issue, url]
     const detailRows: (string | number)[][] = [];
-    for (let ci = 0; ci < filteredSmartComponents.length; ci++) {
-      const c = filteredSmartComponents[ci];
+    for (let ci = 0; ci < exportComponents.length; ci++) {
+      const c = exportComponents[ci];
       const variants = c.issueVariants ?? [];
       for (const variant of variants) {
         for (const url of variant.pages) {
@@ -1489,7 +1491,12 @@ export default function ScanDetail() {
   }
 
   async function exportSmartExcel() {
-    if (!smartData) return;
+    const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+    const freshRes = await fetch(`${BASE}/api/scans/${scanId}/smart-analysis`, { credentials: "include" });
+    if (!freshRes.ok) return;
+    const freshData: SmartAnalysisData = await freshRes.json();
+    const exportComponents = freshData.components;
+
     const XLSX = await import("xlsx");
     const scanLabel = scan?.name || `scan-${scanId}`;
     const now = new Date().toLocaleString();
@@ -1501,11 +1508,8 @@ export default function ScanDetail() {
       [],
       ["Scan Name", scanLabel],
       ["Generated", now],
-      ["Total Issues", smartData.totalIssues],
-      ["Unique Components / Elements", smartData.totalComponents],
-      ...(filteredSmartComponents.length !== smartData.components.length
-        ? [["Filtered (showing)", filteredSmartComponents.length]]
-        : []),
+      ["Total Issues", freshData.totalIssues],
+      ["Unique Components / Elements", freshData.totalComponents],
     ]);
     summarySheet["A1"].s = { font: { bold: true, sz: 14 } };
     XLSX.utils.book_append_sheet(wb, summarySheet, "Summary");
@@ -1515,7 +1519,7 @@ export default function ScanDetail() {
       "Rank", "Component Hierarchy", "Component Name", "Element Tag",
       "Rules", "Worst Impact", "Occurrences", "Pages Affected",
     ];
-    const compRows = filteredSmartComponents.map((c, i) => [
+    const compRows = exportComponents.map((c, i) => [
       i + 1,
       c.hierarchy,
       c.componentName,
@@ -1537,7 +1541,7 @@ export default function ScanDetail() {
       "Rank", "Component Hierarchy", "Worst Impact", "Rules",
       "Issue Description", "Pages for This Issue", "Affected Page URL",
     ];
-    const issueRows = filteredSmartComponents.flatMap((c, ci) =>
+    const issueRows = exportComponents.flatMap((c, ci) =>
       (c.issueVariants ?? []).flatMap(v =>
         v.pages.map(url => [
           ci + 1,
