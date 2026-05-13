@@ -1340,6 +1340,11 @@ export default function ScanDetail() {
   };
 
   // ── Smart Analysis state ──────────────────────────────────────────────────
+  type SmartIssueVariant = {
+    description: string;
+    occurrences: number;
+    pages: string[];
+  };
   type SmartComponent = {
     componentName: string;
     tag: string;
@@ -1349,7 +1354,8 @@ export default function ScanDetail() {
     totalOccurrences: number;
     affectedPageCount: number;
     topPages: string[];
-    sampleDescriptions: string[];
+    sampleDescriptions?: string[];
+    issueVariants: SmartIssueVariant[];
   };
   type SmartAnalysisData = {
     scanId: number;
@@ -1389,9 +1395,10 @@ export default function ScanDetail() {
       14, 36
     );
 
+    // ── Summary table ──
     autoTable(doc, {
       startY: 42,
-      head: [["#", "Component Hierarchy", "Rules", "Worst Impact", "Occurrences", "Pages Affected", "Sample Issue"]],
+      head: [["#", "Component Hierarchy", "Rules", "Worst Impact", "Occurrences", "Pages Affected"]],
       body: filteredSmartComponents.map((c, i) => [
         i + 1,
         c.hierarchy,
@@ -1399,21 +1406,73 @@ export default function ScanDetail() {
         c.worstImpact.charAt(0).toUpperCase() + c.worstImpact.slice(1),
         c.totalOccurrences.toLocaleString(),
         c.affectedPageCount.toLocaleString(),
-        c.sampleDescriptions[0] ?? "",
       ]),
       styles: { fontSize: 7.5, cellPadding: 3 },
       headStyles: { fillColor: [109, 40, 217], textColor: 255, fontStyle: "bold" },
       columnStyles: {
         0: { cellWidth: 8, halign: "center" },
-        1: { cellWidth: 65 },
-        2: { cellWidth: 42 },
+        1: { cellWidth: 80 },
+        2: { cellWidth: 50 },
         3: { cellWidth: 22 },
         4: { cellWidth: 22, halign: "right" },
         5: { cellWidth: 22, halign: "right" },
-        6: { cellWidth: 85 },
       },
       alternateRowStyles: { fillColor: [248, 245, 255] },
     });
+
+    // ── Detailed breakdown: one section per component ──
+    doc.addPage();
+    doc.setFontSize(14);
+    doc.setTextColor(109, 40, 217);
+    doc.text("Detailed Issue Breakdown", 14, 18);
+    doc.setTextColor(0, 0, 0);
+
+    let yPos = 26;
+    const pageH = doc.internal.pageSize.height;
+    const marginBottom = 16;
+
+    for (let ci = 0; ci < filteredSmartComponents.length; ci++) {
+      const c = filteredSmartComponents[ci];
+      const variants = c.issueVariants ?? [];
+
+      // Component header
+      if (yPos + 12 > pageH - marginBottom) { doc.addPage(); yPos = 14; }
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(30, 30, 30);
+      doc.text(`${ci + 1}. ${c.hierarchy}`, 14, yPos);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(100);
+      doc.text(`${c.ruleIds.join(", ")}  ·  ${c.worstImpact}  ·  ${c.totalOccurrences.toLocaleString()} occurrences  ·  ${c.affectedPageCount.toLocaleString()} pages`, 14, yPos + 4);
+      yPos += 10;
+
+      for (const variant of variants) {
+        // Issue description row
+        if (yPos + 8 > pageH - marginBottom) { doc.addPage(); yPos = 14; }
+        doc.setFontSize(7.5);
+        doc.setTextColor(30, 30, 30);
+        doc.setFont("helvetica", "bold");
+        const descLines = doc.splitTextToSize(`• ${variant.description}`, 260);
+        doc.text(descLines, 18, yPos);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(120);
+        doc.text(`(${variant.occurrences} page${variant.occurrences !== 1 ? "s" : ""})`, 282, yPos, { align: "right" });
+        yPos += descLines.length * 4 + 1;
+
+        // Affected URLs
+        for (const url of variant.pages) {
+          if (yPos + 5 > pageH - marginBottom) { doc.addPage(); yPos = 14; }
+          doc.setFontSize(6.5);
+          doc.setTextColor(80, 80, 200);
+          const urlLines = doc.splitTextToSize(url, 255);
+          doc.text(urlLines, 22, yPos);
+          yPos += urlLines.length * 3.5 + 0.5;
+        }
+        yPos += 2;
+      }
+      yPos += 4;
+    }
 
     const pageCount = (doc as unknown as { internal: { getNumberOfPages: () => number } }).internal.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
@@ -1448,11 +1507,10 @@ export default function ScanDetail() {
     summarySheet["A1"].s = { font: { bold: true, sz: 14 } };
     XLSX.utils.book_append_sheet(wb, summarySheet, "Summary");
 
-    // Sheet 2 — Components
+    // Sheet 2 — Components summary
     const compHeaders = [
       "Rank", "Component Hierarchy", "Component Name", "Element Tag",
       "Rules", "Worst Impact", "Occurrences", "Pages Affected",
-      "Sample Issue 1", "Sample Issue 2", "Sample Issue 3",
     ];
     const compRows = filteredSmartComponents.map((c, i) => [
       i + 1,
@@ -1463,27 +1521,38 @@ export default function ScanDetail() {
       c.worstImpact.charAt(0).toUpperCase() + c.worstImpact.slice(1),
       c.totalOccurrences,
       c.affectedPageCount,
-      c.sampleDescriptions[0] ?? "",
-      c.sampleDescriptions[1] ?? "",
-      c.sampleDescriptions[2] ?? "",
     ]);
     const compSheet = XLSX.utils.aoa_to_sheet([compHeaders, ...compRows]);
-    // column widths
     compSheet["!cols"] = [
       { wch: 6 }, { wch: 55 }, { wch: 28 }, { wch: 14 },
       { wch: 35 }, { wch: 14 }, { wch: 14 }, { wch: 16 },
-      { wch: 60 }, { wch: 60 }, { wch: 60 },
     ];
     XLSX.utils.book_append_sheet(wb, compSheet, "Components");
 
-    // Sheet 3 — Top Affected Pages
-    const pageHeaders = ["Rank", "Component Hierarchy", "Occurrences", "Page URL"];
-    const pageRows = filteredSmartComponents.flatMap((c, i) =>
-      c.topPages.map(url => [i + 1, c.hierarchy, c.totalOccurrences, url])
+    // Sheet 3 — Issues & Affected Pages (one row per variant × page URL)
+    const issueHeaders = [
+      "Rank", "Component Hierarchy", "Worst Impact", "Rules",
+      "Issue Description", "Pages for This Issue", "Affected Page URL",
+    ];
+    const issueRows = filteredSmartComponents.flatMap((c, ci) =>
+      (c.issueVariants ?? []).flatMap(v =>
+        v.pages.map(url => [
+          ci + 1,
+          c.hierarchy,
+          c.worstImpact.charAt(0).toUpperCase() + c.worstImpact.slice(1),
+          c.ruleIds.join(", "),
+          v.description,
+          v.occurrences,
+          url,
+        ])
+      )
     );
-    const pageSheet = XLSX.utils.aoa_to_sheet([pageHeaders, ...pageRows]);
-    pageSheet["!cols"] = [{ wch: 6 }, { wch: 55 }, { wch: 14 }, { wch: 90 }];
-    XLSX.utils.book_append_sheet(wb, pageSheet, "Top Affected Pages");
+    const issueSheet = XLSX.utils.aoa_to_sheet([issueHeaders, ...issueRows]);
+    issueSheet["!cols"] = [
+      { wch: 6 }, { wch: 50 }, { wch: 12 }, { wch: 30 },
+      { wch: 70 }, { wch: 16 }, { wch: 90 },
+    ];
+    XLSX.utils.book_append_sheet(wb, issueSheet, "Issues & Affected Pages");
 
     XLSX.writeFile(wb, `smart-analysis-${scanLabel.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
