@@ -1350,27 +1350,27 @@ function extractAemComponent(element: string | null, selector: string | null): {
     }
 
     if (cmpLevels.length > 0) {
-      // Nearest component is [0], outermost is last — reverse for parent > child display
+      // cmpLevels[0] = nearest, last = outermost (absolute parent) — reverse for display
+      const outermost = cmpLevels[cmpLevels.length - 1];
       const hierarchy = [...cmpLevels].reverse().join(" > ");
-      return { name: cmpLevels[0], tag, hierarchy: `${hierarchy} > <${tag}>` };
+      return { name: outermost, tag, hierarchy: `${hierarchy} > <${tag}>` };
     }
 
-    // Priority 3: no AEM components found — show DOM ancestry from selector
-    // Take up to 4 ancestor parts + the element tag for context
+    // Priority 3: no AEM components found — use outermost meaningful ancestor as name
     const SKIP_TAGS = new Set(["html","body","main","div","span","section","article","aside","header","footer"]);
-    // try to include non-generic parts first, else just take last 4
     const meaningfulParts = parts.slice(0, -1).filter(p => {
       const lbl = selectorPartLabel(p);
-      // include if it has a class/id or is a semantic tag
       return /[.#]/.test(lbl) || !SKIP_TAGS.has(lbl.split(".")[0]);
     });
+    // Use outermost 6 meaningful ancestors; fall back to first 4 selector parts
     const ancestorParts = meaningfulParts.length > 0
-      ? meaningfulParts.slice(-3)
-      : parts.slice(-Math.min(4, parts.length), -1);
+      ? meaningfulParts.slice(0, 6)
+      : parts.slice(0, Math.min(4, parts.length - 1));
 
     const ancestorLabels = ancestorParts.map(p => selectorPartLabel(p));
     const hierStr = [...ancestorLabels, `<${tag}>`].join(" > ");
-    const name = ancestorLabels.length > 0 ? ancestorLabels[ancestorLabels.length - 1] : `<${tag}>`;
+    // Absolute parent = outermost = first in ancestor list
+    const name = ancestorLabels.length > 0 ? ancestorLabels[0] : `<${tag}>`;
     return { name, tag, hierarchy: hierStr };
   }
 
@@ -1412,41 +1412,68 @@ router.get("/scans/:id/smart-analysis", requireAuth, async (req, res): Promise<v
     impacts: Set<string>;
     totalOccurrences: number;
     affectedPages: Set<string>;
-    sampleDescriptions: string[];
+    /** description text → set of page URLs that have this exact issue */
+    issueVariants: Map<string, Set<string>>;
   };
 
   const map = new Map<string, Entry>();
 
   for (const row of rows) {
     const { name, tag, hierarchy } = extractAemComponent(row.element, row.selector);
-    // Group by component name + tag so cmp-nav><a and cmp-nav><img are separate rows
     const key = `${name}::${tag}`;
     let entry = map.get(key);
     if (!entry) {
-      entry = { componentName: name, tag, hierarchy, ruleIds: new Set(), impacts: new Set(), totalOccurrences: 0, affectedPages: new Set(), sampleDescriptions: [] };
+      entry = {
+        componentName: name, tag, hierarchy,
+        ruleIds: new Set(), impacts: new Set(),
+        totalOccurrences: 0, affectedPages: new Set(),
+        issueVariants: new Map(),
+      };
       map.set(key, entry);
     }
     entry.ruleIds.add(row.ruleId);
     entry.impacts.add(row.impact);
     entry.totalOccurrences++;
     entry.affectedPages.add(row.pageUrl);
-    if (entry.sampleDescriptions.length < 3 && row.description && !entry.sampleDescriptions.includes(row.description)) {
-      entry.sampleDescriptions.push(row.description);
+
+    // Track pages per unique issue description (cap at 50 unique descriptions)
+    {
+      const descKey = row.description || `[${row.ruleId}]`;
+      let pages = entry.issueVariants.get(descKey);
+      if (!pages) {
+        if (entry.issueVariants.size < 50) {
+          pages = new Set();
+          entry.issueVariants.set(descKey, pages);
+        }
+      }
+      pages?.add(row.pageUrl);
     }
   }
 
   const components = [...map.values()]
-    .map(e => ({
-      componentName: e.componentName,
-      tag: e.tag,
-      hierarchy: e.hierarchy,
-      ruleIds: [...e.ruleIds].sort(),
-      worstImpact: [...e.impacts].sort((a, b) => (IMPACT_ORDER[a] ?? 9) - (IMPACT_ORDER[b] ?? 9))[0] ?? "minor",
-      totalOccurrences: e.totalOccurrences,
-      affectedPageCount: e.affectedPages.size,
-      topPages: [...e.affectedPages].slice(0, 20),
-      sampleDescriptions: e.sampleDescriptions,
-    }))
+    .map(e => {
+      // Sort issue variants by number of affected pages desc, cap at 30
+      const issueVariants = [...e.issueVariants.entries()]
+        .map(([description, pages]) => ({
+          description,
+          occurrences: pages.size,
+          pages: [...pages].slice(0, 50),
+        }))
+        .sort((a, b) => b.occurrences - a.occurrences)
+        .slice(0, 30);
+
+      return {
+        componentName: e.componentName,
+        tag: e.tag,
+        hierarchy: e.hierarchy,
+        ruleIds: [...e.ruleIds].sort(),
+        worstImpact: [...e.impacts].sort((a, b) => (IMPACT_ORDER[a] ?? 9) - (IMPACT_ORDER[b] ?? 9))[0] ?? "minor",
+        totalOccurrences: e.totalOccurrences,
+        affectedPageCount: e.affectedPages.size,
+        topPages: [...e.affectedPages].slice(0, 20),
+        issueVariants,
+      };
+    })
     .sort((a, b) => b.totalOccurrences - a.totalOccurrences);
 
   res.json({
@@ -1455,6 +1482,52 @@ router.get("/scans/:id/smart-analysis", requireAuth, async (req, res): Promise<v
     totalComponents: components.length,
     components,
   });
+});
+
+// ── Smart Analysis — per-page occurrences for code view ──────────────────────
+router.get("/scans/:id/smart-analysis/page-occurrences", requireAuth, async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const scanId = parseInt(raw, 10);
+  if (isNaN(scanId)) { res.status(400).json({ error: "Invalid scan ID" }); return; }
+
+  const componentName = typeof req.query.componentName === "string" ? req.query.componentName : null;
+  const pageUrl = typeof req.query.pageUrl === "string" ? req.query.pageUrl : null;
+  if (!componentName || !pageUrl) { res.status(400).json({ error: "componentName and pageUrl are required" }); return; }
+
+  const rows = await db.select({
+    id: accessibilityIssuesTable.id,
+    pageId: accessibilityIssuesTable.pageId,
+    ruleId: accessibilityIssuesTable.ruleId,
+    impact: accessibilityIssuesTable.impact,
+    element: accessibilityIssuesTable.element,
+    selector: accessibilityIssuesTable.selector,
+    description: accessibilityIssuesTable.description,
+  })
+    .from(accessibilityIssuesTable)
+    .innerJoin(pageResultsTable, eq(accessibilityIssuesTable.pageId, pageResultsTable.id))
+    .where(and(
+      eq(pageResultsTable.scanId, scanId),
+      eq(pageResultsTable.url, pageUrl),
+      eq(accessibilityIssuesTable.falsePositive, false),
+    ));
+
+  const pageId = rows[0]?.pageId ?? null;
+
+  const occurrences = rows
+    .filter(row => {
+      const { name } = extractAemComponent(row.element, row.selector);
+      return name === componentName;
+    })
+    .map(row => ({
+      id: row.id,
+      ruleId: row.ruleId,
+      impact: row.impact,
+      element: row.element ?? "",
+      selector: row.selector ?? "",
+      description: row.description ?? "",
+    }));
+
+  res.json({ componentName, pageUrl, pageId, occurrences });
 });
 
 // ── False-positive flag ──────────────────────────────────────────────────────

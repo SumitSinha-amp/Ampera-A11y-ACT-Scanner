@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
 import { useAuth } from "@/contexts/auth";
 import { SIA_RULES } from "@/lib/siaRules";
 import { useParams, Link, useLocation } from "wouter";
@@ -74,6 +74,7 @@ import {
   ChevronRight,
   TrendingUp,
   CircleSlash,
+  Code,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -88,6 +89,309 @@ import { useToast } from "@/hooks/use-toast";
 import { Copy } from "lucide-react";
 import { ElementViewer, type ViewerIssue } from "@/components/element-viewer";
 import { isElementViewerEnabled } from "@/pages/settings";
+
+// ── CSS Selector Hierarchy (expandable breadcrumb) ───────────────────────────
+function SelectorHierarchy({ selector }: { selector: string }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!selector) return null;
+  const parts = selector.split(/\s*>\s*/);
+  const showAll = expanded || parts.length <= 4;
+  return (
+    <div className="text-xs font-mono select-text">
+      <div className="space-y-0.5">
+        {showAll ? parts.map((part, i) => (
+          <div key={i} style={{ paddingLeft: `${i * 10}px` }} className="flex items-start gap-1 leading-snug">
+            {i > 0 && <span style={{ color: "#bbb", marginRight: "2px", flexShrink: 0 }}>▸</span>}
+            <span style={{ color: i === parts.length - 1 ? "#000080" : "#555", fontWeight: i === parts.length - 1 ? 600 : 400 }}>{part}</span>
+          </div>
+        )) : (
+          <>
+            <div className="flex items-start gap-1"><span style={{ color: "#555" }}>{parts[0]}</span></div>
+            <div style={{ paddingLeft: "10px" }} className="flex items-start gap-1">
+              <span style={{ color: "#bbb", marginRight: "2px", flexShrink: 0 }}>▸</span>
+              <span style={{ color: "#aaa", fontStyle: "italic" }}>… {parts.length - 3} more levels …</span>
+            </div>
+            {parts.slice(-2).map((part, j) => (
+              <div key={j} style={{ paddingLeft: `${(parts.length - 2 + j) * 10}px` }} className="flex items-start gap-1">
+                <span style={{ color: "#bbb", marginRight: "2px", flexShrink: 0 }}>▸</span>
+                <span style={{ color: j === 1 ? "#000080" : "#555", fontWeight: j === 1 ? 600 : 400 }}>{part}</span>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+      {parts.length > 4 && (
+        <button onClick={() => setExpanded(!expanded)} className="mt-1.5 text-violet-600 hover:underline text-xs">
+          {expanded ? "Collapse hierarchy" : `Expand all ${parts.length} levels`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Interactive HTML Tree (Siteimprove-style) ─────────────────────────────────
+const VOID_TAGS = new Set(["area","base","br","col","embed","hr","img","input","link","meta","param","source","track","wbr"]);
+
+type HtmlTreeNode = {
+  id: string;
+  kind: "element" | "text" | "comment";
+  tag?: string;
+  attrs?: Array<{ name: string; value: string }>;
+  children?: HtmlTreeNode[];
+  selfClose?: boolean;
+  text?: string;
+  domEl?: Element;
+};
+
+function buildHtmlTree(node: ChildNode, idPrefix: string): HtmlTreeNode | null {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const text = (node.textContent ?? "").trim();
+    if (!text) return null;
+    return { id: idPrefix, kind: "text", text };
+  }
+  if (node.nodeType === Node.COMMENT_NODE) {
+    return { id: idPrefix, kind: "comment", text: `<!--${node.textContent ?? ""}-->` };
+  }
+  if (node.nodeType === Node.ELEMENT_NODE) {
+    const el = node as Element;
+    const attrs = Array.from(el.attributes).map(a => ({ name: a.name, value: a.value }));
+    const selfClose = VOID_TAGS.has(el.tagName.toLowerCase());
+    const children: HtmlTreeNode[] = [];
+    if (!selfClose) {
+      let ci = 0;
+      for (const child of Array.from(el.childNodes)) {
+        const c = buildHtmlTree(child, `${idPrefix}.${ci}`);
+        if (c) { children.push(c); ci++; }
+      }
+    }
+    return { id: idPrefix, kind: "element", tag: el.tagName.toLowerCase(), attrs, children, selfClose, domEl: el };
+  }
+  return null;
+}
+
+function collectAncestors(nodes: HtmlTreeNode[], targetEl: Element): { ancestorIds: Set<string>; targetId: string | null } {
+  const ancestorIds = new Set<string>();
+  let targetId: string | null = null;
+  function walk(node: HtmlTreeNode, path: string[]): boolean {
+    if (node.domEl === targetEl) {
+      path.forEach(id => ancestorIds.add(id));
+      ancestorIds.add(node.id);
+      targetId = node.id;
+      return true;
+    }
+    if (node.children) {
+      for (const child of node.children) {
+        if (walk(child, [...path, node.id])) return true;
+      }
+    }
+    return false;
+  }
+  for (const root of nodes) walk(root, []);
+  return { ancestorIds, targetId };
+}
+
+function HtmlTag({ tag, attrs = [], close = false }: { tag: string; attrs?: Array<{ name: string; value: string }>; close?: boolean }) {
+  return (
+    <span style={{ fontFamily: "monospace", fontSize: "12px" }}>
+      <span style={{ color: "#444" }}>{close ? "</" : "<"}</span>
+      <span style={{ color: "#000080", fontWeight: 600 }}>{tag}</span>
+      {!close && attrs.map((a, i) => (
+        <span key={i}>
+          <span> </span>
+          <span style={{ color: "#8B0000" }}>{a.name}</span>
+          {a.value !== "" && <>
+            <span style={{ color: "#555" }}>=</span>
+            <span style={{ color: "#006400" }}>"{a.value}"</span>
+          </>}
+        </span>
+      ))}
+      <span style={{ color: "#444" }}>{">"}</span>
+    </span>
+  );
+}
+
+const HtmlTreeRow = memo(function HtmlTreeRow({
+  node, expandedIds, onToggle, targetId, depth,
+}: {
+  node: HtmlTreeNode;
+  expandedIds: Set<string>;
+  onToggle: (id: string) => void;
+  targetId: string | null;
+  depth: number;
+}) {
+  const indent = depth * 16;
+  const isTarget = node.id === targetId;
+
+  if (node.kind === "text") {
+    return (
+      <div data-is-target={isTarget || undefined} style={{ paddingLeft: `${indent + 20}px`, color: "#333", fontSize: "12px", fontFamily: "monospace", lineHeight: "1.8", whiteSpace: "pre-wrap", wordBreak: "break-word", background: isTarget ? "rgba(124,58,237,0.08)" : undefined, outline: isTarget ? "2px solid #7c3aed" : undefined, outlineOffset: "-2px" }}>
+        {node.text}
+      </div>
+    );
+  }
+  if (node.kind === "comment") {
+    return (
+      <div style={{ paddingLeft: `${indent + 20}px`, color: "#999", fontStyle: "italic", fontSize: "12px", fontFamily: "monospace", lineHeight: "1.8" }}>
+        {node.text}
+      </div>
+    );
+  }
+
+  const hasChildren = (node.children?.length ?? 0) > 0;
+  const isExpanded = expandedIds.has(node.id);
+
+  return (
+    <div data-is-target={isTarget || undefined}>
+      <div
+        onClick={hasChildren ? () => onToggle(node.id) : undefined}
+        style={{
+          display: "flex", alignItems: "flex-start",
+          paddingLeft: `${indent}px`, paddingTop: "1px", paddingBottom: "1px",
+          cursor: hasChildren ? "pointer" : "default",
+          background: isTarget ? "rgba(124,58,237,0.08)" : undefined,
+          outline: isTarget ? "2px solid #7c3aed" : undefined,
+          outlineOffset: "-2px",
+        }}
+      >
+        <span style={{ width: "20px", flexShrink: 0, color: "#aaa", userSelect: "none", fontSize: "11px", paddingTop: "3px", textAlign: "center" }}>
+          {hasChildren ? (isExpanded ? "▾" : "▸") : ""}
+        </span>
+        <div style={{ flex: 1, minWidth: 0, lineHeight: "1.8" }}>
+          {isExpanded || !hasChildren ? (
+            <HtmlTag tag={node.tag!} attrs={node.attrs} />
+          ) : (
+            <span>
+              <HtmlTag tag={node.tag!} attrs={node.attrs} />
+              <span style={{ color: "#bbb", fontFamily: "monospace", fontSize: "12px" }}> … </span>
+              <span style={{ color: "#444", fontFamily: "monospace", fontSize: "12px" }}>{"</"}</span>
+              <span style={{ color: "#000080", fontWeight: 600, fontFamily: "monospace", fontSize: "12px" }}>{node.tag}</span>
+              <span style={{ color: "#444", fontFamily: "monospace", fontSize: "12px" }}>{">"}</span>
+            </span>
+          )}
+        </div>
+      </div>
+      {isExpanded && hasChildren && (
+        <div>
+          {node.children!.map(child => (
+            <HtmlTreeRow key={child.id} node={child} expandedIds={expandedIds} onToggle={onToggle} targetId={targetId} depth={depth + 1} />
+          ))}
+          <div style={{ paddingLeft: `${indent + 20}px`, fontFamily: "monospace", fontSize: "12px", lineHeight: "1.8", color: "#444" }}>
+            {"</"}<span style={{ color: "#000080", fontWeight: 600 }}>{node.tag}</span>{">"}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+function InteractiveHtmlTree({ pageHtml, elementHtml, selector }: { pageHtml: string; elementHtml: string; selector: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [tree, setTree] = useState<HtmlTreeNode[]>([]);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [targetId, setTargetId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pageHtml) { setTree([]); return; }
+    const doc = new DOMParser().parseFromString(pageHtml, "text/html");
+    const rootNode = buildHtmlTree(doc.documentElement, "0");
+    const nodes = rootNode ? [rootNode] : [];
+    let targetEl: Element | null = null;
+    if (selector) {
+      try { targetEl = doc.querySelector(selector); } catch { /* ignore */ }
+    }
+    if (!targetEl && elementHtml) {
+      const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+      const needle = norm(elementHtml).slice(0, 100);
+      for (const el of Array.from(doc.querySelectorAll("*"))) {
+        if (norm(el.outerHTML).includes(needle)) { targetEl = el; break; }
+      }
+    }
+    let newExpanded = new Set<string>();
+    let newTarget: string | null = null;
+    if (targetEl) {
+      const { ancestorIds, targetId: tid } = collectAncestors(nodes, targetEl);
+      newExpanded = ancestorIds;
+      newTarget = tid;
+    }
+    setTree(nodes);
+    setExpandedIds(newExpanded);
+    setTargetId(newTarget);
+  }, [pageHtml, selector, elementHtml]);
+
+  useEffect(() => {
+    if (!containerRef.current || !targetId) return;
+    const el = containerRef.current.querySelector("[data-is-target]");
+    if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "center" }), 120);
+  }, [targetId, tree.length]);
+
+  const handleToggle = useCallback((id: string) => {
+    setExpandedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }, []);
+
+  if (!pageHtml) {
+    return (
+      <div className="flex-1 overflow-auto bg-white p-5">
+        <p className="text-xs text-gray-400 italic mb-2">Full page HTML not stored for this page</p>
+        <pre className="text-xs font-mono whitespace-pre-wrap" style={{ color: "#1a1a1a" }}>{elementHtml}</pre>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={containerRef} className="flex-1 overflow-auto bg-white py-3 select-text">
+      {tree.length === 0 ? (
+        <div className="flex items-center justify-center h-32 text-gray-400 text-sm gap-2">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span>Parsing HTML…</span>
+        </div>
+      ) : (
+        tree.map(node => (
+          <HtmlTreeRow key={node.id} node={node} expandedIds={expandedIds} onToggle={handleToggle} targetId={targetId} depth={0} />
+        ))
+      )}
+    </div>
+  );
+}
+
+
+function SmartHtmlHighlight({ html }: { html: string }) {
+  if (!html) return <span style={{ color: "#888", fontStyle: "italic" }}>No element HTML captured</span>;
+  const segments = html.split(/(<(?:[^"'>]|"[^"]*"|'[^']*')*\/?>)/g);
+  return (
+    <>
+      {segments.map((seg, i) => {
+        if (!seg.startsWith("<")) return <span key={i} style={{ color: "#333" }}>{seg}</span>;
+        const isClose = seg.startsWith("</");
+        const isSelfClose = seg.endsWith("/>");
+        const inner = seg.slice(isClose ? 2 : 1, isSelfClose ? -2 : -1);
+        const nameMatch = inner.match(/^[\w:-]+/);
+        const tagName = nameMatch ? nameMatch[0] : "";
+        const rest = inner.slice(tagName.length);
+        const attrRegex = /\s+([\w:-]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\s>/"']+)))?/g;
+        const attrParts: React.ReactNode[] = [];
+        let m: RegExpExecArray | null;
+        while ((m = attrRegex.exec(rest)) !== null) {
+          const aName = m[1];
+          const aVal = m[2] ?? m[3] ?? m[4];
+          attrParts.push(
+            aVal !== undefined
+              ? <span key={m.index}>{" "}<span style={{ color: "#8B0000" }}>{aName}</span><span style={{ color: "#555" }}>{"="}</span><span style={{ color: "#006400" }}>{`"${aVal}"`}</span></span>
+              : <span key={m.index}>{" "}<span style={{ color: "#8B0000" }}>{aName}</span></span>
+          );
+        }
+        return (
+          <span key={i}>
+            <span style={{ color: "#666" }}>&lt;{isClose ? "/" : ""}</span>
+            <span style={{ color: "#000080", fontWeight: 600 }}>{tagName}</span>
+            {attrParts}
+            {isSelfClose && <span style={{ color: "#666" }}> /</span>}
+            <span style={{ color: "#666" }}>&gt;</span>
+          </span>
+        );
+      })}
+    </>
+  );
+}
 
 function ImpactBadge({ impact }: { impact: string }) {
   switch (impact) {
@@ -1372,6 +1676,22 @@ export default function ScanDetail() {
   const [smartImpact, setSmartImpact] = useState("all");
   const [smartRule, setSmartRule] = useState("all");
   const [smartExpanded, setSmartExpanded] = useState<Set<string>>(new Set());
+  const [smartUrlFilter, setSmartUrlFilter] = useState("");
+
+  type CodeViewOccurrence = { id: number; ruleId: string; impact: string; element: string; selector: string; description: string };
+  const [codeViewOpen, setCodeViewOpen] = useState(false);
+  const [codeViewLoading, setCodeViewLoading] = useState(false);
+  const [codeViewUrl, setCodeViewUrl] = useState("");
+  const [codeViewComponentName, setCodeViewComponentName] = useState("");
+  const [codeViewOccurrences, setCodeViewOccurrences] = useState<CodeViewOccurrence[]>([]);
+  const [codeViewSelectedIdx, setCodeViewSelectedIdx] = useState(0);
+  const [codeViewPageHtml, setCodeViewPageHtml] = useState("");
+  const [codeViewPageId, setCodeViewPageId] = useState<number | null>(null);
+  const codeViewHighlightRef = useRef<HTMLSpanElement>(null);
+  const [codeViewExpandedOccs, setCodeViewExpandedOccs] = useState<Set<number>>(new Set());
+  function toggleOccExpanded(i: number) {
+    setCodeViewExpandedOccs(prev => { const n = new Set(prev); if (n.has(i)) n.delete(i); else n.add(i); return n; });
+  }
 
   async function exportSmartPDF() {
     const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
@@ -1587,12 +1907,53 @@ export default function ScanDetail() {
     });
   }
 
+  async function openCodeView(comp: SmartComponent, url: string) {
+    const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+    setCodeViewComponentName(comp.componentName);
+    setCodeViewUrl(url);
+    setCodeViewSelectedIdx(0);
+    setCodeViewOccurrences([]);
+    setCodeViewPageHtml("");
+    setCodeViewPageId(null);
+    setCodeViewExpandedOccs(new Set());
+    setCodeViewOpen(true);
+    setCodeViewLoading(true);
+    try {
+      const res = await fetch(
+        `${BASE}/api/scans/${scanId}/smart-analysis/page-occurrences?componentName=${encodeURIComponent(comp.componentName)}&pageUrl=${encodeURIComponent(url)}`,
+        { credentials: "include" }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setCodeViewOccurrences(data.occurrences ?? []);
+        const pid: number | null = data.pageId ?? null;
+        setCodeViewPageId(pid);
+        if (pid) {
+          const htmlRes = await fetch(`${BASE}/api/pages/${pid}/html`, { credentials: "include" });
+          if (htmlRes.ok) {
+            const htmlData = await htmlRes.json();
+            setCodeViewPageHtml(htmlData.html ?? "");
+          }
+        }
+      }
+    } finally {
+      setCodeViewLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (codeViewOpen && codeViewHighlightRef.current) {
+      codeViewHighlightRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [codeViewOpen, codeViewSelectedIdx, codeViewPageHtml]);
+
   const IMPACT_ORDER: Record<string, number> = { critical: 0, serious: 1, moderate: 2, minor: 3 };
 
   const filteredSmartComponents = (smartData?.components ?? []).filter(c => {
     if (smartImpact !== "all" && c.worstImpact !== smartImpact) return false;
     if (smartRule !== "all" && !c.ruleIds.includes(smartRule)) return false;
-    if (smartSearch && !c.componentName.toLowerCase().includes(smartSearch.toLowerCase())) return false;
+    if (smartSearch && !c.componentName.toLowerCase().includes(smartSearch.toLowerCase()) && !c.hierarchy.toLowerCase().includes(smartSearch.toLowerCase())) return false;
+    if (smartUrlFilter && !c.topPages.some(u => u.toLowerCase().includes(smartUrlFilter.toLowerCase()))) return false;
     return true;
   });
 
@@ -1962,7 +2323,7 @@ export default function ScanDetail() {
     <div className="space-y-8">
       {/* Smart Analysis Dialog */}
       <Dialog open={smartOpen} onOpenChange={setSmartOpen}>
-        <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col gap-0 p-0">
+        <DialogContent className="max-w-[90vw] max-h-[90vh] flex flex-col gap-0 p-0">
           <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
             <DialogTitle className="flex items-center gap-2 text-lg">
               <Sparkles className="w-5 h-5 text-violet-500" />
@@ -2034,6 +2395,15 @@ export default function ScanDetail() {
                     className="pl-8 pr-3 py-1.5 text-sm w-full rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
+                <div className="relative flex-1 min-w-48">
+                  <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-muted-foreground" />
+                  <input
+                    value={smartUrlFilter}
+                    onChange={e => setSmartUrlFilter(e.target.value)}
+                    placeholder="Filter by URL…"
+                    className="pl-8 pr-3 py-1.5 text-sm w-full rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
                 <select
                   value={smartImpact}
                   onChange={e => setSmartImpact(e.target.value)}
@@ -2053,9 +2423,9 @@ export default function ScanDetail() {
                   <option value="all">All rules</option>
                   {allSmartRules.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
-                {(smartSearch || smartImpact !== "all" || smartRule !== "all") && (
+                {(smartSearch || smartUrlFilter || smartImpact !== "all" || smartRule !== "all") && (
                   <button
-                    onClick={() => { setSmartSearch(""); setSmartImpact("all"); setSmartRule("all"); }}
+                    onClick={() => { setSmartSearch(""); setSmartUrlFilter(""); setSmartImpact("all"); setSmartRule("all"); }}
                     className="text-sm px-3 py-1.5 rounded-md border border-input hover:bg-muted flex items-center gap-1"
                   >
                     <X className="w-3.5 h-3.5" /> Clear
@@ -2156,11 +2526,11 @@ export default function ScanDetail() {
                               <tr key={`${comp.componentName}-expanded`} className="border-b bg-muted/20">
                                 <td colSpan={7} className="px-10 py-4">
                                   <div className="space-y-3">
-                                    {comp.sampleDescriptions.length > 0 && (
+                                    {(comp.sampleDescriptions?.length ?? 0) > 0 && (
                                       <div>
                                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Sample Issue Descriptions</p>
                                         <ul className="space-y-1">
-                                          {comp.sampleDescriptions.map((d, i) => (
+                                          {comp.sampleDescriptions!.map((d, i) => (
                                             <li key={i} className="text-xs text-foreground bg-background rounded px-3 py-2 border">
                                               {d}
                                             </li>
@@ -2174,8 +2544,22 @@ export default function ScanDetail() {
                                       </p>
                                       <ul className="space-y-1">
                                         {comp.topPages.map((url, i) => (
-                                          <li key={i} className="text-xs font-mono break-all text-muted-foreground">
-                                            <a href={url} target="_blank" rel="noopener noreferrer" className="hover:text-foreground hover:underline">{url}</a>
+                                          <li key={i} className="flex items-center gap-2">
+                                            <button
+                                              type="button"
+                                              onClick={() => openCodeView(comp, url)}
+                                              className="text-xs font-mono break-all text-left text-violet-600 dark:text-violet-400 hover:underline flex-1"
+                                            >
+                                              {url}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => openCodeView(comp, url)}
+                                              title="View code"
+                                              className="shrink-0 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                                            >
+                                              <Code className="w-3.5 h-3.5" />
+                                            </button>
                                           </li>
                                         ))}
                                       </ul>
@@ -2189,6 +2573,110 @@ export default function ScanDetail() {
                       })}
                     </tbody>
                   </table>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Code View Dialog */}
+      <Dialog open={codeViewOpen} onOpenChange={setCodeViewOpen}>
+        <DialogContent className="max-w-[88vw] h-[82vh] flex flex-col gap-0 p-0">
+          <DialogHeader className="px-6 pt-5 pb-4 border-b shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Code className="w-4 h-4 text-violet-500" />
+              Code View — {codeViewComponentName}
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground mt-0.5 font-mono break-all">{codeViewUrl}</p>
+          </DialogHeader>
+          {codeViewLoading && (
+            <div className="flex flex-col items-center justify-center flex-1 gap-3">
+              <Loader2 className="w-6 h-6 animate-spin text-violet-500" />
+              <p className="text-sm text-muted-foreground">Loading occurrences…</p>
+            </div>
+          )}
+          {!codeViewLoading && (
+            <div className="flex flex-1 overflow-hidden">
+              {/* Left pane — occurrence list */}
+              <div className="w-80 shrink-0 border-r overflow-y-auto flex flex-col">
+                <div className="px-4 py-2.5 border-b bg-muted/30 shrink-0">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {codeViewOccurrences.length} occurrence{codeViewOccurrences.length !== 1 ? "s" : ""}
+                  </p>
+                </div>
+                {codeViewOccurrences.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center flex-1 py-10 text-muted-foreground text-xs gap-2">
+                    <Info className="w-4 h-4" />
+                    No occurrences found on this page
+                  </div>
+                ) : (
+                  <ul className="divide-y flex-1 overflow-y-auto">
+                    {codeViewOccurrences.map((occ, i) => {
+                      const isSelected = i === codeViewSelectedIdx;
+                      const isExpOcc = codeViewExpandedOccs.has(i);
+                      return (
+                        <li key={occ.id} className={`transition-colors ${isSelected ? "bg-violet-50 dark:bg-violet-950/20 border-l-2 border-l-violet-500" : "border-l-2 border-l-transparent"}`}>
+                          <div
+                            onClick={() => setCodeViewSelectedIdx(i)}
+                            className="px-4 pt-3 pb-2 cursor-pointer hover:bg-muted/40"
+                          >
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                              <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded border">{occ.ruleId}</span>
+                              <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                                occ.impact === "critical" ? "bg-[#E11D48] text-white" :
+                                occ.impact === "serious" ? "bg-[#EA580C] text-white" :
+                                occ.impact === "moderate" ? "bg-[#EAB308] text-black" :
+                                "bg-[#3B82F6] text-white"
+                              }`}>{occ.impact}</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground leading-snug line-clamp-3">{occ.description || occ.selector}</p>
+                          </div>
+                          {occ.selector && (
+                            <div className="px-4 pb-3">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); toggleOccExpanded(i); }}
+                                className="flex items-center gap-1 text-xs text-violet-600 hover:underline"
+                              >
+                                <ChevronRight className={`w-3 h-3 transition-transform ${isExpOcc ? "rotate-90" : ""}`} />
+                                Hierarchy
+                              </button>
+                              {isExpOcc && (
+                                <div className="mt-2 pl-2 border-l-2 border-violet-200">
+                                  <SelectorHierarchy selector={occ.selector} />
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+              {/* Right pane — interactive HTML tree (Siteimprove-style) */}
+              <div className="flex-1 overflow-hidden flex flex-col border-l">
+                {codeViewOccurrences.length > 0 && codeViewOccurrences[codeViewSelectedIdx] ? (
+                  <>
+                    <div className="px-4 py-2 border-b bg-gray-50 shrink-0 flex items-center gap-3 flex-wrap">
+                      <span className="text-xs text-gray-500 font-mono">
+                        Occurrence {codeViewSelectedIdx + 1} of {codeViewOccurrences.length} · {codeViewOccurrences[codeViewSelectedIdx].ruleId}
+                      </span>
+                      {!codeViewPageHtml && (
+                        <span className="text-xs text-gray-400 italic">Full page HTML not stored — showing element only</span>
+                      )}
+                    </div>
+                    <InteractiveHtmlTree
+                      pageHtml={codeViewPageHtml}
+                      elementHtml={codeViewOccurrences[codeViewSelectedIdx].element}
+                      selector={codeViewOccurrences[codeViewSelectedIdx].selector}
+                    />
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center justify-center flex-1 text-gray-400 text-sm gap-2 bg-white">
+                    <Code className="w-6 h-6" />
+                    <p>Select an occurrence to view its HTML</p>
+                  </div>
                 )}
               </div>
             </div>
