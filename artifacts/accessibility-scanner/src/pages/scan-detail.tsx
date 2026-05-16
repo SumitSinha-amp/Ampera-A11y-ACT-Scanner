@@ -1284,6 +1284,7 @@ export default function ScanDetail() {
   });
 
   const [pageStatusFilter, setPageStatusFilter] = useState<string>("all");
+  const [pageUrlFilter, setPageUrlFilter] = useState("");
 
   const [fpOverrides, setFpOverrides] = useState<Record<number, { falsePositive: boolean; falsePositiveNote: string | null }>>({});
   const [fpDialogIssue, setFpDialogIssue] = useState<Issue | null>(null);
@@ -1852,13 +1853,14 @@ export default function ScanDetail() {
   };
 
   const matchesPageFilter = useCallback(
-    (p: { status: string; issueCount: number }) => {
+    (p: { url: string; status: string; issueCount: number }) => {
+      if (pageUrlFilter && !p.url.toLowerCase().includes(pageUrlFilter.toLowerCase())) return false;
       if (pageStatusFilter === "all") return true;
       if (pageStatusFilter === "completed_with_issues") return p.status === "completed" && p.issueCount > 0;
       if (pageStatusFilter === "completed_no_issues") return p.status === "completed" && p.issueCount === 0;
       return p.status === pageStatusFilter;
     },
-    [pageStatusFilter],
+    [pageStatusFilter, pageUrlFilter],
   );
 
   const pageStatusCounts = useMemo(() => {
@@ -2566,7 +2568,7 @@ export default function ScanDetail() {
                 pending: "text-yellow-700 dark:text-yellow-300",
               };
               return (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {tiles.map(({ value, label, count, activeClass, Icon }) => {
                     const isActive = pageStatusFilter === value;
                     return (
@@ -2588,6 +2590,25 @@ export default function ScanDetail() {
                       </button>
                     );
                   })}
+                  {/* URL text filter — right side of the same row */}
+                  <div className="relative ml-auto w-72 shrink-0">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Filter URLs…"
+                      value={pageUrlFilter}
+                      onChange={(e) => setPageUrlFilter(e.target.value)}
+                      className="pl-9 h-11 bg-white dark:bg-white dark:text-slate-900 dark:placeholder:text-slate-400"
+                    />
+                    {pageUrlFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setPageUrlFilter("")}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })()}
