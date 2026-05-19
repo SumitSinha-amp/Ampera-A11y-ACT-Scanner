@@ -486,7 +486,7 @@ export default function ScanList() {
             View past audits and reports.
           </p>
         </div>
-        <Link href="/">
+        <Link href="/new">
           <Button>New Scan</Button>
         </Link>
       </div>

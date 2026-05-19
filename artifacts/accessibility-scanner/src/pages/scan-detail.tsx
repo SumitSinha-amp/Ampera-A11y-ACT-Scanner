@@ -75,6 +75,7 @@ import {
   TrendingUp,
   CircleSlash,
   Code,
+  Plus,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -2160,6 +2161,49 @@ export default function ScanDetail() {
     },
   });
 
+  // ── Add URLs to running scan ───────────────────────────────────────────────
+  const [addUrlsOpen, setAddUrlsOpen] = useState(false);
+  const [addUrlsText, setAddUrlsText] = useState("");
+
+  const addUrlsMutation = useMutation({
+    mutationFn: async (urls: string[]) => {
+      const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+      const res = await fetch(`${BASE}/api/scans/${scanId}/add-urls`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(err.error ?? "Failed to add URLs");
+      }
+      return res.json() as Promise<{ added: number; skipped: number; total: number }>;
+    },
+    onSuccess: (data) => {
+      const msg = data.skipped > 0
+        ? `Added ${data.added} URL${data.added !== 1 ? "s" : ""} (${data.skipped} already in scan)`
+        : `Added ${data.added} URL${data.added !== 1 ? "s" : ""} to scan`;
+      toast({ title: msg });
+      setAddUrlsOpen(false);
+      setAddUrlsText("");
+      queryClient.invalidateQueries({ queryKey: getGetScanStatusQueryKey(scanId) });
+      queryClient.invalidateQueries({ queryKey: getGetScanQueryKey(scanId) });
+    },
+    onError: (err: Error) => {
+      toast({ title: err.message, variant: "destructive" });
+    },
+  });
+
+  function handleAddUrlsSubmit() {
+    const urls = addUrlsText
+      .split(/[\n,]+/)
+      .map((u) => u.trim())
+      .filter(Boolean);
+    if (urls.length === 0) return;
+    addUrlsMutation.mutate(urls);
+  }
+
   const handleCancel = () => {
     cancelScan.mutate(
       { id: scanId },
@@ -2580,6 +2624,51 @@ export default function ScanDetail() {
         </DialogContent>
       </Dialog>
 
+      {/* Add URLs to running scan dialog */}
+      <Dialog open={addUrlsOpen} onOpenChange={(o) => { setAddUrlsOpen(o); if (!o) setAddUrlsText(""); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="w-4 h-4 text-violet-600" />
+              Add URLs to Scan
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2 space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Enter one URL per line (or comma-separated). Duplicate URLs already in the scan will be skipped automatically.
+            </p>
+            <Textarea
+              className="font-mono text-xs min-h-[180px] resize-y"
+              placeholder={"https://example.com/page-1\nhttps://example.com/page-2\nhttps://example.com/page-3"}
+              value={addUrlsText}
+              onChange={(e) => setAddUrlsText(e.target.value)}
+              disabled={addUrlsMutation.isPending}
+            />
+            {addUrlsText.trim() && (() => {
+              const count = addUrlsText.split(/[\n,]+/).map(u => u.trim()).filter(Boolean).length;
+              return (
+                <p className="text-xs text-muted-foreground">{count} URL{count !== 1 ? "s" : ""} entered</p>
+              );
+            })()}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddUrlsOpen(false)} disabled={addUrlsMutation.isPending}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddUrlsSubmit}
+              disabled={!addUrlsText.trim() || addUrlsMutation.isPending}
+            >
+              {addUrlsMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Adding…</>
+              ) : (
+                <><Plus className="w-4 h-4 mr-2" />Add to Scan</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Code View Dialog */}
       <Dialog open={codeViewOpen} onOpenChange={setCodeViewOpen}>
         <DialogContent className="max-w-[88vw] h-[82vh] flex flex-col gap-0 p-0">
@@ -2882,6 +2971,15 @@ export default function ScanDetail() {
           </div>
         </div>
         <div className="flex gap-2">
+          {isActive && (
+            <Button
+              variant="outline"
+              onClick={() => setAddUrlsOpen(true)}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add URLs
+            </Button>
+          )}
           {isRunning && (
             <Button
               variant="outline"
