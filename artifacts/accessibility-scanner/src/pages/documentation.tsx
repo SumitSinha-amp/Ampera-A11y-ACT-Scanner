@@ -305,9 +305,9 @@ const ruleReferences = [
   },
   {
     id: "SIA-R49",
-    title: "Media alternative may be missing or incomplete",
+    title: "Auto-playing media lacks a control mechanism",
     detail:
-      "The detected media element appears to lack a complete accessible alternative. Provide a text transcript, audio description, or equivalent that conveys all the information in the media.",
+      "Media that starts playing automatically must provide visible controls (play, pause, or stop) so users can silence or halt it. Auto-playing content — especially audio — disrupts screen readers and violates WCAG 1.4.2.",
   },
   {
     id: "SIA-R50",
@@ -323,9 +323,9 @@ const ruleReferences = [
   },
   {
     id: "SIA-R52",
-    title: "Moving or auto-playing content may not be controllable",
+    title: "Adjacent links reference the same resource",
     detail:
-      "Auto-playing videos, animations, or scrolling tickers must offer a mechanism to pause, stop, or hide them. Moving content can distract users with attention or cognitive difficulties.",
+      "Two or more consecutive links pointing to the same destination add redundant navigation stops for keyboard and screen reader users. Combine them into a single link, typically wrapping the image and text together.",
   },
   {
     id: "SIA-R53",
@@ -353,9 +353,9 @@ const ruleReferences = [
   },
   {
     id: "SIA-R57",
-    title: "Non-text contrast for UI components is insufficient",
+    title: "Perceivable text content is not inside a landmark region",
     detail:
-      "Icons, input borders, focus rings, and other non-text UI components must have at least a 3:1 contrast ratio against adjacent colours (WCAG 1.4.11 AA).",
+      "Visible text that sits outside any ARIA landmark (<main>, <nav>, <header>, <footer>, etc.) is unreachable via landmark navigation. Wrap all perceivable content inside appropriate landmark regions so screen reader users can find it.",
   },
   {
     id: "SIA-R58",
@@ -419,9 +419,9 @@ const ruleReferences = [
   },
   {
     id: "SIA-R68",
-    title: "Empty container element detected",
+    title: "ARIA role is missing required child elements",
     detail:
-      "A visible block-level element has no content. Empty containers may be rendering artefacts that should be removed, or they need meaningful content or aria-hidden to avoid confusion.",
+      "Certain ARIA roles mandate specific child roles to be valid — for example, a <ul role=\"list\"> must contain <li role=\"listitem\"> children, and a <table role=\"grid\"> must contain row elements. Missing required children break the widget contract and cause assistive technologies to misinterpret the component.",
   },
   {
     id: "SIA-R69",
@@ -437,9 +437,9 @@ const ruleReferences = [
   },
   {
     id: "SIA-R71",
-    title: "Text spacing is inconsistent",
+    title: "Paragraph text is fully justified",
     detail:
-      "Inconsistent or excessive spacing adjustments applied through CSS may break the layout when users override text spacing via a user stylesheet (WCAG 1.4.12).",
+      "text-align:justify creates uneven word-spacing that is harder to read, particularly for users with dyslexia. Use left-aligned (or start-aligned) text for body paragraphs instead of full justification.",
   },
   {
     id: "SIA-R72",
@@ -479,9 +479,9 @@ const ruleReferences = [
   },
   {
     id: "SIA-R78",
-    title: "Heading is not followed by content",
+    title: "Consecutive same-level headings with no content between them",
     detail:
-      "A heading at the end of a section with no subsequent content may indicate a structural issue. Headings should introduce the content that follows, not appear in isolation.",
+      "Two or more headings of the same level placed back-to-back with no intervening content suggest a structural or authoring error. Each heading should introduce the content that follows it, not appear in a sequence without body text.",
   },
   {
     id: "SIA-R79",
@@ -503,9 +503,9 @@ const ruleReferences = [
   },
   {
     id: "SIA-R82",
-    title: "Semantic structure is missing",
+    title: "Form error message does not describe the invalid value",
     detail:
-      "Content that looks like a list, heading, or table but is marked up with generic <div> or <span> elements lacks the semantic structure that assistive technologies rely on.",
+      "When a form field fails validation, the error message must programmatically identify what is wrong and how to fix it (WCAG 3.3.1). Vague messages like 'Invalid input' do not meet this requirement — describe the exact problem, e.g. 'Email address must contain @'.",
   },
   {
     id: "SIA-R83",
@@ -765,6 +765,50 @@ export default function Documentation() {
             details, expand issue rows, and export results as CSV, Excel, or
             PDF.
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <BookOpen className="w-5 h-5 text-muted-foreground" />
+            <CardTitle>Scanner capabilities</CardTitle>
+          </div>
+          <CardDescription>
+            What the scanner detects, how results are reported, and how to navigate them.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm leading-6 text-muted-foreground">
+          <div>
+            <p className="font-medium text-foreground mb-1">Rules coverage</p>
+            <p>
+              The scanner implements approximately 83 of the 117 Siteimprove SIA rules (R1–R117), covering WCAG 2.1 / 2.2 criteria at levels A, AA, and AAA. All rules are validated against Siteimprove output for accuracy. Each issue includes a rule ID, impact level, WCAG success criterion, remediation guidance, and the offending element's HTML selector.
+            </p>
+          </div>
+          <div>
+            <p className="font-medium text-foreground mb-1">No cap on issue counts</p>
+            <p>
+              Every rule reports all occurrences found on a page — there is no artificial ceiling on how many issues are returned. When a rule finds more than 99 occurrences, the count badge shows <span className="font-mono bg-muted px-1 rounded">99+</span> to keep the display concise while the full list remains available for export.
+            </p>
+          </div>
+          <div>
+            <p className="font-medium text-foreground mb-1">Element Viewer</p>
+            <p>
+              Enable the Element Viewer in <span className="font-medium">Settings</span> to inspect any issue inline. Click an occurrence row to open the viewer, which shows the live page preview alongside the HTML source with the offending element highlighted. Use <span className="font-medium">First</span> / <span className="font-medium">Prev</span> / <span className="font-medium">Next</span> / <span className="font-medium">Last</span> to step through all occurrences of a rule without closing the panel.
+            </p>
+          </div>
+          <div>
+            <p className="font-medium text-foreground mb-1">Smart Analysis</p>
+            <p>
+              Smart Analysis groups issues by component hierarchy across all pages, making it easy to see which shared elements — navigation bars, cards, footers — are responsible for the most issues site-wide. Click <span className="font-medium">Code View</span> on any component to open an interactive HTML tree of the page, with the exact offending element highlighted and expanded automatically. First / Last navigation buttons allow you to step quickly between all occurrences within the Code View panel.
+            </p>
+          </div>
+          <div>
+            <p className="font-medium text-foreground mb-1">Exports</p>
+            <p>
+              Completed scans can be exported as CSV, Excel (.xlsx), or PDF. Smart Analysis reports can also be exported as a multi-sheet PDF summarising components, issue variants, and affected page counts.
+            </p>
+          </div>
         </CardContent>
       </Card>
 

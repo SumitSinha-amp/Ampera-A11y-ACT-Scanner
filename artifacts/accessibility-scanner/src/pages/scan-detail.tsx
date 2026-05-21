@@ -72,6 +72,9 @@ import {
   Flag,
   Sparkles,
   ChevronRight,
+  ChevronLeft,
+  ChevronsLeft,
+  ChevronsRight,
   TrendingUp,
   CircleSlash,
   Code,
@@ -291,34 +294,104 @@ function InteractiveHtmlTree({ pageHtml, elementHtml, selector }: { pageHtml: st
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [targetId, setTargetId] = useState<string | null>(null);
 
+  // Cache the parsed doc so we don't re-parse on every occurrence navigation
+  const parsedDocRef = useRef<Document | null>(null);
+  const parsedHtmlRef = useRef<string>("");
+
+  // Effect 1: rebuild tree only when pageHtml changes
   useEffect(() => {
-    if (!pageHtml) { setTree([]); return; }
+    if (!pageHtml) {
+      setTree([]);
+      parsedDocRef.current = null;
+      parsedHtmlRef.current = "";
+      return;
+    }
+    if (pageHtml === parsedHtmlRef.current && parsedDocRef.current) return;
     const doc = new DOMParser().parseFromString(pageHtml, "text/html");
+    parsedDocRef.current = doc;
+    parsedHtmlRef.current = pageHtml;
     const rootNode = buildHtmlTree(doc.documentElement, "0");
-    const nodes = rootNode ? [rootNode] : [];
+    setTree(rootNode ? [rootNode] : []);
+  }, [pageHtml]);
+
+  // Effect 2: find target element when selector/elementHtml changes (or tree finishes building)
+  useEffect(() => {
+    const doc = parsedDocRef.current;
+    if (!pageHtml || !doc || tree.length === 0) return;
+
     let targetEl: Element | null = null;
+
+    // Strategy 1: exact selector
     if (selector) {
       try { targetEl = doc.querySelector(selector); } catch { /* ignore */ }
     }
-    if (!targetEl && elementHtml) {
-      const norm = (s: string) => s.replace(/\s+/g, " ").trim();
-      const needle = norm(elementHtml).slice(0, 100);
-      for (const el of Array.from(doc.querySelectorAll("*"))) {
-        if (norm(el.outerHTML).includes(needle)) { targetEl = el; break; }
+
+    // Strategy 2: simplified selector — strip pseudo-classes and nth-child that may fail in static DOM
+    if (!targetEl && selector) {
+      try {
+        const simplified = selector
+          .replace(/:nth-child\(\d+\)/g, "")
+          .replace(/:nth-of-type\(\d+\)/g, "")
+          .replace(/:[a-zA-Z-]+(\([^)]*\))?/g, "")
+          .replace(/\s{2,}/g, " ")
+          .trim();
+        if (simplified && simplified !== selector) targetEl = doc.querySelector(simplified);
+      } catch { /* ignore */ }
+    }
+
+    // Strategy 3: match by id extracted from selector
+    if (!targetEl && selector) {
+      const idMatch = selector.match(/#([\w-]+)/);
+      if (idMatch) {
+        try { targetEl = doc.querySelector(`#${idMatch[1]}`); } catch { /* ignore */ }
       }
     }
-    let newExpanded = new Set<string>();
-    let newTarget: string | null = null;
-    if (targetEl) {
-      const { ancestorIds, targetId: tid } = collectAncestors(nodes, targetEl);
-      newExpanded = ancestorIds;
-      newTarget = tid;
+
+    // Strategy 4: match by element HTML — try first line, then increasing slices
+    if (!targetEl && elementHtml) {
+      const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+      const normedEl = norm(elementHtml.trim());
+      const firstTag = normedEl.split("\n")[0];
+      const candidates = [
+        norm(firstTag).slice(0, 200),
+        normedEl.slice(0, 200),
+        normedEl.slice(0, 100),
+        normedEl.slice(0, 60),
+      ].filter((c, i, arr) => c.length > 10 && arr.indexOf(c) === i);
+      outer: for (const needle of candidates) {
+        for (const el of Array.from(doc.querySelectorAll("*"))) {
+          const oh = norm(el.outerHTML);
+          if (oh.startsWith(needle) || oh.includes(needle)) { targetEl = el; break outer; }
+        }
+      }
     }
-    setTree(nodes);
+
+    const newExpanded = new Set<string>();
+    let newTarget: string | null = null;
+
+    if (targetEl) {
+      const { ancestorIds, targetId: tid } = collectAncestors(tree, targetEl);
+      for (const id of ancestorIds) newExpanded.add(id);
+      newTarget = tid;
+    } else {
+      // No match: auto-expand first 2 levels so the user can browse the tree
+      function expandLevels(nodes: HtmlTreeNode[], depth: number) {
+        if (depth >= 2) return;
+        for (const n of nodes) {
+          if (n.kind === "element" && (n.children?.length ?? 0) > 0) {
+            newExpanded.add(n.id);
+            expandLevels(n.children!, depth + 1);
+          }
+        }
+      }
+      expandLevels(tree, 0);
+    }
+
     setExpandedIds(newExpanded);
     setTargetId(newTarget);
-  }, [pageHtml, selector, elementHtml]);
+  }, [tree, selector, elementHtml, pageHtml]);
 
+  // Scroll to highlighted element
   useEffect(() => {
     if (!containerRef.current || !targetId) return;
     const el = containerRef.current.querySelector("[data-is-target]");
@@ -2691,7 +2764,7 @@ export default function ScanDetail() {
               <div className="w-80 shrink-0 border-r overflow-y-auto flex flex-col">
                 <div className="px-4 py-2.5 border-b bg-muted/30 shrink-0">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {codeViewOccurrences.length} occurrence{codeViewOccurrences.length !== 1 ? "s" : ""}
+                    {codeViewOccurrences.length > 99 ? "99+" : codeViewOccurrences.length} occurrence{codeViewOccurrences.length !== 1 ? "s" : ""}
                   </p>
                 </div>
                 {codeViewOccurrences.length === 0 ? (
@@ -2747,13 +2820,46 @@ export default function ScanDetail() {
               <div className="flex-1 overflow-hidden flex flex-col border-l">
                 {codeViewOccurrences.length > 0 && codeViewOccurrences[codeViewSelectedIdx] ? (
                   <>
-                    <div className="px-4 py-2 border-b bg-gray-50 shrink-0 flex items-center gap-3 flex-wrap">
-                      <span className="text-xs text-gray-500 font-mono">
-                        Occurrence {codeViewSelectedIdx + 1} of {codeViewOccurrences.length} · {codeViewOccurrences[codeViewSelectedIdx].ruleId}
+                    <div className="px-3 py-1.5 border-b bg-gray-50 shrink-0 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          onClick={() => setCodeViewSelectedIdx(0)}
+                          disabled={codeViewSelectedIdx === 0}
+                          title="First occurrence"
+                          className="h-6 w-6 flex items-center justify-center rounded hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          <ChevronsLeft className="w-3.5 h-3.5 text-gray-600" />
+                        </button>
+                        <button
+                          onClick={() => setCodeViewSelectedIdx(i => Math.max(0, i - 1))}
+                          disabled={codeViewSelectedIdx === 0}
+                          className="h-6 px-1.5 flex items-center gap-1 text-xs rounded hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-gray-600"
+                        >
+                          <ChevronLeft className="w-3 h-3" /> Prev
+                        </button>
+                      </div>
+                      <span className="text-xs text-gray-500 font-mono tabular-nums">
+                        {codeViewSelectedIdx + 1} / {codeViewOccurrences.length > 99 ? "99+" : codeViewOccurrences.length}
+                        {" · "}{codeViewOccurrences[codeViewSelectedIdx].ruleId}
+                        {!codeViewPageHtml && <span className="text-gray-400 italic ml-2">· no page HTML</span>}
                       </span>
-                      {!codeViewPageHtml && (
-                        <span className="text-xs text-gray-400 italic">Full page HTML not stored — showing element only</span>
-                      )}
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          onClick={() => setCodeViewSelectedIdx(i => Math.min(codeViewOccurrences.length - 1, i + 1))}
+                          disabled={codeViewSelectedIdx >= codeViewOccurrences.length - 1}
+                          className="h-6 px-1.5 flex items-center gap-1 text-xs rounded hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-gray-600"
+                        >
+                          Next <ChevronRight className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => setCodeViewSelectedIdx(codeViewOccurrences.length - 1)}
+                          disabled={codeViewSelectedIdx >= codeViewOccurrences.length - 1}
+                          title="Last occurrence"
+                          className="h-6 w-6 flex items-center justify-center rounded hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          <ChevronsRight className="w-3.5 h-3.5 text-gray-600" />
+                        </button>
+                      </div>
                     </div>
                     <InteractiveHtmlTree
                       pageHtml={codeViewPageHtml}

@@ -6,6 +6,8 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Loader2,
   AlertTriangle,
   ExternalLink,
@@ -419,29 +421,53 @@ export function ElementViewer({
       {/* ── Navigation ── */}
       {group.length > 1 && (
         <div className="flex items-center justify-between px-3 py-1.5 border-b bg-background/50 shrink-0">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-xs gap-1"
-            onClick={() => onNavigate(groupIndex - 1)}
-            disabled={groupIndex === 0}
-          >
-            <ChevronLeft className="w-3 h-3" />
-            Prev
-          </Button>
+          <div className="flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-1.5 text-xs"
+              onClick={() => onNavigate(0)}
+              disabled={groupIndex === 0}
+              title="First occurrence"
+            >
+              <ChevronsLeft className="w-3 h-3" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs gap-1"
+              onClick={() => onNavigate(groupIndex - 1)}
+              disabled={groupIndex === 0}
+            >
+              <ChevronLeft className="w-3 h-3" />
+              Prev
+            </Button>
+          </div>
           <span className="text-xs text-muted-foreground font-mono tabular-nums">
-            {groupIndex + 1} / {group.length} occurrences
+            {groupIndex + 1} / {group.length > 99 ? "99+" : group.length} occurrences
           </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-xs gap-1"
-            onClick={() => onNavigate(groupIndex + 1)}
-            disabled={groupIndex >= group.length - 1}
-          >
-            Next
-            <ChevronRight className="w-3 h-3" />
-          </Button>
+          <div className="flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs gap-1"
+              onClick={() => onNavigate(groupIndex + 1)}
+              disabled={groupIndex >= group.length - 1}
+            >
+              Next
+              <ChevronRight className="w-3 h-3" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-1.5 text-xs"
+              onClick={() => onNavigate(group.length - 1)}
+              disabled={groupIndex >= group.length - 1}
+              title="Last occurrence"
+            >
+              <ChevronsRight className="w-3 h-3" />
+            </Button>
+          </div>
         </div>
       )}
 
