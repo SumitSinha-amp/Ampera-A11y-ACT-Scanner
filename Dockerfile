@@ -58,20 +58,16 @@ RUN npm install -g pnpm
 # Environment Variables
 # =========================
 ENV CI=false
+ENV PNPM_BUILD_POLICY=allow
 ENV PNPM_IGNORE_BUILD_SCRIPTS=false
 ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
-ENV NODE_ENV=production
-ENV PORT=8080
-
-# =========================
-# Allow Build Scripts
-# =========================
-RUN pnpm config set ignore-scripts false
 
 # =========================
 # Install Dependencies
 # =========================
-RUN pnpm install --no-frozen-lockfile --unsafe-perm --config.ignore-scripts=false
+RUN echo "ignore-builds=false" >> .npmrc
+RUN pnpm install --no-frozen-lockfile --unsafe-perm
+
 
 # =========================
 # Install Puppeteer Chrome
