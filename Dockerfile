@@ -61,12 +61,14 @@ ENV CI=false
 ENV PNPM_BUILD_POLICY=allow
 ENV PNPM_IGNORE_BUILD_SCRIPTS=false
 ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
+ENV PNPM_ALLOW_NON_APPLIED_PATCHES=true
+ENV npm_config_allow_build=*
 
 # =========================
 # Install Dependencies
 # =========================
 RUN echo "ignore-builds=false" >> .npmrc
-RUN pnpm install --no-frozen-lockfile --unsafe-perm
+RUN pnpm install --no-frozen-lockfile --unsafe-perm --ignore-workspace --config.allow-build=*
 
 
 # =========================
