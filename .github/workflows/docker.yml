@@ -26,8 +26,8 @@ jobs:
 
       - name: Build image
         run: |
-          docker build -t ghcr.io/${{ github.repository_owner }}/Ampera-A11y-ACT-Scanner:latest .
+          docker build -t ghcr.io/${{ github.repository_owner }}/ampera-a11y-act-scanner:latest .
 
       - name: Push image
         run: |
-          docker push ghcr.io/${{ github.repository_owner }}/Ampera-A11y-ACT-Scanner:latest
+          docker push ghcr.io/${{ github.repository_owner }}/ampera-a11y-act-scanner:latest
