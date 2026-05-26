@@ -64,25 +64,7 @@ RUN pnpm install --no-frozen-lockfile --unsafe-perm
 ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 
 RUN npx puppeteer browsers install chrome
-RUN apt-get update && apt-get install -y \
-    libglib2.0-0 \
-    libnss3 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2 \
-    fonts-liberation \
-    ca-certificates \
-    wget \
-    gnupg \
-    unzip \
-    && rm -rf /var/lib/apt/lists/*
+
 # =========================
 # Copy Source
 # =========================
