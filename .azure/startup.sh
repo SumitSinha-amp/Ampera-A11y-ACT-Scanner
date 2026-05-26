@@ -1,6 +1,39 @@
 #!/bin/bash
 set -e
 
+echo "=== INSTALL CHROME DEPENDENCIES ==="
+
+apt-get update
+
+apt-get install -y \
+  libglib2.0-0 \
+  libnss3 \
+  libatk1.0-0 \
+  libatk-bridge2.0-0 \
+  libcups2 \
+  libdrm2 \
+  libxkbcommon0 \
+  libxcomposite1 \
+  libxdamage1 \
+  libxrandr2 \
+  libgbm1 \
+  libasound2 \
+  libpangocairo-1.0-0 \
+  libpango-1.0-0 \
+  libcairo2 \
+  libatspi2.0-0 \
+  libx11-6 \
+  libxcb1 \
+  libxext6 \
+  libxfixes3 \
+  libxi6 \
+  libxtst6
+
+echo "=== INSTALL CHROME ==="
+
+export PUPPETEER_CACHE_DIR=/home/site/wwwroot/.cache/puppeteer
+
+npx puppeteer browsers install chrome
 echo "Starting app..."
 
 echo "=== CHECK DIST ==="
