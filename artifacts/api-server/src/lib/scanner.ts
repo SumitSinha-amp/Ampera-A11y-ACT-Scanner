@@ -13,17 +13,45 @@ function getChromiumPath(): string | undefined {
   if (process.env["PUPPETEER_EXECUTABLE_PATH"]) {
     return process.env["PUPPETEER_EXECUTABLE_PATH"];
   }
+
+  // Standard PATH lookup — works in dev where Nix adds binaries to PATH
   try {
-    return (
-      execSync(
-        "which chromium 2>/dev/null || which chromium-browser 2>/dev/null || which google-chrome 2>/dev/null",
-      )
-        .toString()
-        .trim() || undefined
-    );
-  } catch {
-    return undefined;
-  }
+    const found = execSync(
+      "which chromium 2>/dev/null || which chromium-browser 2>/dev/null || which google-chrome 2>/dev/null || which google-chrome-stable 2>/dev/null",
+    )
+      .toString()
+      .trim();
+    if (found) return found;
+  } catch { /* continue */ }
+
+  // Resolve symlinks — handles wrapper scripts that `which` returns
+  try {
+    const resolved = execSync(
+      "readlink -f $(which chromium-browser 2>/dev/null || which chromium 2>/dev/null || echo '') 2>/dev/null",
+    )
+      .toString()
+      .trim();
+    if (resolved && existsSync(resolved)) return resolved;
+  } catch { /* continue */ }
+
+  // Nix store scan — covers deployment environments where Nix bin dir is not
+  // on PATH but packages are still installed (e.g. Replit Autoscale containers)
+  try {
+    const nixStore = "/nix/store";
+    if (existsSync(nixStore)) {
+      const chromiumDirs = readdirSync(nixStore).filter((d) =>
+        d.includes("-chromium-"),
+      );
+      for (const dir of chromiumDirs) {
+        for (const bin of ["chromium", "chromium-browser"]) {
+          const candidate = path.join(nixStore, dir, "bin", bin);
+          if (existsSync(candidate)) return candidate;
+        }
+      }
+    }
+  } catch { /* continue */ }
+
+  return undefined;
 }
 export type RuleType = "Issue" | "Potential Issue" | "Best Practice";
 export interface RuleMeta {
