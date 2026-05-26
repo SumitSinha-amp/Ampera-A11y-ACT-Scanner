@@ -467,7 +467,7 @@ function startListening(port: number, remainingRetries = 8, retryDelayMs = 2000)
 }
 
 runStartupMigrations()
-  .then(() => Promise.all([seedDefaultAdmin(), ensureChromeDependencies()]))
+  .then(() => Promise.all([seedDefaultAdmin()]))
   .then(() => recoverOrphanedScans())
   .then(() => startListening(port))
   .catch((err) => {

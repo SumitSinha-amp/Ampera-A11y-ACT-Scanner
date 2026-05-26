@@ -1,7 +1,7 @@
 # =========================
 # Base Image
 # =========================
-FROM node:20-bookworm
+FROM mcr.microsoft.com/playwright:v1.55.0-jammy
 
 # =========================
 # Install Chrome / Puppeteer Dependencies
