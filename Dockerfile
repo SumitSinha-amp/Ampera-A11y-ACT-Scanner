@@ -4,7 +4,9 @@
 FROM mcr.microsoft.com/playwright:v1.55.0-jammy
 
 # =========================
-# Install Chrome / Puppeteer Dependencies
+# Install Extra Chrome Dependencies
+# (Most already exist in Playwright image,
+# but keeping them is safe for Azure)
 # =========================
 RUN apt-get update -y && \
     apt-get install -y \
@@ -43,9 +45,9 @@ RUN apt-get update -y && \
 WORKDIR /app
 
 # =========================
-# Copy Package Files
+# Copy Entire Workspace
 # =========================
-COPY package.json pnpm-lock.yaml ./
+COPY . .
 
 # =========================
 # Install PNPM
@@ -53,35 +55,35 @@ COPY package.json pnpm-lock.yaml ./
 RUN npm install -g pnpm
 
 # =========================
-# Install Dependencies
+# Environment Variables
 # =========================
 ENV CI=false
+ENV PNPM_IGNORE_BUILD_SCRIPTS=false
+ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
+ENV NODE_ENV=production
+ENV PORT=8080
 
-RUN pnpm install --no-frozen-lockfile --unsafe-perm
+# =========================
+# Allow Build Scripts
+# =========================
+RUN pnpm config set ignore-scripts false
+
+# =========================
+# Install Dependencies
+# =========================
+RUN pnpm install --no-frozen-lockfile --unsafe-perm --config.ignore-scripts=false
 
 # =========================
 # Install Puppeteer Chrome
 # =========================
-ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
-
 RUN npx puppeteer browsers install chrome
 
 # =========================
-# Copy Source
+# Build Applications
 # =========================
-COPY . .
+RUN pnpm --filter @workspace/api-server build
 
-# =========================
-# Build Application
-# =========================
-RUN pnpm --filter @workspace/api-server run build
-RUN pnpm --filter @workspace/accessibility-scanner run build
-
-# =========================
-# Environment Variables
-# =========================
-ENV NODE_ENV=production
-ENV PORT=8080
+RUN pnpm --filter @workspace/accessibility-scanner build
 
 # =========================
 # Expose Port
