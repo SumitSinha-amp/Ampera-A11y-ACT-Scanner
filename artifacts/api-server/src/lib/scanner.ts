@@ -222,7 +222,7 @@ const RULE_DESCRIPTIONS: Record<
   },
   "SIA-R8": {
     type: "Issue",
-    description: "Form field is not labeled",
+    description: "Form field missing a label",
     remediation:
       "Associate labels using <label>, aria-label, or aria-labelledby",
   },
@@ -2286,31 +2286,122 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       }
     });
 
-    // ════════════════════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════════════════════════
     // SIA-R8: Form field has no accessible name (WCAG 1.3.1 / 4.1.2)
-    // Alfa sia-r8: covers input (non-hidden/submit/button/reset/image), select, textarea.
+    // Alfa sia-r8: targets elements by ARIA role — checkbox, combobox, listbox,
+    // menuitemcheckbox, menuitemradio, radio, searchbox, slider, spinbutton,
+    // switch, textbox — covering both native form elements and custom ARIA widgets.
+    // IMPORTANT: placeholder is NOT a valid accessible name per ACCNAME 1.1.
     // ════════════════════════════════════════════════════════════════════════
+
+    // Accessible name computation for form fields per ACCNAME 1.1.
+    // Differs from getAccessibleName() in one critical way: placeholder is
+    // intentionally excluded. Placeholder is a hint, not a label —
+    // Siteimprove/Alfa do not count it as a valid accessible name.
+    function getFormFieldAccessibleName(el: Element): string {
+      // 1. aria-labelledby (highest priority — can reference hidden content)
+      const labelledBy = el.getAttribute("aria-labelledby");
+      if (labelledBy) {
+        const name = labelledBy
+          .trim()
+          .split(/\s+/)
+          .map((id) => document.getElementById(id)?.textContent?.trim() || "")
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+        if (name) return name;
+      }
+      // 2. aria-label
+      const ariaLabel = el.getAttribute("aria-label");
+      if (ariaLabel?.trim()) return ariaLabel.trim();
+      // 3. <label for="id"> explicit association
+      if (el.id) {
+        const label = document.querySelector(
+          `label[for="${CSS.escape(el.id)}"]`,
+        );
+        if (label) {
+          const t = label.textContent?.trim();
+          if (t) return t;
+        }
+      }
+      // 4. Ancestor <label> (wrapping label pattern)
+      const parentLabel = el.closest("label");
+      if (parentLabel) {
+        const clone = parentLabel.cloneNode(true) as HTMLElement;
+        clone
+          .querySelectorAll("input,select,textarea")
+          .forEach((c) => c.remove());
+        const t = clone.textContent?.trim();
+        if (t) return t;
+      }
+      // 5. title attribute — ACCNAME 1.1 step 2F last-resort native source
+      const title = el.getAttribute("title");
+      if (title?.trim()) return title.trim();
+      // Intentionally NO placeholder — not a valid accessible name per ACCNAME 1.1
+      return "";
+    }
+
+    // Collect all applicable elements once, deduplicating across native + ARIA selectors.
+    // Native form elements carry implicit ARIA roles that match Alfa's target set:
+    //   input[type=text/search/email/url/tel/password/color/file/date/…] → textbox/searchbox
+    //   input[type=checkbox] → checkbox  |  input[type=radio] → radio
+    //   input[type=range]    → slider    |  input[type=number] → spinbutton
+    //   select               → combobox/listbox  |  textarea → textbox
+    const r8Seen = new WeakSet<Element>();
+    const r8Targets: Element[] = [];
+
     document
       .querySelectorAll(
-        "input:not([type='hidden']):not([type='submit']):not([type='button']):not([type='reset']):not([type='image']), select, textarea",
+        "input:not([type='hidden']):not([type='submit'])" +
+          ":not([type='button']):not([type='reset']):not([type='image'])," +
+          "select, textarea",
       )
       .forEach((el) => {
-        if (!isVisibleRect(el)) return;
-        // Skip elements with role=none/presentation (no accessible name needed)
-        const role = el.getAttribute("role");
-        if (role === "none" || role === "presentation") return;
-        if (!getAccessibleName(el)) {
-          results.push({
-            ruleId: "SIA-R8",
-            type: "Issue",
-            impact: "critical",
-            description:
-              "Form field has no associated label, aria-label, or aria-labelledby",
-            element: outerHtmlSnippet(el),
-            selector: getSelector(el),
-          });
-        }
+        r8Seen.add(el);
+        r8Targets.push(el);
       });
+
+    // Custom ARIA role widgets on non-native elements (e.g. <div role="textbox">).
+    // Alfa's full target role list: checkbox | combobox | listbox |
+    // menuitemcheckbox | menuitemradio | radio | searchbox | slider |
+    // spinbutton | switch | textbox
+    const r8AriaSelector = [
+      "checkbox", "combobox", "listbox", "menuitemcheckbox",
+      "menuitemradio", "radio", "searchbox", "slider", "spinbutton",
+      "switch", "textbox",
+    ]
+      .map((r) => `[role="${r}"]`)
+      .join(",");
+
+    document.querySelectorAll(r8AriaSelector).forEach((el) => {
+      if (r8Seen.has(el)) return; // already captured as native element
+      const tag = el.tagName.toLowerCase();
+      // Exclude native elements — they're already in r8Targets via the native selector
+      if (tag !== "input" && tag !== "select" && tag !== "textarea") {
+        r8Targets.push(el);
+      }
+    });
+
+    for (const el of r8Targets) {
+      if (!isVisibleRect(el)) continue;
+      // Alfa: isIncludedInTheAccessibilityTree — skip aria-hidden / display:none
+      if (isProgrammaticallyHidden(el)) continue;
+      // role=none/presentation removes the element from the accessibility tree
+      const explicitRole = el.getAttribute("role");
+      if (explicitRole === "none" || explicitRole === "presentation") continue;
+
+      if (!getFormFieldAccessibleName(el)) {
+        results.push({
+          ruleId: "SIA-R8",
+          type: "Issue",
+          impact: "critical",
+          description:
+            "Form field has no associated label, aria-label, or aria-labelledby",
+          element: outerHtmlSnippet(el),
+          selector: getSelector(el),
+        });
+      }
+    }
 
     // ════════════════════════════════════════════════════════════════════════
     // SIA-R11: Link has no accessible name (WCAG 2.4.4 / 4.1.2)
