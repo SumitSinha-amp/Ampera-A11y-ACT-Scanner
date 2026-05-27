@@ -439,7 +439,7 @@ if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT value: "${raw
  * to MAX_RETRIES × RETRY_DELAY_MS for the port to free up.
  */
 function startListening(port: number, remainingRetries = 8, retryDelayMs = 2000): void {
-  const server = app.listen(port);
+  const server = app.listen(port, "0.0.0.0");
 
   server.on("listening", () => {
     logger.info({ port }, "Server listening");
