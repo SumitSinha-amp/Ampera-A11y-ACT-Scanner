@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import FuturisticLoginBackground from "@/components/futuristic-login-bg";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
@@ -39,31 +40,11 @@ export default function LoginPage() {
     }
   }
 
-  const bannerSrc = `${import.meta.env.BASE_URL}ampera-banner.png`.replace(/\/\//g, "/");
-
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
-      {/* ── Left panel — branding (always dark so white image text stays readable) ── */}
-      <div className="
-        relative lg:w-1/2 flex items-center justify-center
-        bg-black
-        min-h-[220px] lg:min-h-screen
-        overflow-hidden
-      ">
-        {/* subtle radial glow matching the brand purple */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_60%_40%,rgba(168,85,247,0.15)_0%,transparent_70%)] pointer-events-none" />
-
-        <div className="relative z-10 flex flex-col items-center gap-6 px-10 py-12 w-full max-w-lg">
-          <img
-            src={bannerSrc}
-            alt="Ampera ACT Platform — Accessibility Compliance Tool"
-            className="w-full max-w-md object-contain drop-shadow-2xl"
-          />
-
-          <p className="text-center text-sm text-purple-300/70 max-w-xs leading-relaxed">
-            Professional web accessibility scanning and compliance auditing powered by Ampera.
-          </p>
-        </div>
+      {/* ── Left panel — animated branding ── */}
+      <div className="relative lg:w-1/2 min-h-[320px] lg:min-h-screen overflow-hidden">
+        <FuturisticLoginBackground />
       </div>
 
       {/* ── Right panel — login form (adapts to light / dark theme) ── */}
