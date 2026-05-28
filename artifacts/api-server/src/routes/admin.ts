@@ -402,6 +402,62 @@ router.put("/admin/permissions/:userId", requireSuperAdmin, async (req, res): Pr
 
 // ── App Settings (SMTP etc.) ───────────────────────────────────────────────────
 
+// ── Logo settings ─────────────────────────────────────────────────────────────
+
+const LOGO_KEYS = ["logo_type", "logo_image_url", "logo_text", "logo_size"] as const;
+
+// GET /api/logo — public, no auth required; returns current logo settings for all users
+router.get("/logo", async (_req, res): Promise<void> => {
+  try {
+    const rows = await db.select().from(appSettingsTable)
+      .where(inArray(appSettingsTable.key, [...LOGO_KEYS]));
+    const map: Record<string, string> = {};
+    for (const row of rows) {
+      if (row.value != null) map[row.key] = row.value;
+    }
+    res.json({
+      type: map["logo_type"] ?? "image",
+      imageUrl: map["logo_image_url"] ?? "",
+      text: map["logo_text"] ?? "",
+      size: map["logo_size"] ? parseInt(map["logo_size"], 10) : null,
+    });
+  } catch {
+    res.json({ type: "image", imageUrl: "", text: "", size: null });
+  }
+});
+
+// PUT /api/admin/logo — admin/super_admin only; upserts logo settings
+router.put("/admin/logo", requireAdmin, async (req, res): Promise<void> => {
+  const updatedBy = req.session!.user!.id;
+  const { type, imageUrl, text, size } = req.body ?? {};
+  const now = new Date();
+
+  const rows: { key: string; value: string; updatedAt: Date; updatedBy: number }[] = [];
+  if (type === "image" || type === "text") {
+    rows.push({ key: "logo_type", value: type, updatedAt: now, updatedBy });
+  }
+  if (typeof imageUrl === "string") {
+    rows.push({ key: "logo_image_url", value: imageUrl, updatedAt: now, updatedBy });
+  }
+  if (typeof text === "string") {
+    rows.push({ key: "logo_text", value: text, updatedAt: now, updatedBy });
+  }
+  if (typeof size === "number" && Number.isFinite(size)) {
+    rows.push({ key: "logo_size", value: String(size), updatedAt: now, updatedBy });
+  }
+
+  for (const row of rows) {
+    await db.insert(appSettingsTable).values(row).onConflictDoUpdate({
+      target: appSettingsTable.key,
+      set: { value: row.value, updatedAt: row.updatedAt, updatedBy: row.updatedBy },
+    });
+  }
+
+  res.json({ ok: true });
+});
+
+// ── SMTP settings ─────────────────────────────────────────────────────────────
+
 const SMTP_KEYS = ["smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from"] as const;
 
 // GET /admin/settings — return current SMTP settings (super_admin only)

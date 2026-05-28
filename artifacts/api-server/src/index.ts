@@ -213,6 +213,16 @@ async function runStartupMigrations(): Promise<void> {
         AND EXISTS (SELECT 1 FROM users WHERE role = 'super_admin')
     `);
 
+    // 15. Create app_settings table (key-value store for SMTP, logo, etc.)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key        TEXT    PRIMARY KEY,
+        value      TEXT,
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+      )
+    `);
+
     await client.query("COMMIT");
     logger.info("Startup migrations completed");
   } catch (err) {
@@ -439,7 +449,7 @@ if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT value: "${raw
  * to MAX_RETRIES × RETRY_DELAY_MS for the port to free up.
  */
 function startListening(port: number, remainingRetries = 8, retryDelayMs = 2000): void {
-  const server = app.listen(port, "0.0.0.0");
+  const server = app.listen(port);
 
   server.on("listening", () => {
     logger.info({ port }, "Server listening");
@@ -467,7 +477,7 @@ function startListening(port: number, remainingRetries = 8, retryDelayMs = 2000)
 }
 
 runStartupMigrations()
-  .then(() => Promise.all([seedDefaultAdmin()]))
+  .then(() => Promise.all([seedDefaultAdmin(), ensureChromeDependencies()]))
   .then(() => recoverOrphanedScans())
   .then(() => startListening(port))
   .catch((err) => {

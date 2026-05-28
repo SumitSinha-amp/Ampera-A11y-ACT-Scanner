@@ -29,6 +29,7 @@ import {
   Upload,
   RotateCcw,
   Link as LinkIcon,
+  Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth, isAdmin } from "@/contexts/auth";
@@ -156,6 +157,8 @@ export function getActiveProxy(): string {
 function LogoSettingsCard() {
   const { toast } = useToast();
   const BASE_URL = import.meta.env.BASE_URL as string;
+  const BASE = BASE_URL.replace(/\/$/, "");
+  const [loading, setLoading] = useState(true);
   const [logoType, setLogoTypeState] = useState<LogoType>("image");
   const [logoImageUrl, setLogoImageUrlState] = useState<string>("");
   const [logoText, setLogoTextState] = useState<string>(DEFAULT_LOGO_TEXT);
@@ -166,35 +169,57 @@ function LogoSettingsCard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setLogoTypeState(getLogoType());
-    const imgUrl = getLogoImageUrl(BASE_URL);
-    setLogoImageUrlState(imgUrl);
-    setLogoUrlInput(localStorage.getItem(LOGO_IMAGE_URL_LS_KEY) || "");
-    setLogoTextState(getLogoText());
-    setLogoTextInput(getLogoText());
-    setLogoSizeState(getLogoSize());
-  }, []);
+    fetch(`${BASE}/api/logo`)
+      .then((r) => r.json())
+      .then((data: { type: string; imageUrl: string; text: string; size: number | null }) => {
+        const type: LogoType = data.type === "text" ? "text" : "image";
+        const imgUrl = data.imageUrl || `${BASE_URL}act-logo.png`;
+        const text = data.text || DEFAULT_LOGO_TEXT;
+        const size = typeof data.size === "number" ? data.size : DEFAULT_LOGO_SIZE;
+        setLogoTypeState(type);
+        setLogoImageUrlState(imgUrl);
+        setLogoUrlInput(data.imageUrl || "");
+        setLogoTextState(text);
+        setLogoTextInput(text);
+        setLogoSizeState(size);
+      })
+      .catch(() => {
+        setLogoImageUrlState(`${BASE_URL}act-logo.png`);
+      })
+      .finally(() => setLoading(false));
+  }, [BASE, BASE_URL]);
 
-  const dispatch = () => window.dispatchEvent(new CustomEvent("a11y-logo-changed"));
+  const saveLogo = async (patch: Partial<{ type: LogoType; imageUrl: string; text: string; size: number }>) => {
+    try {
+      await fetch(`${BASE}/api/admin/logo`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(patch),
+      });
+    } catch {
+      // silently ignore — local state already updated
+    }
+  };
 
-  const handleLogoTypeChange = (t: LogoType) => {
+  const dispatch = (detail: { type: LogoType; imageUrl: string; text: string; size: number }) => {
+    window.dispatchEvent(new CustomEvent("a11y-logo-changed", { detail }));
+  };
+
+  const handleLogoTypeChange = async (t: LogoType) => {
     setLogoTypeState(t);
-    localStorage.setItem(LOGO_TYPE_LS_KEY, t);
-    dispatch();
+    await saveLogo({ type: t });
+    dispatch({ type: t, imageUrl: logoImageUrl, text: logoText, size: logoSize });
     toast({ title: t === "image" ? "Logo set to image" : "Logo set to text" });
   };
 
-  const applyLogoUrl = (url: string) => {
+  const applyLogoUrl = async (url: string) => {
     const trimmed = url.trim();
-    if (trimmed) {
-      localStorage.setItem(LOGO_IMAGE_URL_LS_KEY, trimmed);
-      setLogoImageUrlState(trimmed);
-    } else {
-      localStorage.removeItem(LOGO_IMAGE_URL_LS_KEY);
-      setLogoImageUrlState(`${BASE_URL}act-logo.png`);
-    }
+    const imgUrl = trimmed || `${BASE_URL}act-logo.png`;
+    setLogoImageUrlState(imgUrl);
     setLogoImgError(false);
-    dispatch();
+    await saveLogo({ imageUrl: trimmed });
+    dispatch({ type: logoType, imageUrl: imgUrl, text: logoText, size: logoSize });
     toast({ title: "Logo image updated" });
   };
 
@@ -206,43 +231,54 @@ function LogoSettingsCard() {
       return;
     }
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const dataUrl = ev.target?.result as string;
-      localStorage.setItem(LOGO_IMAGE_URL_LS_KEY, dataUrl);
       setLogoImageUrlState(dataUrl);
       setLogoUrlInput("");
       setLogoImgError(false);
-      dispatch();
+      await saveLogo({ imageUrl: dataUrl });
+      dispatch({ type: logoType, imageUrl: dataUrl, text: logoText, size: logoSize });
       toast({ title: "Logo image uploaded" });
     };
     reader.readAsDataURL(file);
     e.target.value = "";
   };
 
-  const resetLogoImage = () => {
-    localStorage.removeItem(LOGO_IMAGE_URL_LS_KEY);
-    setLogoImageUrlState(`${BASE_URL}act-logo.png`);
+  const resetLogoImage = async () => {
+    const def = `${BASE_URL}act-logo.png`;
+    setLogoImageUrlState(def);
     setLogoUrlInput("");
     setLogoImgError(false);
-    dispatch();
+    await saveLogo({ imageUrl: "" });
+    dispatch({ type: logoType, imageUrl: def, text: logoText, size: logoSize });
     toast({ title: "Logo reset to default" });
   };
 
-  const applyLogoText = (text: string) => {
+  const applyLogoText = async (text: string) => {
     const trimmed = text.trim() || DEFAULT_LOGO_TEXT;
-    localStorage.setItem(LOGO_TEXT_LS_KEY, trimmed);
     setLogoTextState(trimmed);
     setLogoTextInput(trimmed);
-    dispatch();
+    await saveLogo({ text: trimmed });
+    dispatch({ type: logoType, imageUrl: logoImageUrl, text: trimmed, size: logoSize });
     toast({ title: "Logo text updated" });
   };
 
-  const handleLogoSizeChange = (val: number[]) => {
+  const handleLogoSizeChange = async (val: number[]) => {
     const size = val[0];
     setLogoSizeState(size);
-    localStorage.setItem(LOGO_SIZE_LS_KEY, String(size));
-    dispatch();
+    await saveLogo({ size });
+    dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, size });
   };
+
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="py-8 flex justify-center">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -355,7 +391,7 @@ function LogoSettingsCard() {
                   className="max-w-xs"
                 />
                 {logoText !== DEFAULT_LOGO_TEXT && (
-                  <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={() => { localStorage.removeItem(LOGO_TEXT_LS_KEY); setLogoTextState(DEFAULT_LOGO_TEXT); setLogoTextInput(DEFAULT_LOGO_TEXT); dispatch(); toast({ title: "Logo text reset to default" }); }}>
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={async () => { setLogoTextState(DEFAULT_LOGO_TEXT); setLogoTextInput(DEFAULT_LOGO_TEXT); await saveLogo({ text: DEFAULT_LOGO_TEXT }); dispatch({ type: logoType, imageUrl: logoImageUrl, text: DEFAULT_LOGO_TEXT, size: logoSize }); toast({ title: "Logo text reset to default" }); }}>
                     <RotateCcw className="w-3.5 h-3.5" />
                     Reset
                   </Button>
@@ -372,7 +408,7 @@ function LogoSettingsCard() {
             <div className="flex items-center gap-2">
               <span className="text-sm tabular-nums text-muted-foreground w-12 text-right">{logoSize}px</span>
               {logoSize !== DEFAULT_LOGO_SIZE && (
-                <Button variant="ghost" size="sm" className="h-7 px-2 gap-1 text-muted-foreground" onClick={() => { setLogoSizeState(DEFAULT_LOGO_SIZE); localStorage.setItem(LOGO_SIZE_LS_KEY, String(DEFAULT_LOGO_SIZE)); dispatch(); }}>
+                <Button variant="ghost" size="sm" className="h-7 px-2 gap-1 text-muted-foreground" onClick={async () => { setLogoSizeState(DEFAULT_LOGO_SIZE); await saveLogo({ size: DEFAULT_LOGO_SIZE }); dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, size: DEFAULT_LOGO_SIZE }); }}>
                   <RotateCcw className="w-3 h-3" />
                   Reset
                 </Button>

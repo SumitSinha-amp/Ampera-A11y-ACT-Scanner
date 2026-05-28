@@ -30,33 +30,45 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useState, useEffect } from "react";
 import SettingsPage, {
-  getLogoType,
-  getLogoImageUrl,
-  getLogoText,
-  getLogoSize,
+  DEFAULT_LOGO_TEXT,
+  DEFAULT_LOGO_SIZE,
   type LogoType,
 } from "@/pages/settings";
 import { useAuth, isAdmin } from "@/contexts/auth";
 
 function AppLogo() {
   const BASE_URL = import.meta.env.BASE_URL as string;
-  const [logoType, setLogoType] = useState<LogoType>(() => getLogoType());
-  const [imgUrl, setImgUrl] = useState(() => getLogoImageUrl(BASE_URL));
-  const [text, setText] = useState(() => getLogoText());
-  const [size, setSize] = useState(() => getLogoSize());
+  const BASE = BASE_URL.replace(/\/$/, "");
+  const [logoType, setLogoType] = useState<LogoType>("image");
+  const [imgUrl, setImgUrl] = useState(() => `${BASE_URL}act-logo.png`);
+  const [text, setText] = useState(DEFAULT_LOGO_TEXT);
+  const [size, setSize] = useState(DEFAULT_LOGO_SIZE);
   const [imgError, setImgError] = useState(false);
 
   useEffect(() => {
-    const sync = () => {
-      setLogoType(getLogoType());
-      setImgUrl(getLogoImageUrl(BASE_URL));
-      setText(getLogoText());
-      setSize(getLogoSize());
+    fetch(`${BASE}/api/logo`)
+      .then((r) => r.json())
+      .then((data: { type: string; imageUrl: string; text: string; size: number | null }) => {
+        setLogoType(data.type === "text" ? "text" : "image");
+        setImgUrl(data.imageUrl || `${BASE_URL}act-logo.png`);
+        setText(data.text || DEFAULT_LOGO_TEXT);
+        setSize(typeof data.size === "number" ? data.size : DEFAULT_LOGO_SIZE);
+        setImgError(false);
+      })
+      .catch(() => {});
+
+    const sync = (e: Event) => {
+      const detail = (e as CustomEvent<{ type: LogoType; imageUrl: string; text: string; size: number }>).detail;
+      if (!detail) return;
+      setLogoType(detail.type ?? "image");
+      setImgUrl(detail.imageUrl || `${BASE_URL}act-logo.png`);
+      setText(detail.text || DEFAULT_LOGO_TEXT);
+      setSize(typeof detail.size === "number" ? detail.size : DEFAULT_LOGO_SIZE);
       setImgError(false);
     };
     window.addEventListener("a11y-logo-changed", sync);
     return () => window.removeEventListener("a11y-logo-changed", sync);
-  }, [BASE_URL]);
+  }, [BASE, BASE_URL]);
 
   if (logoType === "image" && !imgError) {
     return (
