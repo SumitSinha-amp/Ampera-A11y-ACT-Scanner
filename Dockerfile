@@ -5,8 +5,6 @@ FROM mcr.microsoft.com/playwright:v1.55.0-jammy
 
 # =========================
 # Install Extra Chrome Dependencies
-# (Most already exist in Playwright image,
-# but keeping them is safe for Azure)
 # =========================
 RUN apt-get update -y && \
     apt-get install -y \
@@ -45,7 +43,7 @@ RUN apt-get update -y && \
 WORKDIR /app
 
 # =========================
-# Copy Entire Workspace
+# Copy Workspace
 # =========================
 COPY . .
 
@@ -60,16 +58,21 @@ RUN npm install -g pnpm
 ENV CI=false
 ENV PNPM_BUILD_POLICY=allow
 ENV PNPM_IGNORE_BUILD_SCRIPTS=false
-ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 ENV PNPM_ALLOW_NON_APPLIED_PATCHES=true
+ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 ENV npm_config_allow_build=*
+
+# =========================
+# Allow Build Scripts
+# =========================
+RUN echo "dangerouslyAllowAllBuilds=true" >> .npmrc
+
+RUN pnpm config set ignore-scripts false
 
 # =========================
 # Install Dependencies
 # =========================
-RUN echo "ignore-builds=false" >> .npmrc
-RUN pnpm install --no-frozen-lockfile --unsafe-perm --ignore-workspace --config.allow-build=*
-
+RUN pnpm install --no-frozen-lockfile --unsafe-perm
 
 # =========================
 # Install Puppeteer Chrome
