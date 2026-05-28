@@ -62,7 +62,7 @@ ENV PNPM_ALLOW_NON_APPLIED_PATCHES=true
 ENV npm_config_allow_build=*
 
 ENV PUPPETEER_SKIP_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_EXECUTABLE_PATH=/ms-playwright/chromium-1169/chrome-linux/chrome
 # =========================
 # Install Dependencies
 # =========================

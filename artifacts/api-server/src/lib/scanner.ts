@@ -911,7 +911,7 @@ async function getBrowser(): Promise<Browser> {
     headless: true as const,
     //executablePath: getChromiumPath(),
     executablePath:
-    process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium",
+    process.env.PUPPETEER_EXECUTABLE_PATH || "/ms-playwright/chromium-1169/chrome-linux/chrome",
     userDataDir: path.join(
       CHROME_PROFILE_DIR,
       `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -1038,7 +1038,7 @@ async function getProxyBrowser(proxyPacUrl: string): Promise<Browser> {
     headless: true,
 
   executablePath:
-    process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium",
+    process.env.PUPPETEER_EXECUTABLE_PATH || "/ms-playwright/chromium-1169/chrome-linux/chrome",
     userDataDir: proxySessionDir,
     args: [
       ...PUPPETEER_LAUNCH_ARGS,

@@ -89,7 +89,7 @@ app.use("/api", router);
 // The production build copies the Vite output into dist/public/ next to this
 // bundle.  In development, the Vite dev server handles the frontend separately.
 //const publicDir = join(dirname(fileURLToPath(import.meta.url)), "public");
-const publicDir = "/app/artifacts/accessibility-scanner/dist";
+const publicDir = "/app/artifacts/accessibility-scanner/dist/public";
 if (existsSync(publicDir)) {
   // Serve static assets (JS, CSS, images, etc.) — skip auto-serving index.html
   // so the SPA catch-all below controls which paths get it.
