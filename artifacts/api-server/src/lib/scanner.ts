@@ -909,7 +909,9 @@ async function getBrowser(): Promise<Browser> {
 
   const launchOptions = {
     headless: true as const,
-    executablePath: getChromiumPath(),
+    //executablePath: getChromiumPath(),
+    executablePath:
+    process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium",
     userDataDir: path.join(
       CHROME_PROFILE_DIR,
       `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -1034,7 +1036,9 @@ async function getProxyBrowser(proxyPacUrl: string): Promise<Browser> {
 
   _proxyBrowserInstance = await puppeteerExtra.launch({
     headless: true,
-    executablePath: getChromiumPath(),
+
+  executablePath:
+    process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium",
     userDataDir: proxySessionDir,
     args: [
       ...PUPPETEER_LAUNCH_ARGS,

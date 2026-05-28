@@ -59,9 +59,10 @@ ENV CI=false
 ENV PNPM_BUILD_POLICY=allow
 ENV PNPM_IGNORE_BUILD_SCRIPTS=false
 ENV PNPM_ALLOW_NON_APPLIED_PATCHES=true
-ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 ENV npm_config_allow_build=*
 
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 # =========================
 # Install Dependencies
 # =========================
