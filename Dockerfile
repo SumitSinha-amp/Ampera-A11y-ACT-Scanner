@@ -63,16 +63,14 @@ ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 ENV npm_config_allow_build=*
 
 # =========================
-# Allow Build Scripts
-# =========================
-RUN echo "dangerouslyAllowAllBuilds=true" >> .npmrc
-
-RUN pnpm config set ignore-scripts false
-
-# =========================
 # Install Dependencies
 # =========================
-RUN pnpm install --no-frozen-lockfile --unsafe-perm
+RUN pnpm install --no-frozen-lockfile --unsafe-perm --ignore-scripts
+
+# =========================
+# Rebuild Required Packages
+# =========================
+RUN pnpm rebuild esbuild puppeteer core-js @clerk/shared
 
 # =========================
 # Install Puppeteer Chrome
