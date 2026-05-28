@@ -75,7 +75,7 @@ RUN pnpm rebuild esbuild puppeteer core-js @clerk/shared
 # =========================
 # Install Puppeteer Chrome
 # =========================
-RUN npx puppeteer browsers install chrome
+# RUN npx puppeteer browsers install chrome
 
 # =========================
 # Build Applications

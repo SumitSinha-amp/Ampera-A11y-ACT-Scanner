@@ -9,7 +9,7 @@ import { logger } from "./logger";
 
 puppeteerExtra.use(StealthPlugin());
 
-function getChromiumPath(): string | undefined {
+/*function getChromiumPath(): string | undefined {
   if (process.env["PUPPETEER_EXECUTABLE_PATH"]) {
     return process.env["PUPPETEER_EXECUTABLE_PATH"];
   }
@@ -23,6 +23,36 @@ function getChromiumPath(): string | undefined {
     );
   } catch {
     return undefined;
+  }
+}*/
+function getChromiumPath(): string {
+  const possiblePaths = [
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/ms-playwright/chromium-*/chrome-linux/chrome",
+  ];
+
+  for (const p of possiblePaths) {
+    try {
+      if (existsSync(p)) {
+        logger.info({ chromiumPath: p }, "Using Chromium executable");
+        return p;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  // Fallback for Linux container
+  try {
+    return (
+      execSync(
+        "which chromium 2>/dev/null || which chromium-browser 2>/dev/null || which google-chrome 2>/dev/null",
+      )
+        .toString()
+        .trim()
+    );
+  } catch {
+    throw new Error("No Chromium executable found");
   }
 }
 export type RuleType = "Issue" | "Potential Issue" | "Best Practice";
