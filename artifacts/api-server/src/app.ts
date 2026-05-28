@@ -97,7 +97,7 @@ if (existsSync(publicDir)) {
 
   // SPA catch-all: any non-API path returns index.html so React Router can
   // handle client-side navigation (e.g. /login, /scans/123, /admin/users).
-  app.get("*", (_req, res) => {
+ app.get(/.*/, (_req, res) => {
     res.sendFile(join(publicDir, "index.html"));
   });
 }
