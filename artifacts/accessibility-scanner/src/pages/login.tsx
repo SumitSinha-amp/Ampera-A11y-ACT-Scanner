@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth";
-import { Activity, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,7 +17,6 @@ export default function LoginPage() {
   const { login, user } = useAuth();
   const [, setLocation] = useLocation();
 
-  // If already logged in, redirect away from login page
   useEffect(() => {
     if (!user) return;
     if (user.mustResetPassword) {
@@ -33,7 +32,6 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(username.trim(), password);
-      // Navigation happens via the useEffect above when `user` updates
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
@@ -41,92 +39,123 @@ export default function LoginPage() {
     }
   }
 
+  const bannerSrc = `${import.meta.env.BASE_URL}ampera-banner.png`.replace(/\/\//g, "/");
+
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-md space-y-6">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <div className="flex items-center gap-2">
-            <Activity className="w-8 h-8 text-primary" />
-            <span className="text-2xl font-bold">A11y ACT Tool</span>
-          </div>
-          <p className="text-muted-foreground text-sm">
-            Sign in to access the accessibility scanner
+    <div className="min-h-screen flex flex-col lg:flex-row">
+      {/* ── Left panel — branding (always dark so white image text stays readable) ── */}
+      <div className="
+        relative lg:w-1/2 flex items-center justify-center
+        bg-black
+        min-h-[220px] lg:min-h-screen
+        overflow-hidden
+      ">
+        {/* subtle radial glow matching the brand purple */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_60%_40%,rgba(168,85,247,0.15)_0%,transparent_70%)] pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col items-center gap-6 px-10 py-12 w-full max-w-lg">
+          <img
+            src={bannerSrc}
+            alt="Ampera ACT Platform — Accessibility Compliance Tool"
+            className="w-full max-w-md object-contain drop-shadow-2xl"
+          />
+
+          <p className="text-center text-sm text-purple-300/70 max-w-xs leading-relaxed">
+            Professional web accessibility scanning and compliance auditing powered by Ampera.
           </p>
         </div>
+      </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Sign In</CardTitle>
-            <CardDescription>Enter your credentials to continue</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {error && (
-                <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
+      {/* ── Right panel — login form (adapts to light / dark theme) ── */}
+      <div className="
+        lg:w-1/2 flex items-center justify-center
+        bg-background
+        p-6 sm:p-10
+        min-h-[calc(100vh-220px)] lg:min-h-screen
+      ">
+        <div className="w-full max-w-sm space-y-6">
 
-              <div className="space-y-2">
-                <Label htmlFor="username">Username or Email</Label>
-                <Input
-                  id="username"
-                  type="text"
-                  placeholder="Enter your username or email"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  autoComplete="username"
-                  required
-                />
-              </div>
+          {/* heading */}
+          <div className="space-y-1">
+            <h1 className="text-2xl font-bold tracking-tight">Sign in</h1>
+            <p className="text-sm text-muted-foreground">
+              Enter your credentials to access the platform
+            </p>
+          </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Enter your password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    autoComplete="current-password"
-                    required
-                    className="pr-10"
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowPassword((v) => !v)}
-                    tabIndex={-1}
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Signing in...
-                  </>
-                ) : (
-                  "Sign In"
+          <Card className="border shadow-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Welcome back</CardTitle>
+              <CardDescription>Use your username or email address</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
                 )}
-              </Button>
-            </form>
 
-            <div className="mt-4 text-center">
-              <p className="text-xs text-muted-foreground">
+                <div className="space-y-2">
+                  <Label htmlFor="username">Username or Email</Label>
+                  <Input
+                    id="username"
+                    type="text"
+                    placeholder="Enter your username or email"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    autoComplete="username"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="Enter your password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete="current-password"
+                      required
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => setShowPassword((v) => !v)}
+                      tabIndex={-1}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Signing in…
+                    </>
+                  ) : (
+                    "Sign In"
+                  )}
+                </Button>
+              </form>
+
+              <p className="mt-4 text-center text-xs text-muted-foreground">
                 Contact your administrator to create an account or reset your password.
               </p>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <p className="text-center text-xs text-muted-foreground">
-          Ampera A11y ACT Tool — Professional Accessibility Auditing
-        </p>
+          <p className="text-center text-xs text-muted-foreground">
+            © {new Date().getFullYear()} Ampera · A11y ACT Platform
+          </p>
+        </div>
       </div>
     </div>
   );
