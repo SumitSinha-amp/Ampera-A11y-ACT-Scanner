@@ -82,13 +82,7 @@ app.use(
     },
   })
 );
-app.get("/", (_req, res) => {
-  res.status(200).send("OK");
-});
 
-app.get("/health", (_req, res) => {
-  res.status(200).send("healthy");
-});
 app.use("/api", router);
 
 // ── Serve React frontend (production only) ─────────────────────────────────
