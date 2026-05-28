@@ -240,7 +240,15 @@ async function scanSinglePage(
   skipCounterUpdates = false,
 ): Promise<void> {
   if (signal.aborted) return;
-
+  // If the scan was paused while this page was already queued in a batch,
+  // hold here until resumed (or cancelled) before touching any DB state.
+  if (pausedScans.has(scanId)) {
+    logger.info({ scanId, url }, "Page waiting — scan is paused");
+    while (pausedScans.has(scanId) && !signal.aborted) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+    if (signal.aborted) return;
+  }
   // ── Resolve the page row ──────────────────────────────────────────────────
   // ORDER BY prefers the row that most needs to be worked on (requeued/failed/
   // not_available) over any already-completed duplicate, avoiding a race where

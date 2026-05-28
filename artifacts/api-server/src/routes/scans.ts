@@ -793,6 +793,29 @@ router.post("/scans/:id/resume", async (req, res): Promise<void> => {
 
   if (isScanActive(scanId)) {
     // Live worker exists — just signal it to continue
+     // Live worker exists — just signal it to continue
+    const MID_FLIGHT = ["navigating", "scanning", "rendering", "analyzing", "saving"] as const;
+    const stuckRows = await db
+      .select({ url: pageResultsTable.url })
+      .from(pageResultsTable)
+      .where(and(
+        eq(pageResultsTable.scanId, scanId),
+        inArray(pageResultsTable.status, [...MID_FLIGHT]),
+      ));
+    if (stuckRows.length > 0) {
+      await db
+        .update(pageResultsTable)
+        .set({ status: "pending" })
+        .where(and(
+          eq(pageResultsTable.scanId, scanId),
+          inArray(pageResultsTable.status, [...MID_FLIGHT]),
+        ));
+      // Re-queue them into Phase 2 so they're retried before Phase 3 runs.
+      for (const row of stuckRows) {
+        queueRetryUrl(scanId, row.url);
+      }
+      req.log.info({ scanId, count: stuckRows.length }, "Reset stuck mid-flight pages on resume");
+    }
     resumeScan(scanId);
     await db.update(scanSessionsTable)
       .set({ status: "running" })
