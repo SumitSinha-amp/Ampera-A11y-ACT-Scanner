@@ -53,7 +53,7 @@ const ruleReferences = [
   },
   {
     id: "SIA-R8",
-    title: "Form field is not labeled",
+    title: "Form field missing a label",
     detail:
       "Every input, select, and textarea must be associated with a visible <label> or carry an accessible name via aria-label or aria-labelledby so screen reader users know the field's purpose.",
   },

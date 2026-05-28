@@ -20,10 +20,20 @@ import AdminPermissionsPage from "@/pages/admin/permissions";
 import AdminSettingsPage from "@/pages/admin/settings";
 import TicketsPage from "@/pages/tickets";
 import { AuthProvider, useAuth } from "@/contexts/auth";
+import { AppStatusProvider, useAppStatus } from "@/contexts/app-status";
+import MaintenancePage from "@/pages/maintenance";
 import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+function AppStatusGate({ children }: { children: React.ReactNode }) {
+  const { status } = useAppStatus();
+  if (status === "checking" || status === "offline") {
+    return <MaintenancePage />;
+  }
+  return <>{children}</>;
+}
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -136,12 +146,16 @@ function App() {
   return (
     <WouterRouter base={basePath}>
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <TooltipProvider>
-            <Router />
-            <Toaster />
-          </TooltipProvider>
-        </AuthProvider>
+        <AppStatusProvider>
+          <AppStatusGate>
+            <AuthProvider>
+              <TooltipProvider>
+                <Router />
+                <Toaster />
+              </TooltipProvider>
+            </AuthProvider>
+          </AppStatusGate>
+        </AppStatusProvider>
       </QueryClientProvider>
     </WouterRouter>
   );

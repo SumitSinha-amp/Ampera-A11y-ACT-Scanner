@@ -28,9 +28,64 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useState } from "react";
-import SettingsPage from "@/pages/settings";
+import { useState, useEffect } from "react";
+import SettingsPage, {
+  getLogoType,
+  getLogoImageUrl,
+  getLogoText,
+  getLogoSize,
+  type LogoType,
+} from "@/pages/settings";
 import { useAuth, isAdmin } from "@/contexts/auth";
+
+function AppLogo() {
+  const BASE_URL = import.meta.env.BASE_URL as string;
+  const [logoType, setLogoType] = useState<LogoType>(() => getLogoType());
+  const [imgUrl, setImgUrl] = useState(() => getLogoImageUrl(BASE_URL));
+  const [text, setText] = useState(() => getLogoText());
+  const [size, setSize] = useState(() => getLogoSize());
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    const sync = () => {
+      setLogoType(getLogoType());
+      setImgUrl(getLogoImageUrl(BASE_URL));
+      setText(getLogoText());
+      setSize(getLogoSize());
+      setImgError(false);
+    };
+    window.addEventListener("a11y-logo-changed", sync);
+    return () => window.removeEventListener("a11y-logo-changed", sync);
+  }, [BASE_URL]);
+
+  if (logoType === "image" && !imgError) {
+    return (
+      <img
+        src={imgUrl}
+        alt={text || "App logo"}
+        style={{ height: size, maxWidth: size * 6 }}
+        className="w-auto object-contain"
+        onError={() => setImgError(true)}
+        onLoad={() => setImgError(false)}
+      />
+    );
+  }
+
+  return (
+    <span className="flex items-center gap-2 font-bold text-foreground">
+      <Activity
+        className="text-primary shrink-0"
+        style={{ width: size * 0.6, height: size * 0.6 }}
+      />
+      <span
+        className="truncate"
+        style={{ fontSize: size * 0.55, maxWidth: size * 5 }}
+      >
+        {text}
+      </span>
+    </span>
+  );
+}
 
 function useSidebarCollapsed() {
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -109,12 +164,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <div className="min-h-screen bg-background">
         <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <div className="h-16 px-4 md:px-6 flex items-center justify-between gap-4 overflow-hidden">
-            <Link
-              href="/scans"
-              className="flex items-center gap-2 font-bold text-lg text-foreground shrink-0"
-            >
-              <Activity className="w-5 h-5 text-primary" />
-              <span>A11y ACT Tool</span>
+            <Link href="/scans" className="shrink-0 flex items-center">
+              <AppLogo />
             </Link>
             <div className="flex items-center gap-2 shrink-0">
               <Link href="/documentation">

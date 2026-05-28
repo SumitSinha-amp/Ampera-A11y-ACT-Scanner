@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Card,
   CardContent,
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
 import {
   Shield,
   ShieldCheck,
@@ -23,8 +24,14 @@ import {
   Monitor,
   ListFilter,
   Clock,
+  Image as ImageIcon,
+  Type,
+  Upload,
+  RotateCcw,
+  Link as LinkIcon,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth, isAdmin } from "@/contexts/auth";
 
 export const ELEMENT_VIEWER_LS_KEY = "a11y-element-viewer-enabled";
 
@@ -72,6 +79,49 @@ export function getScanTimeoutMs(): number {
   }
 }
 
+export const LOGO_TYPE_LS_KEY = "a11y-logo-type";
+export const LOGO_IMAGE_URL_LS_KEY = "a11y-logo-image-url";
+export const LOGO_TEXT_LS_KEY = "a11y-logo-text";
+export const LOGO_SIZE_LS_KEY = "a11y-logo-size";
+export const DEFAULT_LOGO_TEXT = "A11y ACT Tool";
+export const DEFAULT_LOGO_SIZE = 36;
+export const LOGO_SIZE_MIN = 20;
+export const LOGO_SIZE_MAX = 200;
+
+export type LogoType = "image" | "text";
+
+export function getLogoType(): LogoType {
+  try {
+    const v = localStorage.getItem(LOGO_TYPE_LS_KEY);
+    if (v === "image" || v === "text") return v;
+  } catch { /* ignore */ }
+  return "image";
+}
+
+export function getLogoImageUrl(baseUrl = ""): string {
+  try {
+    const v = localStorage.getItem(LOGO_IMAGE_URL_LS_KEY);
+    if (v) return v;
+  } catch { /* ignore */ }
+  return `${baseUrl}act-logo.png`;
+}
+
+export function getLogoText(): string {
+  try {
+    return localStorage.getItem(LOGO_TEXT_LS_KEY) || DEFAULT_LOGO_TEXT;
+  } catch {
+    return DEFAULT_LOGO_TEXT;
+  }
+}
+
+export function getLogoSize(): number {
+  try {
+    const v = parseInt(localStorage.getItem(LOGO_SIZE_LS_KEY) ?? "", 10);
+    if (Number.isFinite(v) && v >= LOGO_SIZE_MIN && v <= LOGO_SIZE_MAX) return v;
+  } catch { /* ignore */ }
+  return DEFAULT_LOGO_SIZE;
+}
+
 export const THEME_LS_KEY = "a11y-theme";
 export type Theme = "light" | "dark" | "system";
 
@@ -103,8 +153,247 @@ export function getActiveProxy(): string {
   return localStorage.getItem(ACTIVE_PROXY_KEY) || "";
 }
 
+function LogoSettingsCard() {
+  const { toast } = useToast();
+  const BASE_URL = import.meta.env.BASE_URL as string;
+  const [logoType, setLogoTypeState] = useState<LogoType>("image");
+  const [logoImageUrl, setLogoImageUrlState] = useState<string>("");
+  const [logoText, setLogoTextState] = useState<string>(DEFAULT_LOGO_TEXT);
+  const [logoUrlInput, setLogoUrlInput] = useState<string>("");
+  const [logoTextInput, setLogoTextInput] = useState<string>(DEFAULT_LOGO_TEXT);
+  const [logoSize, setLogoSizeState] = useState<number>(DEFAULT_LOGO_SIZE);
+  const [logoImgError, setLogoImgError] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setLogoTypeState(getLogoType());
+    const imgUrl = getLogoImageUrl(BASE_URL);
+    setLogoImageUrlState(imgUrl);
+    setLogoUrlInput(localStorage.getItem(LOGO_IMAGE_URL_LS_KEY) || "");
+    setLogoTextState(getLogoText());
+    setLogoTextInput(getLogoText());
+    setLogoSizeState(getLogoSize());
+  }, []);
+
+  const dispatch = () => window.dispatchEvent(new CustomEvent("a11y-logo-changed"));
+
+  const handleLogoTypeChange = (t: LogoType) => {
+    setLogoTypeState(t);
+    localStorage.setItem(LOGO_TYPE_LS_KEY, t);
+    dispatch();
+    toast({ title: t === "image" ? "Logo set to image" : "Logo set to text" });
+  };
+
+  const applyLogoUrl = (url: string) => {
+    const trimmed = url.trim();
+    if (trimmed) {
+      localStorage.setItem(LOGO_IMAGE_URL_LS_KEY, trimmed);
+      setLogoImageUrlState(trimmed);
+    } else {
+      localStorage.removeItem(LOGO_IMAGE_URL_LS_KEY);
+      setLogoImageUrlState(`${BASE_URL}act-logo.png`);
+    }
+    setLogoImgError(false);
+    dispatch();
+    toast({ title: "Logo image updated" });
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Please select an image file", variant: "destructive" });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      localStorage.setItem(LOGO_IMAGE_URL_LS_KEY, dataUrl);
+      setLogoImageUrlState(dataUrl);
+      setLogoUrlInput("");
+      setLogoImgError(false);
+      dispatch();
+      toast({ title: "Logo image uploaded" });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const resetLogoImage = () => {
+    localStorage.removeItem(LOGO_IMAGE_URL_LS_KEY);
+    setLogoImageUrlState(`${BASE_URL}act-logo.png`);
+    setLogoUrlInput("");
+    setLogoImgError(false);
+    dispatch();
+    toast({ title: "Logo reset to default" });
+  };
+
+  const applyLogoText = (text: string) => {
+    const trimmed = text.trim() || DEFAULT_LOGO_TEXT;
+    localStorage.setItem(LOGO_TEXT_LS_KEY, trimmed);
+    setLogoTextState(trimmed);
+    setLogoTextInput(trimmed);
+    dispatch();
+    toast({ title: "Logo text updated" });
+  };
+
+  const handleLogoSizeChange = (val: number[]) => {
+    const size = val[0];
+    setLogoSizeState(size);
+    localStorage.setItem(LOGO_SIZE_LS_KEY, String(size));
+    dispatch();
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <ImageIcon className="w-5 h-5 text-muted-foreground" />
+          <CardTitle>Logo</CardTitle>
+        </div>
+        <CardDescription>
+          Choose whether the header shows an image logo or a text logo.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="grid grid-cols-2 gap-3">
+          {([
+            { value: "image" as LogoType, label: "Image logo", icon: ImageIcon },
+            { value: "text" as LogoType, label: "Text logo", icon: Type },
+          ]).map(({ value, label, icon: Icon }) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => handleLogoTypeChange(value)}
+              className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-all ${
+                logoType === value
+                  ? "border-primary bg-primary/5 text-primary"
+                  : "border-border hover:border-primary/40 hover:bg-muted/40 text-muted-foreground"
+              }`}
+            >
+              <Icon className="w-5 h-5" />
+              <span className="text-sm font-medium">{label}</span>
+            </button>
+          ))}
+        </div>
+
+        {logoType === "image" && (
+          <div className="space-y-4 pt-1 border-t">
+            <div>
+              <p className="text-sm font-medium mb-2">Preview</p>
+              <div className="flex items-center gap-3 rounded-lg border bg-background px-4 py-3">
+                {logoImgError ? (
+                  <span className="text-sm text-destructive">Failed to load image</span>
+                ) : (
+                  <img
+                    src={logoImageUrl}
+                    alt="Logo preview"
+                    className="h-8 w-auto max-w-[180px] object-contain"
+                    onError={() => setLogoImgError(true)}
+                    onLoad={() => setLogoImgError(false)}
+                  />
+                )}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Upload image file</Label>
+              <div className="flex gap-2">
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
+                <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()}>
+                  <Upload className="w-4 h-4" />
+                  Choose file
+                </Button>
+                <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={resetLogoImage}>
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Reset to default
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">PNG, JPG, SVG, or WebP — transparent background recommended.</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="logo-url-input" className="flex items-center gap-1.5">
+                <LinkIcon className="w-3.5 h-3.5" />
+                Or enter an image URL
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="logo-url-input"
+                  placeholder="https://example.com/logo.png"
+                  value={logoUrlInput}
+                  onChange={(e) => setLogoUrlInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { applyLogoUrl(logoUrlInput); (e.target as HTMLInputElement).blur(); } }}
+                  className="font-mono text-sm"
+                />
+                <Button onClick={() => applyLogoUrl(logoUrlInput)} disabled={!logoUrlInput.trim()}>Apply</Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {logoType === "text" && (
+          <div className="space-y-4 pt-1 border-t">
+            <div>
+              <p className="text-sm font-medium mb-2">Preview</p>
+              <div className="flex items-center gap-2 rounded-lg border bg-background px-4 py-3">
+                <svg viewBox="0 0 24 24" style={{ width: logoSize * 0.6, height: logoSize * 0.6 }} className="text-primary shrink-0" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                </svg>
+                <span className="font-bold text-foreground" style={{ fontSize: logoSize * 0.55 }}>{logoText}</span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="logo-text-input">Logo text</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="logo-text-input"
+                  value={logoTextInput}
+                  onChange={(e) => setLogoTextInput(e.target.value)}
+                  onBlur={() => applyLogoText(logoTextInput)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { applyLogoText(logoTextInput); (e.target as HTMLInputElement).blur(); } }}
+                  placeholder={DEFAULT_LOGO_TEXT}
+                  maxLength={60}
+                  className="max-w-xs"
+                />
+                {logoText !== DEFAULT_LOGO_TEXT && (
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={() => { localStorage.removeItem(LOGO_TEXT_LS_KEY); setLogoTextState(DEFAULT_LOGO_TEXT); setLogoTextInput(DEFAULT_LOGO_TEXT); dispatch(); toast({ title: "Logo text reset to default" }); }}>
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Reset
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">Press Enter or click away to apply.</p>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-3 pt-4 border-t">
+          <div className="flex items-center justify-between">
+            <Label>Logo size</Label>
+            <div className="flex items-center gap-2">
+              <span className="text-sm tabular-nums text-muted-foreground w-12 text-right">{logoSize}px</span>
+              {logoSize !== DEFAULT_LOGO_SIZE && (
+                <Button variant="ghost" size="sm" className="h-7 px-2 gap-1 text-muted-foreground" onClick={() => { setLogoSizeState(DEFAULT_LOGO_SIZE); localStorage.setItem(LOGO_SIZE_LS_KEY, String(DEFAULT_LOGO_SIZE)); dispatch(); }}>
+                  <RotateCcw className="w-3 h-3" />
+                  Reset
+                </Button>
+              )}
+            </div>
+          </div>
+          <Slider min={LOGO_SIZE_MIN} max={LOGO_SIZE_MAX} step={1} value={[logoSize]} onValueChange={handleLogoSizeChange} className="w-full" />
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>{LOGO_SIZE_MIN}px</span>
+            <span>{LOGO_SIZE_MAX}px</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Settings() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canEditLogo = isAdmin(user);
   const [savedProxies, setSavedProxies] = useState<string[]>([]);
   const [activeProxy, setActiveProxy] = useState<string>("");
   const [newPacUrl, setNewPacUrl] = useState("");
@@ -180,6 +469,9 @@ export default function Settings() {
 
   return (
     <div className="space-y-6 max-w-2xl">
+      {/* Logo — admins and super admins only */}
+      {canEditLogo && <LogoSettingsCard />}
+
       {/* Theme */}
       <Card>
         <CardHeader>
