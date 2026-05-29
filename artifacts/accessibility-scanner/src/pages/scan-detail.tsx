@@ -1663,7 +1663,6 @@ export default function ScanDetail() {
 
   const [pageStatusFilter, setPageStatusFilter] = useState<string>("all");
   const [pageUrlFilter, setPageUrlFilter] = useState("");
-  const [pageExtFilter, setPageExtFilter] = useState<string>("all");
 
   const [fpOverrides, setFpOverrides] = useState<Record<number, { falsePositive: boolean; falsePositiveNote: string | null }>>({});
   const [fpDialogIssue, setFpDialogIssue] = useState<Issue | null>(null);
@@ -2157,6 +2156,22 @@ export default function ScanDetail() {
     },
   });
 
+  // useGetScan has no refetchInterval — it fetches once and stops.
+  // When the scan finishes, liveStatus transitions to "completed" but scan.pages
+  // is never populated because nothing re-triggers useGetScan.
+  // This effect fires on two paths:
+  //   (a) liveStatus.status → "completed" (user was watching a running scan)
+  //   (b) isUpdatingResults is true on mount (user navigated to an already-finished
+  //       scan whose pages hadn't been loaded into the React Query cache yet)
+  // In both cases we force one refetch of the full scan so page results appear.
+  useEffect(() => {
+    if (!scanId) return;
+    if (liveStatus?.status === "completed" || isUpdatingResults) {
+      queryClient.invalidateQueries({ queryKey: getGetScanQueryKey(scanId) });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveStatus?.status, isUpdatingResults]);
+
   const cancelScan = useCancelScan();
 
   const retryClone = useMutation({
@@ -2331,46 +2346,15 @@ export default function ScanDetail() {
     });
   };
 
-  const availableExtensions = useMemo(() => {
-    if (!scan?.pages?.length) return [];
-    const exts = new Set<string>();
-    for (const p of scan.pages) {
-      try {
-        const pathname = new URL(p.url).pathname;
-        const seg = pathname.split("/").pop() || "";
-        const m = seg.match(/\.([a-zA-Z0-9]+)$/);
-        exts.add(m ? m[1].toLowerCase() : "__none__");
-      } catch {
-        exts.add("__none__");
-      }
-    }
-    return Array.from(exts).sort((a, b) => {
-      if (a === "__none__") return 1;
-      if (b === "__none__") return -1;
-      return a.localeCompare(b);
-    });
-  }, [scan?.pages]);
-
   const matchesPageFilter = useCallback(
     (p: { url: string; status: string; issueCount: number }) => {
       if (pageUrlFilter && !p.url.toLowerCase().includes(pageUrlFilter.toLowerCase())) return false;
-      if (pageExtFilter !== "all") {
-        try {
-          const pathname = new URL(p.url).pathname;
-          const seg = pathname.split("/").pop() || "";
-          const m = seg.match(/\.([a-zA-Z0-9]+)$/);
-          const ext = m ? m[1].toLowerCase() : "__none__";
-          if (ext !== pageExtFilter) return false;
-        } catch {
-          if (pageExtFilter !== "__none__") return false;
-        }
-      }
       if (pageStatusFilter === "all") return true;
       if (pageStatusFilter === "completed_with_issues") return p.status === "completed" && p.issueCount > 0;
       if (pageStatusFilter === "completed_no_issues") return p.status === "completed" && p.issueCount === 0;
       return p.status === pageStatusFilter;
     },
-    [pageStatusFilter, pageUrlFilter, pageExtFilter],
+    [pageStatusFilter, pageUrlFilter],
   );
 
   const pageStatusCounts = useMemo(() => {
@@ -2388,7 +2372,9 @@ export default function ScanDetail() {
 
   const handleCopyAllUrls = async () => {
     if (!scan?.pages?.length) return;
-    const filtered = scan.pages.filter(matchesPageFilter);
+    const filtered = pageStatusFilter === "all"
+      ? scan.pages
+      : scan.pages.filter(matchesPageFilter);
     if (!filtered.length) {
       toast({ title: "No URLs match the current filter" });
       return;
@@ -3312,42 +3298,24 @@ export default function ScanDetail() {
                       </button>
                     );
                   })}
-                  {/* Extension filter + URL text filter — right side of the same row */}
-                  <div className="ml-auto flex items-center gap-2 shrink-0">
-                    {availableExtensions.length > 1 && (
-                      <Select value={pageExtFilter} onValueChange={setPageExtFilter}>
-                        <SelectTrigger className="w-36 h-11 bg-white dark:bg-white dark:text-slate-900 gap-1.5">
-                          <FileText className="w-4 h-4 shrink-0 text-muted-foreground" />
-                          <SelectValue placeholder="All types" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All types</SelectItem>
-                          {availableExtensions.map((ext) => (
-                            <SelectItem key={ext} value={ext}>
-                              {ext === "__none__" ? "No extension" : `.${ext.toUpperCase()}`}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                  {/* URL text filter — right side of the same row */}
+                  <div className="relative ml-auto w-72 shrink-0">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Filter URLs…"
+                      value={pageUrlFilter}
+                      onChange={(e) => setPageUrlFilter(e.target.value)}
+                      className="pl-9 h-11 bg-white dark:bg-white dark:text-slate-900 dark:placeholder:text-slate-400"
+                    />
+                    {pageUrlFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setPageUrlFilter("")}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
                     )}
-                    <div className="relative w-72">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Filter URLs…"
-                        value={pageUrlFilter}
-                        onChange={(e) => setPageUrlFilter(e.target.value)}
-                        className="pl-9 h-11 bg-white dark:bg-white dark:text-slate-900 dark:placeholder:text-slate-400"
-                      />
-                      {pageUrlFilter && (
-                        <button
-                          type="button"
-                          onClick={() => setPageUrlFilter("")}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
                   </div>
                 </div>
               );
