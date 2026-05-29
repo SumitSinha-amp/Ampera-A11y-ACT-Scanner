@@ -3270,7 +3270,6 @@ const pageExtensions = useMemo(() => {
                       )}
                       </div>
                   </div>
-                </div>
               );
             })()}
 
