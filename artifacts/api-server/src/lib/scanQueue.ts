@@ -285,8 +285,8 @@ async function scanSinglePage(
     // Hard per-URL deadline — 30 s beyond the configured Puppeteer timeout.
     // When it fires we abort the AbortController, which force-closes the live
     // Puppeteer page so the scan mutex is released immediately.
-    const configuredTimeout = options.timeout ?? 120_000;
-    const hardDeadline = configuredTimeout + 30_000;
+    const configuredTimeout = options.timeout ?? 60_000;
+    const hardDeadline = configuredTimeout + 20_000;
     const urlAbortController = new AbortController();
     let hardTimer: ReturnType<typeof setTimeout> | null = null;
     const hardTimeoutPromise = new Promise<never>((_, reject) => {

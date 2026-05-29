@@ -1374,46 +1374,12 @@ function ExportButtons({
   const safeLabel = scanLabel.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
   const pageCount = scan.pages?.length ?? 0;
 
-  const exportCsv = useCallback(() => {
+   const exportCsv = useCallback(() => {
     const rows = buildExportRows(scan);
-    const header = [
-      "Scan Name",
-      "Selected Rules",
-      "Page URL",
-      "Rule ID",
-      "Rule Label",
-      "Description",
-      "Impact",
-      "WCAG Criterion",
-      "WCAG Level",
-      "Compliance",
-      "CSS Selector",
-      "Element HTML",
-      "Remediation",
-    ];
+    const issueCount = scan.pages?.reduce((s, p) => s + (p.issues?.length ?? 0), 0) ?? 0;
+    const header = ["Scan Name","Selected Rules","Page URL","Rule ID","Rule Label","Description","Impact","WCAG Criterion","WCAG Level","Compliance","CSS Selector","Element HTML","Remediation"];
     const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
-    const dataRows =
-      rows.length === 0
-        ? [[escape("No accessibility issues found"), ...header.slice(1).map(() => escape(""))].join(",")]
-        : rows.map((r) =>
-            [
-              r.scanLabel,
-              r.selectedRules,
-              r.pageUrl,
-              r.ruleId,
-              r.ruleLabel,
-              r.description,
-              r.impact,
-              r.wcagCriteria,
-              r.wcagLevel,
-              r.legalText,
-              r.selector,
-              r.element,
-              r.remediation,
-            ]
-              .map(escape)
-              .join(","),
-          );
+    const dataRows = rows.map((r) => [r.scanLabel, r.selectedRules, r.pageUrl, r.ruleId, r.ruleLabel, r.description, r.impact, r.wcagCriteria, r.wcagLevel, r.legalText, r.selector, r.element, r.remediation].map(escape).join(","));
     const csv = [header.map(escape).join(","), ...dataRows].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -1422,131 +1388,70 @@ function ExportButtons({
     a.download = `${safeLabel}-a11y-report.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    toast({ title: rows.length === 0 ? "CSV exported — no issues found" : "CSV exported" });
+    toast({ title: issueCount === 0 ? "CSV exported — no issues found" : "CSV exported" });
   }, [scan, safeLabel, toast]);
 
   const exportExcel = useCallback(async () => {
     const rows = buildExportRows(scan);
+    const issueCount = scan.pages?.reduce((s, p) => s + (p.issues?.length ?? 0), 0) ?? 0;
     const XLSX = (await import("xlsx")).default;
-    const sheetData =
-      rows.length === 0
-        ? [{ "Scan Name": scanLabel, "Selected Rules": "", "Page URL": "", "Rule ID": "", "Rule Label": "No accessibility issues found", Description: "", Impact: "", "WCAG Criterion": "", "WCAG Level": "", Compliance: "", "CSS Selector": "", "Element HTML": "", Remediation: "" }]
-        : rows.map((r) => ({
-            "Scan Name": r.scanLabel,
-            "Selected Rules": r.selectedRules,
-            "Page URL": r.pageUrl,
-            "Rule ID": r.ruleId,
-            "Rule Label": r.ruleLabel,
-            Description: r.description,
-            Impact: r.impact,
-            "WCAG Criterion": r.wcagCriteria,
-            "WCAG Level": r.wcagLevel,
-            Compliance: r.legalText,
-            "CSS Selector": r.selector,
-            "Element HTML": r.element,
-            Remediation: r.remediation,
-          }));
+    const sheetData = rows.map((r) => ({ "Scan Name": r.scanLabel, "Selected Rules": r.selectedRules, "Page URL": r.pageUrl, "Rule ID": r.ruleId, "Rule Label": r.ruleLabel, Description: r.description, Impact: r.impact, "WCAG Criterion": r.wcagCriteria, "WCAG Level": r.wcagLevel, Compliance: r.legalText, "CSS Selector": r.selector, "Element HTML": r.element, Remediation: r.remediation }));
     const ws = XLSX.utils.json_to_sheet(sheetData);
-    ws["!cols"] = [
-      { wch: 60 },
-      { wch: 10 },
-      { wch: 60 },
-      { wch: 10 },
-      { wch: 14 },
-      { wch: 8 },
-      { wch: 50 },
-      { wch: 80 },
-      { wch: 60 },
-    ];
+    ws["!cols"] = [{ wch: 60 }, { wch: 10 }, { wch: 60 }, { wch: 10 }, { wch: 14 }, { wch: 8 }, { wch: 50 }, { wch: 80 }, { wch: 60 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Issues");
     XLSX.writeFile(wb, `${safeLabel}-a11y-report.xlsx`);
-    toast({ title: rows.length === 0 ? "Excel exported — no issues found" : "Excel file exported" });
+    toast({ title: issueCount === 0 ? "Excel exported — no issues found" : "Excel file exported" });
   }, [scan, scanLabel, safeLabel, toast]);
 
   const exportPdf = useCallback(async () => {
     const rows = buildExportRows(scan);
+    const issueCount = scan.pages?.reduce((s, p) => s + (p.issues?.length ?? 0), 0) ?? 0;
     const { jsPDF } = await import("jspdf");
     const autoTable = (await import("jspdf-autotable")).default;
-    const doc = new jsPDF({
-      orientation: "landscape",
-      unit: "pt",
-      format: "a4",
-    });
+    const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
 
     doc.setFontSize(16);
     doc.text(`Accessibility Report: ${scanLabel}`, 40, 40);
     doc.setFontSize(10);
     doc.setTextColor(120);
-    doc.text(
-      `Generated: ${new Date().toLocaleString()} — ${rows.length} issue${rows.length !== 1 ? "s" : ""} across ${pageCount} page${pageCount !== 1 ? "s" : ""}`,
-      40,
-      58,
-    );
+    doc.text(`Generated: ${new Date().toLocaleString()} — ${issueCount} issue${issueCount !== 1 ? "s" : ""} across ${pageCount} page${pageCount !== 1 ? "s" : ""}`, 40, 58);
     doc.setTextColor(0);
 
-    if (rows.length === 0) {
-      doc.setFontSize(12);
-      doc.setTextColor(34, 197, 94);
-      doc.text("✓ No accessibility issues found across all scanned pages.", 40, 90);
-      doc.setTextColor(0);
-    } else {
-      autoTable(doc, {
-        startY: 70,
-        head: [
-          [
-            "#",
-            "Scan Name",
-            "Selected Rules",
-            "Page URL",
-            "Rule ID",
-            "Rule Label",
-            "Impact",
-            "WCAG",
-            "Description",
-            "Selector",
-            "Remediation",
-          ],
-        ],
-        body: rows.map((r, i) => [
-          i + 1,
-          r.scanLabel,
-          r.selectedRules,
-          r.pageUrl,
-          r.ruleId,
-          r.ruleLabel,
-          r.impact,
-          r.wcagCriteria ? `${r.wcagCriteria} (${r.wcagLevel})` : "",
-          r.description,
-          r.selector,
-          r.remediation,
-        ]),
-        styles: { fontSize: 7, cellPadding: 4, overflow: "linebreak" },
-        headStyles: {
-          fillColor: [109, 40, 217],
-          textColor: 255,
-          fontStyle: "bold",
-        },
-        columnStyles: {
-          0: { cellWidth: 22 },
-          1: { cellWidth: 70 },
-          2: { cellWidth: 90 },
-          3: { cellWidth: 110 },
-          4: { cellWidth: 42 },
-          5: { cellWidth: 62 },
-          6: { cellWidth: 50 },
-          7: { cellWidth: 50 },
-          8: { cellWidth: 110 },
-          9: { cellWidth: 100 },
-          10: { cellWidth: 130 },
-        },
-        alternateRowStyles: { fillColor: [248, 246, 255] },
-      });
-    }
+    autoTable(doc, {
+      startY: 70,
+      head: [["#", "Page URL", "Rule ID", "Rule Label", "Impact", "WCAG", "Description", "Selector", "Remediation"]],
+      body: rows.map((r, i) => [
+        i + 1,
+        r.pageUrl,
+        r.ruleId,
+        r.ruleLabel,
+        r.impact,
+        r.wcagCriteria ? `${r.wcagCriteria} (${r.wcagLevel})` : "",
+        r.description,
+        r.selector,
+        r.remediation,
+      ]),
+      styles: { fontSize: 7, cellPadding: 4, overflow: "linebreak" },
+      headStyles: { fillColor: [109, 40, 217], textColor: 255, fontStyle: "bold" },
+      columnStyles: {
+        0: { cellWidth: 22 },
+        1: { cellWidth: 130 },
+        2: { cellWidth: 42 },
+        3: { cellWidth: 70 },
+        4: { cellWidth: 44 },
+        5: { cellWidth: 50 },
+        6: { cellWidth: 140 },
+        7: { cellWidth: 100 },
+        8: { cellWidth: 140 },
+      },
+      alternateRowStyles: { fillColor: [248, 246, 255] },
+    });
 
     doc.save(`${safeLabel}-a11y-report.pdf`);
-    toast({ title: rows.length === 0 ? "PDF exported — no issues found" : "PDF exported" });
+    toast({ title: issueCount === 0 ? "PDF exported — no issues found" : "PDF exported" });
   }, [scan, scanLabel, safeLabel, pageCount, toast]);
+
 
   return (
     <DropdownMenu>
@@ -2345,38 +2250,31 @@ export default function ScanDetail() {
       },
     });
   };
-const availableExtensions = useMemo(() => {
-    if (!scan?.pages?.length) return [];
+
+const pageExtensions = useMemo(() => {
     const exts = new Set<string>();
-    for (const p of scan.pages) {
+    for (const page of scan?.pages ?? []) {
       try {
-        const pathname = new URL(p.url).pathname;
-        const seg = pathname.split("/").pop() || "";
-        const m = seg.match(/\.([a-zA-Z0-9]+)$/);
-        exts.add(m ? m[1].toLowerCase() : "__none__");
-      } catch {
-        exts.add("__none__");
-      }
+        const pathname = new URL(page.url).pathname;
+        const last = pathname.split("/").pop() ?? "";
+        const dot = last.lastIndexOf(".");
+        if (dot > 0) exts.add(last.slice(dot).toLowerCase());
+      } catch { /* ignore malformed URLs */ }
     }
-    return Array.from(exts).sort((a, b) => {
-      if (a === "__none__") return 1;
-      if (b === "__none__") return -1;
-      return a.localeCompare(b);
-    });
+    return Array.from(exts).sort();
   }, [scan?.pages]);
 
   const matchesPageFilter = useCallback(
     (p: { url: string; status: string; issueCount: number }) => {
+      if (pageUrlFilter && !p.url.toLowerCase().includes(pageUrlFilter.toLowerCase())) return false;
       if (pageExtFilter !== "all") {
         try {
           const pathname = new URL(p.url).pathname;
-          const seg = pathname.split("/").pop() || "";
-          const m = seg.match(/\.([a-zA-Z0-9]+)$/);
-          const ext = m ? m[1].toLowerCase() : "__none__";
+          const last = pathname.split("/").pop() ?? "";
+          const dot = last.lastIndexOf(".");
+          const ext = dot > 0 ? last.slice(dot).toLowerCase() : "";
           if (ext !== pageExtFilter) return false;
-        } catch {
-          if (pageExtFilter !== "__none__") return false;
-        }
+        } catch { return false; }
       }
       if (pageStatusFilter === "all") return true;
       if (pageStatusFilter === "completed_with_issues") return p.status === "completed" && p.issueCount > 0;
@@ -3338,25 +3236,22 @@ const availableExtensions = useMemo(() => {
                       </button>
                     );
                   })} 
-                       {/* Extension filter + URL text filter — right side of the same row */}
-                  <div className="ml-auto flex items-center gap-2 shrink-0">
-                    {availableExtensions.length > 1 && (
-                      <Select value={pageExtFilter} onValueChange={setPageExtFilter}>
-                        <SelectTrigger className="w-36 h-11 bg-white dark:bg-white dark:text-slate-900 gap-1.5">
-                          <FileText className="w-4 h-4 shrink-0 text-muted-foreground" />
-                          <SelectValue placeholder="All types" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All types</SelectItem>
-                          {availableExtensions.map((ext) => (
-                            <SelectItem key={ext} value={ext}>
-                              {ext === "__none__" ? "No extension" : `.${ext.toUpperCase()}`}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                    <div className="relative w-72">
+                         {/* File extension filter */}
+                  {pageExtensions.length > 0 && (
+                    <Select value={pageExtFilter} onValueChange={setPageExtFilter}>
+                      <SelectTrigger className="h-11 w-36 shrink-0 bg-white dark:bg-white dark:text-slate-900">
+                        <SelectValue placeholder="Extension" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All types</SelectItem>
+                        {pageExtensions.map((ext) => (
+                          <SelectItem key={ext} value={ext}>{ext}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {/* URL text filter — right side of the same row */}
+                  <div className="relative ml-auto w-72 shrink-0">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <Input
                         placeholder="Filter URLs…"
