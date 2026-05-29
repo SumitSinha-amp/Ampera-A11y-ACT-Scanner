@@ -62,7 +62,10 @@ ENV PNPM_ALLOW_NON_APPLIED_PATCHES=true
 ENV npm_config_allow_build=*
 
 ENV PUPPETEER_SKIP_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/ms-playwright/chromium-1169/chrome-linux/chrome
+# ENV PUPPETEER_EXECUTABLE_PATH=/ms-playwright/chromium-1169/chrome-linux/chrome
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
 # =========================
 # Install Dependencies
 # =========================
@@ -93,4 +96,5 @@ EXPOSE 8080
 # =========================
 # Start App
 # =========================
-CMD ["node", "artifacts/api-server/dist/index.mjs"]
+#CMD ["node", "artifacts/api-server/dist/index.mjs"]
+CMD ["/app/docker-entrypoint.sh"]

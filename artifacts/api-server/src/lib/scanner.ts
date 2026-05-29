@@ -25,35 +25,109 @@ puppeteerExtra.use(StealthPlugin());
     return undefined;
   }
 }*/
-function getChromiumPath(): string {
-  const possiblePaths = [
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-    "/ms-playwright/chromium-*/chrome-linux/chrome",
-  ];
-
-  for (const p of possiblePaths) {
-    try {
-      if (existsSync(p)) {
-        logger.info({ chromiumPath: p }, "Using Chromium executable");
-        return p;
-      }
-    } catch {
-      // ignore
-    }
-  }
-  // Fallback for Linux container
-  try {
-    return (
-      execSync(
-        "which chromium 2>/dev/null || which chromium-browser 2>/dev/null || which google-chrome 2>/dev/null",
-      )
-        .toString()
-        .trim()
+function getChromiumPath(): string | undefined {
+  if (process.env["PUPPETEER_EXECUTABLE_PATH"]) {
+    const envPath = process.env["PUPPETEER_EXECUTABLE_PATH"];
+    // Only use the env var if the binary actually exists at that path.
+    // In Azure deployment the env var may point to a Nix store path that
+    // does not exist — fall through to other discovery strategies instead.
+    if (existsSync(envPath)) return envPath;
+    logger.warn(
+      { envPath },
+      "PUPPETEER_EXECUTABLE_PATH is set but binary not found — searching PATH",
     );
-  } catch {
-    throw new Error("No Chromium executable found");
   }
+
+  // Standard PATH lookup — works in dev where Nix adds binaries to PATH.
+  // Always verify with existsSync: on some distros `which chromium` returns a
+  // stub wrapper at /usr/bin/chromium even when Chromium is not installed.
+  try {
+    const found = execSync(
+      "which chromium 2>/dev/null || which chromium-browser 2>/dev/null || which google-chrome 2>/dev/null || which google-chrome-stable 2>/dev/null",
+    )
+      .toString()
+      .trim();
+    if (found && existsSync(found)) return found;
+  } catch { /* continue */ }
+
+  // Resolve symlinks — handles wrapper scripts that `which` returns
+  try {
+    const resolved = execSync(
+      "readlink -f $(which chromium-browser 2>/dev/null || which chromium 2>/dev/null || echo '') 2>/dev/null",
+    )
+      .toString()
+      .trim();
+    if (resolved && existsSync(resolved)) return resolved;
+  } catch { /* continue */ }
+
+  // Puppeteer-bundled Chrome — present when `puppeteer browsers install chrome`
+  // has been run (either in the Docker build or via startup.sh).
+  // Check all candidate cache directories in priority order.
+  // Checks both chrome-linux64/chrome (current) and chrome-linux/chrome (legacy).
+  try {
+    const cacheCandidates = [
+      process.env["PUPPETEER_CACHE_DIR"],
+      path.join(process.cwd(), ".cache", "puppeteer"),
+      path.join(os.homedir(), ".cache", "puppeteer"),
+      "/app/.cache/puppeteer",
+      "/home/site/wwwroot/.cache/puppeteer",
+    ].filter(Boolean) as string[];
+
+    for (const cacheDir of cacheCandidates) {
+      const chromeDir = path.join(cacheDir, "chrome");
+      if (!existsSync(chromeDir)) continue;
+      const linuxDirs = readdirSync(chromeDir)
+        .filter((d) => d.startsWith("linux-"))
+        .sort()
+        .reverse(); // highest version first
+      for (const dir of linuxDirs) {
+        // Newer puppeteer uses chrome-linux64/chrome; older builds use chrome-linux/chrome
+        for (const sub of ["chrome-linux64", "chrome-linux"]) {
+          const candidate = path.join(chromeDir, dir, sub, "chrome");
+          if (existsSync(candidate)) {
+            logger.info({ candidate }, "Found Puppeteer-bundled Chrome");
+            return candidate;
+          }
+        }
+      }
+    }
+  } catch { /* continue */ }
+
+    // Azure App Service / Microsoft-hosted environments:
+  // Playwright pre-installs Chromium at /ms-playwright/.
+  // When getChromiumPath() returns undefined, puppeteer-extra's internal
+  // fallback resolves to the same directory but with an incorrect subpath —
+  // scan it ourselves so we always return a working executable on Azure.
+  try {
+    const msDir = "/ms-playwright";
+    if (existsSync(msDir)) {
+      const chromiumDirs = readdirSync(msDir)
+        .filter((d) => /^chromium-/.test(d))
+        .sort()
+        .reverse(); // highest revision first
+      for (const d of chromiumDirs) {
+        for (const sub of ["chrome-linux64", "chrome-linux"]) {
+          for (const bin of ["chrome", "chromium", "chromium-browser"]) {
+            const candidate = path.join(msDir, d, sub, bin);
+            if (existsSync(candidate)) {
+              logger.info(
+                { candidate },
+                "Found Azure Playwright pre-installed Chromium",
+              );
+              return candidate;
+            }
+          }
+        }
+      }
+    }
+  } catch { /* continue */ }
+
+  logger.warn(
+    "getChromiumPath: no Chromium binary found in any known location — " +
+    "puppeteer will attempt its own internal path resolution which may fail. " +
+    "Set PUPPETEER_EXECUTABLE_PATH or run `puppeteer browsers install chrome`.",
+  );
+  return undefined;
 }
 export type RuleType = "Issue" | "Potential Issue" | "Best Practice";
 export interface RuleMeta {
@@ -889,7 +963,6 @@ const PUPPETEER_LAUNCH_ARGS = [
 ];
 
 let browserInstance: Browser | null = null;
-
 async function getBrowser(): Promise<Browser> {
   if (browserInstance && browserInstance.connected) {
     return browserInstance;
@@ -898,16 +971,18 @@ async function getBrowser(): Promise<Browser> {
   // Clear any stale lock files left by a crashed previous process
   clearChromeLocks();
 
+  const executablePath = getChromiumPath();
   logger.info(
-    { profileDir: CHROME_PROFILE_DIR },
+    {
+      profileDir: CHROME_PROFILE_DIR,
+      executablePath: executablePath ?? "(puppeteer internal default)",
+    },
     "Launching browser for accessibility scanning",
   );
 
   const launchOptions = {
     headless: true as const,
-    //executablePath: getChromiumPath(),
-    executablePath:
-    process.env.PUPPETEER_EXECUTABLE_PATH || "/ms-playwright/chromium-1169/chrome-linux/chrome",
+    executablePath,
     userDataDir: path.join(
       CHROME_PROFILE_DIR,
       `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -920,47 +995,86 @@ async function getBrowser(): Promise<Browser> {
     protocolTimeout: 155_000,
   };
 
-  try {
-    // Cap the launch so a hung Chrome process never blocks forever.
-    // 30 s is ample — a healthy launch takes < 5 s; anything longer means Chrome is stuck.
-    const LAUNCH_TIMEOUT_MS = 30_000;
-    browserInstance = await Promise.race([
-      puppeteerExtra.launch(launchOptions) as Promise<Browser>,
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error(
-                `Browser launch timed out after ${LAUNCH_TIMEOUT_MS}ms`,
+  // Cap the launch so a hung Chrome process never blocks forever.
+  // 30 s is ample — a healthy launch takes < 5 s; anything longer means Chrome is stuck.
+  const LAUNCH_TIMEOUT_MS = 30_000;
+
+  // Retry up to 3 times with increasing delays.
+  //
+  // Why: on Azure App Service, startup.sh installs Chrome asynchronously
+  // before starting Node. If a scan is created right as the server comes up
+  // (e.g. orphan recovery kicks in before startup.sh finishes writing to
+  // the cache), the first launch attempt will fail with "executablePath not
+  // found". Waiting and retrying lets Chrome installation complete so the
+  // next attempt succeeds — without failing the scan page permanently.
+  //
+  // The same retry also absorbs transient browser crashes: if Chrome was
+  // killed by the OOM reaper between two mutex slots, the second attempt
+  // (with a fresh userDataDir) succeeds normally.
+  const MAX_LAUNCH_RETRIES = 3;
+  const LAUNCH_RETRY_BASE_DELAY_MS = 5_000;
+
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_LAUNCH_RETRIES; attempt++) {
+    try {
+      browserInstance = await Promise.race([
+        puppeteerExtra.launch(launchOptions) as Promise<Browser>,
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(`Browser launch timed out after ${LAUNCH_TIMEOUT_MS}ms`),
               ),
-            ),
-          LAUNCH_TIMEOUT_MS,
+            LAUNCH_TIMEOUT_MS,
+          ),
         ),
-      ),
-    ]);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (
-      msg.includes("SingletonLock") ||
-      msg.includes("profile") ||
-      msg.includes("already in use") ||
-      msg.includes("process_singleton")
-    ) {
-      logger.warn(
-        { error: msg },
-        "Browser launch failed with profile lock error",
-      );
+      ]);
+
+      browserInstance.on("disconnected", () => {
+        logger.warn("Browser disconnected — will relaunch on next scan page");
+        browserInstance = null;
+      });
+
+      if (attempt > 1) {
+        logger.info({ attempt }, "Browser launched successfully after retry");
+      }
+
+      return browserInstance;
+    } catch (err: unknown) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+
+      // Profile lock errors — clear locks before retrying
+      if (
+        msg.includes("SingletonLock") ||
+        msg.includes("profile") ||
+        msg.includes("already in use") ||
+        msg.includes("process_singleton")
+      ) {
+        logger.warn({ error: msg, attempt }, "Browser launch failed with profile lock — clearing");
+        clearChromeLocks();
+      } else {
+        logger.warn({ error: msg, attempt, maxAttempts: MAX_LAUNCH_RETRIES }, "Browser launch failed");
+      }
+
+      if (attempt < MAX_LAUNCH_RETRIES) {
+        const delayMs = LAUNCH_RETRY_BASE_DELAY_MS * attempt; // 5s, 10s
+        logger.info({ delayMs, attempt }, "Waiting before retrying browser launch");
+        await new Promise<void>((r) => setTimeout(r, delayMs));
+        // Re-resolve the path on each retry — startup.sh may have finished
+        // installing Chrome since the last attempt.
+        launchOptions.executablePath = getChromiumPath();
+        logger.info(
+          { executablePath: launchOptions.executablePath ?? "(puppeteer internal default)" },
+          "Retrying browser launch",
+        );
+      }
     }
-    throw err;
   }
 
-  browserInstance.on("disconnected", () => {
-    logger.warn("Browser disconnected");
-    browserInstance = null;
-  });
-
-  return browserInstance;
+  throw lastErr;
 }
+
 
 /**
  * Scroll through the entire page to trigger lazy-loaded content, then wait
