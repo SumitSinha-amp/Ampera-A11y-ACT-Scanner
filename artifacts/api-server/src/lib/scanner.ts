@@ -1524,7 +1524,7 @@ async function _scanPageInternal(
       // Hard cap: never block scanning more than 8s waiting for load
       setTimeout(resolve, 8000);
     }));
-    // Wait for DOM mutations to settle (no childList changes for 600ms, max 4s).
+     // Step 3: Wait for DOM mutations to settle (no childList changes for 600ms, max 4s).
     // This catches frameworks that inject content after window.load (React hydration,
     // lazy component rendering, analytics widgets, etc.).
     await page.evaluate(() => new Promise<void>((resolve) => {
@@ -1542,9 +1542,70 @@ async function _scanPageInternal(
       observer.observe(document.documentElement, { childList: true, subtree: true });
       // Absolute hard cap so a perpetually-mutating page never blocks scanning
       setTimeout(() => { observer.disconnect(); resolve(); }, 4000);
-    }));
-    logger.info({ url }, "Scrolling page to trigger lazy-loaded content");
-    await fullyRenderPage(page, timeout);
+    })).catch(() => { /* page navigated away during settle — handled below */ });
+
+    // Step 4: Detect and follow client-side redirects.
+    // CMS/AEM platforms (and some SPA routers) serve an intermediate page with placeholder
+    // attributes — e.g. lang="en-SOFTWAREVERSIONREDIRECT" or lang="clienlibs-KEYSIGHT" —
+    // then redirect to the real content via <meta http-equiv="refresh"> or window.location.
+    // Scanning the intermediate DOM produces false positives from placeholder content.
+    // We detect redirect indicators and, if found, wait for the navigation to complete
+    // then re-apply the full DOMContentLoaded → load → MutationObserver settle sequence
+    // on the final page so the scanner always runs against the real content.
+    const redirectInfo = await page.evaluate((): { hasMetaRefresh: boolean; invalidLang: boolean; lang: string } => {
+      const lang = (document.documentElement.getAttribute("lang") ?? "").trim();
+      const hasMetaRefresh = !!document.querySelector('meta[http-equiv="refresh"]');
+      // Use Intl.getCanonicalLocales() to validate BCP 47 — it throws RangeError for any
+      // invalid tag (e.g. "en-SOFTWAREVERSIONREDIRECT", "clienlibs-KEYSIGHT").
+      // An invalid lang attribute on the <html> element is a reliable signal that the page
+      // is still in an intermediate CMS/AEM state and a client-side redirect is pending.
+      let invalidLang = false;
+      if (lang.length > 0) {
+        try {
+          Intl.getCanonicalLocales(lang);
+        } catch {
+          invalidLang = true;
+        }
+      }
+      return { hasMetaRefresh, invalidLang, lang };
+    }).catch(() => ({ hasMetaRefresh: false, invalidLang: false, lang: "" }));
+
+    if (redirectInfo.hasMetaRefresh || redirectInfo.invalidLang) {
+      logger.info(
+        { url, redirectInfo },
+        "Intermediate/redirect page detected — waiting for final navigation (up to 15s)",
+      );
+      try {
+        await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 });
+        const finalUrl = page.url();
+        logger.info({ url, finalUrl }, "Client-side redirect followed — re-settling final page");
+
+        // Re-apply full wait sequence on the final page
+        await page.evaluate(() => new Promise<void>((resolve) => {
+          if (document.readyState === "interactive" || document.readyState === "complete") return resolve();
+          document.addEventListener("DOMContentLoaded", () => resolve(), { once: true });
+          setTimeout(resolve, 5000);
+        })).catch(() => {});
+
+        await page.evaluate(() => new Promise<void>((resolve) => {
+          if (document.readyState === "complete") return resolve();
+          window.addEventListener("load", () => resolve(), { once: true });
+          setTimeout(resolve, 8000);
+        })).catch(() => {});
+
+        await page.evaluate(() => new Promise<void>((resolve) => {
+          let t: ReturnType<typeof setTimeout> = setTimeout(() => { obs.disconnect(); resolve(); }, 600);
+          const obs = new MutationObserver(() => {
+            clearTimeout(t);
+            t = setTimeout(() => { obs.disconnect(); resolve(); }, 600);
+          });
+          obs.observe(document.documentElement, { childList: true, subtree: true });
+          setTimeout(() => { obs.disconnect(); resolve(); }, 4000);
+        })).catch(() => {});
+      } catch {
+        logger.info({ url }, "Redirect navigation did not complete within 15s — scanning current page state");
+      }
+    }
 
     // Capture a full-page snapshot and the rendered DOM before running rules
     let screenshot: string | undefined;
