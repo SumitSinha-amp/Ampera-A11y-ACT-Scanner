@@ -111,13 +111,7 @@ const ruleReferences = [
     detail:
       'Elements inside aria-hidden="true" regions or display:none containers must not contain keyboard-focusable children. Hidden content that remains in the tab order confuses all users.',
   },
-  {
-    id: "SIA-R17-1",
-    title: "Role with implied hidden content has keyboard focus",
-    detail:
-      "Elements inside  containers with interactive role having child nodes (sub-elements) that are made presentational based on their parent role but can receive keyboard focus .",
-  },
-  {
+   {
     id: "SIA-R18",
     title: "Unsupported ARIA attribute is used",
     detail:
@@ -551,9 +545,9 @@ const ruleReferences = [
   },
   {
     id: "SIA-R90",
-    title: "aria-hidden content contains focusable elements",
+    title: "Role with implied hidden content has keyboard focus",
     detail:
-      'Elements inside an aria-hidden="true" container are invisible to assistive technology, but if they remain in the tab order, keyboard users can reach them — a major inconsistency. Remove focusable children from aria-hidden regions.',
+      "Elements with interactive ARIA roles must not contain nested interactive content, and focusable elements must not be hidden inside opacity:0 containers. Both patterns create invisible or ambiguous keyboard focus that assistive technologies cannot correctly announce.",
   },
   {
     id: "SIA-R91",

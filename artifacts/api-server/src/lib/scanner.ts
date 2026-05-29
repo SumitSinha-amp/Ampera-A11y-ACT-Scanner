@@ -306,11 +306,6 @@ const RULE_DESCRIPTIONS: Record<
     remediation:
       "Remove focusable elements from hidden content or make them visible",
   },
-  "SIA-R17(1)": {
-    type: "Issue",
-    description: "Role with implied hidden content has keyboard focus",
-    remediation: "Remove role from element with focusable elements",
-  },
   "SIA-R18": {
     type: "Issue",
     description: "Unsupported ARIA attribute is used",
@@ -693,10 +688,11 @@ const RULE_DESCRIPTIONS: Record<
     description: "Enhanced contrast is insufficient (AAA)",
     remediation: "Ensure contrast ratio of at least 7:1 where required",
   },
-  "SIA-R90": {
+ "SIA-R90": {
     type: "Issue",
-    description: "Element with ARIA role is incorrectly focusable",
-    remediation: "Ensure correct use of tabindex and ARIA roles",
+    description: "Role with implied hidden content has keyboard focus",
+    remediation:
+      "Remove nested interactive content from elements with interactive ARIA roles, and ensure focusable elements are not inside opacity:0 containers",
   },
   "SIA-R91": {
     type: "Best Practice",
@@ -2717,72 +2713,57 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
         }
       });
 
-    // ════════════════════════════════════════════════════════════════════════
-    // SIA-R17: aria-hidden contains focusable element (WCAG 1.3.1)
-    // ════════════════════════════════════════════════════════════════════════
-    document.querySelectorAll("[aria-hidden='true']").forEach((el) => {
-      el.querySelectorAll(
-        "a, button, input, select, textarea, [tabindex]",
-      ).forEach((child) => {
-        const tabindex = child.getAttribute("tabindex");
-        if (tabindex === "-1") return;
-        results.push({
-          ruleId: "SIA-R17",
-          type: "Issue",
-          impact: "serious",
-          description:
-            'Focusable element is inside an aria-hidden="true" container — keyboard users can focus it but screen readers will not announce it',
-          element: outerHtmlSnippet(child),
-          selector: getSelector(child),
-        });
-      });
-    });
-
-    // ════════════════════════════════════════════════════════════════════════
-    // SIA-R17(1): Interactive role contains nested interactive content
-    // Alfa: element with presentational children has no focusable content (sia-r90-variant)
-    // Using a single dedup Set to avoid double-reporting.
+   // ════════════════════════════════════════════════════════════════════════
+    // SIA-R17: Hidden element has focusable content (WCAG 1.3.1)
+    // Covers two cases:
+    //   A) aria-hidden="true" is set DIRECTLY on the focusable element itself
+    //      (e.g. <input aria-hidden="true"> — hidden from AT but still tabbable)
+    //   B) aria-hidden="true" container wraps focusable descendants
     // ════════════════════════════════════════════════════════════════════════
     {
-      const interactiveSel =
-        "a[href], button, input, select, textarea, [role='button'], [role='link'], [role='menuitem'], [role='tab'], [tabindex]:not([tabindex='-1'])";
-      const roleSel =
-        "[role='button'],[role='link'],[role='menuitem'],[role='tab'],[role='option'],[role='switch'],[role='checkbox'],[role='radio'],[role='treeitem'],[role='menuitemcheckbox'],[role='menuitemradio']";
-      const seenR17 = new Set<string>();
-      document.querySelectorAll(roleSel).forEach((el) => {
-        Array.from(el.querySelectorAll(interactiveSel))
-          .filter((c) => c !== el)
-          .forEach((child) => {
-            const key = `${getSelector(el)}|${getSelector(child)}`;
-            if (seenR17.has(key)) return;
-            seenR17.add(key);
+      const r17Seen = new Set<string>();
+      const r17FocusableSel =
+        "a[href]:not([tabindex='-1']), button:not([disabled]):not([tabindex='-1']), input:not([disabled]):not([tabindex='-1']), select:not([disabled]):not([tabindex='-1']), textarea:not([disabled]):not([tabindex='-1'])";
+
+      document.querySelectorAll("[aria-hidden='true']").forEach((el) => {
+        // ── Case A: the aria-hidden element IS a focusable control ──────────
+        const tabIdx = el.getAttribute("tabindex");
+        const selfFocusable =
+          el.matches(
+            "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])",
+          ) ||
+          (tabIdx !== null && tabIdx !== "-1");
+
+        if (selfFocusable) {
+          const key = getSelector(el);
+          if (!r17Seen.has(key)) {
+            r17Seen.add(key);
             results.push({
-              ruleId: "SIA-R17(1)",
+              ruleId: "SIA-R17",
               type: "Issue",
               impact: "serious",
               description:
-                "Element with an interactive role contains nested interactive content",
+                'Interactive element has aria-hidden="true" — it is hidden from assistive technologies but keyboard users can still Tab to and activate it',
               element: outerHtmlSnippet(el),
-              selector: getSelector(el),
+              selector: key,
             });
+          }
+        }
+
+        // ── Case B: container has focusable descendants ──────────────────────
+        el.querySelectorAll(r17FocusableSel).forEach((child) => {
+          const key = getSelector(child);
+          if (r17Seen.has(key)) return;
+          r17Seen.add(key);
+          results.push({
+            ruleId: "SIA-R17",
+            type: "Issue",
+            impact: "serious",
+            description:
+              'Focusable element is inside an aria-hidden="true" container — keyboard users can Tab to it but screen readers will not announce it',
+            element: outerHtmlSnippet(child),
+            selector: key,
           });
-      });
-      document.querySelectorAll("a[href], button").forEach((el) => {
-        const nestedRole = Array.from(el.querySelectorAll(roleSel)).find(
-          (c) => c !== el,
-        );
-        if (!nestedRole) return;
-        const key = `${getSelector(el)}|${getSelector(nestedRole)}`;
-        if (seenR17.has(key)) return;
-        seenR17.add(key);
-        results.push({
-          ruleId: "SIA-R17(1)",
-          type: "Issue",
-          impact: "serious",
-          description:
-            "Interactive element contains a nested element with an interactive role",
-          element: outerHtmlSnippet(el),
-          selector: getSelector(el),
         });
       });
     }
@@ -3198,26 +3179,97 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
           });
         }
       });
+// ════════════════════════════════════════════════════════════════════════
+    // SIA-R90: Role with implied hidden content has keyboard focus (WCAG 4.1.2)
+    // Combines two patterns under one rule:
+    //   A) Interactive ARIA role wraps nested interactive content
+    //      (role="button" / "link" / "tab" etc. containing a real <button>,
+    //       <a>, <input> etc. — AT cannot correctly announce double interactivity)
+    //   B) Focusable element lives inside an opacity:0 ancestor
+    //      (opacity:0 is NOT inherited, so the element stays in tab order
+    //       while being completely invisible to sighted users)
+    // ════════════════════════════════════════════════════════════════════════
+    {
+      const r90Seen = new Set<string>();
 
-    // ════════════════════════════════════════════════════════════════════════
-    // SIA-R90: Element with ARIA role incorrectly focusable (WCAG 4.1.2)
-    // Alfa sia-r90: elements with role=none/presentation that have focusable children.
-    // ════════════════════════════════════════════════════════════════════════
-    document.querySelectorAll("[aria-hidden='true']").forEach((container) => {
-      const focusable = container.querySelectorAll(
-        "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
-      );
-      if (focusable.length > 0) {
+      // ── Pattern A: nested interactive content inside an interactive role ──
+      const interactiveSel =
+        "a[href], button, input, select, textarea, [role='button'], [role='link'], [role='menuitem'], [role='tab'], [tabindex]:not([tabindex='-1'])";
+      const roleSel =
+        "[role='button'],[role='link'],[role='menuitem'],[role='tab'],[role='option'],[role='switch'],[role='checkbox'],[role='radio'],[role='treeitem'],[role='menuitemcheckbox'],[role='menuitemradio']";
+
+      document.querySelectorAll(roleSel).forEach((el) => {
+        Array.from(el.querySelectorAll(interactiveSel))
+          .filter((c) => c !== el)
+          .forEach((child) => {
+            const key = `${getSelector(el)}|${getSelector(child)}`;
+            if (r90Seen.has(key)) return;
+            r90Seen.add(key);
+            results.push({
+              ruleId: "SIA-R90",
+              type: "Issue",
+              impact: "serious",
+              description:
+                "Element with an interactive role contains nested interactive content — assistive technologies cannot correctly announce this",
+              element: outerHtmlSnippet(el),
+              selector: getSelector(el),
+            });
+          });
+      });
+
+      document.querySelectorAll("a[href], button").forEach((el) => {
+        const nestedRole = Array.from(el.querySelectorAll(roleSel)).find(
+          (c) => c !== el,
+        );
+        if (!nestedRole) return;
+        const key = `${getSelector(el)}|${getSelector(nestedRole)}`;
+        if (r90Seen.has(key)) return;
+        r90Seen.add(key);
         results.push({
           ruleId: "SIA-R90",
           type: "Issue",
           impact: "serious",
-          description: `aria-hidden="true" container has ${focusable.length} focusable element(s) inside`,
-          element: outerHtmlSnippet(container),
-          selector: getSelector(container),
+          description:
+            "Interactive element contains a nested element with an interactive role",
+          element: outerHtmlSnippet(el),
+          selector: getSelector(el),
         });
-      }
-    });
+      });
+
+      // ── Pattern B: focusable element inside an opacity:0 ancestor ────────
+      // opacity:0 hides visually but does NOT remove from tab order.
+      // Uses an ancestor walk per focusable element (efficient, avoids querySelectorAll("*")).
+      const r90FocusableSel =
+        "a[href]:not([tabindex='-1']), button:not([disabled]):not([tabindex='-1']), input:not([disabled]):not([tabindex='-1']), select:not([disabled]):not([tabindex='-1']), textarea:not([disabled]):not([tabindex='-1'])";
+
+      document.querySelectorAll(r90FocusableSel).forEach((el) => {
+        const elStyle = window.getComputedStyle(el as HTMLElement);
+        if (elStyle.display === "none" || elStyle.visibility === "hidden") return;
+
+        let ancestor = (el as HTMLElement).parentElement;
+        while (ancestor && ancestor !== document.documentElement) {
+          const aStyle = window.getComputedStyle(ancestor);
+          if (aStyle.display === "none") break;
+          if (parseFloat(aStyle.opacity) === 0) {
+            const key = getSelector(el);
+            if (!r90Seen.has(key)) {
+              r90Seen.add(key);
+              results.push({
+                ruleId: "SIA-R90",
+                type: "Issue",
+                impact: "serious",
+                description:
+                  "Focusable element is inside an opacity:0 container — visually invisible but still reachable by keyboard Tab",
+                element: outerHtmlSnippet(el),
+                selector: key,
+              });
+            }
+            break;
+          }
+          ancestor = ancestor.parentElement;
+        }
+      });
+    }
 
     // ════════════════════════════════════════════════════════════════════════
     // SIA-R10: Autocomplete attribute missing or invalid on personal data inputs (WCAG 1.3.5)
