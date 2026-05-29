@@ -2454,6 +2454,19 @@ export default function ScanDetail() {
 
   return (
     <div className="space-y-8">
+      {/* Loading Results Overlay — shown briefly after scan completes while page data loads */}
+      {showUpdatingResults && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-4 rounded-xl border bg-card px-10 py-8 shadow-xl">
+            <Loader2 className="w-10 h-10 animate-spin text-primary" />
+            <div className="text-center">
+              <p className="text-base font-semibold text-foreground">Loading Results</p>
+              <p className="text-sm text-muted-foreground mt-1">Fetching scan results, please wait…</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Smart Analysis Dialog */}
       <Dialog open={smartOpen} onOpenChange={setSmartOpen}>
         <DialogContent className="max-w-[90vw] max-h-[90vh] flex flex-col gap-0 p-0">

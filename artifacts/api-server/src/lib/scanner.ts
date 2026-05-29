@@ -1508,7 +1508,41 @@ async function _scanPageInternal(
         error: "Page Not Available",
       };
     }
-
+ // Wait for window.load event so all scripts have fully executed.
+    // domcontentloaded fires before scripts finish; window.load is the reliable signal.
+    // Step 1: Wait for DOMContentLoaded — HTML parsed, DOM built, deferred scripts run.
+    await page.evaluate(() => new Promise<void>((resolve) => {
+      if (document.readyState === "interactive" || document.readyState === "complete") return resolve();
+      document.addEventListener("DOMContentLoaded", () => resolve(), { once: true });
+      // Hard cap: never wait more than 5s for DOMContentLoaded
+      setTimeout(resolve, 5000);
+    }));
+    // Step 2: Wait for window.load — all resources (images, stylesheets, iframes) loaded.
+    await page.evaluate(() => new Promise<void>((resolve) => {
+      if (document.readyState === "complete") return resolve();
+      window.addEventListener("load", () => resolve(), { once: true });
+      // Hard cap: never block scanning more than 8s waiting for load
+      setTimeout(resolve, 8000);
+    }));
+    // Wait for DOM mutations to settle (no childList changes for 600ms, max 4s).
+    // This catches frameworks that inject content after window.load (React hydration,
+    // lazy component rendering, analytics widgets, etc.).
+    await page.evaluate(() => new Promise<void>((resolve) => {
+      let timer: ReturnType<typeof setTimeout> = setTimeout(() => {
+        observer.disconnect();
+        resolve();
+      }, 600);
+      const observer = new MutationObserver(() => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          observer.disconnect();
+          resolve();
+        }, 600);
+      });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+      // Absolute hard cap so a perpetually-mutating page never blocks scanning
+      setTimeout(() => { observer.disconnect(); resolve(); }, 4000);
+    }));
     logger.info({ url }, "Scrolling page to trigger lazy-loaded content");
     await fullyRenderPage(page, timeout);
 
