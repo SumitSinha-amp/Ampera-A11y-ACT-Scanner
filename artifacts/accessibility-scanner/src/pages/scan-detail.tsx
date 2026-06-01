@@ -1374,12 +1374,13 @@ function ExportButtons({
   const [exporting, setExporting] = useState<"csv" | "excel" | "pdf" | null>(null);
   const scanLabel = scan.name || `scan-${scan.id}`;
   const safeLabel = scanLabel.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
-  
+
   // Fetch guaranteed-fresh scan data for export (bypasses any stale React state)
   const fetchFreshScan = useCallback(async () => {
     const fresh = await getScan(scan.id);
     return fresh as typeof fresh & { options?: { rules?: string[] } };
   }, [scan.id]);
+
   const exportCsv = useCallback(async () => {
     setExporting("csv");
     try {
@@ -1406,7 +1407,7 @@ function ExportButtons({
   }, [fetchFreshScan, safeLabel, toast]);
 
   const exportExcel = useCallback(async () => {
-  setExporting("excel");
+    setExporting("excel");
     try {
       const fresh = await fetchFreshScan();
       const rows = buildExportRows(fresh as Parameters<typeof buildExportRows>[0]);
@@ -1424,10 +1425,10 @@ function ExportButtons({
     } finally {
       setExporting(null);
     }
-  }, [fetchFreshScan, safeLabel, toast]); 
+  }, [fetchFreshScan, safeLabel, toast]);
 
- const exportPdf = useCallback(async () => {
-setExporting("pdf");
+  const exportPdf = useCallback(async () => {
+    setExporting("pdf");
     try {
       const fresh = await fetchFreshScan();
       const rows = buildExportRows(fresh as Parameters<typeof buildExportRows>[0]);
@@ -1437,12 +1438,14 @@ setExporting("pdf");
       const { jsPDF } = await import("jspdf");
       const autoTable = (await import("jspdf-autotable")).default;
       const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+
       doc.setFontSize(16);
       doc.text(`Accessibility Report: ${freshLabel}`, 40, 40);
       doc.setFontSize(10);
       doc.setTextColor(120);
       doc.text(`Generated: ${new Date().toLocaleString()} — ${issueCount} issue${issueCount !== 1 ? "s" : ""} across ${pageCount} page${pageCount !== 1 ? "s" : ""}`, 40, 58);
       doc.setTextColor(0);
+
       autoTable(doc, {
         startY: 70,
         head: [["#", "Page URL", "Rule ID", "Rule Label", "Impact", "WCAG", "Description", "Selector", "Remediation"]],
@@ -1472,6 +1475,7 @@ setExporting("pdf");
         },
         alternateRowStyles: { fillColor: [248, 246, 255] },
       });
+
       doc.save(`${safeLabel}-a11y-report.pdf`);
       toast({ title: issueCount === 0 ? "PDF exported — no issues found" : "PDF exported" });
     } catch {
@@ -1480,8 +1484,6 @@ setExporting("pdf");
       setExporting(null);
     }
   }, [fetchFreshScan, safeLabel, toast]);
-}
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -1506,7 +1508,6 @@ setExporting("pdf");
         </DropdownMenuItem>
         <DropdownMenuItem onClick={exportPdf} disabled={!!exporting}>
           {exporting === "pdf" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
-          Export as PDF
           Export as PDF
         </DropdownMenuItem>
       </DropdownMenuContent>
