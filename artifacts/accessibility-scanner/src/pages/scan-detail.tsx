@@ -9,6 +9,7 @@ import {
   useUpdateScan,
   getGetScanStatusQueryKey,
   getGetScanQueryKey,
+  getScan,
 } from "@workspace/api-client-react";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -1370,109 +1371,142 @@ function ExportButtons({
   };
 }) {
   const { toast } = useToast();
+  const [exporting, setExporting] = useState<"csv" | "excel" | "pdf" | null>(null);
   const scanLabel = scan.name || `scan-${scan.id}`;
   const safeLabel = scanLabel.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
-  const pageCount = scan.pages?.length ?? 0;
-
-   const exportCsv = useCallback(() => {
-    const rows = buildExportRows(scan);
-    const issueCount = scan.pages?.reduce((s, p) => s + (p.issues?.length ?? 0), 0) ?? 0;
-    const header = ["Scan Name","Selected Rules","Page URL","Rule ID","Rule Label","Description","Impact","WCAG Criterion","WCAG Level","Compliance","CSS Selector","Element HTML","Remediation"];
-    const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
-    const dataRows = rows.map((r) => [r.scanLabel, r.selectedRules, r.pageUrl, r.ruleId, r.ruleLabel, r.description, r.impact, r.wcagCriteria, r.wcagLevel, r.legalText, r.selector, r.element, r.remediation].map(escape).join(","));
-    const csv = [header.map(escape).join(","), ...dataRows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${safeLabel}-a11y-report.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: issueCount === 0 ? "CSV exported — no issues found" : "CSV exported" });
-  }, [scan, safeLabel, toast]);
+  
+  // Fetch guaranteed-fresh scan data for export (bypasses any stale React state)
+  const fetchFreshScan = useCallback(async () => {
+    const fresh = await getScan(scan.id);
+    return fresh as typeof fresh & { options?: { rules?: string[] } };
+  }, [scan.id]);
+  const exportCsv = useCallback(async () => {
+    setExporting("csv");
+    try {
+      const fresh = await fetchFreshScan();
+      const rows = buildExportRows(fresh as Parameters<typeof buildExportRows>[0]);
+      const issueCount = fresh.pages?.reduce((s: number, p: { issues?: unknown[] }) => s + (p.issues?.length ?? 0), 0) ?? 0;
+      const header = ["Scan Name","Selected Rules","Page URL","Rule ID","Rule Label","Description","Impact","WCAG Criterion","WCAG Level","Compliance","CSS Selector","Element HTML","Remediation"];
+      const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+      const dataRows = rows.map((r) => [r.scanLabel, r.selectedRules, r.pageUrl, r.ruleId, r.ruleLabel, r.description, r.impact, r.wcagCriteria, r.wcagLevel, r.legalText, r.selector, r.element, r.remediation].map(escape).join(","));
+      const csv = [header.map(escape).join(","), ...dataRows].join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${safeLabel}-a11y-report.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: issueCount === 0 ? "CSV exported — no issues found" : "CSV exported" });
+    } catch {
+      toast({ title: "Export failed", description: "Could not fetch scan data.", variant: "destructive" });
+    } finally {
+      setExporting(null);
+    }
+  }, [fetchFreshScan, safeLabel, toast]);
 
   const exportExcel = useCallback(async () => {
-    const rows = buildExportRows(scan);
-    const issueCount = scan.pages?.reduce((s, p) => s + (p.issues?.length ?? 0), 0) ?? 0;
-    const XLSX = (await import("xlsx")).default;
-    const sheetData = rows.map((r) => ({ "Scan Name": r.scanLabel, "Selected Rules": r.selectedRules, "Page URL": r.pageUrl, "Rule ID": r.ruleId, "Rule Label": r.ruleLabel, Description: r.description, Impact: r.impact, "WCAG Criterion": r.wcagCriteria, "WCAG Level": r.wcagLevel, Compliance: r.legalText, "CSS Selector": r.selector, "Element HTML": r.element, Remediation: r.remediation }));
-    const ws = XLSX.utils.json_to_sheet(sheetData);
-    ws["!cols"] = [{ wch: 60 }, { wch: 10 }, { wch: 60 }, { wch: 10 }, { wch: 14 }, { wch: 8 }, { wch: 50 }, { wch: 80 }, { wch: 60 }];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Issues");
-    XLSX.writeFile(wb, `${safeLabel}-a11y-report.xlsx`);
-    toast({ title: issueCount === 0 ? "Excel exported — no issues found" : "Excel file exported" });
-  }, [scan, scanLabel, safeLabel, toast]);
+  setExporting("excel");
+    try {
+      const fresh = await fetchFreshScan();
+      const rows = buildExportRows(fresh as Parameters<typeof buildExportRows>[0]);
+      const issueCount = fresh.pages?.reduce((s: number, p: { issues?: unknown[] }) => s + (p.issues?.length ?? 0), 0) ?? 0;
+      const XLSX = (await import("xlsx")).default;
+      const sheetData = rows.map((r) => ({ "Scan Name": r.scanLabel, "Selected Rules": r.selectedRules, "Page URL": r.pageUrl, "Rule ID": r.ruleId, "Rule Label": r.ruleLabel, Description: r.description, Impact: r.impact, "WCAG Criterion": r.wcagCriteria, "WCAG Level": r.wcagLevel, Compliance: r.legalText, "CSS Selector": r.selector, "Element HTML": r.element, Remediation: r.remediation }));
+      const ws = XLSX.utils.json_to_sheet(sheetData);
+      ws["!cols"] = [{ wch: 60 }, { wch: 10 }, { wch: 60 }, { wch: 10 }, { wch: 14 }, { wch: 8 }, { wch: 50 }, { wch: 80 }, { wch: 60 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Issues");
+      XLSX.writeFile(wb, `${safeLabel}-a11y-report.xlsx`);
+      toast({ title: issueCount === 0 ? "Excel exported — no issues found" : "Excel file exported" });
+    } catch {
+      toast({ title: "Export failed", description: "Could not fetch scan data.", variant: "destructive" });
+    } finally {
+      setExporting(null);
+    }
+  }, [fetchFreshScan, safeLabel, toast]); 
 
-  const exportPdf = useCallback(async () => {
-    const rows = buildExportRows(scan);
-    const issueCount = scan.pages?.reduce((s, p) => s + (p.issues?.length ?? 0), 0) ?? 0;
-    const { jsPDF } = await import("jspdf");
-    const autoTable = (await import("jspdf-autotable")).default;
-    const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
-
-    doc.setFontSize(16);
-    doc.text(`Accessibility Report: ${scanLabel}`, 40, 40);
-    doc.setFontSize(10);
-    doc.setTextColor(120);
-    doc.text(`Generated: ${new Date().toLocaleString()} — ${issueCount} issue${issueCount !== 1 ? "s" : ""} across ${pageCount} page${pageCount !== 1 ? "s" : ""}`, 40, 58);
-    doc.setTextColor(0);
-
-    autoTable(doc, {
-      startY: 70,
-      head: [["#", "Page URL", "Rule ID", "Rule Label", "Impact", "WCAG", "Description", "Selector", "Remediation"]],
-      body: rows.map((r, i) => [
-        i + 1,
-        r.pageUrl,
-        r.ruleId,
-        r.ruleLabel,
-        r.impact,
-        r.wcagCriteria ? `${r.wcagCriteria} (${r.wcagLevel})` : "",
-        r.description,
-        r.selector,
-        r.remediation,
-      ]),
-      styles: { fontSize: 7, cellPadding: 4, overflow: "linebreak" },
-      headStyles: { fillColor: [109, 40, 217], textColor: 255, fontStyle: "bold" },
-      columnStyles: {
-        0: { cellWidth: 22 },
-        1: { cellWidth: 130 },
-        2: { cellWidth: 42 },
-        3: { cellWidth: 70 },
-        4: { cellWidth: 44 },
-        5: { cellWidth: 50 },
-        6: { cellWidth: 140 },
-        7: { cellWidth: 100 },
-        8: { cellWidth: 140 },
-      },
-      alternateRowStyles: { fillColor: [248, 246, 255] },
-    });
-
-    doc.save(`${safeLabel}-a11y-report.pdf`);
-    toast({ title: issueCount === 0 ? "PDF exported — no issues found" : "PDF exported" });
-  }, [scan, scanLabel, safeLabel, pageCount, toast]);
-
+ const exportPdf = useCallback(async () => {
+setExporting("pdf");
+    try {
+      const fresh = await fetchFreshScan();
+      const rows = buildExportRows(fresh as Parameters<typeof buildExportRows>[0]);
+      const issueCount = fresh.pages?.reduce((s: number, p: { issues?: unknown[] }) => s + (p.issues?.length ?? 0), 0) ?? 0;
+      const pageCount = fresh.pages?.length ?? 0;
+      const freshLabel = fresh.name || `scan-${fresh.id}`;
+      const { jsPDF } = await import("jspdf");
+      const autoTable = (await import("jspdf-autotable")).default;
+      const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+      doc.setFontSize(16);
+      doc.text(`Accessibility Report: ${freshLabel}`, 40, 40);
+      doc.setFontSize(10);
+      doc.setTextColor(120);
+      doc.text(`Generated: ${new Date().toLocaleString()} — ${issueCount} issue${issueCount !== 1 ? "s" : ""} across ${pageCount} page${pageCount !== 1 ? "s" : ""}`, 40, 58);
+      doc.setTextColor(0);
+      autoTable(doc, {
+        startY: 70,
+        head: [["#", "Page URL", "Rule ID", "Rule Label", "Impact", "WCAG", "Description", "Selector", "Remediation"]],
+        body: rows.map((r, i) => [
+          i + 1,
+          r.pageUrl,
+          r.ruleId,
+          r.ruleLabel,
+          r.impact,
+          r.wcagCriteria ? `${r.wcagCriteria} (${r.wcagLevel})` : "",
+          r.description,
+          r.selector,
+          r.remediation,
+        ]),
+        styles: { fontSize: 7, cellPadding: 4, overflow: "linebreak" },
+        headStyles: { fillColor: [109, 40, 217], textColor: 255, fontStyle: "bold" },
+        columnStyles: {
+          0: { cellWidth: 22 },
+          1: { cellWidth: 130 },
+          2: { cellWidth: 42 },
+          3: { cellWidth: 70 },
+          4: { cellWidth: 44 },
+          5: { cellWidth: 50 },
+          6: { cellWidth: 140 },
+          7: { cellWidth: 100 },
+          8: { cellWidth: 140 },
+        },
+        alternateRowStyles: { fillColor: [248, 246, 255] },
+      });
+      doc.save(`${safeLabel}-a11y-report.pdf`);
+      toast({ title: issueCount === 0 ? "PDF exported — no issues found" : "PDF exported" });
+    } catch {
+      toast({ title: "Export failed", description: "Could not fetch scan data.", variant: "destructive" });
+    } finally {
+      setExporting(null);
+    }
+  }, [fetchFreshScan, safeLabel, toast]);
+}
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm">
-          <Download className="w-4 h-4 mr-2" />
-          Export
-          <ChevronDown className="w-3.5 h-3.5 ml-2 opacity-60" />
+        <Button variant="outline" size="sm" disabled={!!exporting}>
+          {exporting ? (
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+          ) : (
+            <Download className="w-4 h-4 mr-2" />
+          )}
+          {exporting ? "Exporting…" : "Export"}
+          {!exporting && <ChevronDown className="w-3.5 h-3.5 ml-2 opacity-60" />}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={exportCsv}>
-          <FileText className="w-4 h-4 mr-2" />
+        <DropdownMenuItem onClick={exportCsv} disabled={!!exporting}>
+          {exporting === "csv" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
           Export as CSV
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={exportExcel}>
-          <FileSpreadsheet className="w-4 h-4 mr-2" />
+        <DropdownMenuItem onClick={exportExcel} disabled={!!exporting}>
+          {exporting === "excel" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileSpreadsheet className="w-4 h-4 mr-2" />}
           Export as Excel (.xlsx)
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={exportPdf}>
-          <FileText className="w-4 h-4 mr-2" />
+        <DropdownMenuItem onClick={exportPdf} disabled={!!exporting}>
+          {exporting === "pdf" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
+          Export as PDF
           Export as PDF
         </DropdownMenuItem>
       </DropdownMenuContent>
