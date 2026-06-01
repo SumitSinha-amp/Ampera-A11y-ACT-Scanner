@@ -13,7 +13,7 @@ import {
   UpdateScanParams,
   UpdateScanBody,
 } from "@workspace/api-zod";
-import { startScan, cancelScan, pauseScan, resumeScan, isScanActive, queueRetryUrl } from "../lib/scanQueue";
+import { startScan, cancelScan, pauseScan, resumeScan, isScanActive, queueRetryUrl, addUrlsToRunningScan } from "../lib/scanQueue";
 import { fetchSitemapUrls, parseUrlsFromCsv } from "../lib/sitemap";
 import { logger } from "../lib/logger";
 import { requireAuth } from "../middlewares/authMiddleware";
@@ -663,6 +663,60 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
   });
 });
 
+/**
+ * POST /api/scans/:id/add-urls
+ * Inject additional URLs into a running, paused, or pending scan.
+ * Body: { urls: string[] }
+ */
+router.post("/scans/:id/add-urls", requireAuth, async (req, res): Promise<void> => {
+  const userId = getAuthUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const role = req.session?.user?.role ?? "user";
+  const perms = await getEffectivePermissions(parseInt(userId, 10), role);
+  if (!perms.canManageScan) {
+    res.status(403).json({ error: "You don't have permission to modify scans" });
+    return;
+  }
+
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const scanId = parseInt(raw, 10);
+  if (isNaN(scanId)) { res.status(400).json({ error: "Invalid scan ID" }); return; }
+
+  const { urls } = req.body as { urls?: unknown };
+  if (!Array.isArray(urls) || urls.length === 0) {
+    res.status(400).json({ error: "urls must be a non-empty array" });
+    return;
+  }
+
+  const validUrls = (urls as unknown[])
+    .filter((u): u is string => typeof u === "string" && u.trim().length > 0)
+    .map((u) => u.trim())
+    .filter((u) => { try { new URL(u); return true; } catch { return false; } });
+
+  if (validUrls.length === 0) {
+    res.status(400).json({ error: "No valid URLs provided" });
+    return;
+  }
+
+  const [session] = await db
+    .select({ status: scanSessionsTable.status, options: scanSessionsTable.options })
+    .from(scanSessionsTable)
+    .where(eq(scanSessionsTable.id, scanId));
+
+  if (!session) { res.status(404).json({ error: "Scan not found" }); return; }
+
+  if (!["running", "paused", "pending"].includes(session.status)) {
+    res.status(409).json({
+      error: `Can only add URLs to a running, paused, or pending scan (current status: ${session.status})`,
+    });
+    return;
+  }
+
+  const result = await addUrlsToRunningScan(scanId, validUrls);
+  res.json({ ...result, total: validUrls.length });
+});
+
 router.post("/scans/:id/cancel", async (req, res): Promise<void> => {
   const userId = getAuthUserId(req);
   if (!userId) {
@@ -792,8 +846,8 @@ router.post("/scans/:id/resume", async (req, res): Promise<void> => {
   }
 
   if (isScanActive(scanId)) {
-    // Live worker exists — just signal it to continue
-     // Live worker exists — just signal it to continue
+    // Live worker exists — reset any pages that got stuck mid-flight while
+    // the scan was paused, then signal the worker to continue.
     const MID_FLIGHT = ["navigating", "scanning", "rendering", "analyzing", "saving"] as const;
     const stuckRows = await db
       .select({ url: pageResultsTable.url })
@@ -802,6 +856,7 @@ router.post("/scans/:id/resume", async (req, res): Promise<void> => {
         eq(pageResultsTable.scanId, scanId),
         inArray(pageResultsTable.status, [...MID_FLIGHT]),
       ));
+
     if (stuckRows.length > 0) {
       await db
         .update(pageResultsTable)
@@ -816,6 +871,7 @@ router.post("/scans/:id/resume", async (req, res): Promise<void> => {
       }
       req.log.info({ scanId, count: stuckRows.length }, "Reset stuck mid-flight pages on resume");
     }
+
     resumeScan(scanId);
     await db.update(scanSessionsTable)
       .set({ status: "running" })
@@ -1138,6 +1194,132 @@ router.post("/scans/:id/retry-url", async (req, res): Promise<void> => {
     createdAt: newSession.createdAt.toISOString(),
     completedAt: null,
   });
+});
+
+// ── Server-side export (CSV / Excel) ─────────────────────────────────────────
+// Uses a single LEFT JOIN query — no huge JSON roundtrip to the browser.
+router.get("/scans/:id/export", requireAuth, async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const scanId = parseInt(raw, 10);
+  if (isNaN(scanId)) { res.status(400).json({ error: "Invalid scan ID" }); return; }
+
+  const format = (req.query.format as string | undefined) ?? "csv";
+  if (!["csv", "excel", "json"].includes(format)) {
+    res.status(400).json({ error: "format must be csv, excel, or json" });
+    return;
+  }
+
+  const [session] = await db.select({
+    id: scanSessionsTable.id,
+    name: scanSessionsTable.name,
+    options: scanSessionsTable.options,
+  }).from(scanSessionsTable).where(eq(scanSessionsTable.id, scanId));
+
+  if (!session) { res.status(404).json({ error: "Scan not found" }); return; }
+
+  const scanName = session.name || `Scan #${session.id}`;
+  const opts = session.options as Record<string, unknown> | null;
+  const selectedRules: string[] = Array.isArray(opts?.rules) ? (opts!.rules as string[]) : [];
+  const rulesLabel = selectedRules.length === 0 ? "All rules" : selectedRules.join(", ");
+
+  // Single LEFT JOIN: one row per issue, or one null-issue row per page with no issues.
+  const joined = await db
+    .select({
+      url: pageResultsTable.url,
+      ruleId: accessibilityIssuesTable.ruleId,
+      impact: accessibilityIssuesTable.impact,
+      description: accessibilityIssuesTable.description,
+      wcagCriteria: accessibilityIssuesTable.wcagCriteria,
+      wcagLevel: accessibilityIssuesTable.wcagLevel,
+      legalText: accessibilityIssuesTable.legalText,
+      selector: accessibilityIssuesTable.selector,
+      element: accessibilityIssuesTable.element,
+      remediation: accessibilityIssuesTable.remediation,
+    })
+    .from(pageResultsTable)
+    .leftJoin(accessibilityIssuesTable, eq(accessibilityIssuesTable.pageId, pageResultsTable.id))
+    .where(eq(pageResultsTable.scanId, scanId))
+    .orderBy(pageResultsTable.url);
+
+  type ExportRow = {
+    scanName: string;
+    selectedRules: string;
+    url: string;
+    ruleId: string;
+    ruleLabel: string;
+    description: string;
+    impact: string;
+    wcagCriteria: string;
+    wcagLevel: string;
+    legalText: string;
+    selector: string;
+    element: string;
+    remediation: string;
+  };
+
+  const rows: ExportRow[] = joined.map((r) => ({
+    scanName,
+    selectedRules: rulesLabel,
+    url: r.url,
+    ruleId: r.ruleId ?? rulesLabel,
+    ruleLabel: r.ruleId ? (r.ruleId) : "No issues",
+    description: r.ruleId ? (r.description ?? "") : "No accessibility issues found",
+    impact: r.impact ?? "",
+    wcagCriteria: r.wcagCriteria ?? "",
+    wcagLevel: r.wcagLevel ?? "",
+    legalText: r.legalText ?? "",
+    selector: r.selector ?? "",
+    element: r.element ?? "",
+    remediation: r.remediation ?? "",
+  }));
+
+  const safeLabel = scanName.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
+
+  if (format === "json") {
+    res.json({ scanName, selectedRules: rulesLabel, rows });
+    return;
+  }
+
+  if (format === "csv") {
+    const escape = (v: string) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const header = ["Scan Name","Selected Rules","Page URL","Rule ID","Rule Label","Description","Impact","WCAG Criterion","WCAG Level","Compliance","CSS Selector","Element HTML","Remediation"];
+    const lines = [
+      header.map(escape).join(","),
+      ...rows.map(r => [r.scanName, r.selectedRules, r.url, r.ruleId, r.ruleLabel, r.description, r.impact, r.wcagCriteria, r.wcagLevel, r.legalText, r.selector, r.element, r.remediation].map(escape).join(",")),
+    ];
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${safeLabel}-a11y-report.csv"`);
+    res.send(lines.join("\n"));
+    return;
+  }
+
+  if (format === "excel") {
+    const XLSX = await import("xlsx");
+    const sheetData = rows.map(r => ({
+      "Scan Name": r.scanName,
+      "Selected Rules": r.selectedRules,
+      "Page URL": r.url,
+      "Rule ID": r.ruleId,
+      "Rule Label": r.ruleLabel,
+      "Description": r.description,
+      "Impact": r.impact,
+      "WCAG Criterion": r.wcagCriteria,
+      "WCAG Level": r.wcagLevel,
+      "Compliance": r.legalText,
+      "CSS Selector": r.selector,
+      "Element HTML": r.element,
+      "Remediation": r.remediation,
+    }));
+    const ws = XLSX.utils.json_to_sheet(sheetData);
+    ws["!cols"] = [{ wch: 40 }, { wch: 20 }, { wch: 60 }, { wch: 12 }, { wch: 12 }, { wch: 50 }, { wch: 12 }, { wch: 16 }, { wch: 10 }, { wch: 30 }, { wch: 40 }, { wch: 60 }, { wch: 50 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Issues");
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${safeLabel}-a11y-report.xlsx"`);
+    res.send(buf);
+    return;
+  }
 });
 
 router.get("/scans/:id/report", async (req, res): Promise<void> => {
