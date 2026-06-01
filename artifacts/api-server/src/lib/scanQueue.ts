@@ -19,6 +19,8 @@ const queuedRetryUrls = new Map<number, Set<string>>();
 // Tracks how many times each URL has been auto-retried within the current scan run
 const autoRetryCounters = new Map<number, Map<string, number>>();
 const MAX_AUTO_RETRIES = 3; // total auto-retry attempts per URL before giving up
+// URLs injected mid-scan via addUrlsToRunningScan — drained by the Phase 1 loop
+const injectedUrlQueue = new Map<number, string[]>();
 
 function getLegalText(legal?: { ada: string[]; eaa: boolean }): string {
   if (!legal) return "";
@@ -61,16 +63,39 @@ export async function startScan(scanId: number, urls: string[], options: ScanOpt
 
     logger.info({ scanId, urlCount: urls.length }, "Starting scan session");
 
-    // ── Phase 1: process the initial URL list ──────────────────────────────
-    for (let i = 0; i < urls.length; i += maxConcurrency) {
+    // ── Phase 1: process the initial URL list (dynamic — new URLs may be injected) ──
+    const liveQueue = [...urls];
+    let qi = 0;
+    while (qi < liveQueue.length) {
       if (controller.signal.aborted) {
         logger.info({ scanId }, "Scan cancelled by user");
         break;
       }
       if (!await waitIfPaused(scanId, controller)) break;
 
-      const batch = urls.slice(i, i + maxConcurrency);
+      // Drain any URLs injected mid-scan via addUrlsToRunningScan
+      const injected = injectedUrlQueue.get(scanId);
+      if (injected && injected.length > 0) {
+        liveQueue.push(...injected.splice(0));
+        logger.info({ scanId, count: liveQueue.length - qi }, "Injected URLs appended to live queue");
+      }
+
+      const batch = liveQueue.slice(qi, qi + maxConcurrency);
+      qi += maxConcurrency;
       await Promise.all(batch.map(url => scanSinglePage(scanId, url, options, controller.signal)));
+    }
+
+    // Final drain — pick up URLs injected right as the loop was finishing
+    const finalInjected = injectedUrlQueue.get(scanId);
+    if (finalInjected && finalInjected.length > 0 && !controller.signal.aborted) {
+      const extra = finalInjected.splice(0);
+      logger.info({ scanId, count: extra.length }, "Processing URLs injected after Phase 1 completion");
+      for (let i = 0; i < extra.length; i += maxConcurrency) {
+        if (controller.signal.aborted) break;
+        if (!await waitIfPaused(scanId, controller)) break;
+        const batch = extra.slice(i, i + maxConcurrency);
+        await Promise.all(batch.map(url => scanSinglePage(scanId, url, options, controller.signal)));
+      }
     }
 
     // ── Phase 2: drain the retry queue ────────────────────────────────────
@@ -221,6 +246,7 @@ export async function startScan(scanId: number, urls: string[], options: ScanOpt
     pausedScans.delete(scanId);
     queuedRetryUrls.delete(scanId);
     autoRetryCounters.delete(scanId);
+    injectedUrlQueue.delete(scanId);
   }
 }
 
@@ -232,6 +258,51 @@ export function queueRetryUrl(scanId: number, url: string): boolean {
   return true;
 }
 
+/**
+ * Inject additional URLs into a scan that is currently running, paused, or pending.
+ * Inserts DB rows immediately (so status/progress reflects them) and feeds the
+ * live Phase-1 queue so the worker picks them up without any restart.
+ */
+export async function addUrlsToRunningScan(
+  scanId: number,
+  urls: string[],
+): Promise<{ added: number; skipped: number }> {
+  // Deduplicate against existing page_results rows
+  const existing = await db
+    .select({ url: pageResultsTable.url })
+    .from(pageResultsTable)
+    .where(eq(pageResultsTable.scanId, scanId));
+
+  const existingSet = new Set(existing.map((r) => r.url));
+  const newUrls = urls.filter((u) => !existingSet.has(u));
+
+  if (newUrls.length === 0) {
+    return { added: 0, skipped: urls.length };
+  }
+
+  // Insert pending rows so the DB immediately reflects the new total
+  await db.insert(pageResultsTable).values(
+    newUrls.map((url) => ({ scanId, url, status: "pending" as const })),
+  );
+
+  // Update total_urls on the session
+  await db
+    .update(scanSessionsTable)
+    .set({ totalUrls: sql`${scanSessionsTable.totalUrls} + ${newUrls.length}` })
+    .where(eq(scanSessionsTable.id, scanId));
+
+  // Feed the live queue if the scan worker is still running
+  if (!injectedUrlQueue.has(scanId)) injectedUrlQueue.set(scanId, []);
+  injectedUrlQueue.get(scanId)!.push(...newUrls);
+
+  logger.info(
+    { scanId, added: newUrls.length, skipped: urls.length - newUrls.length },
+    "URLs injected into running scan",
+  );
+
+  return { added: newUrls.length, skipped: urls.length - newUrls.length };
+}
+
 async function scanSinglePage(
   scanId: number,
   url: string,
@@ -240,6 +311,7 @@ async function scanSinglePage(
   skipCounterUpdates = false,
 ): Promise<void> {
   if (signal.aborted) return;
+
   // If the scan was paused while this page was already queued in a batch,
   // hold here until resumed (or cancelled) before touching any DB state.
   if (pausedScans.has(scanId)) {
@@ -249,6 +321,7 @@ async function scanSinglePage(
     }
     if (signal.aborted) return;
   }
+
   // ── Resolve the page row ──────────────────────────────────────────────────
   // ORDER BY prefers the row that most needs to be worked on (requeued/failed/
   // not_available) over any already-completed duplicate, avoiding a race where

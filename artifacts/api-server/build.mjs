@@ -102,6 +102,7 @@ async function buildAll() {
       "puppeteer-extra",
       "puppeteer-extra-plugin-stealth",
       "electron",
+      "xlsx",
     ],
     sourcemap: "linked",
     plugins: [
