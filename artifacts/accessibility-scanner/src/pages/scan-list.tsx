@@ -1,13 +1,18 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import {
   useListScans,
   useDeleteScan,
   useUpdateScan,
+  useGetScanStatus,
+  useGetScanReport,
+  getGetScanStatusQueryKey,
+  getGetScanReportQueryKey,
   getListScansQueryKey,
   getGetScanQueryKey,
 } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/auth";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
+import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -29,6 +34,16 @@ import {
   ChevronDown,
   Pause,
   Play,
+  ExternalLink,
+  AlertTriangle,
+  Globe,
+  Timer,
+  TrendingUp,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  MinusCircle,
+  Activity,
 } from "lucide-react";
 import { getStatusBadge } from "@/lib/status-badge";
 import { formatDate } from "@/lib/utils";
@@ -82,6 +97,293 @@ interface EditScanDialogProps {
 const BASE_URL = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
 type AdminUser = { id: number; fullName: string; username: string; groups: { id: number; name: string }[] };
+
+type ScanItem = {
+  id: number;
+  name: string | null;
+  status: string;
+  totalUrls: number;
+  scannedUrls: number;
+  totalIssues: number;
+  criticalIssues: number;
+  createdAt: string;
+  completedAt?: string | null;
+  projectName?: string | null;
+  initiatorName?: string | null;
+  initiatorRole?: string | null;
+};
+
+function formatElapsed(scan: { createdAt: string; completedAt?: string | null; status: string }) {
+  const start = new Date(scan.createdAt).getTime();
+  const end = scan.completedAt ? new Date(scan.completedAt).getTime() : Date.now();
+  const diff = Math.max(0, end - start);
+  const mins = Math.round(diff / 60000);
+  if (mins < 1) return "< 1 min";
+  if (mins < 60) return `${mins} min`;
+  const hrs = Math.floor(mins / 60);
+  const rem = mins % 60;
+  return `${hrs}h ${rem}m`;
+}
+
+function formatEta(scan: { createdAt: string; scannedUrls: number; totalUrls: number; status: string }) {
+  if (scan.status !== "running" && scan.status !== "pending") return "—";
+  if (scan.scannedUrls <= 0 || scan.totalUrls <= 0) return "unknown";
+  const elapsed = Date.now() - new Date(scan.createdAt).getTime();
+  const avgMs = elapsed / scan.scannedUrls;
+  const remaining = Math.max(0, scan.totalUrls - scan.scannedUrls);
+  const etaMins = Math.round((avgMs * remaining) / 60000);
+  if (etaMins < 1) return "< 1 min";
+  if (etaMins < 60) return `~${etaMins} min`;
+  const hrs = Math.floor(etaMins / 60);
+  const mins = etaMins % 60;
+  return `~${hrs}h ${mins}m`;
+}
+
+function StatTile({
+  label,
+  value,
+  colorClass = "text-foreground",
+  icon,
+}: {
+  label: string;
+  value: string | number;
+  colorClass?: string;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg bg-muted/60 border border-border/60 px-2 py-2 text-center flex flex-col items-center gap-0.5">
+      {icon && <span className="mb-0.5">{icon}</span>}
+      <p className={`text-lg font-bold leading-none ${colorClass}`}>{typeof value === "number" ? value.toLocaleString() : value}</p>
+      <p className="text-[9px] text-muted-foreground leading-none mt-0.5">{label}</p>
+    </div>
+  );
+}
+
+function ScanPreviewPopup({
+  scan,
+  anchorRect,
+  onMouseEnter,
+  onMouseLeave,
+  onClose,
+}: {
+  scan: ScanItem;
+  anchorRect: DOMRect;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+  onClose: () => void;
+}) {
+  const [, navigate] = useLocation();
+  const isLive = scan.status === "running" || (scan.status as string) === "paused" || scan.status === "pending";
+
+  const { data: statusData } = useGetScanStatus(scan.id, {
+    query: {
+      queryKey: getGetScanStatusQueryKey(scan.id),
+      refetchInterval: isLive ? 2000 : false,
+    },
+  });
+
+  const { data: reportData } = useGetScanReport(scan.id, {
+    query: {
+      queryKey: getGetScanReportQueryKey(scan.id),
+      enabled: !isLive,
+    },
+  });
+
+  // Issue totals: always from the scan list item (accurate; updated after each page completes)
+  const totalIssues = scan.totalIssues;
+  const criticalIssues = scan.criticalIssues;
+
+  // Page counts from the aggregated counts map (much more accurate than filtering pages[])
+  const countsMap = statusData?.counts ?? {};
+
+  // Live scan: active page rows let us derive per-stage counts
+  const activePages = statusData?.pages ?? [];
+  const pagesScanning = activePages.filter((p) => p.status === "scanning").length;
+  const pagesPending = activePages.filter((p) => p.status === "pending").length;
+  const pagesDone = countsMap["completed"] ?? 0;
+
+  // Completed / cancelled breakdown: use server-computed pagesWithIssues + counts
+  const pagesWithIssues = statusData?.pagesWithIssues ?? 0;
+  const pagesNoIssues = Math.max(0, (countsMap["completed"] ?? 0) - pagesWithIssues);
+  const pagesFailed = (countsMap["failed"] ?? 0) + (countsMap["not_available"] ?? 0);
+  const pagesSkipped = countsMap["skipped"] ?? 0;
+
+  const scannedUrls = statusData?.scannedUrls ?? scan.scannedUrls;
+  const totalUrls = statusData?.totalUrls ?? scan.totalUrls;
+  const currentUrl = statusData?.currentUrl;
+  const progress = totalUrls > 0 ? Math.round((scannedUrls / totalUrls) * 100) : 0;
+
+  // Top pages: from report endpoint (only available for completed scans)
+  const topPages = reportData?.pagesWithMostIssues?.slice(0, 4) ?? [];
+
+  const POPUP_WIDTH = 500;
+  const POPUP_EST_HEIGHT = isLive ? 360 : 420;
+  const margin = 10;
+  const showAbove = anchorRect.top > POPUP_EST_HEIGHT + 40;
+  const left = Math.max(margin, Math.min(anchorRect.left, window.innerWidth - POPUP_WIDTH - margin));
+  const top = showAbove ? anchorRect.top - margin : anchorRect.bottom + margin;
+
+  const handleGoToDetails = () => {
+    onClose();
+    navigate(`/scans/${scan.id}`);
+  };
+
+  return (
+    <motion.div
+      className="fixed z-[9999] overflow-hidden rounded-xl border border-border bg-popover shadow-2xl"
+      style={{ width: POPUP_WIDTH, left, top, transformOrigin: showAbove ? "bottom left" : "top left" }}
+      initial={{ opacity: 0, y: showAbove ? 10 : -10, scale: 0.94 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: showAbove ? 6 : -6, scale: 0.97 }}
+      transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
+      {/* Title bar */}
+      <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border bg-muted/40">
+        <div className="flex items-center gap-2 min-w-0">
+          {scan.status === "running" && (
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+          )}
+          {(scan.status as string) === "paused" && <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />}
+          {scan.status === "pending" && <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0" />}
+          <span className="text-sm font-semibold text-foreground truncate">{scan.name || `Scan #${scan.id}`}</span>
+        </div>
+        <button
+          type="button"
+          className="flex items-center gap-1.5 text-[11px] font-semibold text-primary hover:underline underline-offset-2 cursor-pointer hover:opacity-80 shrink-0 whitespace-nowrap"
+          onClick={handleGoToDetails}
+        >
+          Go to Full Details <ExternalLink className="w-3 h-3" />
+        </button>
+      </div>
+
+      {/* Status + meta row */}
+      <div className="flex items-center gap-2 px-4 pt-2.5 pb-1.5">
+        {getStatusBadge(scan.status)}
+        <span className="text-xs text-muted-foreground">{formatDate(scan.createdAt)}</span>
+        {scan.projectName && (
+          <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground truncate max-w-[150px]">
+            <FolderOpen className="w-3 h-3 shrink-0" />{scan.projectName}
+          </span>
+        )}
+      </div>
+
+      {/* Body */}
+      <div className="px-4 pb-4 space-y-2.5">
+        {isLive ? (
+          <>
+            {/* Current URL chip */}
+            {currentUrl && (
+              <div className="flex items-center gap-1.5 rounded-lg bg-muted/50 border border-border/60 px-3 py-1.5">
+                <Activity className="w-3 h-3 shrink-0 text-emerald-500 animate-pulse" />
+                <span className="truncate text-[11px] font-mono text-muted-foreground">{currentUrl}</span>
+              </div>
+            )}
+
+            {/* Progress bar */}
+            <div>
+              <div className="flex justify-between text-[11px] text-muted-foreground mb-1.5">
+                <span className="flex items-center gap-1"><Globe className="w-3 h-3" />{scannedUrls} of {totalUrls} pages</span>
+                <span className="font-mono font-semibold text-foreground">{progress}%</span>
+              </div>
+              <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <motion.div
+                  className="h-full rounded-full bg-gradient-to-r from-violet-500 via-primary to-violet-400"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${progress}%` }}
+                  transition={{ duration: 0.6, ease: "easeOut" }}
+                />
+              </div>
+            </div>
+
+            {/* Page stage breakdown */}
+            <div className="grid grid-cols-4 gap-1.5">
+              <StatTile label="Done" value={pagesDone} colorClass="text-emerald-500" icon={<CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />} />
+              <StatTile label="Scanning" value={pagesScanning} colorClass="text-blue-500" icon={<Activity className="w-3.5 h-3.5 text-blue-500" />} />
+              <StatTile label="In Queue" value={pagesPending} colorClass="text-muted-foreground" icon={<Clock className="w-3.5 h-3.5 text-muted-foreground" />} />
+              <StatTile label="Failed" value={pagesFailed} colorClass="text-destructive" icon={<XCircle className="w-3.5 h-3.5 text-destructive" />} />
+            </div>
+
+            {/* Issues summary */}
+            <div className="grid grid-cols-3 gap-1.5">
+              <StatTile label="Total Issues" value={totalIssues} colorClass="text-foreground" icon={<TrendingUp className="w-3.5 h-3.5 text-muted-foreground" />} />
+              <StatTile label="Critical" value={criticalIssues} colorClass="text-destructive" icon={<AlertTriangle className="w-3.5 h-3.5 text-destructive" />} />
+              <StatTile label="Pages w/ Issues" value={pagesWithIssues} colorClass="text-amber-500" icon={<Globe className="w-3.5 h-3.5 text-amber-500" />} />
+            </div>
+
+            {/* ETA + elapsed */}
+            <div className="flex items-center justify-between rounded-lg bg-muted/40 border border-border/60 px-3 py-2 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1.5"><Timer className="w-3 h-3" />ETA: <span className="font-semibold text-foreground">{formatEta(scan)}</span></span>
+              <span className="flex items-center gap-1.5"><Clock className="w-3 h-3" />Elapsed: <span className="font-semibold text-foreground">{formatElapsed(scan)}</span></span>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Summary bar */}
+            <div className="flex items-center justify-between rounded-lg bg-muted/50 border border-border/60 px-3 py-2 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1.5"><Globe className="w-3 h-3" />{scannedUrls} of {totalUrls} pages scanned</span>
+              <span className="flex items-center gap-1.5"><Clock className="w-3 h-3" />{formatElapsed(scan)}</span>
+            </div>
+
+            {/* Issues grid */}
+            <div className="grid grid-cols-3 gap-1.5">
+              <StatTile label="Total Issues" value={totalIssues} colorClass="text-foreground" icon={<TrendingUp className="w-3.5 h-3.5 text-muted-foreground" />} />
+              <StatTile label="Critical" value={criticalIssues} colorClass="text-destructive" icon={<AlertTriangle className="w-3.5 h-3.5 text-destructive" />} />
+              <StatTile label="Non-Critical" value={Math.max(0, totalIssues - criticalIssues)} colorClass="text-amber-500" icon={<AlertTriangle className="w-3.5 h-3.5 text-amber-500" />} />
+            </div>
+
+            {/* Page status breakdown */}
+            <div className="grid grid-cols-4 gap-1.5">
+              <StatTile label="w/ Issues" value={pagesWithIssues} colorClass="text-amber-500" icon={<AlertTriangle className="w-3 h-3 text-amber-500" />} />
+              <StatTile label="No Issues" value={pagesNoIssues} colorClass="text-emerald-500" icon={<CheckCircle2 className="w-3 h-3 text-emerald-500" />} />
+              <StatTile label="Failed" value={pagesFailed} colorClass="text-destructive" icon={<XCircle className="w-3 h-3 text-destructive" />} />
+              <StatTile label="Skipped" value={pagesSkipped} colorClass="text-muted-foreground" icon={<MinusCircle className="w-3 h-3 text-muted-foreground" />} />
+            </div>
+
+            {/* Top pages with most issues */}
+            {topPages.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Top pages by issues</p>
+                <div className="space-y-0.5">
+                  {topPages.map((p) => (
+                    <div key={p.url} className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-muted/40 border border-border/40">
+                      <span className="flex-1 truncate text-[11px] font-mono text-muted-foreground min-w-0">
+                        {p.url.replace(/^https?:\/\//, "")}
+                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {p.criticalCount > 0 && (
+                          <span className="text-[10px] font-semibold text-destructive flex items-center gap-0.5">
+                            <AlertTriangle className="w-2.5 h-2.5" />{p.criticalCount}
+                          </span>
+                        )}
+                        <span className="text-[11px] font-bold text-foreground bg-muted/80 rounded px-1.5 py-0.5">{p.issueCount}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Pending for cancelled scans */}
+            {pagesPending > 0 && (
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground rounded-lg bg-muted/40 border border-border/60 px-3 py-1.5">
+                <MinusCircle className="w-3 h-3 shrink-0" />
+                <span>{pagesPending} pages not scanned (scan was {scan.status})</span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Bottom accent */}
+      <div className="h-[2px] bg-gradient-to-r from-violet-600 via-primary to-transparent" />
+    </motion.div>
+  );
+}
 
 const ALL_STATUSES = [
   { value: "running",   label: "Running" },
@@ -353,42 +655,24 @@ export default function ScanList() {
     onError: () => toast({ title: "Could not resume scan", variant: "destructive" }),
   });
 
-  const formatElapsed = (scan: {
-    createdAt: string;
-    completedAt?: string | null;
-    status: string;
-  }) => {
-    const start = new Date(scan.createdAt).getTime();
-    const end = scan.completedAt
-      ? new Date(scan.completedAt).getTime()
-      : Date.now();
-    const diff = Math.max(0, end - start);
-    const mins = Math.round(diff / 60000);
-    if (mins < 1) return "< 1 min";
-    if (mins < 60) return `${mins} min`;
-    const hrs = Math.floor(mins / 60);
-    const rem = mins % 60;
-    return `${hrs}h ${rem}m`;
-  };
+  // Hover preview state
+  const [hoveredScan, setHoveredScan] = useState<{ scan: ScanItem; rect: DOMRect } | null>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const formatEta = (scan: {
-    createdAt: string;
-    scannedUrls: number;
-    totalUrls: number;
-    status: string;
-  }) => {
-    if (scan.status !== "running" && scan.status !== "pending") return "—";
-    if (scan.scannedUrls <= 0 || scan.totalUrls <= 0) return "ETA unknown";
-    const elapsed = Date.now() - new Date(scan.createdAt).getTime();
-    const avgMs = elapsed / scan.scannedUrls;
-    const remaining = Math.max(0, scan.totalUrls - scan.scannedUrls);
-    const etaMins = Math.round((avgMs * remaining) / 60000);
-    if (etaMins < 1) return "ETA < 1 min";
-    if (etaMins < 60) return `ETA ~${etaMins} min`;
-    const hrs = Math.floor(etaMins / 60);
-    const mins = etaMins % 60;
-    return `ETA ~${hrs}h ${mins}m`;
-  };
+  const handleScanNameEnter = useCallback((scan: ScanItem, e: React.MouseEvent<HTMLElement>) => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    const rect = e.currentTarget.getBoundingClientRect();
+    hoverTimer.current = setTimeout(() => setHoveredScan({ scan, rect }), 320);
+  }, []);
+
+  const handleScanNameLeave = useCallback(() => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(() => setHoveredScan(null), 120);
+  }, []);
+
+  const cancelHideTimer = useCallback(() => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+  }, []);
 
   const projectOptions = useMemo(() => {
     const names = new Set<string>();
@@ -627,7 +911,7 @@ export default function ScanList() {
                   initiatorRole?: string | null;
                 };
                 const isRunning = scan.status === "running";
-                const isPaused = scan.status === "paused";
+                const isPaused = (scan.status as string) === "paused";
                 return (
                   <TableRow key={scan.id}>
                     <TableCell className="font-medium">
@@ -639,12 +923,25 @@ export default function ScanList() {
                           </span>
                         </div>
                       )}
-                      <Link
-                        href={`/scans/${scan.id}`}
-                        className="hover:underline text-primary"
+                      <span
+                        className="inline-block cursor-pointer"
+                        onMouseEnter={(e) => handleScanNameEnter(s as ScanItem, e)}
+                        onMouseLeave={handleScanNameLeave}
+                        onTouchStart={(e) => {
+                          if (hoverTimer.current) clearTimeout(hoverTimer.current);
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          if (hoveredScan?.scan.id === scan.id) return;
+                          e.preventDefault();
+                          setHoveredScan({ scan: s as ScanItem, rect });
+                        }}
                       >
-                        {scan.name || `Scan #${scan.id}`}
-                      </Link>
+                        <Link
+                          href={`/scans/${scan.id}`}
+                          className="hover:underline text-primary"
+                        >
+                          {scan.name || `Scan #${scan.id}`}
+                        </Link>
+                      </span>
                       <div className="text-xs text-muted-foreground mt-0.5">
                         {s.initiatorName || s.initiatorRole ? (
                           <>
@@ -781,6 +1078,19 @@ export default function ScanList() {
           </TableBody>
         </Table>
       </div>
+
+      <AnimatePresence>
+        {hoveredScan && (
+          <ScanPreviewPopup
+            key={hoveredScan.scan.id}
+            scan={hoveredScan.scan}
+            anchorRect={hoveredScan.rect}
+            onMouseEnter={cancelHideTimer}
+            onMouseLeave={() => setHoveredScan(null)}
+            onClose={() => setHoveredScan(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

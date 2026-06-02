@@ -1561,25 +1561,37 @@ async function _scanPageInternal(
       // Hard cap: never block scanning more than 8s waiting for load
       setTimeout(resolve, 8000);
     }));
-     // Step 3: Wait for DOM mutations to settle (no childList changes for 600ms, max 4s).
+
+    // Step 3: Wait for DOM mutations to settle (no childList changes for 600ms, max 4s).
     // This catches frameworks that inject content after window.load (React hydration,
     // lazy component rendering, analytics widgets, etc.).
-    await page.evaluate(() => new Promise<void>((resolve) => {
-      let timer: ReturnType<typeof setTimeout> = setTimeout(() => {
-        observer.disconnect();
-        resolve();
-      }, 600);
-      const observer = new MutationObserver(() => {
-        clearTimeout(timer);
-        timer = setTimeout(() => {
+    // observe only structural changes (childList) — skipping attribute/text mutations
+    // avoids perpetual triggering on animated elements, live clocks, analytics beacons, etc.
+    // Node-side race (6 s) guards against CDP hangs after the browser-side 4 s cap fires.
+    await Promise.race([
+      page.evaluate(() => new Promise<void>((resolve) => {
+        let timer: ReturnType<typeof setTimeout> = setTimeout(() => {
           observer.disconnect();
           resolve();
-        }, 600);
-      });
-      observer.observe(document.documentElement, { childList: true, subtree: true });
-      // Absolute hard cap so a perpetually-mutating page never blocks scanning
-      setTimeout(() => { observer.disconnect(); resolve(); }, 4000);
-    })).catch(() => { /* page navigated away during settle — handled below */ });
+        }, 500);
+        const observer = new MutationObserver(() => {
+          clearTimeout(timer);
+          timer = setTimeout(() => {
+            observer.disconnect();
+            resolve();
+          }, 500);
+        });
+        observer.observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+          attributes: false,
+          characterData: false,
+        });
+        // Absolute hard cap so a perpetually-mutating page never blocks scanning
+        setTimeout(() => { observer.disconnect(); resolve(); }, 3000);
+      })).catch(() => { /* page navigated away during settle — handled below */ }),
+      new Promise<void>((resolve) => setTimeout(resolve, 6000)),
+    ]);
 
     // Step 4: Detect and follow client-side redirects.
     // CMS/AEM platforms (and some SPA routers) serve an intermediate page with placeholder
@@ -1630,19 +1642,31 @@ async function _scanPageInternal(
           setTimeout(resolve, 8000);
         })).catch(() => {});
 
-        await page.evaluate(() => new Promise<void>((resolve) => {
-          let t: ReturnType<typeof setTimeout> = setTimeout(() => { obs.disconnect(); resolve(); }, 600);
-          const obs = new MutationObserver(() => {
-            clearTimeout(t);
-            t = setTimeout(() => { obs.disconnect(); resolve(); }, 600);
-          });
-          obs.observe(document.documentElement, { childList: true, subtree: true });
-          setTimeout(() => { obs.disconnect(); resolve(); }, 4000);
-        })).catch(() => {});
+        await Promise.race([
+          page.evaluate(() => new Promise<void>((resolve) => {
+            let t: ReturnType<typeof setTimeout> = setTimeout(() => { obs.disconnect(); resolve(); }, 500);
+            const obs = new MutationObserver(() => {
+              clearTimeout(t);
+              t = setTimeout(() => { obs.disconnect(); resolve(); }, 500);
+            });
+            obs.observe(document.documentElement, {
+              childList: true,
+              subtree: true,
+              attributes: false,
+              characterData: false,
+            });
+            setTimeout(() => { obs.disconnect(); resolve(); }, 3000);
+          })).catch(() => {}),
+          new Promise<void>((resolve) => setTimeout(resolve, 6000)),
+        ]);
       } catch {
         logger.info({ url }, "Redirect navigation did not complete within 15s — scanning current page state");
       }
     }
+
+    logger.info({ url }, "Scrolling page to trigger lazy-loaded content");
+    await fullyRenderPage(page, timeout);
+
 
     // Capture a full-page snapshot and the rendered DOM before running rules
     let screenshot: string | undefined;

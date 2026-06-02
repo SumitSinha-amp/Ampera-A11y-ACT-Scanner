@@ -97,7 +97,7 @@ export default function ScanReport() {
           <CardHeader>
             <CardTitle>Issues by Impact</CardTitle>
           </CardHeader>
-          <CardContent className="h-[300px]">
+           <CardContent className="h-[300px]">
             {impactData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>

@@ -191,6 +191,242 @@
   --chart-5: 215 20% 65%;
 }
 
+/* ═══════════════════════════════════════════════════════
+   GLASS DARK — Deep Space Aurora
+   ═══════════════════════════════════════════════════════ */
+.glass-dark {
+  --button-outline: rgba(255,255,255, .12);
+  --badge-outline: rgba(255,255,255, .06);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(255,255,255, .04);
+  --elevate-2: rgba(255,255,255, .09);
+
+  --background: 240 28% 9%;
+  --foreground: 210 40% 96%;
+  --border: 255 35% 22%;
+
+  --card: 255 28% 11%;
+  --card-foreground: 210 40% 96%;
+  --card-border: 255 35% 22%;
+
+  --sidebar: 255 28% 9%;
+  --sidebar-foreground: 210 40% 96%;
+  --sidebar-border: 255 35% 20%;
+  --sidebar-primary: 255 80% 74%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 255 28% 17%;
+  --sidebar-accent-foreground: 210 40% 96%;
+  --sidebar-ring: 255 80% 74%;
+
+  --popover: 255 28% 10%;
+  --popover-foreground: 210 40% 96%;
+  --popover-border: 255 35% 24%;
+
+  --primary: 255 80% 74%;
+  --primary-foreground: 240 28% 8%;
+
+  --secondary: 255 28% 17%;
+  --secondary-foreground: 210 40% 96%;
+
+  --muted: 255 28% 16%;
+  --muted-foreground: 215 20% 65%;
+
+  --accent: 255 28% 18%;
+  --accent-foreground: 210 40% 96%;
+
+  --destructive: 346 87% 43%;
+  --destructive-foreground: 0 0% 100%;
+
+  --status-serious: 24 94% 50%;
+  --status-moderate: 45 93% 47%;
+  --status-minor: 221 83% 53%;
+
+  --input: 255 28% 18%;
+  --ring: 255 80% 74%;
+
+  --chart-1: 346 87% 43%;
+  --chart-2: 24 94% 50%;
+  --chart-3: 45 93% 47%;
+  --chart-4: 221 83% 53%;
+  --chart-5: 215 20% 65%;
+}
+
+/* Fixed gradient pinned to viewport — always the backmost layer */
+html.glass-dark body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(135deg, #07051c 0%, #130828 40%, #060e24 70%, #020410 100%);
+  pointer-events: none;
+}
+
+/* All layout containers must be transparent to reveal the gradient behind them */
+html.glass-dark,
+html.glass-dark body,
+html.glass-dark [class*="bg-background"] {
+  background: transparent !important;
+}
+
+/* Fixed overlays (dialogs, sheets, drawers) — frosted glass panel */
+html.glass-dark .fixed[class*="bg-background"] {
+  background-color: rgba(12, 8, 36, 0.72) !important;
+  backdrop-filter: blur(24px) saturate(180%) brightness(0.9);
+  -webkit-backdrop-filter: blur(24px) saturate(180%) brightness(0.9);
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Cards — frosted glass panels floating on the gradient */
+html.glass-dark .bg-card {
+  background-color: rgba(18, 12, 52, 0.38) !important;
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  border-color: rgba(130, 80, 255, 0.18) !important;
+  box-shadow: 0 1px 0 0 rgba(255,255,255,0.06) inset, 0 8px 32px rgba(0,0,0,0.35);
+}
+
+/* Sidebar — slightly more opaque so nav stays readable */
+html.glass-dark .bg-sidebar {
+  background-color: rgba(8, 5, 26, 0.52) !important;
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  border-right: 1px solid rgba(130, 80, 255, 0.12) !important;
+}
+
+/* Popovers / dropdowns */
+html.glass-dark .bg-popover {
+  background-color: rgba(14, 10, 40, 0.78) !important;
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  border-color: rgba(130, 80, 255, 0.20) !important;
+  box-shadow: 0 1px 0 0 rgba(255,255,255,0.06) inset, 0 8px 32px rgba(0,0,0,0.4);
+}
+
+/* Muted fills — subtle tint so content sections are distinguishable */
+html.glass-dark .bg-muted\/60,
+html.glass-dark .bg-muted\/50,
+html.glass-dark .bg-muted\/40 {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* ═══════════════════════════════════════════════════════
+   GLASS LIGHT — Frosted Crystal Aurora
+   ═══════════════════════════════════════════════════════ */
+.glass-light {
+  --button-outline: rgba(0,0,0, .08);
+  --badge-outline: rgba(0,0,0, .04);
+  --opaque-button-border-intensity: -8;
+  --elevate-1: rgba(0,0,0, .02);
+  --elevate-2: rgba(0,0,0, .06);
+
+  --background: 250 50% 97%;
+  --foreground: 240 30% 14%;
+  --border: 255 40% 82%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 240 30% 14%;
+  --card-border: 255 40% 84%;
+
+  --sidebar: 255 50% 97%;
+  --sidebar-foreground: 240 30% 14%;
+  --sidebar-border: 255 40% 82%;
+  --sidebar-primary: 255 85% 55%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 255 40% 90%;
+  --sidebar-accent-foreground: 240 30% 14%;
+  --sidebar-ring: 255 85% 55%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 30% 14%;
+  --popover-border: 255 40% 84%;
+
+  --primary: 255 85% 55%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 255 40% 93%;
+  --secondary-foreground: 240 30% 14%;
+
+  --muted: 255 40% 93%;
+  --muted-foreground: 240 15% 48%;
+
+  --accent: 255 40% 90%;
+  --accent-foreground: 240 30% 14%;
+
+  --destructive: 346 87% 43%;
+  --destructive-foreground: 0 0% 100%;
+
+  --status-serious: 24 94% 50%;
+  --status-moderate: 45 93% 47%;
+  --status-minor: 221 83% 53%;
+
+  --input: 255 40% 85%;
+  --ring: 255 85% 55%;
+
+  --chart-1: 346 87% 43%;
+  --chart-2: 24 94% 50%;
+  --chart-3: 45 93% 47%;
+  --chart-4: 221 83% 53%;
+  --chart-5: 240 15% 48%;
+}
+
+/* Fixed gradient pinned to viewport — always the backmost layer */
+html.glass-light body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(135deg, #e4deff 0%, #f5e4ff 40%, #dceeff 70%, #ffe8f8 100%);
+  pointer-events: none;
+}
+
+/* All layout containers transparent to reveal the gradient */
+html.glass-light,
+html.glass-light body,
+html.glass-light [class*="bg-background"] {
+  background: transparent !important;
+}
+
+/* Fixed overlays (dialogs, sheets, drawers) — frosted light glass */
+html.glass-light .fixed[class*="bg-background"] {
+  background-color: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: blur(24px) saturate(200%) brightness(1.05);
+  -webkit-backdrop-filter: blur(24px) saturate(200%) brightness(1.05);
+  border-top: 1px solid rgba(255, 255, 255, 0.90) !important;
+}
+
+/* Cards — frosted white glass floating on the gradient */
+html.glass-light .bg-card {
+  background-color: rgba(255, 255, 255, 0.42) !important;
+  backdrop-filter: blur(18px) saturate(200%);
+  -webkit-backdrop-filter: blur(18px) saturate(200%);
+  border-color: rgba(160, 120, 255, 0.18) !important;
+  box-shadow: 0 1px 0 0 rgba(255,255,255,0.9) inset, 0 8px 32px rgba(140, 100, 255, 0.10);
+}
+
+/* Sidebar — slightly more opaque for readability */
+html.glass-light .bg-sidebar {
+  background-color: rgba(248, 244, 255, 0.56) !important;
+  backdrop-filter: blur(22px) saturate(200%);
+  -webkit-backdrop-filter: blur(22px) saturate(200%);
+  border-right: 1px solid rgba(160, 120, 255, 0.14) !important;
+}
+
+/* Popovers / dropdowns */
+html.glass-light .bg-popover {
+  background-color: rgba(255, 255, 255, 0.80) !important;
+  backdrop-filter: blur(22px) saturate(200%);
+  -webkit-backdrop-filter: blur(22px) saturate(200%);
+  border-color: rgba(160, 120, 255, 0.18) !important;
+  box-shadow: 0 1px 0 0 rgba(255,255,255,0.95) inset, 0 8px 32px rgba(140, 100, 255, 0.12);
+}
+
+/* Muted fills */
+html.glass-light .bg-muted\/60,
+html.glass-light .bg-muted\/50,
+html.glass-light .bg-muted\/40 {
+  background-color: rgba(255, 255, 255, 0.30) !important;
+}
+
 @layer base {
   * {
     @apply border-border;

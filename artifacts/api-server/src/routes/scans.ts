@@ -1,6 +1,13 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
-import { db, pool, scanSessionsTable, pageResultsTable, accessibilityIssuesTable, projectsTable } from "@workspace/db";
+import {
+  db,
+  pool,
+  scanSessionsTable,
+  pageResultsTable,
+  accessibilityIssuesTable,
+  projectsTable,
+} from "@workspace/db";
 import { eq, and, desc, sql, inArray, isNull, or } from "drizzle-orm";
 import {
   CreateScanBody,
@@ -13,14 +20,25 @@ import {
   UpdateScanParams,
   UpdateScanBody,
 } from "@workspace/api-zod";
-import { startScan, cancelScan, pauseScan, resumeScan, isScanActive, queueRetryUrl, addUrlsToRunningScan } from "../lib/scanQueue";
+import {
+  startScan,
+  cancelScan,
+  pauseScan,
+  resumeScan,
+  isScanActive,
+  queueRetryUrl,
+  addUrlsToRunningScan,
+} from "../lib/scanQueue";
 import { fetchSitemapUrls, parseUrlsFromCsv } from "../lib/sitemap";
 import { logger } from "../lib/logger";
 import { requireAuth } from "../middlewares/authMiddleware";
 import { getEffectivePermissions } from "../lib/permissions";
 
 const router: IRouter = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
 
 function getAuthUserId(req: any): string {
   return req.session?.user?.id?.toString() ?? "";
@@ -67,26 +85,38 @@ router.get("/scans", requireAuth, async (req, res): Promise<void> => {
     ? await db
         .select(selectCols)
         .from(scanSessionsTable)
-        .leftJoin(projectsTable, eq(scanSessionsTable.projectId, projectsTable.id))
+        .leftJoin(
+          projectsTable,
+          eq(scanSessionsTable.projectId, projectsTable.id),
+        )
         .orderBy(desc(scanSessionsTable.createdAt))
         .limit(200)
     : await db
         .select(selectCols)
         .from(scanSessionsTable)
-        .leftJoin(projectsTable, eq(scanSessionsTable.projectId, projectsTable.id))
-        .where(or(
-          eq(scanSessionsTable.userId, userId),
-          ...(currentUserFullName ? [eq(scanSessionsTable.initiatorName, currentUserFullName)] : []),
-        ))
+        .leftJoin(
+          projectsTable,
+          eq(scanSessionsTable.projectId, projectsTable.id),
+        )
+        .where(
+          or(
+            eq(scanSessionsTable.userId, userId),
+            ...(currentUserFullName
+              ? [eq(scanSessionsTable.initiatorName, currentUserFullName)]
+              : []),
+          ),
+        )
         .orderBy(desc(scanSessionsTable.createdAt))
         .limit(100);
 
-  res.json(sessions.map(s => ({
-    ...s,
-    projectName: s.projectName ?? null,
-    createdAt: s.createdAt.toISOString(),
-    completedAt: s.completedAt?.toISOString() ?? null,
-  })));
+  res.json(
+    sessions.map((s) => ({
+      ...s,
+      projectName: s.projectName ?? null,
+      createdAt: s.createdAt.toISOString(),
+      completedAt: s.completedAt?.toISOString() ?? null,
+    })),
+  );
 });
 
 router.post("/scans", requireAuth, async (req, res): Promise<void> => {
@@ -102,15 +132,28 @@ router.post("/scans", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const { urls, name, projectId, groupId, options, initiatorName, initiatorRole } = parsed.data;
+  const {
+    urls,
+    name,
+    projectId,
+    groupId,
+    options,
+    initiatorName,
+    initiatorRole,
+  } = parsed.data;
 
   if (!urls || urls.length === 0) {
     res.status(400).json({ error: "At least one URL is required" });
     return;
   }
 
-  const validUrls = urls.filter(url => {
-    try { new URL(url); return true; } catch { return false; }
+  const validUrls = urls.filter((url) => {
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
   });
 
   if (validUrls.length === 0) {
@@ -118,34 +161,37 @@ router.post("/scans", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const [session] = await db.insert(scanSessionsTable).values({
-    userId,
-    name: name || null,
-    projectId: projectId ?? null,
-    groupId: groupId ?? null,
-    initiatorName: initiatorName ?? null,
-    initiatorRole: initiatorRole ?? null,
-    status: "pending",
-    totalUrls: validUrls.length,
-    scannedUrls: 0,
-    failedUrls: 0,
-    totalIssues: 0,
-    criticalIssues: 0,
-    options: options ?? null,
-  }).returning();
+  const [session] = await db
+    .insert(scanSessionsTable)
+    .values({
+      userId,
+      name: name || null,
+      projectId: projectId ?? null,
+      groupId: groupId ?? null,
+      initiatorName: initiatorName ?? null,
+      initiatorRole: initiatorRole ?? null,
+      status: "pending",
+      totalUrls: validUrls.length,
+      scannedUrls: 0,
+      failedUrls: 0,
+      totalIssues: 0,
+      criticalIssues: 0,
+      options: options ?? null,
+    })
+    .returning();
 
   await db.insert(pageResultsTable).values(
-    validUrls.map(url => ({
+    validUrls.map((url) => ({
       scanId: session.id,
       url,
       status: "pending",
       issueCount: 0,
       criticalCount: 0,
-    }))
+    })),
   );
 
   // Start scan in background
-  startScan(session.id, validUrls, options ?? {}).catch(err => {
+  startScan(session.id, validUrls, options ?? {}).catch((err) => {
     logger.error({ scanId: session.id, err }, "Background scan failed");
   });
 
@@ -178,20 +224,29 @@ router.post("/scans/parse-sitemap", async (req, res): Promise<void> => {
   }
 });
 
-router.post("/scans/upload-csv", upload.single("file"), async (req, res): Promise<void> => {
-  if (!req.file) {
-    res.status(400).json({ error: "No file uploaded" });
-    return;
-  }
+router.post(
+  "/scans/upload-csv",
+  upload.single("file"),
+  async (req, res): Promise<void> => {
+    if (!req.file) {
+      res.status(400).json({ error: "No file uploaded" });
+      return;
+    }
 
-  const content = req.file.buffer.toString("utf-8");
-  const urls = parseUrlsFromCsv(content);
+    const content = req.file.buffer.toString("utf-8");
+    const urls = parseUrlsFromCsv(content);
 
-  res.json({ urls, count: urls.length });
-});
+    res.json({ urls, count: urls.length });
+  },
+);
 
 // ── Shared helper: build comparison data from two scan IDs ────────────────────
-async function buildComparison(scan1Id: number, scan2Id: number, strip1?: string, strip2?: string) {
+async function buildComparison(
+  scan1Id: number,
+  scan2Id: number,
+  strip1?: string,
+  strip2?: string,
+) {
   const selectSession = {
     id: scanSessionsTable.id,
     projectId: scanSessionsTable.projectId,
@@ -210,16 +265,42 @@ async function buildComparison(scan1Id: number, scan2Id: number, strip1?: string
   };
 
   const [[row1], [row2], pages1raw, pages2raw] = await Promise.all([
-    db.select(selectSession).from(scanSessionsTable)
-      .leftJoin(projectsTable, eq(scanSessionsTable.projectId, projectsTable.id))
+    db
+      .select(selectSession)
+      .from(scanSessionsTable)
+      .leftJoin(
+        projectsTable,
+        eq(scanSessionsTable.projectId, projectsTable.id),
+      )
       .where(eq(scanSessionsTable.id, scan1Id)),
-    db.select(selectSession).from(scanSessionsTable)
-      .leftJoin(projectsTable, eq(scanSessionsTable.projectId, projectsTable.id))
+    db
+      .select(selectSession)
+      .from(scanSessionsTable)
+      .leftJoin(
+        projectsTable,
+        eq(scanSessionsTable.projectId, projectsTable.id),
+      )
       .where(eq(scanSessionsTable.id, scan2Id)),
-    db.select({ id: pageResultsTable.id, url: pageResultsTable.url, status: pageResultsTable.status, issueCount: pageResultsTable.issueCount, criticalCount: pageResultsTable.criticalCount })
-      .from(pageResultsTable).where(eq(pageResultsTable.scanId, scan1Id)),
-    db.select({ id: pageResultsTable.id, url: pageResultsTable.url, status: pageResultsTable.status, issueCount: pageResultsTable.issueCount, criticalCount: pageResultsTable.criticalCount })
-      .from(pageResultsTable).where(eq(pageResultsTable.scanId, scan2Id)),
+    db
+      .select({
+        id: pageResultsTable.id,
+        url: pageResultsTable.url,
+        status: pageResultsTable.status,
+        issueCount: pageResultsTable.issueCount,
+        criticalCount: pageResultsTable.criticalCount,
+      })
+      .from(pageResultsTable)
+      .where(eq(pageResultsTable.scanId, scan1Id)),
+    db
+      .select({
+        id: pageResultsTable.id,
+        url: pageResultsTable.url,
+        status: pageResultsTable.status,
+        issueCount: pageResultsTable.issueCount,
+        criticalCount: pageResultsTable.criticalCount,
+      })
+      .from(pageResultsTable)
+      .where(eq(pageResultsTable.scanId, scan2Id)),
   ]);
 
   if (!row1 || !row2) return null;
@@ -234,25 +315,69 @@ async function buildComparison(scan1Id: number, scan2Id: number, strip1?: string
     }
     return n;
   };
-  const map1 = new Map(pages1raw.map(p => [norm(p.url, strip1), p]));
-  const map2 = new Map(pages2raw.map(p => [norm(p.url, strip2), p]));
+  const map1 = new Map(pages1raw.map((p) => [norm(p.url, strip1), p]));
+  const map2 = new Map(pages2raw.map((p) => [norm(p.url, strip2), p]));
 
-  const matchedNorm = [...map1.keys()].filter(u => map2.has(u));
-  const onlyInScan1 = pages1raw.filter(p => !map2.has(norm(p.url, strip1))).map(p => p.url);
-  const onlyInScan2 = pages2raw.filter(p => !map1.has(norm(p.url, strip2))).map(p => p.url);
+  const matchedNorm = [...map1.keys()].filter((u) => map2.has(u));
+  const onlyInScan1 = pages1raw
+    .filter((p) => !map2.has(norm(p.url, strip1)))
+    .map((p) => p.url);
+  const onlyInScan2 = pages2raw
+    .filter((p) => !map1.has(norm(p.url, strip2)))
+    .map((p) => p.url);
 
-  const page1Ids = matchedNorm.map(u => map1.get(u)!.id);
-  const page2Ids = matchedNorm.map(u => map2.get(u)!.id);
+  const page1Ids = matchedNorm.map((u) => map1.get(u)!.id);
+  const page2Ids = matchedNorm.map((u) => map2.get(u)!.id);
 
   const [issues1all, issues2all] = await Promise.all([
     page1Ids.length > 0
-      ? db.select({ pageId: accessibilityIssuesTable.pageId, ruleId: accessibilityIssuesTable.ruleId, impact: accessibilityIssuesTable.impact, description: accessibilityIssuesTable.description, selector: accessibilityIssuesTable.selector, wcagCriteria: accessibilityIssuesTable.wcagCriteria, wcagLevel: accessibilityIssuesTable.wcagLevel })
-          .from(accessibilityIssuesTable).where(inArray(accessibilityIssuesTable.pageId, page1Ids))
-      : Promise.resolve([] as { pageId: number; ruleId: string; impact: string; description: string; selector: string | null; wcagCriteria: string | null; wcagLevel: string | null }[]),
+      ? db
+          .select({
+            pageId: accessibilityIssuesTable.pageId,
+            ruleId: accessibilityIssuesTable.ruleId,
+            impact: accessibilityIssuesTable.impact,
+            description: accessibilityIssuesTable.description,
+            selector: accessibilityIssuesTable.selector,
+            wcagCriteria: accessibilityIssuesTable.wcagCriteria,
+            wcagLevel: accessibilityIssuesTable.wcagLevel,
+          })
+          .from(accessibilityIssuesTable)
+          .where(inArray(accessibilityIssuesTable.pageId, page1Ids))
+      : Promise.resolve(
+          [] as {
+            pageId: number;
+            ruleId: string;
+            impact: string;
+            description: string;
+            selector: string | null;
+            wcagCriteria: string | null;
+            wcagLevel: string | null;
+          }[],
+        ),
     page2Ids.length > 0
-      ? db.select({ pageId: accessibilityIssuesTable.pageId, ruleId: accessibilityIssuesTable.ruleId, impact: accessibilityIssuesTable.impact, description: accessibilityIssuesTable.description, selector: accessibilityIssuesTable.selector, wcagCriteria: accessibilityIssuesTable.wcagCriteria, wcagLevel: accessibilityIssuesTable.wcagLevel })
-          .from(accessibilityIssuesTable).where(inArray(accessibilityIssuesTable.pageId, page2Ids))
-      : Promise.resolve([] as { pageId: number; ruleId: string; impact: string; description: string; selector: string | null; wcagCriteria: string | null; wcagLevel: string | null }[]),
+      ? db
+          .select({
+            pageId: accessibilityIssuesTable.pageId,
+            ruleId: accessibilityIssuesTable.ruleId,
+            impact: accessibilityIssuesTable.impact,
+            description: accessibilityIssuesTable.description,
+            selector: accessibilityIssuesTable.selector,
+            wcagCriteria: accessibilityIssuesTable.wcagCriteria,
+            wcagLevel: accessibilityIssuesTable.wcagLevel,
+          })
+          .from(accessibilityIssuesTable)
+          .where(inArray(accessibilityIssuesTable.pageId, page2Ids))
+      : Promise.resolve(
+          [] as {
+            pageId: number;
+            ruleId: string;
+            impact: string;
+            description: string;
+            selector: string | null;
+            wcagCriteria: string | null;
+            wcagLevel: string | null;
+          }[],
+        ),
   ]);
 
   const byPage1 = new Map<number, typeof issues1all>();
@@ -269,42 +394,90 @@ async function buildComparison(scan1Id: number, scan2Id: number, strip1?: string
   const issueKey = (i: { ruleId: string; selector: string | null }) =>
     `${i.ruleId}||${i.selector ?? ""}`;
 
-  const pages = matchedNorm.map(nu => {
+  const pages = matchedNorm.map((nu) => {
     const p1 = map1.get(nu)!;
     const p2 = map2.get(nu)!;
     const i1 = byPage1.get(p1.id) ?? [];
     const i2 = byPage2.get(p2.id) ?? [];
     const keys1 = new Set(i1.map(issueKey));
     const keys2 = new Set(i2.map(issueKey));
-    const newIssues      = i2.filter(i => !keys1.has(issueKey(i)));
-    const fixedIssues    = i1.filter(i => !keys2.has(issueKey(i)));
-    const persistingIssues = i2.filter(i => keys1.has(issueKey(i)));
+    const newIssues = i2.filter((i) => !keys1.has(issueKey(i)));
+    const fixedIssues = i1.filter((i) => !keys2.has(issueKey(i)));
+    const persistingIssues = i2.filter((i) => keys1.has(issueKey(i)));
     return {
       url: p1.url,
-      scan1Page: { status: p1.status, issueCount: p1.issueCount, criticalCount: p1.criticalCount },
-      scan2Page: { status: p2.status, issueCount: p2.issueCount, criticalCount: p2.criticalCount },
-      newIssues:        newIssues.map(i => ({ ruleId: i.ruleId, impact: i.impact, description: i.description, selector: i.selector, wcagCriteria: i.wcagCriteria, wcagLevel: i.wcagLevel })),
-      fixedIssues:      fixedIssues.map(i => ({ ruleId: i.ruleId, impact: i.impact, description: i.description, selector: i.selector, wcagCriteria: i.wcagCriteria, wcagLevel: i.wcagLevel })),
-      persistingIssues: persistingIssues.map(i => ({ ruleId: i.ruleId, impact: i.impact, description: i.description, selector: i.selector, wcagCriteria: i.wcagCriteria, wcagLevel: i.wcagLevel })),
+      scan1Page: {
+        status: p1.status,
+        issueCount: p1.issueCount,
+        criticalCount: p1.criticalCount,
+      },
+      scan2Page: {
+        status: p2.status,
+        issueCount: p2.issueCount,
+        criticalCount: p2.criticalCount,
+      },
+      newIssues: newIssues.map((i) => ({
+        ruleId: i.ruleId,
+        impact: i.impact,
+        description: i.description,
+        selector: i.selector,
+        wcagCriteria: i.wcagCriteria,
+        wcagLevel: i.wcagLevel,
+      })),
+      fixedIssues: fixedIssues.map((i) => ({
+        ruleId: i.ruleId,
+        impact: i.impact,
+        description: i.description,
+        selector: i.selector,
+        wcagCriteria: i.wcagCriteria,
+        wcagLevel: i.wcagLevel,
+      })),
+      persistingIssues: persistingIssues.map((i) => ({
+        ruleId: i.ruleId,
+        impact: i.impact,
+        description: i.description,
+        selector: i.selector,
+        wcagCriteria: i.wcagCriteria,
+        wcagLevel: i.wcagLevel,
+      })),
     };
   });
 
-  const totalNew       = pages.reduce((s, p) => s + p.newIssues.length, 0);
-  const totalFixed     = pages.reduce((s, p) => s + p.fixedIssues.length, 0);
-  const totalPersisting = pages.reduce((s, p) => s + p.persistingIssues.length, 0);
+  const totalNew = pages.reduce((s, p) => s + p.newIssues.length, 0);
+  const totalFixed = pages.reduce((s, p) => s + p.fixedIssues.length, 0);
+  const totalPersisting = pages.reduce(
+    (s, p) => s + p.persistingIssues.length,
+    0,
+  );
 
   const fmtSession = (s: typeof row1) => ({
-    id: s.id, projectId: s.projectId, projectName: s.projectName ?? null,
-    name: s.name, initiatorName: s.initiatorName, initiatorRole: s.initiatorRole,
-    status: s.status, totalUrls: s.totalUrls, scannedUrls: s.scannedUrls,
-    failedUrls: s.failedUrls, totalIssues: s.totalIssues, criticalIssues: s.criticalIssues,
-    createdAt: s.createdAt.toISOString(), completedAt: s.completedAt?.toISOString() ?? null,
+    id: s.id,
+    projectId: s.projectId,
+    projectName: s.projectName ?? null,
+    name: s.name,
+    initiatorName: s.initiatorName,
+    initiatorRole: s.initiatorRole,
+    status: s.status,
+    totalUrls: s.totalUrls,
+    scannedUrls: s.scannedUrls,
+    failedUrls: s.failedUrls,
+    totalIssues: s.totalIssues,
+    criticalIssues: s.criticalIssues,
+    createdAt: s.createdAt.toISOString(),
+    completedAt: s.completedAt?.toISOString() ?? null,
   });
 
   return {
     scan1: fmtSession(row1),
     scan2: fmtSession(row2),
-    summary: { pagesCompared: matchedNorm.length, pagesOnlyInScan1: onlyInScan1.length, pagesOnlyInScan2: onlyInScan2.length, totalNew, totalFixed, totalPersisting },
+    summary: {
+      pagesCompared: matchedNorm.length,
+      pagesOnlyInScan1: onlyInScan1.length,
+      pagesOnlyInScan2: onlyInScan2.length,
+      totalNew,
+      totalFixed,
+      totalPersisting,
+    },
     pages,
     onlyInScan1,
     onlyInScan2,
@@ -322,13 +495,18 @@ router.get("/scans/compare", async (req, res): Promise<void> => {
   const scan1Id = parseInt(req.query.scan1Id as string, 10);
   const scan2Id = parseInt(req.query.scan2Id as string, 10);
   if (isNaN(scan1Id) || isNaN(scan2Id)) {
-    res.status(400).json({ error: "scan1Id and scan2Id query params are required" });
+    res
+      .status(400)
+      .json({ error: "scan1Id and scan2Id query params are required" });
     return;
   }
   const strip1 = (req.query.strip1 as string) || undefined;
   const strip2 = (req.query.strip2 as string) || undefined;
   const result = await buildComparison(scan1Id, scan2Id, strip1, strip2);
-  if (!result) { res.status(404).json({ error: "One or both scans not found" }); return; }
+  if (!result) {
+    res.status(404).json({ error: "One or both scans not found" });
+    return;
+  }
   res.json(result);
 });
 
@@ -343,30 +521,97 @@ router.get("/scans/compare/csv", async (req, res): Promise<void> => {
   const scan1Id = parseInt(req.query.scan1Id as string, 10);
   const scan2Id = parseInt(req.query.scan2Id as string, 10);
   if (isNaN(scan1Id) || isNaN(scan2Id)) {
-    res.status(400).json({ error: "scan1Id and scan2Id query params are required" });
+    res
+      .status(400)
+      .json({ error: "scan1Id and scan2Id query params are required" });
     return;
   }
   const strip1 = (req.query.strip1 as string) || undefined;
   const strip2 = (req.query.strip2 as string) || undefined;
   const result = await buildComparison(scan1Id, scan2Id, strip1, strip2);
-  if (!result) { res.status(404).json({ error: "One or both scans not found" }); return; }
+  if (!result) {
+    res.status(404).json({ error: "One or both scans not found" });
+    return;
+  }
 
-  const escCsv = (v: string | null | undefined) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const escCsv = (v: string | null | undefined) =>
+    `"${String(v ?? "").replace(/"/g, '""')}"`;
 
-  const headerRow = ["URL", "Baseline Issues (A)", "Current Issues (B)", "New Issues", "Fixed Issues", "Persisting", "Net Change"].join(",");
-  const dataRows = result.pages.map(p =>
-    [p.url, p.scan1Page.issueCount, p.scan2Page.issueCount, p.newIssues.length, p.fixedIssues.length, p.persistingIssues.length, p.newIssues.length - p.fixedIssues.length].join(",")
+  const headerRow = [
+    "URL",
+    "Baseline Issues (A)",
+    "Current Issues (B)",
+    "New Issues",
+    "Fixed Issues",
+    "Persisting",
+    "Net Change",
+  ].join(",");
+  const dataRows = result.pages.map((p) =>
+    [
+      p.url,
+      p.scan1Page.issueCount,
+      p.scan2Page.issueCount,
+      p.newIssues.length,
+      p.fixedIssues.length,
+      p.persistingIssues.length,
+      p.newIssues.length - p.fixedIssues.length,
+    ].join(","),
   );
 
   // Issue detail rows
-  const detailHeader = ["", "Type", "Rule ID", "Impact", "WCAG", "Selector", "Description"].join(",");
+  const detailHeader = [
+    "",
+    "Type",
+    "Rule ID",
+    "Impact",
+    "WCAG",
+    "Selector",
+    "Description",
+  ].join(",");
   const detailRows: string[] = [];
   for (const p of result.pages) {
-    if (p.newIssues.length + p.fixedIssues.length + p.persistingIssues.length === 0) continue;
+    if (
+      p.newIssues.length + p.fixedIssues.length + p.persistingIssues.length ===
+      0
+    )
+      continue;
     detailRows.push(escCsv(p.url));
-    for (const i of p.newIssues)       detailRows.push(["", "NEW",       escCsv(i.ruleId), escCsv(i.impact), escCsv(i.wcagCriteria), escCsv(i.selector), escCsv(i.description)].join(","));
-    for (const i of p.fixedIssues)     detailRows.push(["", "FIXED",     escCsv(i.ruleId), escCsv(i.impact), escCsv(i.wcagCriteria), escCsv(i.selector), escCsv(i.description)].join(","));
-    for (const i of p.persistingIssues) detailRows.push(["", "PERSISTING", escCsv(i.ruleId), escCsv(i.impact), escCsv(i.wcagCriteria), escCsv(i.selector), escCsv(i.description)].join(","));
+    for (const i of p.newIssues)
+      detailRows.push(
+        [
+          "",
+          "NEW",
+          escCsv(i.ruleId),
+          escCsv(i.impact),
+          escCsv(i.wcagCriteria),
+          escCsv(i.selector),
+          escCsv(i.description),
+        ].join(","),
+      );
+    for (const i of p.fixedIssues)
+      detailRows.push(
+        [
+          "",
+          "FIXED",
+          escCsv(i.ruleId),
+          escCsv(i.impact),
+          escCsv(i.wcagCriteria),
+          escCsv(i.selector),
+          escCsv(i.description),
+        ].join(","),
+      );
+    for (const i of p.persistingIssues)
+      detailRows.push(
+        [
+          "",
+          "PERSISTING",
+          escCsv(i.ruleId),
+          escCsv(i.impact),
+          escCsv(i.wcagCriteria),
+          escCsv(i.selector),
+          escCsv(i.description),
+        ].join(","),
+      );
   }
 
   const csv = [
@@ -391,7 +636,10 @@ router.get("/scans/compare/csv", async (req, res): Promise<void> => {
   ].join("\n");
 
   res.setHeader("Content-Type", "text/csv");
-  res.setHeader("Content-Disposition", `attachment; filename="comparison-scan${scan1Id}-vs-scan${scan2Id}.csv"`);
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="comparison-scan${scan1Id}-vs-scan${scan2Id}.csv"`,
+  );
   res.send(csv);
 });
 
@@ -438,16 +686,18 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
 
   // Exclude screenshot and pageHtml — these are large blobs served via
   // dedicated snapshot endpoints and are never needed on the detail page.
-  const pages = await db.select({
-    id: pageResultsTable.id,
-    scanId: pageResultsTable.scanId,
-    url: pageResultsTable.url,
-    status: pageResultsTable.status,
-    issueCount: pageResultsTable.issueCount,
-    criticalCount: pageResultsTable.criticalCount,
-    errorMessage: pageResultsTable.errorMessage,
-    scannedAt: pageResultsTable.scannedAt,
-  }).from(pageResultsTable)
+  const pages = await db
+    .select({
+      id: pageResultsTable.id,
+      scanId: pageResultsTable.scanId,
+      url: pageResultsTable.url,
+      status: pageResultsTable.status,
+      issueCount: pageResultsTable.issueCount,
+      criticalCount: pageResultsTable.criticalCount,
+      errorMessage: pageResultsTable.errorMessage,
+      scannedAt: pageResultsTable.scannedAt,
+    })
+    .from(pageResultsTable)
     .where(eq(pageResultsTable.scanId, row.id));
 
   // Only load full issue details when the scan is finished.
@@ -459,9 +709,15 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
   const issuesByPageId = new Map<number, IssueRow[]>();
 
   if (!scanIsActive && pages.length > 0) {
-    const allIssues = await db.select()
+    const allIssues = await db
+      .select()
       .from(accessibilityIssuesTable)
-      .where(inArray(accessibilityIssuesTable.pageId, pages.map(p => p.id)));
+      .where(
+        inArray(
+          accessibilityIssuesTable.pageId,
+          pages.map((p) => p.id),
+        ),
+      );
 
     for (const issue of allIssues) {
       const list = issuesByPageId.get(issue.pageId) ?? [];
@@ -470,7 +726,7 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
     }
   }
 
-  const pagesWithIssues = pages.map(page => ({
+  const pagesWithIssues = pages.map((page) => ({
     ...page,
     scannedAt: page.scannedAt?.toISOString() ?? null,
     issues: issuesByPageId.get(page.id) ?? [],
@@ -524,7 +780,8 @@ router.patch("/scans/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: "No fields to update" });
     return;
   }
-  const [updated] = await db.update(scanSessionsTable)
+  const [updated] = await db
+    .update(scanSessionsTable)
     .set(updates)
     .where(eq(scanSessionsTable.id, params.data.id))
     .returning({ id: scanSessionsTable.id });
@@ -544,7 +801,9 @@ router.delete("/scans/:id", async (req, res): Promise<void> => {
   const role = req.session?.user?.role ?? "user";
   const perms = await getEffectivePermissions(parseInt(userId, 10), role);
   if (!perms.canDeleteScan) {
-    res.status(403).json({ error: "You don't have permission to delete scans" });
+    res
+      .status(403)
+      .json({ error: "You don't have permission to delete scans" });
     return;
   }
 
@@ -557,7 +816,8 @@ router.delete("/scans/:id", async (req, res): Promise<void> => {
 
   cancelScan(params.data.id);
 
-  const [deleted] = await db.delete(scanSessionsTable)
+  const [deleted] = await db
+    .delete(scanSessionsTable)
     .where(eq(scanSessionsTable.id, params.data.id))
     .returning();
 
@@ -585,15 +845,17 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
 
   const scanId = params.data.id;
 
-  const [session] = await db.select({
-    id: scanSessionsTable.id,
-    status: scanSessionsTable.status,
-    initiatorName: scanSessionsTable.initiatorName,
-    initiatorRole: scanSessionsTable.initiatorRole,
-    totalUrls: scanSessionsTable.totalUrls,
-    scannedUrls: scanSessionsTable.scannedUrls,
-    failedUrls: scanSessionsTable.failedUrls,
-  }).from(scanSessionsTable)
+  const [session] = await db
+    .select({
+      id: scanSessionsTable.id,
+      status: scanSessionsTable.status,
+      initiatorName: scanSessionsTable.initiatorName,
+      initiatorRole: scanSessionsTable.initiatorRole,
+      totalUrls: scanSessionsTable.totalUrls,
+      scannedUrls: scanSessionsTable.scannedUrls,
+      failedUrls: scanSessionsTable.failedUrls,
+    })
+    .from(scanSessionsTable)
     .where(eq(scanSessionsTable.id, scanId));
 
   if (!session) {
@@ -603,7 +865,12 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
 
   // Use SQL GROUP BY to get counts per status — vastly cheaper than loading
   // all rows into Node.js, especially on large scans (thousands of pages).
-  const countResult = await pool.query<{ status: string; cnt: string; issues: string; critical: string }>(
+  const countResult = await pool.query<{
+    status: string;
+    cnt: string;
+    issues: string;
+    critical: string;
+  }>(
     `SELECT status,
             COUNT(*)::text            AS cnt,
             SUM(issue_count)::text    AS issues,
@@ -622,25 +889,50 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
     `SELECT COUNT(*)::text AS cnt FROM page_results WHERE scan_id = $1 AND status = 'completed' AND issue_count > 0`,
     [scanId],
   );
-  const pagesWithIssues = parseInt(pagesWithIssuesResult.rows[0]?.cnt || "0", 10);
+  const pagesWithIssues = parseInt(
+    pagesWithIssuesResult.rows[0]?.cnt || "0",
+    10,
+  );
 
   // Only load individual rows for non-completed pages (active, pending, failed, requeued).
   // Completed pages may number in the thousands — they don't need to be in the live feed.
-  const NON_COMPLETED = ["navigating", "rendering", "analyzing", "saving", "scanning", "pending", "failed", "requeued", "not_available"] as const;
-  const activePages = await db.select({
-    url: pageResultsTable.url,
-    status: pageResultsTable.status,
-    issueCount: pageResultsTable.issueCount,
-    criticalCount: pageResultsTable.criticalCount,
-    errorMessage: pageResultsTable.errorMessage,
-  }).from(pageResultsTable)
-    .where(and(
-      eq(pageResultsTable.scanId, scanId),
-      inArray(pageResultsTable.status, [...NON_COMPLETED]),
-    ));
+  const NON_COMPLETED = [
+    "navigating",
+    "rendering",
+    "analyzing",
+    "saving",
+    "scanning",
+    "pending",
+    "failed",
+    "requeued",
+    "not_available",
+  ] as const;
+  const activePages = await db
+    .select({
+      url: pageResultsTable.url,
+      status: pageResultsTable.status,
+      issueCount: pageResultsTable.issueCount,
+      criticalCount: pageResultsTable.criticalCount,
+      errorMessage: pageResultsTable.errorMessage,
+    })
+    .from(pageResultsTable)
+    .where(
+      and(
+        eq(pageResultsTable.scanId, scanId),
+        inArray(pageResultsTable.status, [...NON_COMPLETED]),
+      ),
+    )
+    .limit(500);
 
-  const ACTIVE_STAGES = new Set(["scanning", "navigating", "rendering", "analyzing", "saving"]);
-  const currentUrl = activePages.find(p => ACTIVE_STAGES.has(p.status))?.url ?? null;
+  const ACTIVE_STAGES = new Set([
+    "scanning",
+    "navigating",
+    "rendering",
+    "analyzing",
+    "saving",
+  ]);
+  const currentUrl =
+    activePages.find((p) => ACTIVE_STAGES.has(p.status))?.url ?? null;
 
   res.json({
     id: session.id,
@@ -653,7 +945,7 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
     currentUrl,
     counts,
     pagesWithIssues,
-    pages: activePages.map(p => ({
+    pages: activePages.map((p) => ({
       url: p.url,
       status: p.status,
       issueCount: p.issueCount,
@@ -668,54 +960,79 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
  * Inject additional URLs into a running, paused, or pending scan.
  * Body: { urls: string[] }
  */
-router.post("/scans/:id/add-urls", requireAuth, async (req, res): Promise<void> => {
-  const userId = getAuthUserId(req);
-  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+router.post(
+  "/scans/:id/add-urls",
+  requireAuth,
+  async (req, res): Promise<void> => {
+    const userId = getAuthUserId(req);
+    if (!userId) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
 
-  const role = req.session?.user?.role ?? "user";
-  const perms = await getEffectivePermissions(parseInt(userId, 10), role);
-  if (!perms.canManageScan) {
-    res.status(403).json({ error: "You don't have permission to modify scans" });
-    return;
-  }
+    const role = req.session?.user?.role ?? "user";
+    const perms = await getEffectivePermissions(parseInt(userId, 10), role);
+    if (!perms.canManageScan) {
+      res
+        .status(403)
+        .json({ error: "You don't have permission to modify scans" });
+      return;
+    }
 
-  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const scanId = parseInt(raw, 10);
-  if (isNaN(scanId)) { res.status(400).json({ error: "Invalid scan ID" }); return; }
+    const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const scanId = parseInt(raw, 10);
+    if (isNaN(scanId)) {
+      res.status(400).json({ error: "Invalid scan ID" });
+      return;
+    }
 
-  const { urls } = req.body as { urls?: unknown };
-  if (!Array.isArray(urls) || urls.length === 0) {
-    res.status(400).json({ error: "urls must be a non-empty array" });
-    return;
-  }
+    const { urls } = req.body as { urls?: unknown };
+    if (!Array.isArray(urls) || urls.length === 0) {
+      res.status(400).json({ error: "urls must be a non-empty array" });
+      return;
+    }
 
-  const validUrls = (urls as unknown[])
-    .filter((u): u is string => typeof u === "string" && u.trim().length > 0)
-    .map((u) => u.trim())
-    .filter((u) => { try { new URL(u); return true; } catch { return false; } });
+    const validUrls = (urls as unknown[])
+      .filter((u): u is string => typeof u === "string" && u.trim().length > 0)
+      .map((u) => u.trim())
+      .filter((u) => {
+        try {
+          new URL(u);
+          return true;
+        } catch {
+          return false;
+        }
+      });
 
-  if (validUrls.length === 0) {
-    res.status(400).json({ error: "No valid URLs provided" });
-    return;
-  }
+    if (validUrls.length === 0) {
+      res.status(400).json({ error: "No valid URLs provided" });
+      return;
+    }
 
-  const [session] = await db
-    .select({ status: scanSessionsTable.status, options: scanSessionsTable.options })
-    .from(scanSessionsTable)
-    .where(eq(scanSessionsTable.id, scanId));
+    const [session] = await db
+      .select({
+        status: scanSessionsTable.status,
+        options: scanSessionsTable.options,
+      })
+      .from(scanSessionsTable)
+      .where(eq(scanSessionsTable.id, scanId));
 
-  if (!session) { res.status(404).json({ error: "Scan not found" }); return; }
+    if (!session) {
+      res.status(404).json({ error: "Scan not found" });
+      return;
+    }
 
-  if (!["running", "paused", "pending"].includes(session.status)) {
-    res.status(409).json({
-      error: `Can only add URLs to a running, paused, or pending scan (current status: ${session.status})`,
-    });
-    return;
-  }
+    if (!["running", "paused", "pending"].includes(session.status)) {
+      res.status(409).json({
+        error: `Can only add URLs to a running, paused, or pending scan (current status: ${session.status})`,
+      });
+      return;
+    }
 
-  const result = await addUrlsToRunningScan(scanId, validUrls);
-  res.json({ ...result, total: validUrls.length });
-});
+    const result = await addUrlsToRunningScan(scanId, validUrls);
+    res.json({ ...result, total: validUrls.length });
+  },
+);
 
 router.post("/scans/:id/cancel", async (req, res): Promise<void> => {
   const userId = getAuthUserId(req);
@@ -726,7 +1043,9 @@ router.post("/scans/:id/cancel", async (req, res): Promise<void> => {
   const role = req.session?.user?.role ?? "user";
   const perms = await getEffectivePermissions(parseInt(userId, 10), role);
   if (!perms.canManageScan) {
-    res.status(403).json({ error: "You don't have permission to cancel scans" });
+    res
+      .status(403)
+      .json({ error: "You don't have permission to cancel scans" });
     return;
   }
 
@@ -737,7 +1056,8 @@ router.post("/scans/:id/cancel", async (req, res): Promise<void> => {
     return;
   }
 
-  const [session] = await db.select()
+  const [session] = await db
+    .select()
     .from(scanSessionsTable)
     .where(eq(scanSessionsTable.id, params.data.id));
 
@@ -748,11 +1068,13 @@ router.post("/scans/:id/cancel", async (req, res): Promise<void> => {
 
   cancelScan(params.data.id);
 
-  await db.update(scanSessionsTable)
+  await db
+    .update(scanSessionsTable)
     .set({ status: "cancelled", completedAt: new Date() })
     .where(eq(scanSessionsTable.id, params.data.id));
 
-  const [updated] = await db.select()
+  const [updated] = await db
+    .select()
     .from(scanSessionsTable)
     .where(eq(scanSessionsTable.id, params.data.id));
 
@@ -783,7 +1105,8 @@ router.post("/scans/:id/pause", async (req, res): Promise<void> => {
     return;
   }
 
-  const [session] = await db.select()
+  const [session] = await db
+    .select()
     .from(scanSessionsTable)
     .where(eq(scanSessionsTable.id, scanId));
 
@@ -801,7 +1124,8 @@ router.post("/scans/:id/pause", async (req, res): Promise<void> => {
   // Works for live scans and zombie scans (server restarted mid-scan).
   pauseScan(scanId);
 
-  await db.update(scanSessionsTable)
+  await db
+    .update(scanSessionsTable)
     .set({ status: "paused" })
     .where(eq(scanSessionsTable.id, scanId));
 
@@ -817,7 +1141,9 @@ router.post("/scans/:id/resume", async (req, res): Promise<void> => {
   const role = req.session?.user?.role ?? "user";
   const perms = await getEffectivePermissions(parseInt(userId, 10), role);
   if (!perms.canManageScan) {
-    res.status(403).json({ error: "You don't have permission to resume scans" });
+    res
+      .status(403)
+      .json({ error: "You don't have permission to resume scans" });
     return;
   }
 
@@ -828,7 +1154,8 @@ router.post("/scans/:id/resume", async (req, res): Promise<void> => {
     return;
   }
 
-  const [session] = await db.select()
+  const [session] = await db
+    .select()
     .from(scanSessionsTable)
     .where(eq(scanSessionsTable.id, scanId));
 
@@ -848,74 +1175,102 @@ router.post("/scans/:id/resume", async (req, res): Promise<void> => {
   if (isScanActive(scanId)) {
     // Live worker exists — reset any pages that got stuck mid-flight while
     // the scan was paused, then signal the worker to continue.
-    const MID_FLIGHT = ["navigating", "scanning", "rendering", "analyzing", "saving"] as const;
+    const MID_FLIGHT = [
+      "navigating",
+      "scanning",
+      "rendering",
+      "analyzing",
+      "saving",
+    ] as const;
     const stuckRows = await db
       .select({ url: pageResultsTable.url })
       .from(pageResultsTable)
-      .where(and(
-        eq(pageResultsTable.scanId, scanId),
-        inArray(pageResultsTable.status, [...MID_FLIGHT]),
-      ));
+      .where(
+        and(
+          eq(pageResultsTable.scanId, scanId),
+          inArray(pageResultsTable.status, [...MID_FLIGHT]),
+        ),
+      );
 
     if (stuckRows.length > 0) {
       await db
         .update(pageResultsTable)
         .set({ status: "pending" })
-        .where(and(
-          eq(pageResultsTable.scanId, scanId),
-          inArray(pageResultsTable.status, [...MID_FLIGHT]),
-        ));
+        .where(
+          and(
+            eq(pageResultsTable.scanId, scanId),
+            inArray(pageResultsTable.status, [...MID_FLIGHT]),
+          ),
+        );
       // Re-queue them into Phase 2 so they're retried before Phase 3 runs.
       for (const row of stuckRows) {
         queueRetryUrl(scanId, row.url);
       }
-      req.log.info({ scanId, count: stuckRows.length }, "Reset stuck mid-flight pages on resume");
+      req.log.info(
+        { scanId, count: stuckRows.length },
+        "Reset stuck mid-flight pages on resume",
+      );
     }
 
     resumeScan(scanId);
-    await db.update(scanSessionsTable)
+    await db
+      .update(scanSessionsTable)
       .set({ status: "running" })
       .where(eq(scanSessionsTable.id, scanId));
   } else {
     // Zombie scan: server was restarted while the scan was running.
     // Reset any pages that were mid-flight back to "pending" so they get re-scanned.
-    await db.update(pageResultsTable)
+    await db
+      .update(pageResultsTable)
       .set({ status: "pending" })
-      .where(and(
-        eq(pageResultsTable.scanId, scanId),
-        inArray(pageResultsTable.status, ["navigating", "scanning", "saving"]),
-      ));
+      .where(
+        and(
+          eq(pageResultsTable.scanId, scanId),
+          inArray(pageResultsTable.status, [
+            "navigating",
+            "scanning",
+            "saving",
+          ]),
+        ),
+      );
 
     const remainingPages = await db
       .select({ url: pageResultsTable.url })
       .from(pageResultsTable)
-      .where(and(
-        eq(pageResultsTable.scanId, scanId),
-        inArray(pageResultsTable.status, ["pending", "requeued"]),
-      ));
+      .where(
+        and(
+          eq(pageResultsTable.scanId, scanId),
+          inArray(pageResultsTable.status, ["pending", "requeued"]),
+        ),
+      );
 
     if (remainingPages.length === 0) {
       // Nothing left to scan — mark as completed
-      await db.update(scanSessionsTable)
+      await db
+        .update(scanSessionsTable)
         .set({ status: "completed", completedAt: new Date() })
         .where(eq(scanSessionsTable.id, scanId));
       res.json({ id: scanId, status: "completed" });
       return;
     }
 
-    await db.update(scanSessionsTable)
+    await db
+      .update(scanSessionsTable)
       .set({ status: "running" })
       .where(eq(scanSessionsTable.id, scanId));
 
-    const urls = remainingPages.map(p => p.url);
+    const urls = remainingPages.map((p) => p.url);
     startScan(scanId, urls, {
-      ...(session.options as Record<string, unknown> ?? {}),
+      ...((session.options as Record<string, unknown>) ?? {}),
       skipCompletedPages: true,
-    }).catch(err => {
+    }).catch((err) => {
       logger.error({ scanId, err }, "Zombie scan restart failed");
     });
 
-    logger.info({ scanId, urlCount: urls.length }, "Restarted zombie scan worker");
+    logger.info(
+      { scanId, urlCount: urls.length },
+      "Restarted zombie scan worker",
+    );
   }
 
   res.json({ id: scanId, status: "running" });
@@ -977,14 +1332,16 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
   }
 
   // Fetch ONLY metadata columns — never load screenshot/pageHtml into Node.js memory
-  const originalPages = await db.select({
-    id: pageResultsTable.id,
-    url: pageResultsTable.url,
-    status: pageResultsTable.status,
-    issueCount: pageResultsTable.issueCount,
-    criticalCount: pageResultsTable.criticalCount,
-    scannedAt: pageResultsTable.scannedAt,
-  }).from(pageResultsTable)
+  const originalPages = await db
+    .select({
+      id: pageResultsTable.id,
+      url: pageResultsTable.url,
+      status: pageResultsTable.status,
+      issueCount: pageResultsTable.issueCount,
+      criticalCount: pageResultsTable.criticalCount,
+      scannedAt: pageResultsTable.scannedAt,
+    })
+    .from(pageResultsTable)
     .where(eq(pageResultsTable.scanId, originalId));
 
   if (originalPages.length === 0) {
@@ -993,12 +1350,15 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
   }
 
   // Compute retry name (strip old suffix, append "(retry N)")
-  const customName = typeof req.body?.name === "string" ? req.body.name.trim() : null;
+  const customName =
+    typeof req.body?.name === "string" ? req.body.name.trim() : null;
   let retryName: string | null = null;
   if (customName) {
     retryName = customName;
   } else if (original.name) {
-    const base = original.name.replace(/\s*\(retry(?:\s+\d+|failed)?\)/gi, "").trim();
+    const base = original.name
+      .replace(/\s*\(retry(?:\s+\d+|failed)?\)/gi, "")
+      .trim();
     const m = original.name.match(/\(retry\s+(\d+)\)/i);
     const n = m ? parseInt(m[1]) + 1 : 1;
     retryName = `${base} (retry ${n})`;
@@ -1009,45 +1369,57 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
   const statusPriority = (s: string) =>
     s === "completed" ? 3 : s === "not_available" ? 2 : s === "failed" ? 1 : 0;
 
-  const bestByUrl = new Map<string, typeof originalPages[number]>();
+  const bestByUrl = new Map<string, (typeof originalPages)[number]>();
   for (const p of originalPages) {
     const existing = bestByUrl.get(p.url);
-    if (!existing || statusPriority(p.status) > statusPriority(existing.status)) {
+    if (
+      !existing ||
+      statusPriority(p.status) > statusPriority(existing.status)
+    ) {
       bestByUrl.set(p.url, p);
     }
   }
   const dedupedPages = Array.from(bestByUrl.values());
 
-  const completedPages = dedupedPages.filter(p => p.status === "completed");
-  const pendingPages   = dedupedPages.filter(p => p.status !== "completed");
+  const completedPages = dedupedPages.filter((p) => p.status === "completed");
+  const pendingPages = dedupedPages.filter((p) => p.status !== "completed");
 
   // Compute totals for the pre-populated completed pages
-  const preScanned        = completedPages.length;
-  const preTotalIssues    = completedPages.reduce((s, p) => s + (p.issueCount ?? 0), 0);
-  const preCriticalIssues = completedPages.reduce((s, p) => s + (p.criticalCount ?? 0), 0);
+  const preScanned = completedPages.length;
+  const preTotalIssues = completedPages.reduce(
+    (s, p) => s + (p.issueCount ?? 0),
+    0,
+  );
+  const preCriticalIssues = completedPages.reduce(
+    (s, p) => s + (p.criticalCount ?? 0),
+    0,
+  );
 
   const opts = (original.options ?? {}) as Record<string, unknown>;
 
   // Create new scan session (carries over project association and initiator)
-  const [newSession] = await db.insert(scanSessionsTable).values({
-    userId,
-    name: retryName,
-    projectId: original.projectId ?? null,
-    status: pendingPages.length === 0 ? "completed" : "pending",
-    totalUrls: dedupedPages.length,
-    scannedUrls: preScanned,
-    failedUrls: 0,
-    totalIssues: preTotalIssues,
-    criticalIssues: preCriticalIssues,
-    options: original.options ?? null,
-    initiatorName: original.initiatorName ?? null,
-    initiatorRole: original.initiatorRole ?? null,
-    ...(pendingPages.length === 0 ? { completedAt: new Date() } : {}),
-  }).returning();
+  const [newSession] = await db
+    .insert(scanSessionsTable)
+    .values({
+      userId,
+      name: retryName,
+      projectId: original.projectId ?? null,
+      status: pendingPages.length === 0 ? "completed" : "pending",
+      totalUrls: dedupedPages.length,
+      scannedUrls: preScanned,
+      failedUrls: 0,
+      totalIssues: preTotalIssues,
+      criticalIssues: preCriticalIssues,
+      options: original.options ?? null,
+      initiatorName: original.initiatorName ?? null,
+      initiatorRole: original.initiatorRole ?? null,
+      ...(pendingPages.length === 0 ? { completedAt: new Date() } : {}),
+    })
+    .returning();
 
   // Copy completed pages directly inside the DB (INSERT...SELECT) — screenshot/pageHtml
   // never pass through Node.js memory, preventing OOM on large scans.
-  const completedPageIds = completedPages.map(p => p.id);
+  const completedPageIds = completedPages.map((p) => p.id);
   if (completedPageIds.length > 0) {
     await pool.query(
       `INSERT INTO page_results (scan_id, url, status, issue_count, critical_count, error_message, scanned_at, screenshot, page_html)
@@ -1061,21 +1433,27 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
   // Insert pending pages (no large data to copy)
   if (pendingPages.length > 0) {
     await db.insert(pageResultsTable).values(
-      pendingPages.map(p => ({
+      pendingPages.map((p) => ({
         scanId: newSession.id,
         url: p.url,
         status: "pending" as const,
         issueCount: 0,
         criticalCount: 0,
-      }))
+      })),
     );
   }
 
   // Start scanning only the pages that need re-scanning
-  const urlsToScan = pendingPages.map(p => p.url);
+  const urlsToScan = pendingPages.map((p) => p.url);
   if (urlsToScan.length > 0) {
-    startScan(newSession.id, urlsToScan, { ...(opts as Parameters<typeof startScan>[2]), skipCompletedPages: true }).catch(err => {
-      logger.error({ scanId: newSession.id, err }, "Background retry scan failed");
+    startScan(newSession.id, urlsToScan, {
+      ...(opts as Parameters<typeof startScan>[2]),
+      skipCompletedPages: true,
+    }).catch((err) => {
+      logger.error(
+        { scanId: newSession.id, err },
+        "Background retry scan failed",
+      );
     });
   }
 
@@ -1106,9 +1484,15 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
            WHERE orig_pr.id = ANY($2)`,
           [newSession.id, completedPageIds],
         );
-        logger.info({ scanId: newSession.id }, "Retry: background issue copy complete");
+        logger.info(
+          { scanId: newSession.id },
+          "Retry: background issue copy complete",
+        );
       } catch (err) {
-        logger.error({ scanId: newSession.id, err }, "Retry: background issue copy failed");
+        logger.error(
+          { scanId: newSession.id, err },
+          "Retry: background issue copy failed",
+        );
       }
     })();
   }
@@ -1123,7 +1507,8 @@ router.post("/scans/:id/retry-url", async (req, res): Promise<void> => {
     return;
   }
 
-  const [session] = await db.select()
+  const [session] = await db
+    .select()
     .from(scanSessionsTable)
     .where(eq(scanSessionsTable.id, scanId));
 
@@ -1132,29 +1517,51 @@ router.post("/scans/:id/retry-url", async (req, res): Promise<void> => {
     return;
   }
 
-  const [page] = await db.select()
+  const [page] = await db
+    .select()
     .from(pageResultsTable)
-    .where(and(eq(pageResultsTable.scanId, scanId), eq(pageResultsTable.url, url)));
+    .where(
+      and(eq(pageResultsTable.scanId, scanId), eq(pageResultsTable.url, url)),
+    );
 
   if (!page) {
     res.status(404).json({ error: "Page not found in scan" });
     return;
   }
 
-  if (page.status !== "failed" && page.status !== "pending" && page.status !== "requeued") {
-    res.status(409).json({ error: "Only failed or pending URLs can be retried" });
+  if (
+    page.status !== "failed" &&
+    page.status !== "pending" &&
+    page.status !== "requeued"
+  ) {
+    res
+      .status(409)
+      .json({ error: "Only failed or pending URLs can be retried" });
     return;
   }
 
-  if (session.status === "running" || session.status === "paused" || session.status === "pending") {
+  if (
+    session.status === "running" ||
+    session.status === "paused" ||
+    session.status === "pending"
+  ) {
     const queued = queueRetryUrl(scanId, url);
     if (!queued) {
       res.status(409).json({ error: "Scan is not running" });
       return;
     }
-    await db.update(pageResultsTable)
-      .set({ status: "requeued", errorMessage: null, scannedAt: null, issueCount: 0, criticalCount: 0 })
-      .where(and(eq(pageResultsTable.scanId, scanId), eq(pageResultsTable.url, url)));
+    await db
+      .update(pageResultsTable)
+      .set({
+        status: "requeued",
+        errorMessage: null,
+        scannedAt: null,
+        issueCount: 0,
+        criticalCount: 0,
+      })
+      .where(
+        and(eq(pageResultsTable.scanId, scanId), eq(pageResultsTable.url, url)),
+      );
     res.status(202).json({
       id: scanId,
       status: session.status,
@@ -1163,19 +1570,22 @@ router.post("/scans/:id/retry-url", async (req, res): Promise<void> => {
     return;
   }
 
-  const [newSession] = await db.insert(scanSessionsTable).values({
-    name: `${session.name ?? `Scan #${scanId}`} (URL retry)`,
-    projectId: session.projectId ?? null,
-    status: "pending",
-    totalUrls: 1,
-    scannedUrls: 0,
-    failedUrls: 0,
-    totalIssues: 0,
-    criticalIssues: 0,
-    options: session.options ?? null,
-    initiatorName: session.initiatorName ?? null,
-    initiatorRole: session.initiatorRole ?? null,
-  }).returning();
+  const [newSession] = await db
+    .insert(scanSessionsTable)
+    .values({
+      name: `${session.name ?? `Scan #${scanId}`} (URL retry)`,
+      projectId: session.projectId ?? null,
+      status: "pending",
+      totalUrls: 1,
+      scannedUrls: 0,
+      failedUrls: 0,
+      totalIssues: 0,
+      criticalIssues: 0,
+      options: session.options ?? null,
+      initiatorName: session.initiatorName ?? null,
+      initiatorRole: session.initiatorRole ?? null,
+    })
+    .returning();
 
   await db.insert(pageResultsTable).values({
     scanId: newSession.id,
@@ -1185,7 +1595,10 @@ router.post("/scans/:id/retry-url", async (req, res): Promise<void> => {
     criticalCount: 0,
   });
 
-  startScan(newSession.id, [url], { ...(session.options as Record<string, unknown>), skipCompletedPages: true }).catch(err => {
+  startScan(newSession.id, [url], {
+    ...(session.options as Record<string, unknown>),
+    skipCompletedPages: true,
+  }).catch((err) => {
     logger.error({ scanId: newSession.id, err }, "Background URL retry failed");
   });
 
@@ -1198,129 +1611,205 @@ router.post("/scans/:id/retry-url", async (req, res): Promise<void> => {
 
 // ── Server-side export (CSV / Excel) ─────────────────────────────────────────
 // Uses a single LEFT JOIN query — no huge JSON roundtrip to the browser.
-router.get("/scans/:id/export", requireAuth, async (req, res): Promise<void> => {
-  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const scanId = parseInt(raw, 10);
-  if (isNaN(scanId)) { res.status(400).json({ error: "Invalid scan ID" }); return; }
+router.get(
+  "/scans/:id/export",
+  requireAuth,
+  async (req, res): Promise<void> => {
+    const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const scanId = parseInt(raw, 10);
+    if (isNaN(scanId)) {
+      res.status(400).json({ error: "Invalid scan ID" });
+      return;
+    }
 
-  const format = (req.query.format as string | undefined) ?? "csv";
-  if (!["csv", "excel", "json"].includes(format)) {
-    res.status(400).json({ error: "format must be csv, excel, or json" });
-    return;
-  }
+    const format = (req.query.format as string | undefined) ?? "csv";
+    if (!["csv", "excel", "json"].includes(format)) {
+      res.status(400).json({ error: "format must be csv, excel, or json" });
+      return;
+    }
 
-  const [session] = await db.select({
-    id: scanSessionsTable.id,
-    name: scanSessionsTable.name,
-    options: scanSessionsTable.options,
-  }).from(scanSessionsTable).where(eq(scanSessionsTable.id, scanId));
+    const [session] = await db
+      .select({
+        id: scanSessionsTable.id,
+        name: scanSessionsTable.name,
+        options: scanSessionsTable.options,
+      })
+      .from(scanSessionsTable)
+      .where(eq(scanSessionsTable.id, scanId));
 
-  if (!session) { res.status(404).json({ error: "Scan not found" }); return; }
+    if (!session) {
+      res.status(404).json({ error: "Scan not found" });
+      return;
+    }
 
-  const scanName = session.name || `Scan #${session.id}`;
-  const opts = session.options as Record<string, unknown> | null;
-  const selectedRules: string[] = Array.isArray(opts?.rules) ? (opts!.rules as string[]) : [];
-  const rulesLabel = selectedRules.length === 0 ? "All rules" : selectedRules.join(", ");
+    const scanName = session.name || `Scan #${session.id}`;
+    const opts = session.options as Record<string, unknown> | null;
+    const selectedRules: string[] = Array.isArray(opts?.rules)
+      ? (opts!.rules as string[])
+      : [];
+    const rulesLabel =
+      selectedRules.length === 0 ? "All rules" : selectedRules.join(", ");
 
-  // Single LEFT JOIN: one row per issue, or one null-issue row per page with no issues.
-  const joined = await db
-    .select({
-      url: pageResultsTable.url,
-      ruleId: accessibilityIssuesTable.ruleId,
-      impact: accessibilityIssuesTable.impact,
-      description: accessibilityIssuesTable.description,
-      wcagCriteria: accessibilityIssuesTable.wcagCriteria,
-      wcagLevel: accessibilityIssuesTable.wcagLevel,
-      legalText: accessibilityIssuesTable.legalText,
-      selector: accessibilityIssuesTable.selector,
-      element: accessibilityIssuesTable.element,
-      remediation: accessibilityIssuesTable.remediation,
-    })
-    .from(pageResultsTable)
-    .leftJoin(accessibilityIssuesTable, eq(accessibilityIssuesTable.pageId, pageResultsTable.id))
-    .where(eq(pageResultsTable.scanId, scanId))
-    .orderBy(pageResultsTable.url);
+    // Single LEFT JOIN: one row per issue, or one null-issue row per page with no issues.
+    const joined = await db
+      .select({
+        url: pageResultsTable.url,
+        ruleId: accessibilityIssuesTable.ruleId,
+        impact: accessibilityIssuesTable.impact,
+        description: accessibilityIssuesTable.description,
+        wcagCriteria: accessibilityIssuesTable.wcagCriteria,
+        wcagLevel: accessibilityIssuesTable.wcagLevel,
+        legalText: accessibilityIssuesTable.legalText,
+        selector: accessibilityIssuesTable.selector,
+        element: accessibilityIssuesTable.element,
+        remediation: accessibilityIssuesTable.remediation,
+      })
+      .from(pageResultsTable)
+      .leftJoin(
+        accessibilityIssuesTable,
+        eq(accessibilityIssuesTable.pageId, pageResultsTable.id),
+      )
+      .where(eq(pageResultsTable.scanId, scanId))
+      .orderBy(pageResultsTable.url);
 
-  type ExportRow = {
-    scanName: string;
-    selectedRules: string;
-    url: string;
-    ruleId: string;
-    ruleLabel: string;
-    description: string;
-    impact: string;
-    wcagCriteria: string;
-    wcagLevel: string;
-    legalText: string;
-    selector: string;
-    element: string;
-    remediation: string;
-  };
+    type ExportRow = {
+      scanName: string;
+      selectedRules: string;
+      url: string;
+      ruleId: string;
+      ruleLabel: string;
+      description: string;
+      impact: string;
+      wcagCriteria: string;
+      wcagLevel: string;
+      legalText: string;
+      selector: string;
+      element: string;
+      remediation: string;
+    };
 
-  const rows: ExportRow[] = joined.map((r) => ({
-    scanName,
-    selectedRules: rulesLabel,
-    url: r.url,
-    ruleId: r.ruleId ?? rulesLabel,
-    ruleLabel: r.ruleId ? (r.ruleId) : "No issues",
-    description: r.ruleId ? (r.description ?? "") : "No accessibility issues found",
-    impact: r.impact ?? "",
-    wcagCriteria: r.wcagCriteria ?? "",
-    wcagLevel: r.wcagLevel ?? "",
-    legalText: r.legalText ?? "",
-    selector: r.selector ?? "",
-    element: r.element ?? "",
-    remediation: r.remediation ?? "",
-  }));
-
-  const safeLabel = scanName.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
-
-  if (format === "json") {
-    res.json({ scanName, selectedRules: rulesLabel, rows });
-    return;
-  }
-
-  if (format === "csv") {
-    const escape = (v: string) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const header = ["Scan Name","Selected Rules","Page URL","Rule ID","Rule Label","Description","Impact","WCAG Criterion","WCAG Level","Compliance","CSS Selector","Element HTML","Remediation"];
-    const lines = [
-      header.map(escape).join(","),
-      ...rows.map(r => [r.scanName, r.selectedRules, r.url, r.ruleId, r.ruleLabel, r.description, r.impact, r.wcagCriteria, r.wcagLevel, r.legalText, r.selector, r.element, r.remediation].map(escape).join(",")),
-    ];
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="${safeLabel}-a11y-report.csv"`);
-    res.send(lines.join("\n"));
-    return;
-  }
-
-  if (format === "excel") {
-    const XLSX = await import("xlsx");
-    const sheetData = rows.map(r => ({
-      "Scan Name": r.scanName,
-      "Selected Rules": r.selectedRules,
-      "Page URL": r.url,
-      "Rule ID": r.ruleId,
-      "Rule Label": r.ruleLabel,
-      "Description": r.description,
-      "Impact": r.impact,
-      "WCAG Criterion": r.wcagCriteria,
-      "WCAG Level": r.wcagLevel,
-      "Compliance": r.legalText,
-      "CSS Selector": r.selector,
-      "Element HTML": r.element,
-      "Remediation": r.remediation,
+    const rows: ExportRow[] = joined.map((r) => ({
+      scanName,
+      selectedRules: rulesLabel,
+      url: r.url,
+      ruleId: r.ruleId ?? rulesLabel,
+      ruleLabel: r.ruleId ? r.ruleId : "No issues",
+      description: r.ruleId
+        ? (r.description ?? "")
+        : "No accessibility issues found",
+      impact: r.impact ?? "",
+      wcagCriteria: r.wcagCriteria ?? "",
+      wcagLevel: r.wcagLevel ?? "",
+      legalText: r.legalText ?? "",
+      selector: r.selector ?? "",
+      element: r.element ?? "",
+      remediation: r.remediation ?? "",
     }));
-    const ws = XLSX.utils.json_to_sheet(sheetData);
-    ws["!cols"] = [{ wch: 40 }, { wch: 20 }, { wch: 60 }, { wch: 12 }, { wch: 12 }, { wch: 50 }, { wch: 12 }, { wch: 16 }, { wch: 10 }, { wch: 30 }, { wch: 40 }, { wch: 60 }, { wch: 50 }];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Issues");
-    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", `attachment; filename="${safeLabel}-a11y-report.xlsx"`);
-    res.send(buf);
-    return;
-  }
-});
+
+    const safeLabel = scanName.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
+
+    if (format === "json") {
+      res.json({ scanName, selectedRules: rulesLabel, rows });
+      return;
+    }
+
+    if (format === "csv") {
+      const escape = (v: string) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      const header = [
+        "Scan Name",
+        "Selected Rules",
+        "Page URL",
+        "Rule ID",
+        "Rule Label",
+        "Description",
+        "Impact",
+        "WCAG Criterion",
+        "WCAG Level",
+        "Compliance",
+        "CSS Selector",
+        "Element HTML",
+        "Remediation",
+      ];
+      const lines = [
+        header.map(escape).join(","),
+        ...rows.map((r) =>
+          [
+            r.scanName,
+            r.selectedRules,
+            r.url,
+            r.ruleId,
+            r.ruleLabel,
+            r.description,
+            r.impact,
+            r.wcagCriteria,
+            r.wcagLevel,
+            r.legalText,
+            r.selector,
+            r.element,
+            r.remediation,
+          ]
+            .map(escape)
+            .join(","),
+        ),
+      ];
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${safeLabel}-a11y-report.csv"`,
+      );
+      res.send(lines.join("\n"));
+      return;
+    }
+
+    if (format === "excel") {
+      const XLSX = await import("xlsx");
+      const sheetData = rows.map((r) => ({
+        "Scan Name": r.scanName,
+        "Selected Rules": r.selectedRules,
+        "Page URL": r.url,
+        "Rule ID": r.ruleId,
+        "Rule Label": r.ruleLabel,
+        Description: r.description,
+        Impact: r.impact,
+        "WCAG Criterion": r.wcagCriteria,
+        "WCAG Level": r.wcagLevel,
+        Compliance: r.legalText,
+        "CSS Selector": r.selector,
+        "Element HTML": r.element,
+        Remediation: r.remediation,
+      }));
+      const ws = XLSX.utils.json_to_sheet(sheetData);
+      ws["!cols"] = [
+        { wch: 40 },
+        { wch: 20 },
+        { wch: 60 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 50 },
+        { wch: 12 },
+        { wch: 16 },
+        { wch: 10 },
+        { wch: 30 },
+        { wch: 40 },
+        { wch: 60 },
+        { wch: 50 },
+      ];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Issues");
+      const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${safeLabel}-a11y-report.xlsx"`,
+      );
+      res.send(buf);
+      return;
+    }
+  },
+);
 
 router.get("/scans/:id/report", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -1330,7 +1819,8 @@ router.get("/scans/:id/report", async (req, res): Promise<void> => {
     return;
   }
 
-  const [session] = await db.select()
+  const [session] = await db
+    .select()
     .from(scanSessionsTable)
     .where(eq(scanSessionsTable.id, params.data.id));
 
@@ -1339,55 +1829,70 @@ router.get("/scans/:id/report", async (req, res): Promise<void> => {
     return;
   }
 
-  const pages = await db.select()
-    .from(pageResultsTable)
-    .where(eq(pageResultsTable.scanId, params.data.id));
-
-  const allIssues = await db
-    .select({
-      ruleId: accessibilityIssuesTable.ruleId,
-      impact: accessibilityIssuesTable.impact,
-      description: accessibilityIssuesTable.description,
-      wcagLevel: accessibilityIssuesTable.wcagLevel,
-      pageId: accessibilityIssuesTable.pageId,
-    })
-    .from(accessibilityIssuesTable)
-    .innerJoin(pageResultsTable, eq(accessibilityIssuesTable.pageId, pageResultsTable.id))
-    .where(eq(pageResultsTable.scanId, params.data.id));
+  // All aggregations done in SQL — never load full page/issue rows into Node.js.
+  // Scan #178 has 11762 pages; loading everything caused OOM crashes.
+  const [impactResult, wcagResult, rulesResult, topPagesResult] =
+    await Promise.all([
+      pool.query<{ impact: string; cnt: string }>(
+        `SELECT ai.impact, COUNT(*)::text AS cnt
+         FROM accessibility_issues ai
+         JOIN page_results pr ON pr.id = ai.page_id
+         WHERE pr.scan_id = $1
+         GROUP BY ai.impact`,
+        [params.data.id],
+      ),
+      pool.query<{ wcag_level: string; cnt: string }>(
+        `SELECT ai.wcag_level, COUNT(*)::text AS cnt
+         FROM accessibility_issues ai
+         JOIN page_results pr ON pr.id = ai.page_id
+         WHERE pr.scan_id = $1
+         GROUP BY ai.wcag_level`,
+        [params.data.id],
+      ),
+      pool.query<{ rule_id: string; description: string; cnt: string }>(
+        `SELECT ai.rule_id, ai.description, COUNT(*)::text AS cnt
+         FROM accessibility_issues ai
+         JOIN page_results pr ON pr.id = ai.page_id
+         WHERE pr.scan_id = $1
+         GROUP BY ai.rule_id, ai.description
+         ORDER BY cnt::int DESC
+         LIMIT 10`,
+        [params.data.id],
+      ),
+      pool.query<{ url: string; issue_count: string; critical_count: string }>(
+        `SELECT url, issue_count::text, critical_count::text
+         FROM page_results
+         WHERE scan_id = $1 AND status = 'completed'
+         ORDER BY issue_count DESC
+         LIMIT 10`,
+        [params.data.id],
+      ),
+    ]);
 
   const issuesByImpact = {
-    critical: allIssues.filter(i => i.impact === "critical").length,
-    serious: allIssues.filter(i => i.impact === "serious").length,
-    moderate: allIssues.filter(i => i.impact === "moderate").length,
-    minor: allIssues.filter(i => i.impact === "minor").length,
+    critical: parseInt(impactResult.rows.find((r) => r.impact === "critical")?.cnt ?? "0", 10),
+    serious:  parseInt(impactResult.rows.find((r) => r.impact === "serious")?.cnt ?? "0", 10),
+    moderate: parseInt(impactResult.rows.find((r) => r.impact === "moderate")?.cnt ?? "0", 10),
+    minor:    parseInt(impactResult.rows.find((r) => r.impact === "minor")?.cnt ?? "0", 10),
   };
 
   const issuesByWcagLevel = {
-    A: allIssues.filter(i => i.wcagLevel === "A").length,
-    AA: allIssues.filter(i => i.wcagLevel === "AA").length,
-    AAA: allIssues.filter(i => i.wcagLevel === "AAA").length,
+    A:   parseInt(wcagResult.rows.find((r) => r.wcag_level === "A")?.cnt ?? "0", 10),
+    AA:  parseInt(wcagResult.rows.find((r) => r.wcag_level === "AA")?.cnt ?? "0", 10),
+    AAA: parseInt(wcagResult.rows.find((r) => r.wcag_level === "AAA")?.cnt ?? "0", 10),
   };
 
-  const ruleCounts = new Map<string, { count: number; description: string }>();
-  for (const issue of allIssues) {
-    const existing = ruleCounts.get(issue.ruleId);
-    if (existing) {
-      existing.count++;
-    } else {
-      ruleCounts.set(issue.ruleId, { count: 1, description: issue.description });
-    }
-  }
+  const topRules = rulesResult.rows.map((r) => ({
+    ruleId: r.rule_id,
+    description: r.description,
+    count: parseInt(r.cnt, 10),
+  }));
 
-  const topRules = Array.from(ruleCounts.entries())
-    .map(([ruleId, { count, description }]) => ({ ruleId, count, description }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10);
-
-  const pagesWithMostIssues = pages
-    .filter(p => p.status === "completed")
-    .map(p => ({ url: p.url, issueCount: p.issueCount, criticalCount: p.criticalCount }))
-    .sort((a, b) => b.issueCount - a.issueCount)
-    .slice(0, 10);
+  const pagesWithMostIssues = topPagesResult.rows.map((r) => ({
+    url: r.url,
+    issueCount: parseInt(r.issue_count, 10),
+    criticalCount: parseInt(r.critical_count, 10),
+  }));
 
   res.json({
     scanId: session.id,
@@ -1401,7 +1906,6 @@ router.get("/scans/:id/report", async (req, res): Promise<void> => {
     pagesWithMostIssues,
   });
 });
-
 
 // GET /api/pages/:pageId/snapshot — return stored page screenshot as JPEG
 router.get("/pages/:pageId/snapshot", async (req, res): Promise<void> => {
@@ -1475,11 +1979,9 @@ router.get("/page-source", async (req, res): Promise<void> => {
     res.json({ html, statusCode: resp.status });
   } catch (err) {
     logger.warn({ err, url }, "page-source fetch failed");
-    res
-      .status(502)
-      .json({
-        error: `Failed to fetch: ${err instanceof Error ? err.message : String(err)}`,
-      });
+    res.status(502).json({
+      error: `Failed to fetch: ${err instanceof Error ? err.message : String(err)}`,
+    });
   }
 });
 
@@ -1502,7 +2004,10 @@ function cmpFromSelectorPart(part: string): string | null {
 /** Build a short readable label from a CSS selector part, e.g. "ul.nav-list" or "li". */
 function selectorPartLabel(part: string): string {
   // strip pseudo-classes/attributes
-  const clean = part.replace(/::?[\w-]+(\([^)]*\))?/g, "").replace(/\[[^\]]*\]/g, "").trim();
+  const clean = part
+    .replace(/::?[\w-]+(\([^)]*\))?/g, "")
+    .replace(/\[[^\]]*\]/g, "")
+    .trim();
   const tagMatch = clean.match(/^([\w-]+)/);
   const tag = tagMatch ? tagMatch[1] : "div";
   // prefer first class
@@ -1514,7 +2019,10 @@ function selectorPartLabel(part: string): string {
   return tag;
 }
 
-function extractAemComponent(element: string | null, selector: string | null): { name: string; tag: string; hierarchy: string } {
+function extractAemComponent(
+  element: string | null,
+  selector: string | null,
+): { name: string; tag: string; hierarchy: string } {
   const tagMatch = element?.match(/^<(\w+)/i);
   const tag = tagMatch ? tagMatch[1].toLowerCase() : "unknown";
 
@@ -1525,7 +2033,8 @@ function extractAemComponent(element: string | null, selector: string | null): {
     const ancestorCmps: string[] = [];
     for (let i = 0; i < parts.length - 1; i++) {
       const cmp = cmpFromSelectorPart(parts[i]);
-      if (cmp && !ancestorCmps.includes(cmp) && cmp !== componentName) ancestorCmps.push(cmp);
+      if (cmp && !ancestorCmps.includes(cmp) && cmp !== componentName)
+        ancestorCmps.push(cmp);
     }
     return ancestorCmps.length > 0
       ? `${ancestorCmps.join(" > ")} > ${componentName}`
@@ -1535,13 +2044,22 @@ function extractAemComponent(element: string | null, selector: string | null): {
   // Priority 1: explicit AEM data attributes on the element HTML itself
   if (element) {
     const cmpIs = element.match(/data-cmp-is=["']([^"']+)["']/);
-    if (cmpIs) { const h = ancestorContext(cmpIs[1]); return { name: cmpIs[1], tag, hierarchy: h }; }
+    if (cmpIs) {
+      const h = ancestorContext(cmpIs[1]);
+      return { name: cmpIs[1], tag, hierarchy: h };
+    }
 
     const dataComp = element.match(/data-component=["']([^"']+)["']/);
-    if (dataComp) { const h = ancestorContext(dataComp[1]); return { name: dataComp[1], tag, hierarchy: h }; }
+    if (dataComp) {
+      const h = ancestorContext(dataComp[1]);
+      return { name: dataComp[1], tag, hierarchy: h };
+    }
 
     const dataModule = element.match(/data-module=["']([^"']+)["']/);
-    if (dataModule) { const h = ancestorContext(dataModule[1]); return { name: dataModule[1], tag, hierarchy: h }; }
+    if (dataModule) {
+      const h = ancestorContext(dataModule[1]);
+      return { name: dataModule[1], tag, hierarchy: h };
+    }
   }
 
   // Priority 2: walk the full selector right-to-left (element → ancestors) for cmp- classes
@@ -1562,17 +2080,29 @@ function extractAemComponent(element: string | null, selector: string | null): {
     }
 
     // Priority 3: no AEM components found — use outermost meaningful ancestor as name
-    const SKIP_TAGS = new Set(["html","body","main","div","span","section","article","aside","header","footer"]);
-    const meaningfulParts = parts.slice(0, -1).filter(p => {
+    const SKIP_TAGS = new Set([
+      "html",
+      "body",
+      "main",
+      "div",
+      "span",
+      "section",
+      "article",
+      "aside",
+      "header",
+      "footer",
+    ]);
+    const meaningfulParts = parts.slice(0, -1).filter((p) => {
       const lbl = selectorPartLabel(p);
       return /[.#]/.test(lbl) || !SKIP_TAGS.has(lbl.split(".")[0]);
     });
     // Use outermost 6 meaningful ancestors; fall back to first 4 selector parts
-    const ancestorParts = meaningfulParts.length > 0
-      ? meaningfulParts.slice(0, 6)
-      : parts.slice(0, Math.min(4, parts.length - 1));
+    const ancestorParts =
+      meaningfulParts.length > 0
+        ? meaningfulParts.slice(0, 6)
+        : parts.slice(0, Math.min(4, parts.length - 1));
 
-    const ancestorLabels = ancestorParts.map(p => selectorPartLabel(p));
+    const ancestorLabels = ancestorParts.map((p) => selectorPartLabel(p));
     const hierStr = [...ancestorLabels, `<${tag}>`].join(" > ");
     // Absolute parent = outermost = first in ancestor list
     const name = ancestorLabels.length > 0 ? ancestorLabels[0] : `<${tag}>`;
@@ -1583,157 +2113,210 @@ function extractAemComponent(element: string | null, selector: string | null): {
   return { name: `<${tag}>`, tag, hierarchy: `<${tag}>` };
 }
 
-router.get("/scans/:id/smart-analysis", requireAuth, async (req, res): Promise<void> => {
-  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const scanId = parseInt(raw, 10);
-  if (isNaN(scanId)) { res.status(400).json({ error: "Invalid scan ID" }); return; }
-
-  const [session] = await db.select({ id: scanSessionsTable.id })
-    .from(scanSessionsTable).where(eq(scanSessionsTable.id, scanId));
-  if (!session) { res.status(404).json({ error: "Scan not found" }); return; }
-
-  const rows = await db.select({
-    ruleId: accessibilityIssuesTable.ruleId,
-    impact: accessibilityIssuesTable.impact,
-    element: accessibilityIssuesTable.element,
-    selector: accessibilityIssuesTable.selector,
-    description: accessibilityIssuesTable.description,
-    pageUrl: pageResultsTable.url,
-  })
-    .from(accessibilityIssuesTable)
-    .innerJoin(pageResultsTable, eq(accessibilityIssuesTable.pageId, pageResultsTable.id))
-    .where(and(
-      eq(pageResultsTable.scanId, scanId),
-      eq(accessibilityIssuesTable.falsePositive, false),
-    ));
-
-  const IMPACT_ORDER: Record<string, number> = { critical: 0, serious: 1, moderate: 2, minor: 3 };
-
-  type Entry = {
-    componentName: string;
-    tag: string;
-    hierarchy: string;
-    ruleIds: Set<string>;
-    impacts: Set<string>;
-    totalOccurrences: number;
-    affectedPages: Set<string>;
-    /** description text → set of page URLs that have this exact issue */
-    issueVariants: Map<string, Set<string>>;
-  };
-
-  const map = new Map<string, Entry>();
-
-  for (const row of rows) {
-    const { name, tag, hierarchy } = extractAemComponent(row.element, row.selector);
-    const key = `${name}::${tag}`;
-    let entry = map.get(key);
-    if (!entry) {
-      entry = {
-        componentName: name, tag, hierarchy,
-        ruleIds: new Set(), impacts: new Set(),
-        totalOccurrences: 0, affectedPages: new Set(),
-        issueVariants: new Map(),
-      };
-      map.set(key, entry);
+router.get(
+  "/scans/:id/smart-analysis",
+  requireAuth,
+  async (req, res): Promise<void> => {
+    const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const scanId = parseInt(raw, 10);
+    if (isNaN(scanId)) {
+      res.status(400).json({ error: "Invalid scan ID" });
+      return;
     }
-    entry.ruleIds.add(row.ruleId);
-    entry.impacts.add(row.impact);
-    entry.totalOccurrences++;
-    entry.affectedPages.add(row.pageUrl);
 
-    // Track pages per unique issue description (cap at 50 unique descriptions)
-    {
-      const descKey = row.description || `[${row.ruleId}]`;
-      let pages = entry.issueVariants.get(descKey);
-      if (!pages) {
-        if (entry.issueVariants.size < 50) {
-          pages = new Set();
-          entry.issueVariants.set(descKey, pages);
-        }
+    const [session] = await db
+      .select({ id: scanSessionsTable.id })
+      .from(scanSessionsTable)
+      .where(eq(scanSessionsTable.id, scanId));
+    if (!session) {
+      res.status(404).json({ error: "Scan not found" });
+      return;
+    }
+
+    const rows = await db
+      .select({
+        ruleId: accessibilityIssuesTable.ruleId,
+        impact: accessibilityIssuesTable.impact,
+        element: accessibilityIssuesTable.element,
+        selector: accessibilityIssuesTable.selector,
+        description: accessibilityIssuesTable.description,
+        pageUrl: pageResultsTable.url,
+      })
+      .from(accessibilityIssuesTable)
+      .innerJoin(
+        pageResultsTable,
+        eq(accessibilityIssuesTable.pageId, pageResultsTable.id),
+      )
+      .where(
+        and(
+          eq(pageResultsTable.scanId, scanId),
+          eq(accessibilityIssuesTable.falsePositive, false),
+        ),
+      );
+
+    const IMPACT_ORDER: Record<string, number> = {
+      critical: 0,
+      serious: 1,
+      moderate: 2,
+      minor: 3,
+    };
+
+    type Entry = {
+      componentName: string;
+      tag: string;
+      hierarchy: string;
+      ruleIds: Set<string>;
+      impacts: Set<string>;
+      totalOccurrences: number;
+      affectedPages: Set<string>;
+      /** description text → set of page URLs that have this exact issue */
+      issueVariants: Map<string, Set<string>>;
+    };
+
+    const map = new Map<string, Entry>();
+
+    for (const row of rows) {
+      const { name, tag, hierarchy } = extractAemComponent(
+        row.element,
+        row.selector,
+      );
+      const key = `${name}::${tag}`;
+      let entry = map.get(key);
+      if (!entry) {
+        entry = {
+          componentName: name,
+          tag,
+          hierarchy,
+          ruleIds: new Set(),
+          impacts: new Set(),
+          totalOccurrences: 0,
+          affectedPages: new Set(),
+          issueVariants: new Map(),
+        };
+        map.set(key, entry);
       }
-      pages?.add(row.pageUrl);
+      entry.ruleIds.add(row.ruleId);
+      entry.impacts.add(row.impact);
+      entry.totalOccurrences++;
+      entry.affectedPages.add(row.pageUrl);
+
+      // Track pages per unique issue description (cap at 50 unique descriptions)
+      {
+        const descKey = row.description || `[${row.ruleId}]`;
+        let pages = entry.issueVariants.get(descKey);
+        if (!pages) {
+          if (entry.issueVariants.size < 50) {
+            pages = new Set();
+            entry.issueVariants.set(descKey, pages);
+          }
+        }
+        pages?.add(row.pageUrl);
+      }
     }
-  }
 
-  const components = [...map.values()]
-    .map(e => {
-      // Sort issue variants by number of affected pages desc, cap at 30
-      const issueVariants = [...e.issueVariants.entries()]
-        .map(([description, pages]) => ({
-          description,
-          occurrences: pages.size,
-          pages: [...pages].slice(0, 50),
-        }))
-        .sort((a, b) => b.occurrences - a.occurrences)
-        .slice(0, 30);
+    const components = [...map.values()]
+      .map((e) => {
+        // Sort issue variants by number of affected pages desc, cap at 30
+        const issueVariants = [...e.issueVariants.entries()]
+          .map(([description, pages]) => ({
+            description,
+            occurrences: pages.size,
+            pages: [...pages].slice(0, 50),
+          }))
+          .sort((a, b) => b.occurrences - a.occurrences)
+          .slice(0, 30);
 
-      return {
-        componentName: e.componentName,
-        tag: e.tag,
-        hierarchy: e.hierarchy,
-        ruleIds: [...e.ruleIds].sort(),
-        worstImpact: [...e.impacts].sort((a, b) => (IMPACT_ORDER[a] ?? 9) - (IMPACT_ORDER[b] ?? 9))[0] ?? "minor",
-        totalOccurrences: e.totalOccurrences,
-        affectedPageCount: e.affectedPages.size,
-        topPages: [...e.affectedPages].slice(0, 20),
-        issueVariants,
-      };
-    })
-    .sort((a, b) => b.totalOccurrences - a.totalOccurrences);
+        return {
+          componentName: e.componentName,
+          tag: e.tag,
+          hierarchy: e.hierarchy,
+          ruleIds: [...e.ruleIds].sort(),
+          worstImpact:
+            [...e.impacts].sort(
+              (a, b) => (IMPACT_ORDER[a] ?? 9) - (IMPACT_ORDER[b] ?? 9),
+            )[0] ?? "minor",
+          totalOccurrences: e.totalOccurrences,
+          affectedPageCount: e.affectedPages.size,
+          topPages: [...e.affectedPages].slice(0, 20),
+          issueVariants,
+        };
+      })
+      .sort((a, b) => b.totalOccurrences - a.totalOccurrences);
 
-  res.json({
-    scanId,
-    totalIssues: rows.length,
-    totalComponents: components.length,
-    components,
-  });
-});
+    res.json({
+      scanId,
+      totalIssues: rows.length,
+      totalComponents: components.length,
+      components,
+    });
+  },
+);
 
 // ── Smart Analysis — per-page occurrences for code view ──────────────────────
-router.get("/scans/:id/smart-analysis/page-occurrences", requireAuth, async (req, res): Promise<void> => {
-  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const scanId = parseInt(raw, 10);
-  if (isNaN(scanId)) { res.status(400).json({ error: "Invalid scan ID" }); return; }
+router.get(
+  "/scans/:id/smart-analysis/page-occurrences",
+  requireAuth,
+  async (req, res): Promise<void> => {
+    const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const scanId = parseInt(raw, 10);
+    if (isNaN(scanId)) {
+      res.status(400).json({ error: "Invalid scan ID" });
+      return;
+    }
 
-  const componentName = typeof req.query.componentName === "string" ? req.query.componentName : null;
-  const pageUrl = typeof req.query.pageUrl === "string" ? req.query.pageUrl : null;
-  if (!componentName || !pageUrl) { res.status(400).json({ error: "componentName and pageUrl are required" }); return; }
+    const componentName =
+      typeof req.query.componentName === "string"
+        ? req.query.componentName
+        : null;
+    const pageUrl =
+      typeof req.query.pageUrl === "string" ? req.query.pageUrl : null;
+    if (!componentName || !pageUrl) {
+      res.status(400).json({ error: "componentName and pageUrl are required" });
+      return;
+    }
 
-  const rows = await db.select({
-    id: accessibilityIssuesTable.id,
-    pageId: accessibilityIssuesTable.pageId,
-    ruleId: accessibilityIssuesTable.ruleId,
-    impact: accessibilityIssuesTable.impact,
-    element: accessibilityIssuesTable.element,
-    selector: accessibilityIssuesTable.selector,
-    description: accessibilityIssuesTable.description,
-  })
-    .from(accessibilityIssuesTable)
-    .innerJoin(pageResultsTable, eq(accessibilityIssuesTable.pageId, pageResultsTable.id))
-    .where(and(
-      eq(pageResultsTable.scanId, scanId),
-      eq(pageResultsTable.url, pageUrl),
-      eq(accessibilityIssuesTable.falsePositive, false),
-    ));
+    const rows = await db
+      .select({
+        id: accessibilityIssuesTable.id,
+        pageId: accessibilityIssuesTable.pageId,
+        ruleId: accessibilityIssuesTable.ruleId,
+        impact: accessibilityIssuesTable.impact,
+        element: accessibilityIssuesTable.element,
+        selector: accessibilityIssuesTable.selector,
+        description: accessibilityIssuesTable.description,
+      })
+      .from(accessibilityIssuesTable)
+      .innerJoin(
+        pageResultsTable,
+        eq(accessibilityIssuesTable.pageId, pageResultsTable.id),
+      )
+      .where(
+        and(
+          eq(pageResultsTable.scanId, scanId),
+          eq(pageResultsTable.url, pageUrl),
+          eq(accessibilityIssuesTable.falsePositive, false),
+        ),
+      );
 
-  const pageId = rows[0]?.pageId ?? null;
+    const pageId = rows[0]?.pageId ?? null;
 
-  const occurrences = rows
-    .filter(row => {
-      const { name } = extractAemComponent(row.element, row.selector);
-      return name === componentName;
-    })
-    .map(row => ({
-      id: row.id,
-      ruleId: row.ruleId,
-      impact: row.impact,
-      element: row.element ?? "",
-      selector: row.selector ?? "",
-      description: row.description ?? "",
-    }));
+    const occurrences = rows
+      .filter((row) => {
+        const { name } = extractAemComponent(row.element, row.selector);
+        return name === componentName;
+      })
+      .map((row) => ({
+        id: row.id,
+        ruleId: row.ruleId,
+        impact: row.impact,
+        element: row.element ?? "",
+        selector: row.selector ?? "",
+        description: row.description ?? "",
+      }));
 
-  res.json({ componentName, pageUrl, pageId, occurrences });
-});
+    res.json({ componentName, pageUrl, pageId, occurrences });
+  },
+);
 
 // ── False-positive flag ──────────────────────────────────────────────────────
 router.patch("/issues/:id", async (req, res): Promise<void> => {
@@ -1744,7 +2327,10 @@ router.patch("/issues/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const { falsePositive, note } = req.body as { falsePositive?: unknown; note?: unknown };
+  const { falsePositive, note } = req.body as {
+    falsePositive?: unknown;
+    note?: unknown;
+  };
   if (typeof falsePositive !== "boolean") {
     res.status(400).json({ error: "'falsePositive' must be a boolean" });
     return;
@@ -1754,7 +2340,10 @@ router.patch("/issues/:id", async (req, res): Promise<void> => {
     .update(accessibilityIssuesTable)
     .set({
       falsePositive,
-      falsePositiveNote: falsePositive && typeof note === "string" && note.trim() ? note.trim() : null,
+      falsePositiveNote:
+        falsePositive && typeof note === "string" && note.trim()
+          ? note.trim()
+          : null,
     })
     .where(eq(accessibilityIssuesTable.id, id))
     .returning();

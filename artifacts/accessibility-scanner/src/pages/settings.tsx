@@ -30,6 +30,8 @@ import {
   RotateCcw,
   Link as LinkIcon,
   Loader2,
+  Sparkles,
+  Gem,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth, isAdmin } from "@/contexts/auth";
@@ -124,12 +126,15 @@ export function getLogoSize(): number {
 }
 
 export const THEME_LS_KEY = "a11y-theme";
-export type Theme = "light" | "dark" | "system";
+export type Theme = "light" | "dark" | "system" | "glass-dark" | "glass-light";
 
 export function getSavedTheme(): Theme {
   try {
     const v = localStorage.getItem(THEME_LS_KEY);
-    if (v === "light" || v === "dark" || v === "system") return v;
+    if (
+      v === "light" || v === "dark" || v === "system" ||
+      v === "glass-dark" || v === "glass-light"
+    ) return v;
   } catch {
     /* ignore */
   }
@@ -138,8 +143,13 @@ export function getSavedTheme(): Theme {
 
 export function applyTheme(theme: Theme) {
   const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const useDark = theme === "dark" || (theme === "system" && prefersDark);
+  const useDark =
+    theme === "dark" ||
+    theme === "glass-dark" ||
+    (theme === "system" && prefersDark);
   document.documentElement.classList.toggle("dark", useDark);
+  document.documentElement.classList.toggle("glass-dark", theme === "glass-dark");
+  document.documentElement.classList.toggle("glass-light", theme === "glass-light");
 }
 
 export function loadSavedProxies(): string[] {
@@ -460,9 +470,14 @@ export default function Settings() {
     setThemeState(t);
     localStorage.setItem(THEME_LS_KEY, t);
     applyTheme(t);
-    toast({
-      title: `Theme set to ${t === "system" ? "system default" : t === "dark" ? "dark" : "light"}`,
-    });
+    const labels: Record<Theme, string> = {
+      light: "Light",
+      dark: "Dark",
+      system: "System default",
+      "glass-dark": "Glass Dark",
+      "glass-light": "Glass Light",
+    };
+    toast({ title: `Theme set to ${labels[t]}` });
   };
 
   const addProxy = () => {
@@ -519,7 +534,7 @@ export default function Settings() {
             Choose a colour scheme for the interface.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <div className="grid grid-cols-3 gap-3">
             {(
               [
@@ -542,6 +557,56 @@ export default function Settings() {
                 <span className="text-sm font-medium">{label}</span>
               </button>
             ))}
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" />
+              Glass themes
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              {(
+                [
+                  {
+                    value: "glass-dark" as Theme,
+                    label: "Glass Dark",
+                    icon: Gem,
+                    desc: "Deep space aurora",
+                    gradient: "from-violet-900 via-indigo-900 to-slate-900",
+                  },
+                  {
+                    value: "glass-light" as Theme,
+                    label: "Glass Light",
+                    icon: Sparkles,
+                    desc: "Frosted crystal",
+                    gradient: "from-violet-100 via-fuchsia-100 to-sky-100",
+                  },
+                ]
+              ).map(({ value, label, icon: Icon, desc, gradient }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => handleThemeChange(value)}
+                  className={`relative flex items-center gap-3 p-4 rounded-lg border-2 transition-all overflow-hidden text-left ${
+                    theme === value
+                      ? "border-primary text-primary"
+                      : "border-border hover:border-primary/40 text-muted-foreground"
+                  }`}
+                >
+                  <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-20 pointer-events-none`} />
+                  <div className={`relative flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br ${gradient} shadow-sm shrink-0`}>
+                    <Icon className={`w-4.5 h-4.5 ${theme === value ? "text-primary" : "text-foreground/70"}`} />
+                  </div>
+                  <div className="relative min-w-0">
+                    <p className="text-sm font-semibold leading-none">{label}</p>
+                    <p className="text-[11px] text-muted-foreground mt-1">{desc}</p>
+                  </div>
+                  {theme === value && (
+                    <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-primary" />
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
         </CardContent>
       </Card>
