@@ -118,9 +118,9 @@ function Router() {
       <Route path="/tickets">
         <AuthGuard><Layout><TicketsPage /></Layout></AuthGuard>
       </Route>
-      <Route path="/advanced">
+     {/* <Route path="/advanced">
         <AuthGuard><Layout><AdvancedScanPage /></Layout></AuthGuard>
-      </Route>
+      </Route>*/}
 
       {/* Admin-only routes */}
       <Route path="/admin/dashboard">
