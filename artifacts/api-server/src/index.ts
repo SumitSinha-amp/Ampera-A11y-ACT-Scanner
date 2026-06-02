@@ -476,7 +476,53 @@ function startListening(port: number, remainingRetries = 8, retryDelayMs = 2000)
   });
 }
 
+
+/**
+ * Verify the database accepts writes before starting the server.
+ *
+ * Azure Database for PostgreSQL automatically switches to read-only mode when
+ * storage reaches 95% capacity.  Without this check the server starts silently
+ * and every write attempt fails with "cannot execute UPDATE in a read-only
+ * transaction", causing confusing errors deep in request handlers.
+ *
+ * The check uses an advisory lock inside a rolled-back transaction so it never
+ * modifies any data.  If the DB is read-only the advisory lock call itself will
+ * fail, which we catch and re-throw with an actionable message.
+ */
+async function checkDatabaseWritable(): Promise<void> {
+  const client = await pool.connect();
+  try {
+    // pg_try_advisory_lock requires write access and fails immediately on a
+    // read-only server — it never touches user tables but does prove writability.
+    await client.query("BEGIN");
+    await client.query("SELECT pg_try_advisory_lock(1234567890)");
+    await client.query("ROLLBACK");
+    logger.info("Database writability check passed");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("read-only transaction") || msg.includes("read only")) {
+      logger.fatal(
+        { err },
+        "DATABASE IS READ-ONLY — the server will start but ALL writes will fail. " +
+        "Fix on Azure: (1) Open Azure portal → your PostgreSQL server → Storage → " +
+        "check usage; if ≥ 95% increase allocated storage or delete data. " +
+        "(2) Verify DATABASE_URL uses the PRIMARY server hostname, not a " +
+        "*.read.postgres.database.azure.com replica endpoint.",
+      );
+      // Do not exit — read-only API responses (auth, scan results, reports)
+      // still work; only writes are blocked.  Operators can fix storage and
+      // restart without losing the running process unnecessarily.
+    } else {
+      throw err;
+    }
+  } finally {
+    client.release();
+  }
+}
+
 runStartupMigrations()
+  .then(() => checkDatabaseWritable())
   .then(() => Promise.all([seedDefaultAdmin()]))
   .then(() => recoverOrphanedScans())
   .then(() => startListening(port))

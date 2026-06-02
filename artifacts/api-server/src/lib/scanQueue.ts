@@ -550,11 +550,29 @@ export function isScanPaused(scanId: number): boolean {
  * A 3-minute creation-age guard prevents recovering a scan whose page rows
  * haven't been inserted yet (the retry endpoint can take ~30 s for large scans).
  */
+/** Returns true when the error is a PostgreSQL read-only-transaction rejection. */
+function isReadOnlyError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("read-only transaction") || msg.includes("read only");
+}
+
+/**
+ * Timestamp until which the watchdog suppresses writes (and log spam) after
+ * detecting a read-only database.  0 = not suppressed.
+ * Suppression window: 10 minutes, then one more attempt before extending again.
+ */
+let _watchdogSuspendedUntil = 0;
+
 export function startScanWatchdog(intervalMs = 60_000): void {
   const MID_FLIGHT = ["navigating", "scanning", "rendering", "analyzing", "saving"] as const;
   const RESTARTABLE = ["pending", "requeued"] as const;
 
   setInterval(async () => {
+    // If the database is in read-only mode, skip writes entirely and avoid
+    // flooding the log.  Re-attempt every 10 minutes in case storage was
+    // freed up or the connection was switched to the primary.
+    if (Date.now() < _watchdogSuspendedUntil) return;
+
     try {
       const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000);
 
@@ -612,7 +630,25 @@ export function startScanWatchdog(intervalMs = 60_000): void {
         });
       }
     } catch (err) {
-      logger.error({ err }, "Scan watchdog encountered an error");
+      if (isReadOnlyError(err)) {
+        // Suspend the watchdog for 10 minutes to avoid log-flooding.
+        // The database is either out of storage (Azure auto-enables read-only
+        // at 95% usage) or DATABASE_URL points to a read-replica.
+        // Actions: (1) open Azure portal → your PostgreSQL server → Storage →
+        //          increase allocated storage or clean up data; OR
+        //          (2) verify DATABASE_URL uses the *primary* hostname, not a
+        //          *.read.postgres.database.azure.com replica endpoint.
+        _watchdogSuspendedUntil = Date.now() + 10 * 60 * 1000;
+        logger.fatal(
+          { err },
+          "DATABASE IS READ-ONLY — all writes are blocked. " +
+          "Watchdog suspended for 10 minutes. " +
+          "Fix on Azure: (1) Storage ≥ 95%? Increase storage or delete data in the Azure portal. " +
+          "(2) DATABASE_URL pointing to a read-replica? Use the primary server hostname.",
+        );
+      } else {
+        logger.error({ err }, "Scan watchdog encountered an error");
+      }
     }
   }, intervalMs);
 }
