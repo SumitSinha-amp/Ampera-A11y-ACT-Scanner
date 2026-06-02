@@ -118,10 +118,7 @@ function Router() {
       <Route path="/tickets">
         <AuthGuard><Layout><TicketsPage /></Layout></AuthGuard>
       </Route>
-     {/* <Route path="/advanced">
-        <AuthGuard><Layout><AdvancedScanPage /></Layout></AuthGuard>
-      </Route>*/}
-
+     
       {/* Admin-only routes */}
       <Route path="/admin/dashboard">
         <AuthGuard><AdminGuard><Layout><AdminDashboardPage /></Layout></AdminGuard></AuthGuard>
@@ -145,23 +142,7 @@ function Router() {
     </Switch>
   );
 }
- // const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-// Ping the health endpoint every 3.5 minutes to prevent Azure App Service
-// from putting the worker process to sleep during idle periods.
-// Azure's idle-process timeout is ~20 minutes without "Always On", but Azure
-// Application Gateway also drops connections with no traffic after ~4 minutes,
-// so a sub-4-minute interval keeps both the process and any open connections alive.
-/*function useKeepAlive() {
-  useEffect(() => {
-    const id = setInterval(() => {
-      fetch(`${BASE}/api/healthz`, { credentials: "include" }).catch(() => {});
-    }, 3.5 * 60 * 1000);
-    return () => clearInterval(id);
-  }, []);
-}
-*/
 function App() {
-//useKeepAlive();
   return (
     <WouterRouter base={basePath}>
       <QueryClientProvider client={queryClient}>

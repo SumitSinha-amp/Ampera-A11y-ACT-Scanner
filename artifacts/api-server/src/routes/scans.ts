@@ -2284,6 +2284,10 @@ router.get(
         element: accessibilityIssuesTable.element,
         selector: accessibilityIssuesTable.selector,
         description: accessibilityIssuesTable.description,
+        bboxX: accessibilityIssuesTable.bboxX,
+        bboxY: accessibilityIssuesTable.bboxY,
+        bboxWidth: accessibilityIssuesTable.bboxWidth,
+        bboxHeight: accessibilityIssuesTable.bboxHeight,
       })
       .from(accessibilityIssuesTable)
       .innerJoin(
@@ -2312,6 +2316,10 @@ router.get(
         element: row.element ?? "",
         selector: row.selector ?? "",
         description: row.description ?? "",
+        bboxX: row.bboxX ?? null,
+        bboxY: row.bboxY ?? null,
+        bboxWidth: row.bboxWidth ?? null,
+        bboxHeight: row.bboxHeight ?? null,
       }));
 
     res.json({ componentName, pageUrl, pageId, occurrences });

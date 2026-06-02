@@ -9,7 +9,6 @@ import {
   useUpdateScan,
   getGetScanStatusQueryKey,
   getGetScanQueryKey,
-  getScan,
 } from "@workspace/api-client-react";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -80,6 +79,8 @@ import {
   CircleSlash,
   Code,
   Plus,
+  ExternalLink,
+  Monitor,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -95,7 +96,7 @@ import { Copy } from "lucide-react";
 import { ElementViewer, type ViewerIssue } from "@/components/element-viewer";
 import { isElementViewerEnabled } from "@/pages/settings";
 
-// ── CSS Selector Hierarchy (expandable breadcrumb) ───────────────────────────
+// ── CSS Selector Hierarchy (expandable breadcrumb) ────────────────────────────
 function SelectorHierarchy({ selector }: { selector: string }) {
   const [expanded, setExpanded] = useState(false);
   if (!selector) return null;
@@ -134,7 +135,243 @@ function SelectorHierarchy({ selector }: { selector: string }) {
   );
 }
 
-// ── Interactive HTML Tree (Siteimprove-style) ─────────────────────────────────
+// ── Interactive HTML Tree (Siteimprove-style) ──────────────────────────────────
+
+/**
+ * Try progressively weaker strategies to find the DOM element that matches a
+ * scanner issue.  Returns the first matching element or null.
+ *
+ * Strategies (in order, each only tried if the previous failed):
+ *  1. Direct `querySelector(selector)`
+ *  2. Selector with pseudo-classes stripped (nth-child, pseudo-elements, etc.)
+ *  3. Last 1 or 2 segments of the selector chain
+ *  4. getElementById / CSS.escape-safe ID lookup
+ *  5. Key-attribute query from elementHtml (name, for, href, aria-label, role…)
+ *  6. Class + tag query from elementHtml (most-specific class combo first)
+ *  7. outerHTML normalised-text fingerprint (opening tag, then full snippet)
+ */
+function findTargetElement(doc: Document, selector: string, elementHtml: string): Element | null {
+  // 1. Direct querySelector
+  if (selector) {
+    try { const el = doc.querySelector(selector); if (el) return el; } catch { /* invalid */ }
+  }
+
+  // 2. Progressively stripped selectors
+  if (selector) {
+    const strips = [
+      selector.replace(/:nth-(?:child|of-type)\([^)]*\)/g, ""),
+      selector.replace(/:[a-zA-Z-]+(\([^)]*\))?/g, ""),
+      selector.split(/\s*>\s*/).pop() ?? "",
+      selector.split(/\s*>\s*/).slice(-2).join(" > "),
+      selector.split(/\s*>\s*/).slice(-3).join(" > "),
+    ];
+    for (const raw of strips) {
+      const s = raw.replace(/\s{2,}/g, " ").trim();
+      if (s && s !== selector) {
+        try { const el = doc.querySelector(s); if (el) return el; } catch { /* ignore */ }
+      }
+    }
+  }
+
+  // 3. ID lookup (from selector or elementHtml)
+  const idsToTry = [
+    selector?.match(/#([\w-]+)/)?.[1],
+    elementHtml?.match(/\sid=["']([^"']+)["']/)?.[1],
+  ].filter(Boolean) as string[];
+  for (const id of idsToTry) {
+    const el = doc.getElementById(id);
+    if (el) return el;
+  }
+
+  // 4. Key-attribute matching from elementHtml
+  if (elementHtml) {
+    const tagMatch = elementHtml.match(/^<([a-zA-Z][a-zA-Z0-9-]*)/i);
+    const tag = tagMatch?.[1]?.toLowerCase() ?? "*";
+    const attrCandidates: [string, string][] = [
+      ["name",              elementHtml.match(/\sname=["']([^"']{1,80})["']/)?.[1] ?? ""],
+      ["for",               elementHtml.match(/\sfor=["']([^"']{1,80})["']/)?.[1] ?? ""],
+      ["href",              elementHtml.match(/\shref=["']([^"']{1,200})["']/)?.[1] ?? ""],
+      ["src",               elementHtml.match(/\ssrc=["']([^"']{1,200})["']/)?.[1] ?? ""],
+      ["aria-label",        elementHtml.match(/\saria-label=["']([^"']{1,120})["']/)?.[1] ?? ""],
+      ["aria-labelledby",   elementHtml.match(/\saria-labelledby=["']([^"']{1,80})["']/)?.[1] ?? ""],
+      ["aria-describedby",  elementHtml.match(/\saria-describedby=["']([^"']{1,80})["']/)?.[1] ?? ""],
+      ["role",              elementHtml.match(/\srole=["']([^"']{1,40})["']/)?.[1] ?? ""],
+      ["type",              elementHtml.match(/\stype=["']([^"']{1,40})["']/)?.[1] ?? ""],
+      ["placeholder",       elementHtml.match(/\splaceholder=["']([^"']{1,80})["']/)?.[1] ?? ""],
+      ["alt",               elementHtml.match(/\salt=["']([^"']{1,120})["']/)?.[1] ?? ""],
+      ["title",             elementHtml.match(/\stitle=["']([^"']{1,120})["']/)?.[1] ?? ""],
+    ].filter(([, v]) => v.length > 0) as [string, string][];
+
+    for (const [attr, val] of attrCandidates) {
+      try {
+        const escaped = val.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+        const candidates = Array.from(doc.querySelectorAll(`${tag}[${attr}="${escaped}"]`));
+        if (candidates.length === 1) return candidates[0];
+        if (candidates.length > 1 && candidates.length <= 15) {
+          // Narrow down using classes
+          const cls = elementHtml.match(/\sclass=["']([^"']+)["']/)?.[1]?.trim().split(/\s+/)[0];
+          if (cls) { const r = candidates.filter(e => e.classList.contains(cls)); if (r.length >= 1) return r[0]; }
+          return candidates[0];
+        }
+      } catch { /* ignore */ }
+    }
+  }
+
+  // 5. Class + tag from elementHtml
+  if (elementHtml) {
+    const tagMatch = elementHtml.match(/^<([a-zA-Z][a-zA-Z0-9-]*)/i);
+    const tag = tagMatch?.[1]?.toLowerCase() ?? "*";
+    const classStr = elementHtml.match(/\sclass=["']([^"']+)["']/)?.[1];
+    if (classStr) {
+      const classes = classStr.trim().split(/\s+/).filter(c => c.length > 2 && !/^js-|^is-|^has-/.test(c));
+      for (let n = Math.min(classes.length, 3); n >= 1; n--) {
+        try {
+          const q = `${tag}.${classes.slice(0, n).map(c => CSS.escape(c)).join(".")}`;
+          const els = Array.from(doc.querySelectorAll(q));
+          if (els.length === 1) return els[0];
+          if (els.length > 1 && els.length <= 8) return els[0];
+        } catch { /* ignore */ }
+      }
+    }
+  }
+
+  // 6. outerHTML fingerprint — normalised whitespace & lowercase
+  if (elementHtml) {
+    const norm = (s: string) => s.replace(/\s+/g, " ").toLowerCase().trim();
+    const normed = norm(elementHtml.trim());
+    const openTag = normed.match(/^(<[^>]+>)/)?.[1] ?? "";
+    const needles = [
+      openTag.slice(0, 200),
+      normed.slice(0, 200),
+      normed.slice(0, 100),
+      normed.slice(0, 60),
+    ].filter((c, i, arr) => c.length > 12 && arr.indexOf(c) === i);
+    for (const needle of needles) {
+      for (const el of Array.from(doc.querySelectorAll("*"))) {
+        const oh = norm(el.outerHTML);
+        if (oh.startsWith(needle)) return el;
+        if (needle.length >= 40 && oh.includes(needle)) return el;
+      }
+    }
+  }
+
+  return null;
+}
+
+/** Stored page snapshot viewer — shows the JPEG captured by Puppeteer at scan time.
+ *  Renders a highlight overlay at (bboxX, bboxY, bboxWidth, bboxHeight) and scrolls to it. */
+function LivePreviewFrame({
+  url, pageId, selector, bboxX, bboxY, bboxWidth, bboxHeight,
+}: {
+  url: string;
+  pageId: number | null;
+  selector?: string;
+  bboxX?: number | null;
+  bboxY?: number | null;
+  bboxWidth?: number | null;
+  bboxHeight?: number | null;
+}) {
+  const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const snapshotSrc = pageId ? `${BASE}/api/pages/${pageId}/snapshot` : null;
+
+  const hasBox = bboxX != null && bboxY != null && bboxWidth != null && bboxHeight != null
+    && bboxWidth > 0 && bboxHeight > 0;
+
+  // Scroll to the highlight box whenever bbox or image load status changes
+  useEffect(() => {
+    if (!hasBox || !scrollRef.current || status !== "loaded") return;
+    const PADDING = 80;
+    scrollRef.current.scrollTo({
+      top: Math.max(0, (bboxY ?? 0) - PADDING),
+      left: Math.max(0, (bboxX ?? 0) - PADDING),
+      behavior: "smooth",
+    });
+  }, [bboxX, bboxY, status, hasBox]);
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden bg-gray-100">
+      {/* Scrollable snapshot area */}
+      <div ref={scrollRef} className="flex-1 overflow-auto relative">
+        {status === "loading" && snapshotSrc && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gray-100 z-10">
+            <Loader2 className="w-5 h-5 animate-spin text-violet-500" />
+            <p className="text-xs text-muted-foreground">Loading snapshot…</p>
+          </div>
+        )}
+        {snapshotSrc ? (
+          <div className="relative inline-block">
+            <img
+              key={snapshotSrc}
+              src={snapshotSrc}
+              alt="Page snapshot captured at scan time"
+              className="block max-w-none"
+              style={{ imageRendering: "auto" }}
+              onLoad={() => setStatus("loaded")}
+              onError={() => setStatus("error")}
+            />
+            {/* Highlight box — only shown once image is loaded and bbox is valid */}
+            {status === "loaded" && hasBox && (
+              <div
+                style={{
+                  position: "absolute",
+                  left: bboxX!,
+                  top: bboxY!,
+                  width: bboxWidth!,
+                  height: bboxHeight!,
+                  border: "2px solid #7c3aed",
+                  borderRadius: "2px",
+                  background: "rgba(124,58,237,0.15)",
+                  boxShadow: "0 0 0 2px rgba(124,58,237,0.25), 0 0 12px rgba(124,58,237,0.3)",
+                  pointerEvents: "none",
+                  zIndex: 20,
+                }}
+              />
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400 py-12">
+            <Monitor className="w-8 h-8" />
+            <p className="text-sm text-center">No snapshot stored for this page</p>
+          </div>
+        )}
+        {status === "error" && (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400 py-12">
+            <Monitor className="w-8 h-8" />
+            <p className="text-sm text-center">Snapshot not available</p>
+          </div>
+        )}
+      </div>
+      {/* Selector bar */}
+      {selector && (
+        <div
+          className="shrink-0 bg-gray-900 text-gray-300 text-xs px-3 py-1.5 font-mono truncate border-t border-gray-700"
+          title={selector}
+        >
+          <span className="text-gray-500 mr-2">target:</span>{selector}
+        </div>
+      )}
+      {/* Footer */}
+      <div className="shrink-0 flex items-center justify-between px-3 py-1.5 bg-white border-t text-xs text-gray-500">
+        <span className="italic text-gray-400">
+          Viewport snapshot · desktop resolution
+          {!hasBox && status === "loaded" && <span className="ml-2 text-amber-500">· no position data for this element</span>}
+        </span>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1 text-violet-600 hover:underline shrink-0"
+        >
+          Open in new tab <ExternalLink className="w-3 h-3" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
 const VOID_TAGS = new Set(["area","base","br","col","embed","hr","img","input","link","meta","param","source","track","wbr"]);
 
 type HtmlTreeNode = {
@@ -295,11 +532,9 @@ function InteractiveHtmlTree({ pageHtml, elementHtml, selector }: { pageHtml: st
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [targetId, setTargetId] = useState<string | null>(null);
 
-  // Cache the parsed doc so we don't re-parse on every occurrence navigation
   const parsedDocRef = useRef<Document | null>(null);
   const parsedHtmlRef = useRef<string>("");
 
-  // Effect 1: rebuild tree only when pageHtml changes
   useEffect(() => {
     if (!pageHtml) {
       setTree([]);
@@ -315,57 +550,11 @@ function InteractiveHtmlTree({ pageHtml, elementHtml, selector }: { pageHtml: st
     setTree(rootNode ? [rootNode] : []);
   }, [pageHtml]);
 
-  // Effect 2: find target element when selector/elementHtml changes (or tree finishes building)
   useEffect(() => {
     const doc = parsedDocRef.current;
     if (!pageHtml || !doc || tree.length === 0) return;
 
-    let targetEl: Element | null = null;
-
-    // Strategy 1: exact selector
-    if (selector) {
-      try { targetEl = doc.querySelector(selector); } catch { /* ignore */ }
-    }
-
-    // Strategy 2: simplified selector — strip pseudo-classes and nth-child that may fail in static DOM
-    if (!targetEl && selector) {
-      try {
-        const simplified = selector
-          .replace(/:nth-child\(\d+\)/g, "")
-          .replace(/:nth-of-type\(\d+\)/g, "")
-          .replace(/:[a-zA-Z-]+(\([^)]*\))?/g, "")
-          .replace(/\s{2,}/g, " ")
-          .trim();
-        if (simplified && simplified !== selector) targetEl = doc.querySelector(simplified);
-      } catch { /* ignore */ }
-    }
-
-    // Strategy 3: match by id extracted from selector
-    if (!targetEl && selector) {
-      const idMatch = selector.match(/#([\w-]+)/);
-      if (idMatch) {
-        try { targetEl = doc.querySelector(`#${idMatch[1]}`); } catch { /* ignore */ }
-      }
-    }
-
-    // Strategy 4: match by element HTML — try first line, then increasing slices
-    if (!targetEl && elementHtml) {
-      const norm = (s: string) => s.replace(/\s+/g, " ").trim();
-      const normedEl = norm(elementHtml.trim());
-      const firstTag = normedEl.split("\n")[0];
-      const candidates = [
-        norm(firstTag).slice(0, 200),
-        normedEl.slice(0, 200),
-        normedEl.slice(0, 100),
-        normedEl.slice(0, 60),
-      ].filter((c, i, arr) => c.length > 10 && arr.indexOf(c) === i);
-      outer: for (const needle of candidates) {
-        for (const el of Array.from(doc.querySelectorAll("*"))) {
-          const oh = norm(el.outerHTML);
-          if (oh.startsWith(needle) || oh.includes(needle)) { targetEl = el; break outer; }
-        }
-      }
-    }
+    const targetEl = findTargetElement(doc, selector, elementHtml);
 
     const newExpanded = new Set<string>();
     let newTarget: string | null = null;
@@ -375,7 +564,6 @@ function InteractiveHtmlTree({ pageHtml, elementHtml, selector }: { pageHtml: st
       for (const id of ancestorIds) newExpanded.add(id);
       newTarget = tid;
     } else {
-      // No match: auto-expand first 2 levels so the user can browse the tree
       function expandLevels(nodes: HtmlTreeNode[], depth: number) {
         if (depth >= 2) return;
         for (const n of nodes) {
@@ -392,12 +580,11 @@ function InteractiveHtmlTree({ pageHtml, elementHtml, selector }: { pageHtml: st
     setTargetId(newTarget);
   }, [tree, selector, elementHtml, pageHtml]);
 
-  // Scroll to highlighted element
   useEffect(() => {
     if (!containerRef.current || !targetId) return;
     const el = containerRef.current.querySelector("[data-is-target]");
     if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "center" }), 120);
-  }, [targetId, tree.length]);
+  }, [targetId]);
 
   const handleToggle = useCallback((id: string) => {
     setExpandedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -428,111 +615,7 @@ function InteractiveHtmlTree({ pageHtml, elementHtml, selector }: { pageHtml: st
   );
 }
 
-
-function SmartHtmlHighlight({ html }: { html: string }) {
-  if (!html) return <span style={{ color: "#888", fontStyle: "italic" }}>No element HTML captured</span>;
-  const segments = html.split(/(<(?:[^"'>]|"[^"]*"|'[^']*')*\/?>)/g);
-  return (
-    <>
-      {segments.map((seg, i) => {
-        if (!seg.startsWith("<")) return <span key={i} style={{ color: "#333" }}>{seg}</span>;
-        const isClose = seg.startsWith("</");
-        const isSelfClose = seg.endsWith("/>");
-        const inner = seg.slice(isClose ? 2 : 1, isSelfClose ? -2 : -1);
-        const nameMatch = inner.match(/^[\w:-]+/);
-        const tagName = nameMatch ? nameMatch[0] : "";
-        const rest = inner.slice(tagName.length);
-        const attrRegex = /\s+([\w:-]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\s>/"']+)))?/g;
-        const attrParts: React.ReactNode[] = [];
-        let m: RegExpExecArray | null;
-        while ((m = attrRegex.exec(rest)) !== null) {
-          const aName = m[1];
-          const aVal = m[2] ?? m[3] ?? m[4];
-          attrParts.push(
-            aVal !== undefined
-              ? <span key={m.index}>{" "}<span style={{ color: "#8B0000" }}>{aName}</span><span style={{ color: "#555" }}>{"="}</span><span style={{ color: "#006400" }}>{`"${aVal}"`}</span></span>
-              : <span key={m.index}>{" "}<span style={{ color: "#8B0000" }}>{aName}</span></span>
-          );
-        }
-        return (
-          <span key={i}>
-            <span style={{ color: "#666" }}>&lt;{isClose ? "/" : ""}</span>
-            <span style={{ color: "#000080", fontWeight: 600 }}>{tagName}</span>
-            {attrParts}
-            {isSelfClose && <span style={{ color: "#666" }}> /</span>}
-            <span style={{ color: "#666" }}>&gt;</span>
-          </span>
-        );
-      })}
-    </>
-  );
-}
-
-function ImpactBadge({ impact }: { impact: string }) {
-  switch (impact) {
-    case "critical":
-      return (
-        <Badge
-          variant="outline"
-          className="bg-[#E11D48] text-white border-transparent"
-        >
-          Critical
-        </Badge>
-      );
-    case "serious":
-      return (
-        <Badge
-          variant="outline"
-          className="bg-[#EA580C] text-white border-transparent"
-        >
-          Serious
-        </Badge>
-      );
-    case "moderate":
-      return (
-        <Badge
-          variant="outline"
-          className="bg-[#EAB308] text-black border-transparent"
-        >
-          Moderate
-        </Badge>
-      );
-    case "minor":
-      return (
-        <Badge
-          variant="outline"
-          className="bg-[#3B82F6] text-white border-transparent"
-        >
-          Minor
-        </Badge>
-      );
-    default:
-      return <Badge>{impact}</Badge>;
-  }
-}
-
-function ImpactIcon({ impact }: { impact: string }) {
-  switch (impact) {
-    case "critical":
-      return <AlertTriangle className="w-4 h-4 text-[#E11D48]" />;
-    case "serious":
-      return <AlertTriangle className="w-4 h-4 text-[#EA580C]" />;
-    case "moderate":
-      return <AlertCircle className="w-4 h-4 text-[#EAB308]" />;
-    case "minor":
-      return <Info className="w-4 h-4 text-[#3B82F6]" />;
-    default:
-      return <Info className="w-4 h-4" />;
-  }
-}
-
-const IMPACT_ORDER: Record<string, number> = {
-  critical: 0,
-  serious: 1,
-  moderate: 2,
-  minor: 3,
-};
-
+// ── Types & shared issue-level helpers ────────────────────────────────────────
 interface Issue {
   id: number;
   ruleId: string;
@@ -564,21 +647,54 @@ interface IssueFilters {
   level: string;
   hideFalsePositives: boolean;
 }
+
+interface RuleInfo {
+  description: string;
+  impact: string;
+  wcagCriteria: string | null;
+  wcagLevel: string | null;
+}
+
+const IMPACT_ORDER: Record<string, number> = {
+  critical: 0,
+  serious: 1,
+  moderate: 2,
+  minor: 3,
+};
+
 function getLegalText(issue: Issue) {
   if (!issue.legal) return "";
-
   const parts: string[] = [];
-
-  if (issue.legal.ada?.length) {
-    parts.push(`ADA ${issue.legal.ada.join(", ")}`);
-  }
-
-  if (issue.legal.eaa) {
-    parts.push("EAA");
-  }
-
+  if (issue.legal.ada?.length) parts.push(`ADA ${issue.legal.ada.join(", ")}`);
+  if (issue.legal.eaa) parts.push("EAA");
   return parts.join(", ");
 }
+
+function ImpactBadge({ impact }: { impact: string }) {
+  switch (impact) {
+    case "critical":
+      return <Badge variant="outline" className="bg-[#E11D48] text-white border-transparent">Critical</Badge>;
+    case "serious":
+      return <Badge variant="outline" className="bg-[#EA580C] text-white border-transparent">Serious</Badge>;
+    case "moderate":
+      return <Badge variant="outline" className="bg-[#EAB308] text-black border-transparent">Moderate</Badge>;
+    case "minor":
+      return <Badge variant="outline" className="bg-[#3B82F6] text-white border-transparent">Minor</Badge>;
+    default:
+      return <Badge>{impact}</Badge>;
+  }
+}
+
+function ImpactIcon({ impact }: { impact: string }) {
+  switch (impact) {
+    case "critical": return <AlertTriangle className="w-4 h-4 text-[#E11D48]" />;
+    case "serious":  return <AlertTriangle className="w-4 h-4 text-[#EA580C]" />;
+    case "moderate": return <AlertCircle className="w-4 h-4 text-[#EAB308]" />;
+    case "minor":    return <Info className="w-4 h-4 text-[#3B82F6]" />;
+    default:         return <Info className="w-4 h-4" />;
+  }
+}
+
 function IssueFilterBar({
   issues,
   filters,
@@ -595,28 +711,16 @@ function IssueFilterBar({
   ruleInfoMap?: Record<string, RuleInfo>;
 }) {
   const ruleIds = useMemo(
-    () =>
-      Array.from(
-        new Set([...issues.map((i) => i.ruleId), ...(selectedRules ?? [])]),
-      ).sort(),
+    () => Array.from(new Set([...issues.map((i) => i.ruleId), ...(selectedRules ?? [])])).sort(),
     [issues, selectedRules],
   );
   const wcagCriteria = useMemo(() => {
-    const fromIssues = issues
-      .map((i) => i.wcagCriteria)
-      .filter(Boolean) as string[];
-    const fromSelected = (selectedRules ?? [])
-      .map((id) => ruleInfoMap?.[id]?.wcagCriteria)
-      .filter(Boolean) as string[];
+    const fromIssues = issues.map((i) => i.wcagCriteria).filter(Boolean) as string[];
+    const fromSelected = (selectedRules ?? []).map((id) => ruleInfoMap?.[id]?.wcagCriteria).filter(Boolean) as string[];
     return Array.from(new Set([...fromIssues, ...fromSelected])).sort();
   }, [issues, selectedRules, ruleInfoMap]);
 
-  const hasFilters =
-    filters.search ||
-    filters.ruleId !== "all" ||
-    filters.severity !== "all" ||
-    filters.wcag !== "all" ||
-    filters.level !== "all";
+  const hasFilters = filters.search || filters.ruleId !== "all" || filters.severity !== "all" || filters.wcag !== "all" || filters.level !== "all";
 
   if (singleRule) return null;
 
@@ -640,16 +744,7 @@ function IssueFilterBar({
             variant="ghost"
             size="sm"
             className="ml-auto h-6 px-2 text-xs text-muted-foreground"
-            onClick={() =>
-              onChange({
-                search: "",
-                ruleId: "all",
-                severity: "all",
-                wcag: "all",
-                level: "all",
-                hideFalsePositives: true,
-              })
-            }
+            onClick={() => onChange({ search: "", ruleId: "all", severity: "all", wcag: "all", level: "all", hideFalsePositives: true })}
           >
             <X className="w-3 h-3 mr-1" />
             Clear
@@ -659,9 +754,7 @@ function IssueFilterBar({
 
       <div className="flex flex-wrap gap-3">
         <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
-          <span className="text-xs text-muted-foreground font-medium">
-            Search
-          </span>
+          <span className="text-xs text-muted-foreground font-medium">Search</span>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <Input
@@ -674,38 +767,20 @@ function IssueFilterBar({
         </div>
 
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground font-medium">
-            Rule
-          </span>
-          <Select
-            value={filters.ruleId}
-            onValueChange={(v) => onChange({ ...filters, ruleId: v })}
-          >
-            <SelectTrigger className="h-8 text-xs w-[130px]">
-              <SelectValue placeholder="Rule ID" />
-            </SelectTrigger>
+          <span className="text-xs text-muted-foreground font-medium">Rule</span>
+          <Select value={filters.ruleId} onValueChange={(v) => onChange({ ...filters, ruleId: v })}>
+            <SelectTrigger className="h-8 text-xs w-[130px]"><SelectValue placeholder="Rule ID" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
-              {ruleIds.map((id) => (
-                <SelectItem key={id} value={id} className="font-mono text-xs">
-                  {id}
-                </SelectItem>
-              ))}
+              {ruleIds.map((id) => <SelectItem key={id} value={id} className="font-mono text-xs">{id}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
 
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground font-medium">
-            Severity
-          </span>
-          <Select
-            value={filters.severity}
-            onValueChange={(v) => onChange({ ...filters, severity: v })}
-          >
-            <SelectTrigger className="h-8 text-xs w-[120px]">
-              <SelectValue placeholder="Severity" />
-            </SelectTrigger>
+          <span className="text-xs text-muted-foreground font-medium">Severity</span>
+          <Select value={filters.severity} onValueChange={(v) => onChange({ ...filters, severity: v })}>
+            <SelectTrigger className="h-8 text-xs w-[120px]"><SelectValue placeholder="Severity" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
               <SelectItem value="critical">Critical</SelectItem>
@@ -718,39 +793,21 @@ function IssueFilterBar({
 
         {wcagCriteria.length > 0 && (
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground font-medium">
-              WCAG
-            </span>
-            <Select
-              value={filters.wcag}
-              onValueChange={(v) => onChange({ ...filters, wcag: v })}
-            >
-              <SelectTrigger className="h-8 text-xs w-[140px]">
-                <SelectValue placeholder="WCAG" />
-              </SelectTrigger>
+            <span className="text-xs text-muted-foreground font-medium">WCAG</span>
+            <Select value={filters.wcag} onValueChange={(v) => onChange({ ...filters, wcag: v })}>
+              <SelectTrigger className="h-8 text-xs w-[140px]"><SelectValue placeholder="WCAG" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All</SelectItem>
-                {wcagCriteria.map((wc) => (
-                  <SelectItem key={wc} value={wc} className="font-mono text-xs">
-                    {wc}
-                  </SelectItem>
-                ))}
+                {wcagCriteria.map((wc) => <SelectItem key={wc} value={wc} className="font-mono text-xs">{wc}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
         )}
 
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground font-medium">
-            Level
-          </span>
-          <Select
-            value={filters.level}
-            onValueChange={(v) => onChange({ ...filters, level: v })}
-          >
-            <SelectTrigger className="h-8 text-xs w-[100px]">
-              <SelectValue placeholder="Level" />
-            </SelectTrigger>
+          <span className="text-xs text-muted-foreground font-medium">Level</span>
+          <Select value={filters.level} onValueChange={(v) => onChange({ ...filters, level: v })}>
+            <SelectTrigger className="h-8 text-xs w-[100px]"><SelectValue placeholder="Level" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
               <SelectItem value="A">A</SelectItem>
@@ -764,30 +821,7 @@ function IssueFilterBar({
   );
 }
 
-interface RuleInfo {
-  description: string;
-  impact: string;
-  wcagCriteria: string | null;
-  wcagLevel: string | null;
-}
-
-function getSelectedRuleSummary(selectedRules: string[]) {
-  if (selectedRules.length === 0) return null;
-  if (selectedRules.length === Object.keys(SIA_RULES).length)
-    return "Scanning for all rules";
-  if (selectedRules.length === 1) return `Rule ${selectedRules[0]}`;
-  return `${selectedRules.length} selected rules`;
-}
-
-function formatEta(minutes: number) {
-  if (!Number.isFinite(minutes) || minutes <= 0) return "ETA unknown";
-  if (minutes < 1) return "ETA < 1 min";
-  if (minutes < 60) return `ETA ~${Math.round(minutes)} min`;
-  const hrs = Math.floor(minutes / 60);
-  const mins = Math.round(minutes % 60);
-  return `ETA ~${hrs}h ${mins}m`;
-}
-
+// ── IssueGroupList ────────────────────────────────────────────────────────────
 function IssueGroupList({
   issues,
   filters,
@@ -821,31 +855,20 @@ function IssueGroupList({
   const filteredIssues = useMemo(() => {
     return issues.filter((issue) => {
       if (filters.hideFalsePositives && issue.falsePositive) return false;
-      if (
-        filters.search &&
-        !issue.description.toLowerCase().includes(filters.search.toLowerCase())
-      )
-        return false;
-      if (filters.ruleId !== "all" && issue.ruleId !== filters.ruleId)
-        return false;
-      if (filters.severity !== "all" && issue.impact !== filters.severity)
-        return false;
-      if (filters.wcag !== "all" && issue.wcagCriteria !== filters.wcag)
-        return false;
-      if (filters.level !== "all" && issue.wcagLevel !== filters.level)
-        return false;
+      if (filters.search && !issue.description.toLowerCase().includes(filters.search.toLowerCase())) return false;
+      if (filters.ruleId !== "all" && issue.ruleId !== filters.ruleId) return false;
+      if (filters.severity !== "all" && issue.impact !== filters.severity) return false;
+      if (filters.wcag !== "all" && issue.wcagCriteria !== filters.wcag) return false;
+      if (filters.level !== "all" && issue.wcagLevel !== filters.level) return false;
       return true;
     });
   }, [issues, filters]);
 
-  const grouped = filteredIssues.reduce<Record<string, Issue[]>>(
-    (acc, issue) => {
-      if (!acc[issue.ruleId]) acc[issue.ruleId] = [];
-      acc[issue.ruleId].push(issue);
-      return acc;
-    },
-    {},
-  );
+  const grouped = filteredIssues.reduce<Record<string, Issue[]>>((acc, issue) => {
+    if (!acc[issue.ruleId]) acc[issue.ruleId] = [];
+    acc[issue.ruleId].push(issue);
+    return acc;
+  }, {});
 
   const groups = Object.values(grouped).sort((a, b) => {
     const ai = IMPACT_ORDER[a[0].impact] ?? 99;
@@ -853,8 +876,6 @@ function IssueGroupList({
     return ai - bi;
   });
 
-  // Rules selected for the scan that have 0 occurrences on this page.
-  // Only shown when at least 2 rules were selected and no narrowing filters are active.
   const showZeroRows =
     (selectedRules?.length ?? 0) >= 2 &&
     filters.severity === "all" &&
@@ -864,11 +885,7 @@ function IssueGroupList({
 
   const issueRuleIds = new Set(filteredIssues.map((i) => i.ruleId));
   const zeroRules = showZeroRows
-    ? (selectedRules ?? []).filter(
-        (r) =>
-          !issueRuleIds.has(r) &&
-          (filters.ruleId === "all" || filters.ruleId === r),
-      )
+    ? (selectedRules ?? []).filter((r) => !issueRuleIds.has(r) && (filters.ruleId === "all" || filters.ruleId === r))
     : [];
 
   if (groups.length === 0 && zeroRules.length === 0) {
@@ -883,99 +900,51 @@ function IssueGroupList({
   return (
     <div className="space-y-2 mt-4 border-t pt-4">
       <p className="text-xs text-muted-foreground mb-3">
-        Showing {filteredIssues.length} issue
-        {filteredIssues.length !== 1 ? "s" : ""} across {groups.length} rule
-        {groups.length !== 1 ? "s" : ""}
-        {zeroRules.length > 0 &&
-          ` · ${zeroRules.length} rule${zeroRules.length !== 1 ? "s" : ""} with 0 occurrences`}
+        Showing {filteredIssues.length} issue{filteredIssues.length !== 1 ? "s" : ""} across {groups.length} rule{groups.length !== 1 ? "s" : ""}
+        {zeroRules.length > 0 && ` · ${zeroRules.length} rule${zeroRules.length !== 1 ? "s" : ""} with 0 occurrences`}
       </p>
       <Accordion type="multiple" className="space-y-2">
         {groups.map((group) => {
           const first = group[0];
           const count = group.length;
           return (
-            <AccordionItem
-              key={first.ruleId}
-              value={first.ruleId}
-              className="border rounded-md bg-muted/20 px-4"
-            >
+            <AccordionItem key={first.ruleId} value={first.ruleId} className="border rounded-md bg-muted/20 px-4">
               <AccordionTrigger className="hover:no-underline py-3 items-start">
                 <div className="flex flex-col gap-2 w-full pr-3 text-left">
                   <div className="flex items-start gap-2">
-                    <span className="mt-0.5 shrink-0">
-                      <ImpactIcon impact={first.impact} />
-                    </span>
-                    <span className="font-medium text-sm text-foreground break-words whitespace-normal leading-snug">
-                      {first.description}
-                    </span>
+                    <span className="mt-0.5 shrink-0"><ImpactIcon impact={first.impact} /></span>
+                    <span className="font-medium text-sm text-foreground break-words whitespace-normal leading-snug">{first.description}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 pl-6">
-                    <Badge
-                      variant="secondary"
-                      className="font-mono tabular-nums"
-                    >
+                    <Badge variant="secondary" className="font-mono tabular-nums">
                       {count} {count === 1 ? "occurrence" : "occurrences"}
                     </Badge>
-                    <Badge
-                      variant="outline"
-                      className="font-mono text-xs bg-background"
-                    >
-                      {first.ruleId}
-                    </Badge>
+                    <Badge variant="outline" className="font-mono text-xs bg-background">{first.ruleId}</Badge>
                     <ImpactBadge impact={first.impact} />
-                    {first.wcagCriteria && (
-                      <Badge variant="secondary" className="text-xs font-mono">
-                        WCAG {first.wcagCriteria}
-                      </Badge>
-                    )}
-                    {first.wcagLevel && (
-                      <Badge variant="outline" className="text-xs">
-                        Level {first.wcagLevel}
-                      </Badge>
-                    )}
-                    {getLegalText(first) && (
-                      <Badge variant="outline" className="text-xs">
-                        Compliance: {getLegalText(first)}
-                      </Badge>
-                    )}
+                    {first.wcagCriteria && <Badge variant="secondary" className="text-xs font-mono">WCAG {first.wcagCriteria}</Badge>}
+                    {first.wcagLevel && <Badge variant="outline" className="text-xs">Level {first.wcagLevel}</Badge>}
+                    {getLegalText(first) && <Badge variant="outline" className="text-xs">Compliance: {getLegalText(first)}</Badge>}
                   </div>
                 </div>
               </AccordionTrigger>
               <AccordionContent className="pb-4">
                 {first.remediation && (
                   <div className="mb-3 p-3 bg-primary/5 border border-primary/20 rounded-md text-sm">
-                    <span className="font-medium text-primary">
-                      How to fix:{" "}
-                    </span>
-                    <span className="text-foreground/80">
-                      {first.remediation}
-                    </span>
+                    <span className="font-medium text-primary">How to fix: </span>
+                    <span className="text-foreground/80">{first.remediation}</span>
                   </div>
                 )}
-
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground mb-2">
-                    {count} element{count !== 1 ? "s" : ""} affected
-                  </p>
+                  <p className="text-xs text-muted-foreground mb-2">{count} element{count !== 1 ? "s" : ""} affected</p>
                   <div className="border rounded-md overflow-hidden">
                     <table className="w-full text-xs">
                       <thead className="bg-muted sticky top-0">
                         <tr>
-                          <th className="text-left px-3 py-2 font-medium w-10">
-                            #
-                          </th>
-                          <th className="text-left px-3 py-2 font-medium">
-                            Selector
-                          </th>
-                          <th className="text-left px-3 py-2 font-medium hidden md:table-cell">
-                            Element
-                          </th>
-                          {group.some(
-                            (i) => i.description !== first.description,
-                          ) && (
-                            <th className="text-left px-3 py-2 font-medium hidden lg:table-cell">
-                              Note
-                            </th>
+                          <th className="text-left px-3 py-2 font-medium w-10">#</th>
+                          <th className="text-left px-3 py-2 font-medium">Selector</th>
+                          <th className="text-left px-3 py-2 font-medium hidden md:table-cell">Element</th>
+                          {group.some((i) => i.description !== first.description) && (
+                            <th className="text-left px-3 py-2 font-medium hidden lg:table-cell">Note</th>
                           )}
                           <th className="w-6" />
                           {onSelectOccurrence && <th className="w-28" />}
@@ -984,8 +953,7 @@ function IssueGroupList({
                       <tbody>
                         {group.map((issue, idx) => {
                           const isExpanded = expandedRows.has(issue.id);
-                          const hasVariantDesc =
-                            issue.description !== first.description;
+                          const hasVariantDesc = issue.description !== first.description;
                           const isSelected = selectedIssueId === issue.id;
                           const isFlagged = issue.falsePositive === true;
                           return (
@@ -1002,100 +970,60 @@ function IssueGroupList({
                                 }`}
                                 onClick={() => toggleRow(issue.id)}
                               >
-                                <td className="px-3 py-2 text-muted-foreground font-mono">
-                                  {idx + 1}
-                                </td>
+                                <td className="px-3 py-2 text-muted-foreground font-mono">{idx + 1}</td>
                                 <td className="px-3 py-2 font-mono max-w-[200px]">
                                   {issue.selector ? (
-                                    <span
-                                      className="block truncate text-foreground/80"
-                                      title={issue.selector}
-                                    >
-                                      {issue.selector}
-                                    </span>
+                                    <span className="block truncate text-foreground/80" title={issue.selector}>{issue.selector}</span>
                                   ) : (
-                                    <span className="text-muted-foreground italic">
-                                      —
-                                    </span>
+                                    <span className="text-muted-foreground italic">—</span>
                                   )}
                                 </td>
                                 <td className="px-3 py-2 hidden md:table-cell max-w-[300px]">
                                   {issue.element ? (
-                                    <code
-                                      className="block truncate text-primary font-mono"
-                                      title={issue.element}
-                                    >
-                                      {issue.element.length > 80
-                                        ? issue.element.substring(0, 80) + "…"
-                                        : issue.element}
+                                    <code className="block truncate text-primary font-mono" title={issue.element}>
+                                      {issue.element.length > 80 ? issue.element.substring(0, 80) + "…" : issue.element}
                                     </code>
                                   ) : (
-                                    <span className="text-muted-foreground italic">
-                                      —
-                                    </span>
+                                    <span className="text-muted-foreground italic">—</span>
                                   )}
                                 </td>
                                 <td className="px-3 py-2 hidden xl:table-cell max-w-[380px]">
                                   <div className="flex items-center gap-2">
                                     {issue.element ? (
                                       <>
-                                        <code
-                                          className="block truncate text-foreground/80 font-mono"
-                                          title={issue.element}
-                                        >
-                                          {issue.element}
-                                        </code>
+                                        <code className="block truncate text-foreground/80 font-mono" title={issue.element}>{issue.element}</code>
                                         <Button
                                           variant="ghost"
                                           size="icon"
                                           className="h-7 w-7 shrink-0"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            navigator.clipboard.writeText(
-                                              issue.element || "",
-                                            );
-                                          }}
+                                          onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(issue.element || ""); }}
                                           title="Copy element HTML"
                                         >
                                           <Copy className="w-3.5 h-3.5" />
                                         </Button>
                                       </>
                                     ) : (
-                                      <span className="text-muted-foreground italic">
-                                        —
-                                      </span>
+                                      <span className="text-muted-foreground italic">—</span>
                                     )}
                                   </div>
                                 </td>
-                                {group.some(
-                                  (i) => i.description !== first.description,
-                                ) && (
+                                {group.some((i) => i.description !== first.description) && (
                                   <td className="px-3 py-2 hidden lg:table-cell text-muted-foreground max-w-[200px]">
                                     {hasVariantDesc ? (
-                                      <span
-                                        className="truncate block italic"
-                                        title={issue.description}
-                                      >
-                                        {issue.description}
-                                      </span>
+                                      <span className="truncate block italic" title={issue.description}>{issue.description}</span>
                                     ) : null}
                                   </td>
                                 )}
                                 <td className="px-3 py-2 text-muted-foreground">
                                   <div className="flex items-center gap-2">
-                                    <ChevronDown
-                                      className={`w-3.5 h-3.5 shrink-0 transition-transform duration-150 ${isExpanded ? "rotate-180" : ""}`}
-                                    />
+                                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform duration-150 ${isExpanded ? "rotate-180" : ""}`} />
                                     {onFlagIssue && (
                                       <Button
                                         variant="ghost"
                                         size="icon"
                                         className={`h-6 w-6 shrink-0 ${isFlagged ? "text-amber-500 hover:text-amber-600" : "text-muted-foreground/40 hover:text-amber-500"}`}
                                         title={isFlagged ? "Remove false positive flag" : "Flag as false positive"}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onFlagIssue(issue);
-                                        }}
+                                        onClick={(e) => { e.stopPropagation(); onFlagIssue(issue); }}
                                       >
                                         <Flag className={`w-3.5 h-3.5 ${isFlagged ? "fill-amber-400" : ""}`} />
                                       </Button>
@@ -1105,10 +1033,7 @@ function IssueGroupList({
                                         variant="outline"
                                         size="sm"
                                         className="h-6 text-[11px] px-2 gap-1 whitespace-nowrap"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onSelectOccurrence(issue, group);
-                                        }}
+                                        onClick={(e) => { e.stopPropagation(); onSelectOccurrence(issue, group); }}
                                       >
                                         View Details
                                       </Button>
@@ -1117,19 +1042,9 @@ function IssueGroupList({
                                 </td>
                               </tr>
                               {isExpanded && (
-                                <tr
-                                  key={`${issue.id}-detail`}
-                                  className="bg-primary/5 border-t border-primary/10"
-                                >
+                                <tr key={`${issue.id}-detail`} className="bg-primary/5 border-t border-primary/10">
                                   <td
-                                    colSpan={
-                                      (group.some(
-                                        (i) =>
-                                          i.description !== first.description,
-                                      )
-                                        ? 7
-                                        : 6) + (onSelectOccurrence ? 1 : 0)
-                                    }
+                                    colSpan={(group.some((i) => i.description !== first.description) ? 7 : 6) + (onSelectOccurrence ? 1 : 0)}
                                     className="px-4 py-4"
                                   >
                                     <div className="space-y-3">
@@ -1138,93 +1053,49 @@ function IssueGroupList({
                                           <Flag className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5 fill-amber-400" />
                                           <div className="text-xs">
                                             <span className="font-semibold text-amber-700 dark:text-amber-400">Marked as false positive</span>
-                                            {issue.falsePositiveNote && (
-                                              <p className="text-amber-600 dark:text-amber-300 mt-0.5">{issue.falsePositiveNote}</p>
-                                            )}
+                                            {issue.falsePositiveNote && <p className="text-amber-600 dark:text-amber-300 mt-0.5">{issue.falsePositiveNote}</p>}
                                           </div>
                                         </div>
                                       )}
                                       {pageUrl && (
                                         <div>
-                                          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                                            Full URL
-                                          </p>
+                                          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Full URL</p>
                                           <div className="flex items-start gap-2">
-                                            <code className="block bg-background border px-3 py-2 rounded text-xs font-mono text-foreground/80 break-all whitespace-pre-wrap flex-1">
-                                              {pageUrl}
-                                            </code>
-                                            <Button
-                                              variant="outline"
-                                              size="sm"
-                                              className="shrink-0"
-                                              onClick={() =>
-                                                navigator.clipboard.writeText(
-                                                  pageUrl,
-                                                )
-                                              }
-                                            >
-                                              Copy
-                                            </Button>
+                                            <code className="block bg-background border px-3 py-2 rounded text-xs font-mono text-foreground/80 break-all whitespace-pre-wrap flex-1">{pageUrl}</code>
+                                            <Button variant="outline" size="sm" className="shrink-0" onClick={() => navigator.clipboard.writeText(pageUrl)}>Copy</Button>
                                           </div>
                                         </div>
                                       )}
                                       {hasVariantDesc && (
                                         <div>
-                                          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                                            Description
-                                          </p>
-                                          <p className="text-sm text-foreground">
-                                            {issue.description}
-                                          </p>
+                                          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Description</p>
+                                          <p className="text-sm text-foreground">{issue.description}</p>
                                         </div>
                                       )}
                                       {issue.selector && (
                                         <div>
-                                          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                                            CSS Selector
-                                          </p>
-                                          <code className="block bg-background border px-3 py-2 rounded text-xs font-mono text-foreground/80 break-all whitespace-pre-wrap">
-                                            {issue.selector}
-                                          </code>
+                                          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">CSS Selector</p>
+                                          <code className="block bg-background border px-3 py-2 rounded text-xs font-mono text-foreground/80 break-all whitespace-pre-wrap">{issue.selector}</code>
                                         </div>
                                       )}
                                       {issue.element && (
                                         <div>
-                                          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                                            Element HTML
-                                          </p>
-                                          <code className="block bg-background border px-3 py-2 rounded text-xs font-mono text-primary break-all whitespace-pre-wrap leading-relaxed">
-                                            {issue.element}
-                                          </code>
+                                          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Element HTML</p>
+                                          <code className="block bg-background border px-3 py-2 rounded text-xs font-mono text-primary break-all whitespace-pre-wrap leading-relaxed">{issue.element}</code>
                                         </div>
                                       )}
-                                      {(issue.wcagCriteria ||
-                                        issue.wcagLevel) && (
+                                      {(issue.wcagCriteria || issue.wcagLevel) && (
                                         <div className="flex gap-3 flex-wrap">
                                           {issue.wcagCriteria && (
                                             <div>
-                                              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                                                WCAG Criterion
-                                              </p>
-                                              <Badge
-                                                variant="secondary"
-                                                className="font-mono text-xs"
-                                              >
-                                                {issue.wcagCriteria}
-                                              </Badge>
+                                              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">WCAG Criterion</p>
+                                              <Badge variant="secondary" className="font-mono text-xs">{issue.wcagCriteria}</Badge>
                                             </div>
                                           )}
                                           {issue.wcagLevel && (
                                             <div>
-                                              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                                                Conformance Level
-                                              </p>
-                                              <Badge
-                                                variant="outline"
-                                                className="text-xs"
-                                              >
-                                                Level {issue.wcagLevel}
-                                              </Badge>
+                                              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Conformance Level</p>
+                                              <Badge variant="outline" className="text-xs">Level {issue.wcagLevel}</Badge>
                                             </div>
                                           )}
                                         </div>
@@ -1246,51 +1117,27 @@ function IssueGroupList({
         })}
       </Accordion>
 
-      {/* Rules with 0 occurrences on this page */}
       {zeroRules.length > 0 && (
         <div className="space-y-2 mt-2">
           {zeroRules.map((ruleId) => {
             const info = ruleInfoMap?.[ruleId];
             return (
-              <div
-                key={ruleId}
-                className="border rounded-md bg-green-50/40 dark:bg-green-950/10 border-green-200/60 dark:border-green-900/40 px-4 py-3 flex items-start gap-3"
-              >
+              <div key={ruleId} className="border rounded-md bg-green-50/40 dark:bg-green-950/10 border-green-200/60 dark:border-green-900/40 px-4 py-3 flex items-start gap-3">
                 <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-foreground/80 break-words">
-                    {SIA_RULES[ruleId]?.title ??
-                      info?.description ??
-                      "No issues detected for this rule on this page."}
+                    {SIA_RULES[ruleId]?.title ?? info?.description ?? "No issues detected for this rule on this page."}
                   </p>
                   {SIA_RULES[ruleId]?.detail && (
-                    <p className="text-xs text-muted-foreground mt-0.5 break-words">
-                      {SIA_RULES[ruleId].detail}
-                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5 break-words">{SIA_RULES[ruleId].detail}</p>
                   )}
                   <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                    <Badge
-                      variant="secondary"
-                      className="text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 font-mono"
-                    >
+                    <Badge variant="secondary" className="text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 font-mono">
                       0 occurrences
                     </Badge>
-                    <Badge
-                      variant="outline"
-                      className="font-mono text-xs bg-background"
-                    >
-                      {ruleId}
-                    </Badge>
-                    {info?.wcagCriteria && (
-                      <Badge variant="secondary" className="text-xs font-mono">
-                        WCAG {info.wcagCriteria}
-                      </Badge>
-                    )}
-                    {info?.wcagLevel && (
-                      <Badge variant="outline" className="text-xs">
-                        Level {info.wcagLevel}
-                      </Badge>
-                    )}
+                    <Badge variant="outline" className="font-mono text-xs bg-background">{ruleId}</Badge>
+                    {info?.wcagCriteria && <Badge variant="secondary" className="text-xs font-mono">WCAG {info.wcagCriteria}</Badge>}
+                    {info?.wcagLevel && <Badge variant="outline" className="text-xs">Level {info.wcagLevel}</Badge>}
                   </div>
                 </div>
               </div>
@@ -1302,6 +1149,7 @@ function IssueGroupList({
   );
 }
 
+// ── Export helpers ────────────────────────────────────────────────────────────
 interface ExportIssueRow {
   pageUrl: string;
   ruleId: string;
@@ -1332,11 +1180,7 @@ function buildExportRows(scan: {
       ? "All rules"
       : allRules
         ? "All rules"
-        : selectedRules
-            .map((ruleId) =>
-              `${ruleId} — ${SIA_RULES[ruleId]?.title ?? ""}`.trim(),
-            )
-            .join("; ");
+        : selectedRules.map((ruleId) => `${ruleId} — ${SIA_RULES[ruleId]?.title ?? ""}`.trim()).join("; ");
   const scanLabel = scan.name || `Scan #${scan.id}`;
   for (const page of scan.pages ?? []) {
     for (const issue of page.issues ?? []) {
@@ -1354,6 +1198,31 @@ function buildExportRows(scan: {
         selector: issue.selector ?? "",
         element: issue.element ?? "",
         remediation: issue.remediation ?? "",
+      });
+    }
+  }
+  // When no issues were found but pages were scanned, emit one row per page so
+  // the exported file shows which URLs were checked rather than being blank.
+  if (rows.length === 0) {
+    const rulesLabel =
+      selectedRules.length === 0 || allRules
+        ? "All rules"
+        : selectedRules.join(", ");
+    for (const page of scan.pages ?? []) {
+      rows.push({
+        pageUrl: page.url,
+        ruleId: rulesLabel,
+        ruleLabel: selectedRulesLabel,
+        description: "No accessibility issues found",
+        impact: "",
+        wcagCriteria: "",
+        wcagLevel: "",
+        legalText: "",
+        selectedRules: selectedRulesLabel,
+        scanLabel,
+        selector: "",
+        element: "",
+        remediation: "",
       });
     }
   }
@@ -1515,6 +1384,7 @@ function ExportButtons({
   );
 }
 
+// ── Scan-level utility components & helpers ───────────────────────────────────
 function RulesBadges({ selectedRules }: { selectedRules: string[] }) {
   if (selectedRules.length === 0) return null;
   const allRules = selectedRules.length === Object.keys(SIA_RULES).length;
@@ -1585,6 +1455,23 @@ function applyPrefix(urls: string[], prefix: string) {
   );
 }
 
+function getSelectedRuleSummary(selectedRules: string[]) {
+  if (selectedRules.length === 0) return null;
+  if (selectedRules.length === Object.keys(SIA_RULES).length)
+    return "Scanning for all rules";
+  if (selectedRules.length === 1) return `Rule ${selectedRules[0]}`;
+  return `${selectedRules.length} selected rules`;
+}
+
+function formatEta(minutes: number) {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "ETA unknown";
+  if (minutes < 1) return "ETA < 1 min";
+  if (minutes < 60) return `ETA ~${Math.round(minutes)} min`;
+  const hrs = Math.floor(minutes / 60);
+  const mins = Math.round(minutes % 60);
+  return `ETA ~${hrs}h ${mins}m`;
+}
+
 export default function ScanDetail() {
   const { id } = useParams();
   const scanId = Number(id);
@@ -1603,7 +1490,8 @@ export default function ScanDetail() {
 
   const [pageStatusFilter, setPageStatusFilter] = useState<string>("all");
   const [pageUrlFilter, setPageUrlFilter] = useState("");
-  const [pageExtFilter, setPageExtFilter] = useState<string>("all");
+  const [pageExtFilter, setPageExtFilter] = useState("all");
+
   const [fpOverrides, setFpOverrides] = useState<Record<number, { falsePositive: boolean; falsePositiveNote: string | null }>>({});
   const [fpDialogIssue, setFpDialogIssue] = useState<Issue | null>(null);
   const [fpNote, setFpNote] = useState("");
@@ -1692,7 +1580,7 @@ export default function ScanDetail() {
   const [smartExpanded, setSmartExpanded] = useState<Set<string>>(new Set());
   const [smartUrlFilter, setSmartUrlFilter] = useState("");
 
-  type CodeViewOccurrence = { id: number; ruleId: string; impact: string; element: string; selector: string; description: string };
+  type CodeViewOccurrence = { id: number; ruleId: string; impact: string; element: string; selector: string; description: string; bboxX: number | null; bboxY: number | null; bboxWidth: number | null; bboxHeight: number | null };
   const [codeViewOpen, setCodeViewOpen] = useState(false);
   const [codeViewLoading, setCodeViewLoading] = useState(false);
   const [codeViewUrl, setCodeViewUrl] = useState("");
@@ -1702,6 +1590,7 @@ export default function ScanDetail() {
   const [codeViewPageHtml, setCodeViewPageHtml] = useState("");
   const [codeViewPageId, setCodeViewPageId] = useState<number | null>(null);
   const codeViewHighlightRef = useRef<HTMLSpanElement>(null);
+  const [codeViewMode, setCodeViewMode] = useState<"html" | "live">("html");
   const [codeViewExpandedOccs, setCodeViewExpandedOccs] = useState<Set<number>>(new Set());
   function toggleOccExpanded(i: number) {
     setCodeViewExpandedOccs(prev => { const n = new Set(prev); if (n.has(i)) n.delete(i); else n.add(i); return n; });
@@ -1930,6 +1819,7 @@ export default function ScanDetail() {
     setCodeViewPageHtml("");
     setCodeViewPageId(null);
     setCodeViewExpandedOccs(new Set());
+    setCodeViewMode("html");
     setCodeViewOpen(true);
     setCodeViewLoading(true);
     try {
@@ -1960,8 +1850,6 @@ export default function ScanDetail() {
       codeViewHighlightRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }, [codeViewOpen, codeViewSelectedIdx, codeViewPageHtml]);
-
-  const IMPACT_ORDER: Record<string, number> = { critical: 0, serious: 1, moderate: 2, minor: 3 };
 
   const filteredSmartComponents = (smartData?.components ?? []).filter(c => {
     if (smartImpact !== "all" && c.worstImpact !== smartImpact) return false;
@@ -2286,7 +2174,7 @@ export default function ScanDetail() {
     });
   };
 
-const pageExtensions = useMemo(() => {
+  const pageExtensions = useMemo(() => {
     const exts = new Set<string>();
     for (const page of scan?.pages ?? []) {
       try {
@@ -2334,7 +2222,9 @@ const pageExtensions = useMemo(() => {
 
   const handleCopyAllUrls = async () => {
     if (!scan?.pages?.length) return;
-    const filtered = scan.pages.filter(matchesPageFilter);
+    const filtered = pageStatusFilter === "all"
+      ? scan.pages
+      : scan.pages.filter(matchesPageFilter);
     if (!filtered.length) {
       toast({ title: "No URLs match the current filter" });
       return;
@@ -2805,12 +2695,13 @@ const pageExtensions = useMemo(() => {
                   </ul>
                 )}
               </div>
-              {/* Right pane — interactive HTML tree (Siteimprove-style) */}
+              {/* Right pane — HTML tree or Live Preview */}
               <div className="flex-1 overflow-hidden flex flex-col border-l">
                 {codeViewOccurrences.length > 0 && codeViewOccurrences[codeViewSelectedIdx] ? (
                   <>
-                    <div className="px-3 py-1.5 border-b bg-gray-50 shrink-0 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-0.5">
+                    <div className="px-3 py-1.5 border-b bg-gray-50 shrink-0 flex items-center gap-2">
+                      {/* Prev/First nav */}
+                      <div className="flex items-center gap-0.5 shrink-0">
                         <button
                           onClick={() => setCodeViewSelectedIdx(0)}
                           disabled={codeViewSelectedIdx === 0}
@@ -2827,12 +2718,31 @@ const pageExtensions = useMemo(() => {
                           <ChevronLeft className="w-3 h-3" /> Prev
                         </button>
                       </div>
-                      <span className="text-xs text-gray-500 font-mono tabular-nums">
+                      {/* Counter */}
+                      <span className="text-xs text-gray-500 font-mono tabular-nums flex-1 truncate">
                         {codeViewSelectedIdx + 1} / {codeViewOccurrences.length > 99 ? "99+" : codeViewOccurrences.length}
                         {" · "}{codeViewOccurrences[codeViewSelectedIdx].ruleId}
-                        {!codeViewPageHtml && <span className="text-gray-400 italic ml-2">· no page HTML</span>}
+                        {codeViewMode === "html" && !codeViewPageHtml && <span className="text-gray-400 italic ml-2">· no stored HTML</span>}
                       </span>
-                      <div className="flex items-center gap-0.5">
+                      {/* View mode toggle */}
+                      <div className="flex shrink-0 rounded overflow-hidden border border-gray-200 text-xs">
+                        <button
+                          onClick={() => setCodeViewMode("html")}
+                          title="HTML tree view"
+                          className={`flex items-center gap-1 px-2 py-0.5 transition-colors ${codeViewMode === "html" ? "bg-violet-600 text-white" : "bg-white text-gray-600 hover:bg-gray-100"}`}
+                        >
+                          <Code className="w-3 h-3" /> HTML
+                        </button>
+                        <button
+                          onClick={() => setCodeViewMode("live")}
+                          title="Live page preview"
+                          className={`flex items-center gap-1 px-2 py-0.5 border-l border-gray-200 transition-colors ${codeViewMode === "live" ? "bg-violet-600 text-white" : "bg-white text-gray-600 hover:bg-gray-100"}`}
+                        >
+                          <Monitor className="w-3 h-3" /> Live
+                        </button>
+                      </div>
+                      {/* Next/Last nav */}
+                      <div className="flex items-center gap-0.5 shrink-0">
                         <button
                           onClick={() => setCodeViewSelectedIdx(i => Math.min(codeViewOccurrences.length - 1, i + 1))}
                           disabled={codeViewSelectedIdx >= codeViewOccurrences.length - 1}
@@ -2850,11 +2760,23 @@ const pageExtensions = useMemo(() => {
                         </button>
                       </div>
                     </div>
-                    <InteractiveHtmlTree
-                      pageHtml={codeViewPageHtml}
-                      elementHtml={codeViewOccurrences[codeViewSelectedIdx].element}
-                      selector={codeViewOccurrences[codeViewSelectedIdx].selector}
-                    />
+                    {codeViewMode === "live" ? (
+                      <LivePreviewFrame
+                        url={codeViewUrl}
+                        pageId={codeViewPageId}
+                        selector={codeViewOccurrences[codeViewSelectedIdx].selector}
+                        bboxX={codeViewOccurrences[codeViewSelectedIdx].bboxX}
+                        bboxY={codeViewOccurrences[codeViewSelectedIdx].bboxY}
+                        bboxWidth={codeViewOccurrences[codeViewSelectedIdx].bboxWidth}
+                        bboxHeight={codeViewOccurrences[codeViewSelectedIdx].bboxHeight}
+                      />
+                    ) : (
+                      <InteractiveHtmlTree
+                        pageHtml={codeViewPageHtml}
+                        elementHtml={codeViewOccurrences[codeViewSelectedIdx].element}
+                        selector={codeViewOccurrences[codeViewSelectedIdx].selector}
+                      />
+                    )}
                   </>
                 ) : (
                   <div className="flex flex-col items-center justify-center flex-1 text-gray-400 text-sm gap-2 bg-white">
@@ -3270,8 +3192,8 @@ const pageExtensions = useMemo(() => {
                         </div>
                       </button>
                     );
-                  })} 
-                         {/* File extension filter */}
+                  })}
+                  {/* File extension filter */}
                   {pageExtensions.length > 0 && (
                     <Select value={pageExtFilter} onValueChange={setPageExtFilter}>
                       <SelectTrigger className="h-11 w-36 shrink-0 bg-white dark:bg-white dark:text-slate-900">
@@ -3287,24 +3209,24 @@ const pageExtensions = useMemo(() => {
                   )}
                   {/* URL text filter — right side of the same row */}
                   <div className="relative ml-auto w-72 shrink-0">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Filter URLs…"
-                        value={pageUrlFilter}
-                        onChange={(e) => setPageUrlFilter(e.target.value)}
-                        className="pl-9 h-11 bg-white dark:bg-white dark:text-slate-900 dark:placeholder:text-slate-400"
-                      />
-                      {pageUrlFilter && (
-                        <button
-                          type="button"
-                          onClick={() => setPageUrlFilter("")}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      )}
-                      </div>
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Filter URLs…"
+                      value={pageUrlFilter}
+                      onChange={(e) => setPageUrlFilter(e.target.value)}
+                      className="pl-9 h-11 bg-white dark:bg-white dark:text-slate-900 dark:placeholder:text-slate-400"
+                    />
+                    {pageUrlFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setPageUrlFilter("")}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
+                </div>
               );
             })()}
 
@@ -3470,6 +3392,8 @@ const pageExtensions = useMemo(() => {
                         ruleId: "all",
                         severity: "all",
                         wcag: "all",
+                        level: "all",
+                        hideFalsePositives: false,
                       })
                     }
                   >
