@@ -25,7 +25,10 @@ export const pool = new Pool({
 // connection emits an unhandled 'error' event, which Node.js turns into an
 // uncaught exception that crashes the entire process.
 pool.on("error", (err) => {
-  console.error("[db-pool] idle client error — connection will be discarded:", err.message);
+  console.error(
+    "[db-pool] idle client error — connection will be discarded:",
+    err.message,
+  );
 });
 
 export const db = drizzle(pool, { schema });

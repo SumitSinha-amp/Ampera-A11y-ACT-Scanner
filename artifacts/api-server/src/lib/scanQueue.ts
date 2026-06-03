@@ -374,6 +374,7 @@ async function scanSinglePage(
     // shouldAutoRetry logic below still applies (Phase 2 queue) instead of
     // falling into the outer catch which skips retry altogether.
     let result: Awaited<ReturnType<typeof scanPage>>;
+     const scanStart = Date.now();
     try {
       result = await Promise.race([
         scanPage(url, {
@@ -416,6 +417,7 @@ async function scanSinglePage(
     const pageStatus = result.notAvailable ? "not_available" : result.error ? "failed" : "completed";
 
     // Update the primary row with full result data
+     const scanDurationMs = Date.now() - scanStart;
     await db.update(pageResultsTable)
       .set({
         status: pageStatus,
@@ -423,6 +425,8 @@ async function scanSinglePage(
         criticalCount,
         errorMessage: result.error || null,
         scannedAt: new Date(),
+        loadDurationMs: result.loadDurationMs ?? null,
+        scanDurationMs,
         screenshot: result.screenshot ?? null,
         pageHtml: result.pageHtml ?? null,
       })

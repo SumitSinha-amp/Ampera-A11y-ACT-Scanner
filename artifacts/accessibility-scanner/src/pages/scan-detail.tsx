@@ -3276,6 +3276,29 @@ export default function ScanDetail() {
                               Not Available
                             </Badge>
                           )}
+                           {(page.loadDurationMs != null || page.scanDurationMs != null) && (
+                            <div className="flex items-center gap-2 text-sm font-mono font-medium">
+                              {page.loadDurationMs != null && (
+                                <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400" title="Page load time (DOMContentLoaded)">
+                                  <Globe className="w-3.5 h-3.5" />
+                                  {page.loadDurationMs >= 1000
+                                    ? `${(page.loadDurationMs / 1000).toFixed(1)}s`
+                                    : `${page.loadDurationMs}ms`}
+                                </span>
+                              )}
+                              {page.loadDurationMs != null && page.scanDurationMs != null && (
+                                <span className="text-slate-400">·</span>
+                              )}
+                              {page.scanDurationMs != null && (
+                                <span className="flex items-center gap-1 text-violet-600 dark:text-violet-400" title="Total scan time (load + network idle + rule checks)">
+                                  <Cpu className="w-3.5 h-3.5" />
+                                  {page.scanDurationMs >= 1000
+                                    ? `${(page.scanDurationMs / 1000).toFixed(1)}s`
+                                    : `${page.scanDurationMs}ms`}
+                                </span>
+                              )}
+                            </div>
+                          )}
                           {page.issueCount > 0 && (
                             <div className="flex items-center gap-2">
                               <Badge variant="secondary" className="font-mono">
@@ -3508,6 +3531,8 @@ export default function ScanDetail() {
                   <tr>
                     <th className="text-left p-3 font-medium">URL</th>
                     <th className="text-left p-3 font-medium">Stage</th>
+                    <th className="text-right p-3 font-medium">Load</th>
+                    <th className="text-right p-3 font-medium">Scan</th>
                     <th className="text-right p-3 font-medium">Issues</th>
                     <th className="text-right p-3 font-medium">Action</th>
                   </tr>
@@ -3579,6 +3604,20 @@ export default function ScanDetail() {
                             Pending
                           </span>
                         )}
+                      </td>
+                       <td className="p-3 text-right text-sm font-mono font-medium">
+                        {p.loadDurationMs != null
+                          ? <span className="text-blue-600 dark:text-blue-400">{p.loadDurationMs >= 1000
+                            ? `${(p.loadDurationMs / 1000).toFixed(1)}s`
+                            : `${p.loadDurationMs}ms`}</span>
+                          : <span className="text-slate-300 dark:text-slate-600">—</span>}
+                      </td>
+                      <td className="p-3 text-right text-sm font-mono font-medium">
+                        {p.scanDurationMs != null
+                          ? <span className="text-violet-600 dark:text-violet-400">{p.scanDurationMs >= 1000
+                            ? `${(p.scanDurationMs / 1000).toFixed(1)}s`
+                            : `${p.scanDurationMs}ms`}</span>
+                          : <span className="text-slate-300 dark:text-slate-600">—</span>}
                       </td>
                       <td className="p-3 text-right">
                         {p.issueCount > 0 ? (

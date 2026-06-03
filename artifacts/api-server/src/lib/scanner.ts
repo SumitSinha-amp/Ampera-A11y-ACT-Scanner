@@ -162,6 +162,7 @@ export interface PageScanResult {
   notAvailable?: boolean;
   screenshot?: string;
   pageHtml?: string;
+  loadDurationMs?: number;
 }
 
 const WCAG_MAPPING: Record<string, { sc: string[]; level: string[] }> = {
@@ -1324,12 +1325,15 @@ async function _scanPageInternal(
     // usable DOM and, if so, continue scanning whatever loaded.  This prevents a
     // slow CDN asset or an infinite-loop redirect from taking out the entire URL.
     let httpResponse: Awaited<ReturnType<typeof page.goto>> = null;
+    let loadDurationMs: number | undefined;
+    const navStart = Date.now();
     let navigationTimedOut = false;
     try {
       httpResponse = await page.goto(url, {
         waitUntil: "domcontentloaded",
         timeout,
       });
+      loadDurationMs = Date.now() - navStart;
     } catch (navErr) {
       const msg = String(navErr).toLowerCase();
       const isTimeout = msg.includes("timeout") || msg.includes("timed out");
@@ -1757,7 +1761,7 @@ async function _scanPageInternal(
       );
     }
 
-    return { url, issues, screenshot, pageHtml };
+    return { url, issues, screenshot, pageHtml, loadDurationMs };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     const timeoutMatch = msg.match(/Navigation timeout of (\d+) ms exceeded/);

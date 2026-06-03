@@ -36,6 +36,8 @@ export const pageResultsTable = pgTable("page_results", {
   criticalCount: integer("critical_count").notNull().default(0),
   errorMessage: text("error_message"),
   scannedAt: timestamp("scanned_at"),
+  loadDurationMs: integer("load_duration_ms"),
+  scanDurationMs: integer("scan_duration_ms"),
   screenshot: text("screenshot"),
   pageHtml: text("page_html"),
 }, (t) => [
