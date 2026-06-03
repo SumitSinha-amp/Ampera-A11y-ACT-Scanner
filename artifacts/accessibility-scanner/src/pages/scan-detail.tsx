@@ -95,6 +95,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Copy } from "lucide-react";
 import { ElementViewer, type ViewerIssue } from "@/components/element-viewer";
 import { isElementViewerEnabled } from "@/pages/settings";
+import { FixSuggestionPanel } from "@/components/fix-suggestion-panel";
 
 // ── CSS Selector Hierarchy (expandable breadcrumb) ────────────────────────────
 function SelectorHierarchy({ selector }: { selector: string }) {
@@ -1100,6 +1101,12 @@ function IssueGroupList({
                                           )}
                                         </div>
                                       )}
+                                       <FixSuggestionPanel
+                                        ruleId={issue.ruleId}
+                                        description={issue.description}
+                                        element={issue.element ?? null}
+                                        selector={issue.selector ?? null}
+                                      />
                                     </div>
                                   </td>
                                 </tr>
@@ -2687,6 +2694,16 @@ export default function ScanDetail() {
                                   <SelectorHierarchy selector={occ.selector} />
                                 </div>
                               )}
+                            </div>
+                          )}
+                           {isSelected && (
+                            <div className="px-3 pb-3">
+                              <FixSuggestionPanel
+                                ruleId={occ.ruleId}
+                                description={occ.description}
+                                element={occ.element}
+                                selector={occ.selector}
+                              />
                             </div>
                           )}
                         </li>
