@@ -222,7 +222,26 @@ async function runStartupMigrations(): Promise<void> {
         updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
       )
     `);
-
+   // 16. Add page_results columns added after initial deploy
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'page_results' AND column_name = 'load_duration_ms') THEN
+          ALTER TABLE page_results ADD COLUMN load_duration_ms INTEGER;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'page_results' AND column_name = 'scan_duration_ms') THEN
+          ALTER TABLE page_results ADD COLUMN scan_duration_ms INTEGER;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'page_results' AND column_name = 'screenshot') THEN
+          ALTER TABLE page_results ADD COLUMN screenshot TEXT;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'page_results' AND column_name = 'page_html') THEN
+          ALTER TABLE page_results ADD COLUMN page_html TEXT;
+        END IF;
+      END
+      $$
+    `);
+    
     await client.query("COMMIT");
     logger.info("Startup migrations completed");
   } catch (err) {
