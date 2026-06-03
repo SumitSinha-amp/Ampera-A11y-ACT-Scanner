@@ -241,7 +241,43 @@ async function runStartupMigrations(): Promise<void> {
       END
       $$
     `);
-    
+    // 17. Add accessibility_issues columns added after initial deploy.
+    // If any of these are missing the INSERT in scanQueue.ts throws and the page
+    // ends up with issue_count > 0 but zero rows in accessibility_issues.
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'accessibility_issues' AND column_name = 'legal_text') THEN
+          ALTER TABLE accessibility_issues ADD COLUMN legal_text TEXT;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'accessibility_issues' AND column_name = 'selector') THEN
+          ALTER TABLE accessibility_issues ADD COLUMN selector TEXT;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'accessibility_issues' AND column_name = 'remediation') THEN
+          ALTER TABLE accessibility_issues ADD COLUMN remediation TEXT;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'accessibility_issues' AND column_name = 'bbox_x') THEN
+          ALTER TABLE accessibility_issues ADD COLUMN bbox_x REAL;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'accessibility_issues' AND column_name = 'bbox_y') THEN
+          ALTER TABLE accessibility_issues ADD COLUMN bbox_y REAL;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'accessibility_issues' AND column_name = 'bbox_width') THEN
+          ALTER TABLE accessibility_issues ADD COLUMN bbox_width REAL;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'accessibility_issues' AND column_name = 'bbox_height') THEN
+          ALTER TABLE accessibility_issues ADD COLUMN bbox_height REAL;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'accessibility_issues' AND column_name = 'false_positive') THEN
+          ALTER TABLE accessibility_issues ADD COLUMN false_positive BOOLEAN NOT NULL DEFAULT FALSE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'accessibility_issues' AND column_name = 'false_positive_note') THEN
+          ALTER TABLE accessibility_issues ADD COLUMN false_positive_note TEXT;
+        END IF;
+      END
+      $$
+    `);
+
     await client.query("COMMIT");
     logger.info("Startup migrations completed");
   } catch (err) {

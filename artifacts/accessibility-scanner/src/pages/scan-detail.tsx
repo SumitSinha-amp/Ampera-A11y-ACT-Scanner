@@ -3357,10 +3357,19 @@ export default function ScanDetail() {
                           ) : null}
                           {pageIssues.length === 0 &&
                             page.status === "completed" && (
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                                <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-                                No accessibility issues found on this page.
-                              </div>
+                               {page.issueCount > 0 ? (
+                                  <>
+                                    <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+                                    <span>
+                                      Issue details unavailable — {page.issueCount} issue{page.issueCount !== 1 ? "s" : ""} were recorded at scan time but could not be loaded. Re-scan this URL to restore them.
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                                    No accessibility issues found on this page.
+                                  </>
+                                )}
                             )}
                           <IssueGroupList
                             issues={pageIssues}
@@ -3389,8 +3398,18 @@ export default function ScanDetail() {
                         </div>
                       ) : page.status === "completed" ? (
                         <div className="p-8 text-center text-muted-foreground border rounded-md mt-4 border-dashed bg-muted/10">
-                          <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto mb-2 opacity-50" />
-                          No accessibility issues found on this page.
+                           {page.issueCount > 0 ? (
+                            <>
+                              <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2 opacity-70" />
+                              <p className="text-sm font-medium">Issue details unavailable</p>
+                              <p className="text-xs mt-1">{page.issueCount} issue{page.issueCount !== 1 ? "s" : ""} were recorded at scan time but could not be loaded. Re-scan this URL to restore them.</p>
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto mb-2 opacity-50" />
+                              No accessibility issues found on this page.
+                            </>
+                          )}
                         </div>
                       ) : null}
                     </AccordionContent>
