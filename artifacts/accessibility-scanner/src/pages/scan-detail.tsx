@@ -3357,6 +3357,7 @@ export default function ScanDetail() {
                           ) : null}
                           {pageIssues.length === 0 &&
                             page.status === "completed" && (
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
                                {page.issueCount > 0 ? (
                                   <>
                                     <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
@@ -3370,6 +3371,7 @@ export default function ScanDetail() {
                                     No accessibility issues found on this page.
                                   </>
                                 )}
+                                 </div>
                             )}
                           <IssueGroupList
                             issues={pageIssues}
