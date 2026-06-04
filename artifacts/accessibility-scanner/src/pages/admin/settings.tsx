@@ -13,7 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
-import { invalidateAIConfigCache } from "@/components/fix-suggestion-panel";
+import { invalidateAIConfigCache } from "@/components/ai-config-cache";
+
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
 interface AllSettings {
@@ -86,7 +87,8 @@ export default function AdminSettingsPage() {
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error("Failed to save");
-      invalidateAIConfigCache(); 
+      setApiKeyDirty(false);
+      invalidateAIConfigCache();
       toast({ title: "Settings saved", description: "Configuration updated successfully." });
     } catch {
       toast({ title: "Error", description: "Failed to save settings.", variant: "destructive" });
