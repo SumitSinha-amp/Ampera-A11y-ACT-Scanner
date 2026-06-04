@@ -1106,6 +1106,9 @@ function IssueGroupList({
                                         description={issue.description}
                                         element={issue.element ?? null}
                                         selector={issue.selector ?? null}
+                                        wcagCriteria={issue.wcagCriteria}
+                                        wcagLevel={issue.wcagLevel}
+                                        pageUrl={page.url}
                                       />
                                     </div>
                                   </td>
@@ -1570,6 +1573,10 @@ export default function ScanDetail() {
     topPages: string[];
     sampleDescriptions?: string[];
     issueVariants: SmartIssueVariant[];
+     sampleElement?: string | null;
+    sampleSelector?: string | null;
+    sampleRuleId?: string;
+    sampleDescription?: string;
   };
   type SmartAnalysisData = {
     scanId: number;

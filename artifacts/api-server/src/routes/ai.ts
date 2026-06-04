@@ -21,8 +21,6 @@ router.get("/ai/config", requireAuth, async (_req, res): Promise<void> => {
     .where(inArray(appSettingsTable.key, [...AI_PUBLIC_KEYS]));
   const map: Record<string, string> = {};
   for (const r of rows) if (r.value != null) map[r.key] = r.value;
-  // ai_engine_enabled defaults to true (opt-out) — no API key or privacy concerns
-  // ai_external_enabled defaults to false (opt-in) — requires API key
   res.json({
     engineEnabled: map["ai_engine_enabled"] !== "false",
     externalEnabled: map["ai_external_enabled"] === "true",
@@ -52,7 +50,7 @@ router.post("/ai/analyze", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const { ruleId, description, element, selector, pageUrl } = req.body ?? {};
+  const { ruleId, description, element, selector, pageUrl, wcagCriteria, wcagLevel } = req.body ?? {};
   if (!ruleId || !description) {
     res.status(400).json({ error: "ruleId and description are required." });
     return;
@@ -61,17 +59,15 @@ router.post("/ai/analyze", requireAuth, async (req, res): Promise<void> => {
   const provider = cfg["ai_external_provider"] ?? "gemini";
   const model = cfg["ai_external_model"] || (provider === "gemini" ? "gemini-2.0-flash" : "gpt-4o-mini");
 
-  const prompt = buildPrompt({ ruleId, description, element, selector, pageUrl });
+  const prompt = buildPrompt({ ruleId, description, element, selector, pageUrl, wcagCriteria, wcagLevel });
 
   try {
     let text: string;
-
     if (provider === "gemini") {
       text = await callGemini(apiKey, model, prompt);
     } else {
       text = await callOpenAI(apiKey, model, prompt);
     }
-
     const parsed = parseAIResponse(text);
     res.json(parsed);
   } catch (err) {
@@ -88,18 +84,44 @@ function buildPrompt(params: {
   element?: string;
   selector?: string;
   pageUrl?: string;
+  wcagCriteria?: string;
+  wcagLevel?: string;
 }): string {
-  const { ruleId, description, element, selector, pageUrl } = params;
-  return `You are an expert web accessibility engineer. Analyze this WCAG/SIA accessibility violation and provide specific, actionable guidance.
+  const { ruleId, description, element, selector, pageUrl, wcagCriteria, wcagLevel } = params;
 
-Rule: ${ruleId}
-Violation: ${description}${selector ? `\nSelector: ${selector}` : ""}${element ? `\nElement HTML:\n\`\`\`html\n${element.slice(0, 800)}\n\`\`\`` : ""}${pageUrl ? `\nPage: ${pageUrl}` : ""}
+  const elementSnippet = element ? element.slice(0, 1500) : null;
 
-Respond in this exact JSON format (no markdown, raw JSON only):
+  const contextLines: string[] = [
+    `Rule ID: ${ruleId}`,
+  ];
+  if (wcagCriteria) contextLines.push(`WCAG Success Criterion: ${wcagCriteria}${wcagLevel ? ` (Level ${wcagLevel})` : ""}`);
+  contextLines.push(`Violation message: ${description}`);
+  if (pageUrl) contextLines.push(`Page URL: ${pageUrl}`);
+  if (selector) contextLines.push(`CSS Selector: ${selector}`);
+
+  const elementBlock = elementSnippet
+    ? `\nFAILING ELEMENT — current HTML:\n\`\`\`html\n${elementSnippet}\n\`\`\``
+    : "\n(No element HTML captured — provide general remediation for this rule.)";
+
+  return `You are an expert WCAG web accessibility engineer performing a code-level remediation review. An automated accessibility scan found the following violation. Provide a detailed, code-aware fix.
+
+VIOLATION CONTEXT
+─────────────────
+${contextLines.join("\n")}
+${elementBlock}
+
+RESPONSE FORMAT — respond ONLY with the following JSON object (no markdown fences, no text before or after):
 {
-  "why": "2-3 sentence explanation of exactly why this specific element is an accessibility issue and who it impacts",
-  "howToFix": "2-3 sentence specific instruction for fixing this exact element",
-  "codeExample": "corrected HTML or CSS code example (optional, omit if not applicable)"
+  "why": "1–2 sentences explaining exactly why THIS element fails — reference its specific content, attributes, or structural issue directly from the HTML above",
+  "impact": "Who is affected and what experience they have (e.g. screen reader users hear '...', keyboard-only users cannot...)",
+  "howToFix": [
+    "Step 1: Concrete action referencing the actual element content/attributes",
+    "Step 2: ...",
+    "Step 3: ..."
+  ],
+  "beforeCode": "Paste the original failing element HTML (from above, or reconstruct it concisely)",
+  "afterCode": "The corrected version of that same element — must be valid HTML that passes the rule",
+  "notes": "Optional: any WCAG technique references (e.g. ARIA techniques, H-techniques), edge cases, or caveats. Empty string if none."
 }`;
 }
 
@@ -107,7 +129,7 @@ async function callGemini(apiKey: string, model: string, prompt: string): Promis
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.2, maxOutputTokens: 800 },
+    generationConfig: { temperature: 0.1, maxOutputTokens: 2000 },
   };
   const r = await fetch(url, {
     method: "POST",
@@ -132,8 +154,8 @@ async function callOpenAI(apiKey: string, model: string, prompt: string): Promis
     body: JSON.stringify({
       model,
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.2,
-      max_tokens: 800,
+      temperature: 0.1,
+      max_tokens: 2000,
     }),
   });
   if (!r.ok) {
@@ -144,18 +166,36 @@ async function callOpenAI(apiKey: string, model: string, prompt: string): Promis
   return data.choices?.[0]?.message?.content ?? "";
 }
 
-function parseAIResponse(text: string): { why: string; howToFix: string; codeExample?: string } {
-  // Strip markdown code fences if present
-  const clean = text.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
+export interface AIAnalysisResult {
+  why: string;
+  impact: string;
+  howToFix: string[];
+  beforeCode: string;
+  afterCode: string;
+  notes: string;
+}
+
+function parseAIResponse(text: string): AIAnalysisResult {
+  const clean = text
+    .replace(/^```(?:json)?\s*/im, "")
+    .replace(/\s*```\s*$/im, "")
+    .trim();
   try {
-    const obj = JSON.parse(clean) as { why?: string; howToFix?: string; codeExample?: string };
+    const obj = JSON.parse(clean) as Record<string, unknown>;
     return {
-      why: obj.why ?? text.slice(0, 300),
-      howToFix: obj.howToFix ?? "",
-      codeExample: obj.codeExample || undefined,
+      why: String(obj.why ?? ""),
+      impact: String(obj.impact ?? ""),
+      howToFix: Array.isArray(obj.howToFix)
+        ? (obj.howToFix as unknown[]).map(String)
+        : obj.howToFix
+          ? [String(obj.howToFix)]
+          : [],
+      beforeCode: String(obj.beforeCode ?? obj.codeExample ?? ""),
+      afterCode: String(obj.afterCode ?? ""),
+      notes: String(obj.notes ?? ""),
     };
   } catch {
-    return { why: text.slice(0, 400), howToFix: "" };
+    return { why: text.slice(0, 500), impact: "", howToFix: [], beforeCode: "", afterCode: "", notes: "" };
   }
 }
 

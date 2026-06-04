@@ -696,6 +696,8 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
       criticalCount: pageResultsTable.criticalCount,
       errorMessage: pageResultsTable.errorMessage,
       scannedAt: pageResultsTable.scannedAt,
+      loadDurationMs: pageResultsTable.loadDurationMs,
+      scanDurationMs: pageResultsTable.scanDurationMs,
     })
     .from(pageResultsTable)
     .where(eq(pageResultsTable.scanId, row.id));
@@ -907,22 +909,43 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
     "requeued",
     "not_available",
   ] as const;
-  const activePages = await db
-    .select({
-      url: pageResultsTable.url,
-      status: pageResultsTable.status,
-      issueCount: pageResultsTable.issueCount,
-      criticalCount: pageResultsTable.criticalCount,
-      errorMessage: pageResultsTable.errorMessage,
-    })
-    .from(pageResultsTable)
-    .where(
-      and(
-        eq(pageResultsTable.scanId, scanId),
-        inArray(pageResultsTable.status, [...NON_COMPLETED]),
-      ),
-    )
-    .limit(500);
+
+  const pageFields = {
+    url: pageResultsTable.url,
+    status: pageResultsTable.status,
+    issueCount: pageResultsTable.issueCount,
+    criticalCount: pageResultsTable.criticalCount,
+    errorMessage: pageResultsTable.errorMessage,
+    loadDurationMs: pageResultsTable.loadDurationMs,
+    scanDurationMs: pageResultsTable.scanDurationMs,
+    scannedAt: pageResultsTable.scannedAt,
+  } as const;
+
+  const [activePages, recentlyCompleted] = await Promise.all([
+    db
+      .select(pageFields)
+      .from(pageResultsTable)
+      .where(
+        and(
+          eq(pageResultsTable.scanId, scanId),
+          inArray(pageResultsTable.status, [...NON_COMPLETED]),
+        ),
+      )
+      .limit(500),
+    // Also fetch the 30 most-recently completed pages so timing shows up
+    // in the live table as pages finish, without loading thousands of rows.
+    db
+      .select(pageFields)
+      .from(pageResultsTable)
+      .where(
+        and(
+          eq(pageResultsTable.scanId, scanId),
+          eq(pageResultsTable.status, "completed"),
+        ),
+      )
+      .orderBy(desc(pageResultsTable.scannedAt))
+      .limit(30),
+  ]);
 
   const ACTIVE_STAGES = new Set([
     "scanning",
@@ -933,6 +956,9 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
   ]);
   const currentUrl =
     activePages.find((p) => ACTIVE_STAGES.has(p.status))?.url ?? null;
+
+  // Merge: active/failed pages first (no timing yet), then recently completed (have timing)
+  const allLivePages = [...activePages, ...recentlyCompleted];
 
   res.json({
     id: session.id,
@@ -945,12 +971,14 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
     currentUrl,
     counts,
     pagesWithIssues,
-    pages: activePages.map((p) => ({
+    pages: allLivePages.map((p) => ({
       url: p.url,
       status: p.status,
       issueCount: p.issueCount,
       criticalCount: p.criticalCount,
       errorMessage: p.errorMessage ?? null,
+      loadDurationMs: p.loadDurationMs ?? null,
+      scanDurationMs: p.scanDurationMs ?? null,
     })),
   });
 });
@@ -2171,6 +2199,14 @@ router.get(
       affectedPages: Set<string>;
       /** description text → set of page URLs that have this exact issue */
       issueVariants: Map<string, Set<string>>;
+      /** First element HTML seen for this component — for AI fix panel */
+      sampleElement: string | null;
+      /** First CSS selector seen for this component — for AI fix panel */
+      sampleSelector: string | null;
+      /** First rule ID seen — for AI fix panel */
+      sampleRuleId: string;
+      /** First description seen — for AI fix panel */
+      sampleDescription: string;
     };
 
     const map = new Map<string, Entry>();
@@ -2192,6 +2228,10 @@ router.get(
           totalOccurrences: 0,
           affectedPages: new Set(),
           issueVariants: new Map(),
+          sampleElement: row.element ?? null,
+          sampleSelector: row.selector ?? null,
+          sampleRuleId: row.ruleId,
+          sampleDescription: row.description ?? "",
         };
         map.set(key, entry);
       }

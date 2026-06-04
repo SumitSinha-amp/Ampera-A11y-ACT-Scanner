@@ -417,7 +417,12 @@ async function scanSinglePage(
     const pageStatus = result.notAvailable ? "not_available" : result.error ? "failed" : "completed";
 
     // Update the primary row with full result data
-     const scanDurationMs = Date.now() - scanStart;
+ // Update the primary row with full result data
+    const scanDurationMs = Date.now() - scanStart;
+    logger.info(
+      { scanId, url, pageId, pageStatus, loadDurationMs: result.loadDurationMs ?? null, scanDurationMs },
+      "TIMING: writing page result to DB",
+    );
     await db.update(pageResultsTable)
       .set({
         status: pageStatus,
@@ -431,6 +436,10 @@ async function scanSinglePage(
         pageHtml: result.pageHtml ?? null,
       })
       .where(eq(pageResultsTable.id, pageId));
+    logger.info(
+      { scanId, url, pageId },
+      "TIMING: DB update complete",
+    );
 
     // Sync any duplicate rows for the same URL so they never stay "pending".
     // Crucially, NEVER overwrite a row that is already "completed" — doing so
