@@ -2902,6 +2902,22 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
         const hasAriaLabel = el.hasAttribute("aria-label");
         const hasAriaLabelledby = el.hasAttribute("aria-labelledby");
         if (!hasAriaLabel && !hasAriaLabelledby) return;
+
+        // Skip when ALL aria-labelledby targets are INSIDE this element.
+        // This is the AEM sr-only pattern: <a aria-labelledby="id"><span id="id" class="sr-only">…</span>…</a>
+        // The link provides its own accessible name via a hidden child span.
+        // Siteimprove does not flag this pattern because the accessible name
+        // is derived from content that is part of the element itself.
+        if (hasAriaLabelledby) {
+          const ids = (el.getAttribute("aria-labelledby") || "").trim().split(/\s+/);
+          const allInternal = ids.every(function(id) {
+            if (!id) return true;
+            const target = document.getElementById(id);
+            return target ? el.contains(target) : false;
+          });
+          if (allInternal) return;
+        }
+
         const rawVisible =
           (el instanceof HTMLElement
             ? el.innerText?.replace(/\s+/g, " ")?.trim()
@@ -2920,7 +2936,20 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
         })();
         const accName = getAccessibleName(el);
         if (!accName || accName.length < 2) return;
-        if (!accName.toLowerCase().includes(visibleText.toLowerCase())) {
+
+        // WCAG 2.5.3 "Label in Name": the accessible name must contain the visible label.
+        // Use token-level containment (not raw substring) to avoid false positives caused
+        // by duplicate words in visible text (e.g. a date appearing twice in a card's
+        // innerText but only once in the aria-labelledby string).
+        const accLower = accName.toLowerCase();
+        const visLower = visibleText.toLowerCase();
+        const passesSubstring = accLower.includes(visLower);
+        const passesTokens = (() => {
+          const tokens = [...new Set(visLower.split(/\s+/).filter((t: string) => t.length > 0))];
+          return tokens.length > 0 && tokens.every((t: string) => accLower.includes(t));
+        })();
+
+        if (!passesSubstring && !passesTokens) {
           results.push({
             ruleId: "SIA-R14",
             type: "Issue",
