@@ -1549,7 +1549,7 @@ async function _scanPageInternal(
         error: "Page Not Available",
       };
     }
- // Confirm DOMContentLoaded state — HTML parsed, initial DOM built.
+    // Confirm DOMContentLoaded state — HTML parsed, initial DOM built.
     // We scan this initial state without waiting for window.load or JS mutations,
     // so accessibility issues are reported on what the server actually sent.
     await page.evaluate(() => new Promise<void>((resolve) => {
@@ -1592,8 +1592,8 @@ async function _scanPageInternal(
       try {
         await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 });
         const finalUrl = page.url();
-        logger.info({ url, finalUrl }, "Client-side redirect followed — scanning final page at DOMContentLoaded");
-        // Confirm DOMContentLoaded on the final page before scanning
+        logger.info({ url, finalUrl }, "Client-side redirect followed — re-settling final page");
+        // Confirm DOMContentLoaded on the final page
         await page.evaluate(() => new Promise<void>((resolve) => {
           if (document.readyState === "interactive" || document.readyState === "complete") return resolve();
           document.addEventListener("DOMContentLoaded", () => resolve(), { once: true });
@@ -1604,21 +1604,71 @@ async function _scanPageInternal(
       }
     }
 
-  // Scan delay — a fixed wait after DOMContentLoaded before running checks.
+    // Phase 1 — DOM stability wait.
     //
-    // scanDelayMs = 0 (default): scan immediately at DOMContentLoaded state.
-    //   This is the raw server-rendered HTML with minimal JS execution —
-    //   matches Siteimprove's scan point where JS hasn't yet patched accessibility issues.
+    // After DOMContentLoaded the HTML is parsed, but JS frameworks (React, Angular,
+    // AEM etc.) still need time to mount their initial components and inject links,
+    // images, and other content into the DOM.  Scanning at the literal DCL instant
+    // means those elements don't exist yet, so rules like R11/R12 find nothing.
     //
-    // scanDelayMs > 0: wait this many milliseconds, then scan.
-    //   JS continues executing during this time. Use with caution — longer delays
-    //   allow JS to fix issues (e.g. add aria-labels) before the check runs,
-    //   which can cause our results to diverge from Siteimprove.
+    // We wait until DOM mutations have been quiet for DOM_QUIET_MS (300 ms),
+    // capped at DOM_STABILITY_CAP_MS (1 s).  This fires BEFORE any post-load
+    // setTimeout / requestAnimationFrame accessibility patches (which typically
+    // run several seconds after load on SSR/AEM pages), matching Siteimprove's
+    // effective scan point.  For SPAs, 1 s is enough for the framework to mount
+    // its initial render.  Reducing from 4 s → 1 s ensures aria-label injection
+    // scripts (which load after 4+ s on e.g. Keysight) haven't run yet.
+    const DOM_QUIET_MS = 300;
+    const DOM_STABILITY_CAP_MS = 1000;
+    const domStabilityMs = await page.evaluate(
+      ({ quietMs, capMs }: { quietMs: number; capMs: number }) =>
+        new Promise<number>((resolve) => {
+          const start = Date.now();
+          let quietTimer: ReturnType<typeof setTimeout> | null = null;
+
+          function settle() {
+            if (quietTimer) clearTimeout(quietTimer);
+            quietTimer = setTimeout(() => {
+              observer.disconnect();
+              resolve(Date.now() - start);
+            }, quietMs);
+          }
+
+          const observer = new MutationObserver(settle);
+          observer.observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            characterData: false,
+          });
+
+          // Start the quiet timer immediately — resolves at once if DOM is already stable.
+          settle();
+
+          // Hard cap: never block more than capMs.
+          setTimeout(() => {
+            observer.disconnect();
+            if (quietTimer) clearTimeout(quietTimer);
+            resolve(Date.now() - start);
+          }, capMs);
+        }),
+      { quietMs: DOM_QUIET_MS, capMs: DOM_STABILITY_CAP_MS },
+    ).catch(() => 0);
+    logger.info({ url, domStabilityMs }, "DOM stability settled");
+
+    // Phase 2 — optional additional delay on top of the stable baseline.
+    //
+    // scanDelayMs = 0 (default): scan at the stable initial-render point (above).
+    //   Issues patched by post-load JS (setTimeout, rAF) are still visible here —
+    //   this matches Siteimprove's scan point.
+    //
+    // scanDelayMs > 0: wait this many extra milliseconds after stability settles.
+    //   More JS runs during this time (aria-label injections, lazy-load fixes).
+    //   Use only when you intentionally want to capture a later DOM state.
     if (scanDelayMs > 0) {
       logger.info({ url, scanDelayMs }, "Scan delay — waiting before accessibility checks");
       await new Promise<void>((resolve) => setTimeout(resolve, scanDelayMs));
     }
-
 
     // Capture a full-page snapshot and the rendered DOM before running rules
     let screenshot: string | undefined;
@@ -1660,8 +1710,6 @@ async function _scanPageInternal(
         ...issue,
         wcagCriteria: wcag?.sc?.join(", ") || null,
         wcagLevel: wcag?.level?.join(", ") || null,
-
-        // ✅ THIS IS WHAT YOU WANT
         legal: getLegalCompliance(wcag?.level || []),
       };
     });
