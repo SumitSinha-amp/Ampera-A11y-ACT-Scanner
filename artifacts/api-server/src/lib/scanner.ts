@@ -961,6 +961,16 @@ const PUPPETEER_LAUNCH_ARGS = [
   "--window-size=1440,900",
   "--lang=en-US,en;q=0.9",
   "--disable-blink-features=AutomationControlled",
+  // Memory-saving flags
+  "--disable-background-networking",
+  "--disable-sync",
+  "--no-first-run",
+  "--disable-default-apps",
+  "--disable-extensions",
+  "--disable-translate",
+  "--mute-audio",
+  "--hide-scrollbars",
+  "--renderer-process-limit=2",
 ];
 
 let browserInstance: Browser | null = null;
@@ -1329,9 +1339,81 @@ async function _scanPageInternal(
       "Upgrade-Insecure-Requests": "1",
     });
 
+    // Intercept Element.prototype.setAttribute before any page scripts run so we
+    // can detect aria-label values that start as "" (bare SSR placeholder) and
+    // then get patched by JS to a non-empty string (e.g. AEM writes
+    // "E7515RUXMforRedCap" — an image asset ID, not a real label).
+    // R11 reads window.__ariaLabelWasEmpty__ (WeakSet) at scan time to flag these
+    // even though getAccessibleName() now returns a non-empty string.
+    // Using setAttribute interception instead of MutationObserver because it fires
+    // synchronously regardless of whether the element is in the DOM yet.
+    await page.evaluateOnNewDocument(() => {
+      const tracked = new WeakSet<Element>();
+      // Expose on window so the rule evaluation context can read it
+      (window as Record<string, unknown>)["__ariaLabelWasEmpty__"] = tracked;
+
+      const origSetAttribute = Element.prototype.setAttribute;
+      Element.prototype.setAttribute = function (
+        name: string,
+        value: string,
+      ): void {
+        if (name === "aria-label") {
+          // getAttribute before the change — null means attribute absent, "" means bare
+          const current = this.getAttribute("aria-label");
+          const currentTrimmed = (current ?? "").trim();
+          const newTrimmed = (value ?? "").trim();
+          // Was absent or empty → being set to something non-empty: JS patch detected
+          if (!currentTrimmed && newTrimmed) {
+            tracked.add(this);
+          }
+        }
+        origSetAttribute.call(this, name, value);
+      };
+
+      // Mark <a aria-label=""> elements with a custom attribute as they are
+      // parsed from SSR HTML, BEFORE any deferred/async page scripts run.
+      // This lets R11 detect "bare aria-label in source HTML" even when JS
+      // later patches the value to something descriptive.  We use origSetAttribute
+      // directly to bypass our own interceptor and avoid double-tracking.
+      const ssrObserver = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const node of mutation.addedNodes) {
+            if ((node as Element).nodeType !== 1) continue;
+            const el = node as Element;
+            // Check the element itself
+            if (
+              el.tagName === "A" &&
+              el.hasAttribute("aria-label") &&
+              !(el.getAttribute("aria-label") || "").trim()
+            ) {
+              origSetAttribute.call(el, "data-r11-bare-ssr", "");
+            }
+            // Check any <a aria-label=""> descendants added as a subtree
+            const descendants = el.querySelectorAll("a[aria-label]");
+            for (const a of descendants) {
+              if (!(a.getAttribute("aria-label") || "").trim()) {
+                origSetAttribute.call(a, "data-r11-bare-ssr", "");
+              }
+            }
+          }
+        }
+      });
+      // Observe `document` (not documentElement) because evaluateOnNewDocument
+      // runs before the HTML parser creates any elements — document.documentElement
+      // is null at that point. Observing the document root itself captures
+      // every subsequent childList mutation including the creation of <html>,
+      // <body>, and all descendant elements as the parser runs.
+      ssrObserver.observe(document, {
+        childList: true,
+        subtree: true,
+      });
+    });
+
     logger.info({ url }, "Navigating to page");
     await onStage?.("navigating");
-      // If navigation times out (e.g. a redirect loop, stuck resource, etc.) we do
+    // Always navigate to domcontentloaded first — networkidle2 can hang forever on
+    // pages with persistent analytics/tracking (long-polling, SSE, etc.)
+    // If navigation times out (e.g. a redirect loop, stuck resource, etc.) we do
     // NOT fail the page outright — instead we check whether the browser has a
     // usable DOM and, if so, continue scanning whatever loaded.  This prevents a
     // slow CDN asset or an infinite-loop redirect from taking out the entire URL.
@@ -1346,7 +1428,7 @@ async function _scanPageInternal(
       });
       loadDurationMs = Date.now() - navStart;
     } catch (navErr) {
-      
+      // Always capture load duration on failure so the UI shows real elapsed time
       loadDurationMs = Date.now() - navStart;
       const msg = String(navErr).toLowerCase();
       const isTimeout = msg.includes("timeout") || msg.includes("timed out");
@@ -1910,6 +1992,27 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       return false;
     }
 
+    // ─── HELPER: isCssHidden ────────────────────────────────────────────────
+    // CSS-only hidden check (display:none / visibility:hidden on self or
+    // ancestor).  Intentionally does NOT check aria-hidden="true" on ancestors.
+    //
+    // Use this instead of isVisible / isRendered for R11 / R12 (link/button
+    // accessible name).  Siteimprove flags nameless links even when they live
+    // inside aria-hidden carousel panels — the empty aria-label is a markup
+    // error regardless of whether the panel is programmatically hidden.  Using
+    // isRendered() would walk up to the panel's aria-hidden="true" ancestor and
+    // incorrectly return false, causing those links to be skipped.
+    function isCssHidden(el: Element): boolean {
+      if (!(el instanceof HTMLElement)) return true;
+      let node: HTMLElement | null = el;
+      while (node) {
+        const cs = window.getComputedStyle(node);
+        if (cs.display === "none" || cs.visibility === "hidden") return true;
+        node = node.parentElement;
+      }
+      return false;
+    }
+
     // ─── HELPER: ARIA Accessible Name (ARIA spec 4.3 — accname-1.2) ─────────
     // Full cascade: aria-labelledby → aria-label → native sources → title
     function getAccessibleName(el: Element): string {
@@ -2009,8 +2112,13 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       const title = el.getAttribute("title");
       if (title?.trim()) return title.trim();
 
-      // 5. textContent for buttons, links, headings, labels, etc.
-      return el.textContent?.trim() || "";
+      // 5. Subtree text — strips aria-hidden children and resolves img alt.
+      // Using raw textContent here would make links whose only content is
+      // aria-hidden decorative text (e.g. icon spans) appear to have a name,
+      // causing R11/R12 misses that Siteimprove correctly flags.
+      // NOTE: getSubtreeText is defined below; JS hoisting means the function
+      // declaration is available even though it appears later in the block.
+      return getSubtreeText(el);
     }
 
     // ─── HELPER: getVisibleText (strips aria-hidden subtrees) ───────────────
@@ -2026,6 +2134,37 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
           }
         }
       });
+      return text.trim().replace(/\s+/g, " ");
+    }
+
+    // ─── HELPER: getSubtreeText (ARIA accname subtree computation) ──────────
+    // Used for computing the accessible name from element content (step 5 of
+    // getAccessibleName). Differs from textContent in two critical ways:
+    //  1. Skips aria-hidden="true" subtrees — text inside them doesn't count
+    //  2. Includes alt text of <img> children — a link with only an image
+    //     gets its name from the img's alt, not from (empty) text nodes
+    // Without this, links with only aria-hidden decorative text appear named
+    // to our scanner but are correctly flagged as nameless by Siteimprove.
+    function getSubtreeText(el: Element): string {
+      let text = "";
+      for (const node of Array.from(el.childNodes)) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          text += node.textContent || "";
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          const child = node as Element;
+          if (child.getAttribute("aria-hidden") === "true") continue;
+          const tag = child.tagName.toUpperCase();
+          if (tag === "IMG") {
+            // alt="" means decorative — contributes nothing; missing alt also contributes nothing
+            const alt = child.getAttribute("alt");
+            if (alt) text += alt + " ";
+          } else {
+            // Recurse — child aria-label is handled by getAccessibleName when
+            // that child is the element being named; here we just collect raw text
+            text += getSubtreeText(child);
+          }
+        }
+      }
       return text.trim().replace(/\s+/g, " ");
     }
 
@@ -2709,8 +2848,54 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     // SIA-R11: Link has no accessible name (WCAG 2.4.4 / 4.1.2)
     // ════════════════════════════════════════════════════════════════════════
     document.querySelectorAll("a[href]").forEach((link) => {
-      if (!isVisible(link)) return;
-      if (!getAccessibleName(link)) {
+      // Skip links that are aria-hidden on themselves — they are intentionally
+      // removed from the accessibility tree and need no accessible name.
+      // (Links inside an aria-hidden ancestor are still checked; only the
+      // element's own attribute disqualifies it.)
+      if (link.getAttribute("aria-hidden") === "true") return;
+
+      // Case A1: CSS-visible link with no accessible name at scan time.
+      const noName = !isCssHidden(link) && !getAccessibleName(link);
+
+      // Case A2: Link has a bare (present but empty) aria-label attribute at
+      // scan time — JS left it untouched. Flag regardless of CSS visibility
+      // or subtree text. Siteimprove treats aria-label="" as an explicit empty
+      // name (markup error) even when subtree text is present.
+      const bareAriaLabel = link.hasAttribute("aria-label") &&
+        !(link.getAttribute("aria-label") ?? "").trim();
+
+      // Case C: Link's aria-label is a CMS asset ID (e.g. "E7515RUXMforRedCap").
+      // These are set in SSR HTML (not by JS) and our setAttribute interceptor
+      // never fires on them.  Siteimprove scans before JS when the aria-label
+      // was still bare; by our scan time the value is an opaque token that IS
+      // technically a name but is completely non-descriptive.
+      //
+      // Heuristic: all alphanumeric (no spaces/punct), contains both uppercase
+      // letters AND digits, length ≥ 12. This matches AEM CMS asset IDs while
+      // excluding product codes ("SL2600A" — 7 chars) and real words.
+      // We do NOT apply isCssHidden — Siteimprove flags these even in
+      // display:none inactive carousel panels.
+      const finalName = (link.getAttribute("aria-label") ?? "").trim();
+      const isAssetIdLabel =
+        finalName.length >= 12 &&
+        /^[A-Za-z0-9]+$/.test(finalName) &&   // no spaces or punctuation
+        /[A-Z]/.test(finalName) &&              // has uppercase
+        /[0-9]/.test(finalName);               // has digits
+
+      // Case D: Link had bare aria-label="" in SSR HTML (marked by MutationObserver
+      // in evaluateOnNewDocument) but JS later patched it to a descriptive value.
+      // Siteimprove scans pre-JS and flags these; we replicate that by checking
+      // the data-r11-bare-ssr marker stamped during HTML parsing.
+      // Only apply when no other case already fires (avoid double-counting).
+      const hadBareAriaLabelInSsr = link.hasAttribute("data-r11-bare-ssr");
+
+      if (noName || bareAriaLabel || isAssetIdLabel || hadBareAriaLabelInSsr) {
+        let description = "Link has no accessible name";
+        if (isAssetIdLabel && !noName && !bareAriaLabel) {
+          description = `Link aria-label is a non-descriptive asset ID ("${finalName}") — provide a human-readable name`;
+        } else if (hadBareAriaLabelInSsr && !noName && !bareAriaLabel) {
+          description = `Link aria-label was empty in source HTML — accessible name depends on JavaScript ("${finalName || "(still empty)"}") `;
+        }
         results.push({
           ruleId: "SIA-R11",
           type: "Issue",
@@ -2725,8 +2910,10 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
     // ════════════════════════════════════════════════════════════════════════
     // SIA-R12: Button has no accessible name (WCAG 4.1.2)
     // ════════════════════════════════════════════════════════════════════════
+    // Same isCssHidden rationale as R11 — buttons inside aria-hidden panels
+    // still warrant flagging if they have no accessible name.
     document.querySelectorAll("button, [role='button']").forEach((btn) => {
-      if (!isVisible(btn)) return;
+      if (isCssHidden(btn)) return;
       // role=button on non-interactive elements — check it has a name
       if (!getAccessibleName(btn)) {
         results.push({
