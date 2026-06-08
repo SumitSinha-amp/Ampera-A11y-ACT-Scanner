@@ -467,7 +467,7 @@ export default function Settings() {
     setUrlLimitInput(String(saved));
     fetch(`${BASE}/api/scan-settings`, { credentials: "include" })
       .then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (d?.pageTimeoutMs) setGlobalTimeoutMs(d.pageTimeoutMs); })
+      .then((d) => { if (d != null && typeof d.pageTimeoutMs === "number") setGlobalTimeoutMs(d.pageTimeoutMs); })
       .catch(() => {});
   }, []);
 
@@ -726,7 +726,7 @@ export default function Settings() {
                 )}
               </div>
               <CardDescription>
-                How long the scanner dwells on each page after it loads (DOMContentLoaded) before running accessibility checks. During this wait, JavaScript continues executing — so a longer delay captures more JS-rendered content. Set to 0 for fastest scans; 10–60 s for JS-heavy sites.
+                How long to wait after <strong>DOMContentLoaded</strong> before running checks. At <strong>0 s</strong> the scanner captures the DOM before JS post-load callbacks (setTimeout, requestAnimationFrame, etc.) have had a chance to patch accessibility issues — this matches Siteimprove's scan point. Increasing the delay lets more JS run first, which can cause issues to disappear from results.
                 {!isSuperAdmin(user) && " Only super admins can change this setting."}
               </CardDescription>
             </CardHeader>

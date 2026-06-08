@@ -75,8 +75,9 @@ router.get("/scan-settings", async (req, res): Promise<void> => {
     .select({ value: appSettingsTable.value })
     .from(appSettingsTable)
     .where(eq(appSettingsTable.key, "scan_page_timeout_ms"));
-  const timeoutMs = parseInt(row?.value ?? "10000", 10);
-  res.json({ pageTimeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 10000 });
+// Use >= 0 so that 0 (no delay) is returned as-is, not replaced by the default.
+  const timeoutMs = row?.value != null ? parseInt(row.value, 10) : 2000;
+  res.json({ pageTimeoutMs: Number.isFinite(timeoutMs) && timeoutMs >= 0 ? timeoutMs : 2000 });
 });
 
 router.post("/admin/users", requireAdmin, async (req, res): Promise<void> => {
