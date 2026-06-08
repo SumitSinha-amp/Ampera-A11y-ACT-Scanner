@@ -70,7 +70,7 @@ const BEHIND_HTTPS_PROXY =
   process.env.NODE_ENV === "production" ||
   process.env.WEBSITE_SITE_NAME != null ||
   process.env.FORCE_SECURE_COOKIE === "true";
-app.use("/api", router);
+
 app.use(
   session({
     store: new PgStore({
@@ -101,7 +101,7 @@ app.use(
   })
 );
 
-
+app.use("/api", router);
 // ── Serve React frontend (production only) ─────────────────────────────────
 // The production build copies the Vite output into dist/public/ next to this
 // bundle.  In development, the Vite dev server handles the frontend separately.
