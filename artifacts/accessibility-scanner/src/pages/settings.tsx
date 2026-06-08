@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useLocation } from "wouter";
 import {
   Card,
   CardContent,
@@ -442,6 +443,7 @@ function LogoSettingsCard() {
 export default function Settings() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const [, navigate] = useLocation();
   const canEditLogo = isAdmin(user);
   const [savedProxies, setSavedProxies] = useState<string[]>([]);
   const [activeProxy, setActiveProxy] = useState<string>("");
@@ -455,6 +457,32 @@ export default function Settings() {
   const [globalTimeoutMs, setGlobalTimeoutMs] = useState<number>(10000);
   const [customTimeoutSecs, setCustomTimeoutSecs] = useState("");
   const [savingTimeout, setSavingTimeout] = useState(false);
+
+  const saveScanDelay = useCallback(async (ms: number, label: string) => {
+    setSavingTimeout(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/settings`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scan_page_timeout_ms: String(ms) }),
+      });
+      if (res.ok) {
+        setGlobalTimeoutMs(ms);
+        setCustomTimeoutSecs("");
+        toast({ title: ms === 0 ? "Scan delay disabled (0 s)" : `Scan delay set to ${label}` });
+      } else if (res.status === 401) {
+        toast({ title: "Session expired — please log in again", variant: "destructive" });
+        navigate("/login");
+      } else {
+        toast({ title: `Failed to save (${res.status})`, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Network error — check your connection", variant: "destructive" });
+    } finally {
+      setSavingTimeout(false);
+    }
+  }, [toast, navigate]);
 
   useEffect(() => {
     setSavedProxies(loadSavedProxies());
@@ -753,28 +781,7 @@ export default function Settings() {
                             size="sm"
                             variant={active ? "default" : "outline"}
                             className={`text-xs h-8 px-3 ${active ? "" : "text-muted-foreground"}`}
-                            onClick={async () => {
-                              setSavingTimeout(true);
-                              try {
-                                const res = await fetch(`${BASE}/api/admin/settings`, {
-                                  method: "PUT",
-                                  credentials: "include",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ scan_page_timeout_ms: String(ms) }),
-                                });
-                                if (res.ok) {
-                                  setGlobalTimeoutMs(ms);
-                                  setCustomTimeoutSecs("");
-                                  toast({ title: ms === 0 ? "Scan delay disabled (0 s)" : `Scan delay set to ${label}` });
-                                } else {
-                                  toast({ title: "Failed to save", variant: "destructive" });
-                                }
-                              } catch {
-                                toast({ title: "Network error", variant: "destructive" });
-                              } finally {
-                                setSavingTimeout(false);
-                              }
-                            }}
+                            onClick={() => saveScanDelay(ms, label)}
                             disabled={savingTimeout}
                           >
                             {label}
@@ -804,33 +811,13 @@ export default function Settings() {
                         variant="outline"
                         className="h-8 text-xs"
                         disabled={savingTimeout || customTimeoutSecs === ""}
-                        onClick={async () => {
+                        onClick={() => {
                           const secs = parseFloat(customTimeoutSecs);
                           if (!Number.isFinite(secs) || secs < 0 || secs > 120) {
                             toast({ title: "Enter a value between 0 and 120 seconds", variant: "destructive" });
                             return;
                           }
-                          const ms = Math.round(secs * 1000);
-                          setSavingTimeout(true);
-                          try {
-                            const res = await fetch(`${BASE}/api/admin/settings`, {
-                              method: "PUT",
-                              credentials: "include",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ scan_page_timeout_ms: String(ms) }),
-                            });
-                            if (res.ok) {
-                              setGlobalTimeoutMs(ms);
-                              setCustomTimeoutSecs("");
-                              toast({ title: ms === 0 ? "Scan delay disabled" : `Scan delay set to ${secs}s` });
-                            } else {
-                              toast({ title: "Failed to save", variant: "destructive" });
-                            }
-                          } catch {
-                            toast({ title: "Network error", variant: "destructive" });
-                          } finally {
-                            setSavingTimeout(false);
-                          }
+                          saveScanDelay(Math.round(secs * 1000), `${secs}s`);
                         }}
                       >
                         {savingTimeout ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Apply"}
