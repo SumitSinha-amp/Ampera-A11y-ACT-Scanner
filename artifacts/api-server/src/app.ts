@@ -57,7 +57,20 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
 const SESSION_TTL_SEC = 7 * 24 * 60 * 60; // 7 days in seconds (for PgStore)
-
+// Treat the session cookie as secure whenever we're behind an HTTPS-terminating
+// reverse proxy.  We detect three cases:
+//   1. NODE_ENV=production  — explicit production flag
+//   2. WEBSITE_SITE_NAME    — Azure App Service always sets this env var
+//   3. FORCE_SECURE_COOKIE  — escape hatch for other cloud environments
+// In these environments sameSite must be "none" (requires secure:true) so the
+// cookie is sent on every request regardless of whether the front-end and API
+// share the exact same hostname (e.g. Azure Front Door / App Gateway splits).
+// In local dev none of these vars are set, so we fall back to lax + non-secure.
+const BEHIND_HTTPS_PROXY =
+  process.env.NODE_ENV === "production" ||
+  process.env.WEBSITE_SITE_NAME != null ||
+  process.env.FORCE_SECURE_COOKIE === "true";
+app.use("/api", router);
 app.use(
   session({
     store: new PgStore({
@@ -76,14 +89,18 @@ app.use(
     cookie: {
       httpOnly: true,
       // Auto-enable secure flag when running behind HTTPS proxy (production / Azure / Replit)
-      secure: process.env.NODE_ENV === "production",
+      //secure: process.env.NODE_ENV === "production",
+      secure: BEHIND_HTTPS_PROXY,
+      // "none" allows the cookie to be sent on cross-origin requests (required when
+      // the front-end and API are on different Azure hostnames).  "none" is only
+      // valid when secure:true, so we fall back to "lax" in local dev.
+      sameSite: BEHIND_HTTPS_PROXY ? "none" : "lax",
       maxAge: SESSION_MAX_AGE_MS,
-      sameSite: "lax",
+      //sameSite: "lax",
     },
   })
 );
 
-app.use("/api", router);
 
 // ── Serve React frontend (production only) ─────────────────────────────────
 // The production build copies the Vite output into dist/public/ next to this
