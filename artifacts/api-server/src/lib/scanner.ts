@@ -1604,13 +1604,21 @@ async function _scanPageInternal(
       }
     }
 
-    // Post-load dwell — sit on the page for scanDelayMs after DOMContentLoaded,
-    // letting deferred scripts, lazy components, and analytics widgets fully execute
-    // before running accessibility checks. Higher delays capture more JS-rendered content.
+  // Scan delay — a fixed wait after DOMContentLoaded before running checks.
+    //
+    // scanDelayMs = 0 (default): scan immediately at DOMContentLoaded state.
+    //   This is the raw server-rendered HTML with minimal JS execution —
+    //   matches Siteimprove's scan point where JS hasn't yet patched accessibility issues.
+    //
+    // scanDelayMs > 0: wait this many milliseconds, then scan.
+    //   JS continues executing during this time. Use with caution — longer delays
+    //   allow JS to fix issues (e.g. add aria-labels) before the check runs,
+    //   which can cause our results to diverge from Siteimprove.
     if (scanDelayMs > 0) {
-      logger.info({ url, scanDelayMs }, "Dwelling on page — letting JS execute before running checks");
+      logger.info({ url, scanDelayMs }, "Scan delay — waiting before accessibility checks");
       await new Promise<void>((resolve) => setTimeout(resolve, scanDelayMs));
     }
+
 
     // Capture a full-page snapshot and the rendered DOM before running rules
     let screenshot: string | undefined;

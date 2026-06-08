@@ -1,381 +1,997 @@
-import { useEffect, useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
-  Loader2, Save, Mail, Eye, EyeOff, CheckCircle2, XCircle,
-  Bot, Cpu, Key, Info,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { invalidateAIConfigCache } from "@/components/ai-config-cache";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Shield,
+  ShieldCheck,
+  Trash2,
+  CheckCircle2,
+  Plus,
+  Eye,
+  Sun,
+  Moon,
+  Monitor,
+  ListFilter,
+  Clock,
+  Image as ImageIcon,
+  Type,
+  Upload,
+  RotateCcw,
+  Link as LinkIcon,
+  Loader2,
+  Sparkles,
+  Gem,
+} from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth, isAdmin, isSuperAdmin } from "@/contexts/auth";
 
-const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+const BASE = (import.meta.env.BASE_URL as string).replace(/\/$/, "");
 
-interface AllSettings {
-  smtp_host: string;
-  smtp_port: string;
-  smtp_user: string;
-  smtp_pass: string;
-  smtp_from: string;
-  ai_engine_enabled: string;
-  ai_external_enabled: string;
-  ai_external_provider: string;
-  ai_external_api_key: string;
-  ai_external_model: string;
+export const ELEMENT_VIEWER_LS_KEY = "a11y-element-viewer-enabled";
+
+export function isElementViewerEnabled(): boolean {
+  try {
+    return localStorage.getItem(ELEMENT_VIEWER_LS_KEY) === "true";
+  } catch {
+    return false;
+  }
 }
 
-const DEFAULTS: AllSettings = {
-  smtp_host: "",
-  smtp_port: "587",
-  smtp_user: "",
-  smtp_pass: "",
-  smtp_from: "noreply@amperatech.ai",
-  ai_engine_enabled: "true",
-  ai_external_enabled: "false",
-  ai_external_provider: "gemini",
-  ai_external_api_key: "",
-  ai_external_model: "",
-};
+export const PROXY_LS_KEY = "a11y-scanner-proxy-pacs";
+export const ACTIVE_PROXY_KEY = "a11y-scanner-active-proxy";
 
-export default function AdminSettingsPage() {
+export const URL_LIMIT_LS_KEY = "a11y-url-limit-enabled";
+export const URL_LIMIT_VALUE_LS_KEY = "a11y-url-limit-value";
+export const DEFAULT_URL_LIMIT = 100;
+
+export function isUrlLimitEnabled(): boolean {
+  try {
+    return localStorage.getItem(URL_LIMIT_LS_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function getUrlLimitValue(): number {
+  try {
+    const v = parseInt(localStorage.getItem(URL_LIMIT_VALUE_LS_KEY) ?? "", 10);
+    return Number.isFinite(v) && v > 0 ? v : DEFAULT_URL_LIMIT;
+  } catch {
+    return DEFAULT_URL_LIMIT;
+  }
+}
+
+export const SCAN_TIMEOUT_LS_KEY = "a11y-scan-timeout-mins";
+export const DEFAULT_SCAN_TIMEOUT_MINS = 3;
+
+export function getScanTimeoutMs(): number {
+  try {
+    const v = parseInt(localStorage.getItem(SCAN_TIMEOUT_LS_KEY) ?? "", 10);
+    return Number.isFinite(v) && v >= 1 ? v * 60_000 : DEFAULT_SCAN_TIMEOUT_MINS * 60_000;
+  } catch {
+    return DEFAULT_SCAN_TIMEOUT_MINS * 60_000;
+  }
+}
+
+export const LOGO_TYPE_LS_KEY = "a11y-logo-type";
+export const LOGO_IMAGE_URL_LS_KEY = "a11y-logo-image-url";
+export const LOGO_TEXT_LS_KEY = "a11y-logo-text";
+export const LOGO_SIZE_LS_KEY = "a11y-logo-size";
+export const DEFAULT_LOGO_TEXT = "A11y ACT Tool";
+export const DEFAULT_LOGO_SIZE = 36;
+export const LOGO_SIZE_MIN = 20;
+export const LOGO_SIZE_MAX = 200;
+
+export type LogoType = "image" | "text";
+
+export function getLogoType(): LogoType {
+  try {
+    const v = localStorage.getItem(LOGO_TYPE_LS_KEY);
+    if (v === "image" || v === "text") return v;
+  } catch { /* ignore */ }
+  return "image";
+}
+
+export function getLogoImageUrl(baseUrl = ""): string {
+  try {
+    const v = localStorage.getItem(LOGO_IMAGE_URL_LS_KEY);
+    if (v) return v;
+  } catch { /* ignore */ }
+  return `${baseUrl}act-logo.png`;
+}
+
+export function getLogoText(): string {
+  try {
+    return localStorage.getItem(LOGO_TEXT_LS_KEY) || DEFAULT_LOGO_TEXT;
+  } catch {
+    return DEFAULT_LOGO_TEXT;
+  }
+}
+
+export function getLogoSize(): number {
+  try {
+    const v = parseInt(localStorage.getItem(LOGO_SIZE_LS_KEY) ?? "", 10);
+    if (Number.isFinite(v) && v >= LOGO_SIZE_MIN && v <= LOGO_SIZE_MAX) return v;
+  } catch { /* ignore */ }
+  return DEFAULT_LOGO_SIZE;
+}
+
+export const THEME_LS_KEY = "a11y-theme";
+export type Theme = "light" | "dark" | "system" | "glass-dark" | "glass-light";
+
+export function getSavedTheme(): Theme {
+  try {
+    const v = localStorage.getItem(THEME_LS_KEY);
+    if (
+      v === "light" || v === "dark" || v === "system" ||
+      v === "glass-dark" || v === "glass-light"
+    ) return v;
+  } catch {
+    /* ignore */
+  }
+  return "system";
+}
+
+export function applyTheme(theme: Theme) {
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const useDark =
+    theme === "dark" ||
+    theme === "glass-dark" ||
+    (theme === "system" && prefersDark);
+  document.documentElement.classList.toggle("dark", useDark);
+  document.documentElement.classList.toggle("glass-dark", theme === "glass-dark");
+  document.documentElement.classList.toggle("glass-light", theme === "glass-light");
+}
+
+export function loadSavedProxies(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(PROXY_LS_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+export function getActiveProxy(): string {
+  return localStorage.getItem(ACTIVE_PROXY_KEY) || "";
+}
+
+function LogoSettingsCard() {
   const { toast } = useToast();
-  const [settings, setSettings] = useState<AllSettings>(DEFAULTS);
-  const [fetching, setFetching] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testEmail, setTestEmail] = useState("");
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [showPass, setShowPass] = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [apiKeyDirty, setApiKeyDirty] = useState(false);
+  const BASE_URL = import.meta.env.BASE_URL as string;
+  const BASE = BASE_URL.replace(/\/$/, "");
+  const [loading, setLoading] = useState(true);
+  const [logoType, setLogoTypeState] = useState<LogoType>("image");
+  const [logoImageUrl, setLogoImageUrlState] = useState<string>("");
+  const [logoText, setLogoTextState] = useState<string>(DEFAULT_LOGO_TEXT);
+  const [logoUrlInput, setLogoUrlInput] = useState<string>("");
+  const [logoTextInput, setLogoTextInput] = useState<string>(DEFAULT_LOGO_TEXT);
+  const [logoSize, setLogoSizeState] = useState<number>(DEFAULT_LOGO_SIZE);
+  const [logoImgError, setLogoImgError] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetch(`${BASE}/api/admin/settings`, { credentials: "include" })
+    fetch(`${BASE}/api/logo`)
       .then((r) => r.json())
-      .then((data: Partial<AllSettings>) => {
-        setSettings((prev) => ({ ...prev, ...data }));
-        setFetching(false);
+      .then((data: { type: string; imageUrl: string; text: string; size: number | null }) => {
+        const type: LogoType = data.type === "text" ? "text" : "image";
+        const imgUrl = data.imageUrl || `${BASE_URL}act-logo.png`;
+        const text = data.text || DEFAULT_LOGO_TEXT;
+        const size = typeof data.size === "number" ? data.size : DEFAULT_LOGO_SIZE;
+        setLogoTypeState(type);
+        setLogoImageUrlState(imgUrl);
+        setLogoUrlInput(data.imageUrl || "");
+        setLogoTextState(text);
+        setLogoTextInput(text);
+        setLogoSizeState(size);
       })
-      .catch(() => setFetching(false));
-  }, []);
+      .catch(() => {
+        setLogoImageUrlState(`${BASE_URL}act-logo.png`);
+      })
+      .finally(() => setLoading(false));
+  }, [BASE, BASE_URL]);
 
-  function setField(key: keyof AllSettings) {
-    return (e: { target: { value: string } }) =>
-      setSettings((p) => ({ ...p, [key]: e.target.value }));
-  }
-
-  function toggleField(key: "ai_engine_enabled" | "ai_external_enabled") {
-    return (val: boolean) =>
-      setSettings((p) => ({ ...p, [key]: val ? "true" : "false" }));
-  }
-
-  const handleSave = async () => {
-    setSaving(true);
+  const saveLogo = async (patch: Partial<{ type: LogoType; imageUrl: string; text: string; size: number }>) => {
     try {
-      const body: Record<string, string> = { ...settings };
-      if (!apiKeyDirty) body["ai_external_api_key"] = "••••••••";
-      const res = await fetch(`${BASE}/api/admin/settings`, {
+      await fetch(`${BASE}/api/admin/logo`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(body),
+        body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new Error("Failed to save");
-      setApiKeyDirty(false);
-      invalidateAIConfigCache();
-      toast({ title: "Settings saved", description: "Configuration updated successfully." });
     } catch {
-      toast({ title: "Error", description: "Failed to save settings.", variant: "destructive" });
-    } finally {
-      setSaving(false);
+      // silently ignore — local state already updated
     }
   };
 
-  const handleTest = async () => {
-    if (!testEmail) return;
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const res = await fetch(`${BASE}/api/admin/settings/test-email`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ to: testEmail }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setTestResult({ ok: true, message: "Test email sent successfully." });
-      } else {
-        setTestResult({ ok: false, message: data.error || "Failed to send test email." });
-      }
-    } catch {
-      setTestResult({ ok: false, message: "Network error while sending test email." });
-    } finally {
-      setTesting(false);
-    }
+  const dispatch = (detail: { type: LogoType; imageUrl: string; text: string; size: number }) => {
+    window.dispatchEvent(new CustomEvent("a11y-logo-changed", { detail }));
   };
 
-  const modelPlaceholder = settings.ai_external_provider === "openai" ? "gpt-4o-mini" : "gemini-2.0-flash";
-  const apiKeyIsSet = settings.ai_external_api_key === "••••••••";
+  const handleLogoTypeChange = async (t: LogoType) => {
+    setLogoTypeState(t);
+    await saveLogo({ type: t });
+    dispatch({ type: t, imageUrl: logoImageUrl, text: logoText, size: logoSize });
+    toast({ title: t === "image" ? "Logo set to image" : "Logo set to text" });
+  };
+
+  const applyLogoUrl = async (url: string) => {
+    const trimmed = url.trim();
+    const imgUrl = trimmed || `${BASE_URL}act-logo.png`;
+    setLogoImageUrlState(imgUrl);
+    setLogoImgError(false);
+    await saveLogo({ imageUrl: trimmed });
+    dispatch({ type: logoType, imageUrl: imgUrl, text: logoText, size: logoSize });
+    toast({ title: "Logo image updated" });
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Please select an image file", variant: "destructive" });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const dataUrl = ev.target?.result as string;
+      setLogoImageUrlState(dataUrl);
+      setLogoUrlInput("");
+      setLogoImgError(false);
+      await saveLogo({ imageUrl: dataUrl });
+      dispatch({ type: logoType, imageUrl: dataUrl, text: logoText, size: logoSize });
+      toast({ title: "Logo image uploaded" });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const resetLogoImage = async () => {
+    const def = `${BASE_URL}act-logo.png`;
+    setLogoImageUrlState(def);
+    setLogoUrlInput("");
+    setLogoImgError(false);
+    await saveLogo({ imageUrl: "" });
+    dispatch({ type: logoType, imageUrl: def, text: logoText, size: logoSize });
+    toast({ title: "Logo reset to default" });
+  };
+
+  const applyLogoText = async (text: string) => {
+    const trimmed = text.trim() || DEFAULT_LOGO_TEXT;
+    setLogoTextState(trimmed);
+    setLogoTextInput(trimmed);
+    await saveLogo({ text: trimmed });
+    dispatch({ type: logoType, imageUrl: logoImageUrl, text: trimmed, size: logoSize });
+    toast({ title: "Logo text updated" });
+  };
+
+  const handleLogoSizeChange = async (val: number[]) => {
+    const size = val[0];
+    setLogoSizeState(size);
+    await saveLogo({ size });
+    dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, size });
+  };
+
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="py-8 flex justify-center">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">System Settings</h1>
-          <p className="text-muted-foreground mt-1">Configure AI engine, SMTP, and other system-wide options.</p>
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <ImageIcon className="w-5 h-5 text-muted-foreground" />
+          <CardTitle>Logo</CardTitle>
         </div>
-        {fetching && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+        <CardDescription>
+          Choose whether the header shows an image logo or a text logo.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="grid grid-cols-2 gap-3">
+          {([
+            { value: "image" as LogoType, label: "Image logo", icon: ImageIcon },
+            { value: "text" as LogoType, label: "Text logo", icon: Type },
+          ]).map(({ value, label, icon: Icon }) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => handleLogoTypeChange(value)}
+              className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-all ${
+                logoType === value
+                  ? "border-primary bg-primary/5 text-primary"
+                  : "border-border hover:border-primary/40 hover:bg-muted/40 text-muted-foreground"
+              }`}
+            >
+              <Icon className="w-5 h-5" />
+              <span className="text-sm font-medium">{label}</span>
+            </button>
+          ))}
+        </div>
+
+        {logoType === "image" && (
+          <div className="space-y-4 pt-1 border-t">
+            <div>
+              <p className="text-sm font-medium mb-2">Preview</p>
+              <div className="flex items-center gap-3 rounded-lg border bg-background px-4 py-3">
+                {logoImgError ? (
+                  <span className="text-sm text-destructive">Failed to load image</span>
+                ) : (
+                  <img
+                    src={logoImageUrl}
+                    alt="Logo preview"
+                    className="h-8 w-auto max-w-[180px] object-contain"
+                    onError={() => setLogoImgError(true)}
+                    onLoad={() => setLogoImgError(false)}
+                  />
+                )}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Upload image file</Label>
+              <div className="flex gap-2">
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
+                <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()}>
+                  <Upload className="w-4 h-4" />
+                  Choose file
+                </Button>
+                <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={resetLogoImage}>
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Reset to default
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">PNG, JPG, SVG, or WebP — transparent background recommended.</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="logo-url-input" className="flex items-center gap-1.5">
+                <LinkIcon className="w-3.5 h-3.5" />
+                Or enter an image URL
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="logo-url-input"
+                  placeholder="https://example.com/logo.png"
+                  value={logoUrlInput}
+                  onChange={(e) => setLogoUrlInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { applyLogoUrl(logoUrlInput); (e.target as HTMLInputElement).blur(); } }}
+                  className="font-mono text-sm"
+                />
+                <Button onClick={() => applyLogoUrl(logoUrlInput)} disabled={!logoUrlInput.trim()}>Apply</Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {logoType === "text" && (
+          <div className="space-y-4 pt-1 border-t">
+            <div>
+              <p className="text-sm font-medium mb-2">Preview</p>
+              <div className="flex items-center gap-2 rounded-lg border bg-background px-4 py-3">
+                <svg viewBox="0 0 24 24" style={{ width: logoSize * 0.6, height: logoSize * 0.6 }} className="text-primary shrink-0" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                </svg>
+                <span className="font-bold text-foreground" style={{ fontSize: logoSize * 0.55 }}>{logoText}</span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="logo-text-input">Logo text</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="logo-text-input"
+                  value={logoTextInput}
+                  onChange={(e) => setLogoTextInput(e.target.value)}
+                  onBlur={() => applyLogoText(logoTextInput)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { applyLogoText(logoTextInput); (e.target as HTMLInputElement).blur(); } }}
+                  placeholder={DEFAULT_LOGO_TEXT}
+                  maxLength={60}
+                  className="max-w-xs"
+                />
+                {logoText !== DEFAULT_LOGO_TEXT && (
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={async () => { setLogoTextState(DEFAULT_LOGO_TEXT); setLogoTextInput(DEFAULT_LOGO_TEXT); await saveLogo({ text: DEFAULT_LOGO_TEXT }); dispatch({ type: logoType, imageUrl: logoImageUrl, text: DEFAULT_LOGO_TEXT, size: logoSize }); toast({ title: "Logo text reset to default" }); }}>
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Reset
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">Press Enter or click away to apply.</p>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-3 pt-4 border-t">
+          <div className="flex items-center justify-between">
+            <Label>Logo size</Label>
+            <div className="flex items-center gap-2">
+              <span className="text-sm tabular-nums text-muted-foreground w-12 text-right">{logoSize}px</span>
+              {logoSize !== DEFAULT_LOGO_SIZE && (
+                <Button variant="ghost" size="sm" className="h-7 px-2 gap-1 text-muted-foreground" onClick={async () => { setLogoSizeState(DEFAULT_LOGO_SIZE); await saveLogo({ size: DEFAULT_LOGO_SIZE }); dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, size: DEFAULT_LOGO_SIZE }); }}>
+                  <RotateCcw className="w-3 h-3" />
+                  Reset
+                </Button>
+              )}
+            </div>
+          </div>
+          <Slider min={LOGO_SIZE_MIN} max={LOGO_SIZE_MAX} step={1} value={[logoSize]} onValueChange={handleLogoSizeChange} className="w-full" />
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>{LOGO_SIZE_MIN}px</span>
+            <span>{LOGO_SIZE_MAX}px</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function Settings() {
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const canEditLogo = isAdmin(user);
+  const [savedProxies, setSavedProxies] = useState<string[]>([]);
+  const [activeProxy, setActiveProxy] = useState<string>("");
+  const [newPacUrl, setNewPacUrl] = useState("");
+  const [elementViewerEnabled, setElementViewerEnabledState] =
+    useState<boolean>(false);
+  const [theme, setThemeState] = useState<Theme>("system");
+  const [urlLimitEnabled, setUrlLimitEnabledState] = useState(false);
+  const [urlLimitValue, setUrlLimitValueState] = useState(DEFAULT_URL_LIMIT);
+  const [urlLimitInput, setUrlLimitInput] = useState(String(DEFAULT_URL_LIMIT));
+  const [globalTimeoutMs, setGlobalTimeoutMs] = useState<number>(10000);
+  const [customTimeoutSecs, setCustomTimeoutSecs] = useState("");
+  const [savingTimeout, setSavingTimeout] = useState(false);
+
+  useEffect(() => {
+    setSavedProxies(loadSavedProxies());
+    setActiveProxy(getActiveProxy());
+    setElementViewerEnabledState(isElementViewerEnabled());
+    setThemeState(getSavedTheme());
+    setUrlLimitEnabledState(isUrlLimitEnabled());
+    const saved = getUrlLimitValue();
+    setUrlLimitValueState(saved);
+    setUrlLimitInput(String(saved));
+    fetch(`${BASE}/api/scan-settings`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.pageTimeoutMs) setGlobalTimeoutMs(d.pageTimeoutMs); })
+      .catch(() => {});
+  }, []);
+
+  const handleThemeChange = (t: Theme) => {
+    setThemeState(t);
+    localStorage.setItem(THEME_LS_KEY, t);
+    applyTheme(t);
+    const labels: Record<Theme, string> = {
+      light: "Light",
+      dark: "Dark",
+      system: "System default",
+      "glass-dark": "Glass Dark",
+      "glass-light": "Glass Light",
+    };
+    toast({ title: `Theme set to ${labels[t]}` });
+  };
+
+  const addProxy = () => {
+    const url = newPacUrl.trim();
+    if (!url) return;
+    const existing = loadSavedProxies().filter((p) => p !== url);
+    const updated = [url, ...existing].slice(0, 8);
+    localStorage.setItem(PROXY_LS_KEY, JSON.stringify(updated));
+    setSavedProxies(updated);
+    if (!activeProxy) {
+      localStorage.setItem(ACTIVE_PROXY_KEY, url);
+      setActiveProxy(url);
+    }
+    setNewPacUrl("");
+    toast({ title: "PAC URL saved" });
+  };
+
+  const selectProxy = (url: string) => {
+    localStorage.setItem(ACTIVE_PROXY_KEY, url);
+    setActiveProxy(url);
+    toast({ title: "Active proxy updated" });
+  };
+
+  const clearActiveProxy = () => {
+    localStorage.removeItem(ACTIVE_PROXY_KEY);
+    setActiveProxy("");
+    toast({ title: "Active proxy cleared" });
+  };
+
+  const removeProxy = (url: string) => {
+    const remaining = loadSavedProxies().filter((p) => p !== url);
+    localStorage.setItem(PROXY_LS_KEY, JSON.stringify(remaining));
+    setSavedProxies(remaining);
+    if (activeProxy === url) {
+      localStorage.removeItem(ACTIVE_PROXY_KEY);
+      setActiveProxy("");
+    }
+    toast({ title: "PAC URL removed" });
+  };
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+        <p className="text-muted-foreground mt-1">Manage your appearance, scan, and proxy preferences.</p>
       </div>
 
-      <Tabs defaultValue="ai">
+      <Tabs defaultValue="appearance">
         <TabsList className="mb-2">
-          <TabsTrigger value="ai" className="gap-1.5">
-            <Cpu className="w-3.5 h-3.5" />
-            AI Settings
+          <TabsTrigger value="appearance" className="gap-1.5">
+            <Sun className="w-3.5 h-3.5" />
+            Appearance
           </TabsTrigger>
-          <TabsTrigger value="smtp" className="gap-1.5">
-            <Mail className="w-3.5 h-3.5" />
-            SMTP
+          <TabsTrigger value="scan" className="gap-1.5">
+            <Clock className="w-3.5 h-3.5" />
+            Scan
+          </TabsTrigger>
+          <TabsTrigger value="proxy" className="gap-1.5">
+            <Shield className="w-3.5 h-3.5" />
+            Proxy &amp; Tools
           </TabsTrigger>
         </TabsList>
 
-        {/* ── AI tab ─────────────────────────────────────────────────────── */}
-        <TabsContent value="ai" className="space-y-5 mt-0">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Cpu className="w-4 h-4 text-violet-500" />
-                AI Fix Engine
-              </CardTitle>
-              <CardDescription>
-                Offline rule-based engine that explains accessibility violations and suggests code fixes — no API key required, zero latency.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-sm font-medium">Enable Rule-Based Engine</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Shows context-aware "Why &amp; Fix" guidance on every issue.
-                  </p>
-                </div>
-                <Switch
-                  checked={settings.ai_engine_enabled === "true"}
-                  onCheckedChange={toggleField("ai_engine_enabled")}
-                />
-              </div>
-            </CardContent>
-          </Card>
+        {/* ── Appearance tab ──────────────────────────────────────────────── */}
+        <TabsContent value="appearance" className="space-y-5 mt-0">
+          {canEditLogo && <LogoSettingsCard />}
 
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bot className="w-4 h-4 text-blue-500" />
-                External AI
-                <Badge variant="outline" className="ml-1 text-xs font-normal">Optional</Badge>
-              </CardTitle>
+              <div className="flex items-center gap-2">
+                <Sun className="w-5 h-5 text-muted-foreground" />
+                <CardTitle>Appearance</CardTitle>
+              </div>
               <CardDescription>
-                Connect Gemini or OpenAI for deeper analysis. The API key is stored securely and never exposed to the browser.
+                Choose a colour scheme for the interface.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                {(
+                  [
+                    { value: "light", label: "Light", icon: Sun },
+                    { value: "dark", label: "Dark", icon: Moon },
+                    { value: "system", label: "System", icon: Monitor },
+                  ] as { value: Theme; label: string; icon: React.ElementType }[]
+                ).map(({ value, label, icon: Icon }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => handleThemeChange(value)}
+                    className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-all ${
+                      theme === value
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-border hover:border-primary/40 hover:bg-muted/40 text-muted-foreground"
+                    }`}
+                  >
+                    <Icon className="w-5 h-5" />
+                    <span className="text-sm font-medium">{label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Glass themes
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  {(
+                    [
+                      {
+                        value: "glass-dark" as Theme,
+                        label: "Glass Dark",
+                        icon: Gem,
+                        desc: "Deep space aurora",
+                        gradient: "from-violet-900 via-indigo-900 to-slate-900",
+                      },
+                      {
+                        value: "glass-light" as Theme,
+                        label: "Glass Light",
+                        icon: Sparkles,
+                        desc: "Frosted crystal",
+                        gradient: "from-violet-100 via-fuchsia-100 to-sky-100",
+                      },
+                    ]
+                  ).map(({ value, label, icon: Icon, desc, gradient }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => handleThemeChange(value)}
+                      className={`relative flex items-center gap-3 p-4 rounded-lg border-2 transition-all overflow-hidden text-left ${
+                        theme === value
+                          ? "border-primary text-primary"
+                          : "border-border hover:border-primary/40 text-muted-foreground"
+                      }`}
+                    >
+                      <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-20 pointer-events-none`} />
+                      <div className={`relative flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br ${gradient} shadow-sm shrink-0`}>
+                        <Icon className={`w-4.5 h-4.5 ${theme === value ? "text-primary" : "text-foreground/70"}`} />
+                      </div>
+                      <div className="relative min-w-0">
+                        <p className="text-sm font-semibold leading-none">{label}</p>
+                        <p className="text-[11px] text-muted-foreground mt-1">{desc}</p>
+                      </div>
+                      {theme === value && (
+                        <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-primary" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Scan tab ────────────────────────────────────────────────────── */}
+        <TabsContent value="scan" className="space-y-5 mt-0">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <ListFilter className="w-5 h-5 text-muted-foreground" />
+                <CardTitle>URL Limit</CardTitle>
+              </div>
+              <CardDescription>
+                Restrict the number of URLs that can be added to a scan. When
+                enabled, adding URLs beyond the limit is blocked and an alert is
+                shown.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-sm font-medium">Enable External AI</Label>
-                  <p className="text-xs text-muted-foreground">Shows an "Ask AI" button on every issue.</p>
+                <div>
+                  <p className="text-sm font-medium">Enable URL limit</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {urlLimitEnabled
+                      ? `Scans are limited to ${urlLimitValue} URL${urlLimitValue === 1 ? "" : "s"}`
+                      : "No limit — scans can include any number of URLs"}
+                  </p>
                 </div>
                 <Switch
-                  checked={settings.ai_external_enabled === "true"}
-                  onCheckedChange={toggleField("ai_external_enabled")}
+                  checked={urlLimitEnabled}
+                  onCheckedChange={(v) => {
+                    setUrlLimitEnabledState(v);
+                    localStorage.setItem(URL_LIMIT_LS_KEY, String(v));
+                    window.dispatchEvent(new CustomEvent("a11y-url-limit-changed"));
+                    toast({
+                      title: v
+                        ? `URL limit enabled (${urlLimitValue})`
+                        : "URL limit disabled",
+                    });
+                  }}
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <Label>Provider</Label>
-                <Select
-                  value={settings.ai_external_provider}
-                  onValueChange={(v) => setSettings((p) => ({ ...p, ai_external_provider: v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="gemini">Google Gemini</SelectItem>
-                    <SelectItem value="openai">OpenAI (ChatGPT)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="ai_external_api_key" className="flex items-center gap-1.5">
-                  <Key className="w-3 h-3" />
-                  API Key
-                  {apiKeyIsSet && !apiKeyDirty && (
-                    <Badge variant="secondary" className="text-xs font-normal ml-1">Key saved</Badge>
-                  )}
-                </Label>
-                <div className="relative">
-                  <Input
-                    id="ai_external_api_key"
-                    type={showApiKey ? "text" : "password"}
-                    placeholder={
-                      apiKeyIsSet && !apiKeyDirty
-                        ? "••••••••  (saved — enter new key to replace)"
-                        : settings.ai_external_provider === "gemini"
-                        ? "AIzaSy..."
-                        : "sk-..."
-                    }
-                    value={apiKeyDirty ? settings.ai_external_api_key : ""}
-                    onChange={(e) => {
-                      setApiKeyDirty(true);
-                      setSettings((p) => ({ ...p, ai_external_api_key: e.target.value }));
-                    }}
-                    className="pr-10"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground"
-                    onClick={() => setShowApiKey((v) => !v)}
-                  >
-                    {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
+              {urlLimitEnabled && (
+                <div className="space-y-2 pt-1 border-t">
+                  <Label htmlFor="url-limit-input">Maximum number of URLs</Label>
+                  <div className="flex gap-2 items-center max-w-xs">
+                    <Input
+                      id="url-limit-input"
+                      type="number"
+                      min={1}
+                      max={10000}
+                      value={urlLimitInput}
+                      onChange={(e) => setUrlLimitInput(e.target.value)}
+                      onBlur={() => {
+                        const n = parseInt(urlLimitInput, 10);
+                        if (!Number.isFinite(n) || n < 1) {
+                          setUrlLimitInput(String(urlLimitValue));
+                          return;
+                        }
+                        const clamped = Math.min(Math.max(n, 1), 10000);
+                        setUrlLimitValueState(clamped);
+                        setUrlLimitInput(String(clamped));
+                        localStorage.setItem(URL_LIMIT_VALUE_LS_KEY, String(clamped));
+                        window.dispatchEvent(new CustomEvent("a11y-url-limit-changed"));
+                        toast({ title: `URL limit set to ${clamped}` });
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                      }}
+                      className="w-32"
+                    />
+                    <span className="text-sm text-muted-foreground">URLs maximum</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Enter a number between 1 and 10,000. Changes take effect immediately on the scan page.
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Info className="w-3 h-3 shrink-0" />
-                  {settings.ai_external_provider === "gemini"
-                    ? "Get a free key at aistudio.google.com/apikey"
-                    : "Get a key at platform.openai.com/api-keys"}
-                </p>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="ai_external_model">
-                  Model <span className="text-muted-foreground font-normal">(optional)</span>
-                </Label>
-                <Input
-                  id="ai_external_model"
-                  placeholder={modelPlaceholder}
-                  value={settings.ai_external_model}
-                  onChange={setField("ai_external_model")}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Leave blank to use the default model ({modelPlaceholder}).
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="flex justify-end">
-            <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
-              {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-              Save AI Settings
-            </Button>
-          </div>
-        </TabsContent>
-
-        {/* ── SMTP tab ────────────────────────────────────────────────────── */}
-        <TabsContent value="smtp" className="space-y-5 mt-0">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Mail className="w-4 h-4" />
-                SMTP Configuration
-              </CardTitle>
-              <CardDescription>
-                Settings saved here override environment variables. Leave blank to use env vars (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM).
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
-                <div className="col-span-2 space-y-1.5">
-                  <Label htmlFor="smtp_host">SMTP Host</Label>
-                  <Input id="smtp_host" placeholder="smtp.gmail.com" value={settings.smtp_host} onChange={setField("smtp_host")} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="smtp_port">Port</Label>
-                  <Input id="smtp_port" placeholder="587" value={settings.smtp_port} onChange={setField("smtp_port")} />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="smtp_user">Username</Label>
-                <Input id="smtp_user" placeholder="you@example.com" value={settings.smtp_user} onChange={setField("smtp_user")} />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="smtp_pass">Password</Label>
-                <div className="relative">
-                  <Input
-                    id="smtp_pass"
-                    type={showPass ? "text" : "password"}
-                    placeholder="••••••••"
-                    value={settings.smtp_pass}
-                    onChange={setField("smtp_pass")}
-                    className="pr-10"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground"
-                    onClick={() => setShowPass((v) => !v)}
-                  >
-                    {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="smtp_from">From Address</Label>
-                <Input id="smtp_from" placeholder="noreply@amperatech.ai" value={settings.smtp_from} onChange={setField("smtp_from")} />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Send Test Email</CardTitle>
-              <CardDescription>
-                Verify your SMTP settings are working by sending a test email. Save settings first.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex gap-2">
-                <Input
-                  placeholder="recipient@example.com"
-                  value={testEmail}
-                  onChange={(e) => setTestEmail(e.target.value)}
-                  type="email"
-                />
-                <Button onClick={handleTest} disabled={testing || !testEmail} variant="outline">
-                  {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send Test"}
-                </Button>
-              </div>
-
-              {testResult && (
-                <Alert variant={testResult.ok ? "default" : "destructive"}>
-                  {testResult.ok ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                  <AlertDescription>{testResult.message}</AlertDescription>
-                </Alert>
               )}
             </CardContent>
           </Card>
 
-          <div className="flex justify-end">
-            <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
-              {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-              Save SMTP Settings
-            </Button>
-          </div>
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Clock className="w-5 h-5 text-muted-foreground" />
+                <CardTitle>Scan Delay</CardTitle>
+                {isSuperAdmin(user) && (
+                  <Badge variant="outline" className="ml-auto text-xs text-purple-600 border-purple-300 dark:text-purple-400">Super Admin</Badge>
+                )}
+              </div>
+              <CardDescription>
+                Fixed wait after DOMContentLoaded before running accessibility checks. At <strong>0 s</strong> (default) the scanner checks the raw server-rendered HTML — the same point Siteimprove scans, before JavaScript has had a chance to patch issues. Increasing this allows more JS to run first, which can cause issues to disappear from results.
+                {!isSuperAdmin(user) && " Only super admins can change this setting."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Current value shown to everyone */}
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Current delay:</span>
+                <Badge variant="secondary" className="font-mono">
+                  {globalTimeoutMs === 0 ? "0s (no delay)" : globalTimeoutMs >= 1000 ? `${globalTimeoutMs / 1000}s` : `${globalTimeoutMs}ms`}
+                </Badge>
+              </div>
+
+              {isSuperAdmin(user) && (
+                <>
+                  {/* Preset buttons */}
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Preset values</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {[{ label: "0s", ms: 0 }, { label: "2s", ms: 2000 }, { label: "5s", ms: 5000 }, { label: "10s", ms: 10000 }, { label: "30s", ms: 30000 }].map(({ label, ms }) => {
+                        const active = globalTimeoutMs === ms;
+                        return (
+                          <Button
+                            key={ms}
+                            size="sm"
+                            variant={active ? "default" : "outline"}
+                            className={`text-xs h-8 px-3 ${active ? "" : "text-muted-foreground"}`}
+                            onClick={async () => {
+                              setSavingTimeout(true);
+                              try {
+                                const res = await fetch(`${BASE}/api/admin/settings`, {
+                                  method: "PUT",
+                                  credentials: "include",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ scan_page_timeout_ms: String(ms) }),
+                                });
+                                if (res.ok) {
+                                  setGlobalTimeoutMs(ms);
+                                  setCustomTimeoutSecs("");
+                                  toast({ title: ms === 0 ? "Scan delay disabled (0 s)" : `Scan delay set to ${label}` });
+                                } else {
+                                  toast({ title: "Failed to save", variant: "destructive" });
+                                }
+                              } catch {
+                                toast({ title: "Network error", variant: "destructive" });
+                              } finally {
+                                setSavingTimeout(false);
+                              }
+                            }}
+                            disabled={savingTimeout}
+                          >
+                            {label}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Custom value */}
+                  <div className="space-y-2">
+                    <Label htmlFor="custom-timeout" className="text-xs text-muted-foreground uppercase tracking-wide">Custom (seconds)</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="custom-timeout"
+                        type="number"
+                        min={0}
+                        max={120}
+                        placeholder="e.g. 3"
+                        value={customTimeoutSecs}
+                        onChange={(e) => setCustomTimeoutSecs(e.target.value)}
+                        className="w-28 h-8 text-sm"
+                        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs"
+                        disabled={savingTimeout || customTimeoutSecs === ""}
+                        onClick={async () => {
+                          const secs = parseFloat(customTimeoutSecs);
+                          if (!Number.isFinite(secs) || secs < 0 || secs > 120) {
+                            toast({ title: "Enter a value between 0 and 120 seconds", variant: "destructive" });
+                            return;
+                          }
+                          const ms = Math.round(secs * 1000);
+                          setSavingTimeout(true);
+                          try {
+                            const res = await fetch(`${BASE}/api/admin/settings`, {
+                              method: "PUT",
+                              credentials: "include",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ scan_page_timeout_ms: String(ms) }),
+                            });
+                            if (res.ok) {
+                              setGlobalTimeoutMs(ms);
+                              setCustomTimeoutSecs("");
+                              toast({ title: ms === 0 ? "Scan delay disabled" : `Scan delay set to ${secs}s` });
+                            } else {
+                              toast({ title: "Failed to save", variant: "destructive" });
+                            }
+                          } catch {
+                            toast({ title: "Network error", variant: "destructive" });
+                          } finally {
+                            setSavingTimeout(false);
+                          }
+                        }}
+                      >
+                        {savingTimeout ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Apply"}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">5–300 seconds. The hard-abort deadline is 20 s beyond this value.</p>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Proxy & Tools tab ───────────────────────────────────────────── */}
+        <TabsContent value="proxy" className="space-y-5 mt-0">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Shield className="w-5 h-5 text-muted-foreground" />
+                <CardTitle>Proxy PAC Configuration</CardTitle>
+              </div>
+              <CardDescription>
+                Add and manage PAC file URLs for scanning environments behind a
+                corporate proxy. The active PAC URL is used when proxy mode is
+                enabled on the scan page.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="rounded-lg border p-4 space-y-2">
+                <p className="text-sm font-medium">Active Proxy PAC</p>
+                {activeProxy ? (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
+                    <code className="text-sm font-mono text-blue-700 dark:text-blue-400 flex-1 break-all">
+                      {activeProxy}
+                    </code>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-muted-foreground hover:text-destructive shrink-0"
+                      onClick={clearActiveProxy}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground italic">
+                    No active proxy PAC set. Select one below or add a new one.
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label>Add PAC URL</Label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="http://example.com/proxy/autoproxy.pac"
+                    value={newPacUrl}
+                    onChange={(e) => setNewPacUrl(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") addProxy();
+                    }}
+                    className="font-mono text-sm"
+                  />
+                  <Button onClick={addProxy} disabled={!newPacUrl.trim()}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add
+                  </Button>
+                </div>
+              </div>
+
+              {savedProxies.length > 0 ? (
+                <div className="space-y-2">
+                  <Label>Saved PAC URLs</Label>
+                  <div className="border rounded-md overflow-hidden divide-y">
+                    {savedProxies.map((pac) => (
+                      <div
+                        key={pac}
+                        className={`flex items-center gap-3 px-4 py-3 group ${activeProxy === pac ? "bg-blue-50 dark:bg-blue-950/20" : "hover:bg-muted/40"}`}
+                      >
+                        <code className="flex-1 text-xs font-mono truncate" title={pac}>
+                          {pac}
+                        </code>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {activeProxy === pac ? (
+                            <Badge
+                              variant="secondary"
+                              className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 text-xs"
+                            >
+                              <CheckCircle2 className="w-3 h-3 mr-1" />
+                              Active
+                            </Badge>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={() => selectProxy(pac)}
+                            >
+                              Use this
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => removeProxy(pac)}
+                            aria-label="Remove"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No PAC URLs saved yet. Add one above.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Eye className="w-5 h-5 text-muted-foreground" />
+                <CardTitle>Element Viewer</CardTitle>
+              </div>
+              <CardDescription>
+                When enabled, a side panel appears next to Page Results on each scan
+                detail page. Click any issue occurrence to inspect its HTML source
+                and live page preview, and navigate between occurrences with Prev /
+                Next controls.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Enable Element Viewer</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Shows HTML source viewer and live page preview alongside issue results
+                  </p>
+                </div>
+                <Switch
+                  checked={elementViewerEnabled}
+                  onCheckedChange={(v) => {
+                    setElementViewerEnabledState(v);
+                    localStorage.setItem(ELEMENT_VIEWER_LS_KEY, String(v));
+                    window.dispatchEvent(new Event("storage"));
+                    toast({
+                      title: v
+                        ? "Element Viewer enabled"
+                        : "Element Viewer disabled",
+                    });
+                  }}
+                />
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
