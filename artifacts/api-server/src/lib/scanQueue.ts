@@ -1,10 +1,18 @@
-import { db, scanSessionsTable, pageResultsTable, accessibilityIssuesTable, appSettingsTable } from "@workspace/db";
+import {
+  db,
+  scanSessionsTable,
+  pageResultsTable,
+  accessibilityIssuesTable,
+  appSettingsTable,
+} from "@workspace/db";
 import { eq, and, sql, or, inArray, lt } from "drizzle-orm";
 import { scanPage } from "./scanner";
 import { logger } from "./logger";
 
 interface ScanOptions {
   timeout?: number;
+  /** Per-URL override for the post-load scan delay (ms). Falls back to DB setting when omitted. */
+  scanDelayMs?: number;
   waitForNetworkIdle?: boolean;
   bypassCSP?: boolean;
   maxConcurrency?: number;
@@ -13,18 +21,20 @@ interface ScanOptions {
   skipCompletedPages?: boolean;
   disableJavascript?: boolean;
 }
-async function getGlobalPageTimeoutMs(): Promise<number> {
+
+async function getGlobalScanDelayMs(): Promise<number> {
   try {
     const [row] = await db
       .select({ value: appSettingsTable.value })
       .from(appSettingsTable)
       .where(eq(appSettingsTable.key, "scan_page_timeout_ms"));
     const parsed = parseInt(row?.value ?? "", 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000;
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 2_000;
   } catch {
-    return 10_000;
+    return 2_000;
   }
 }
+
 const activeScanControllers = new Map<number, AbortController>();
 const pausedScans = new Set<number>();
 const queuedRetryUrls = new Map<number, Set<string>>();
@@ -43,33 +53,43 @@ function getLegalText(legal?: { ada: string[]; eaa: boolean }): string {
 }
 
 async function setPageStatus(pageId: number, status: string): Promise<void> {
-  await db.update(pageResultsTable)
+  await db
+    .update(pageResultsTable)
     .set({ status })
     .where(eq(pageResultsTable.id, pageId));
 }
 
-async function waitIfPaused(scanId: number, controller: AbortController): Promise<boolean> {
+async function waitIfPaused(
+  scanId: number,
+  controller: AbortController,
+): Promise<boolean> {
   if (!pausedScans.has(scanId)) return true;
   logger.info({ scanId }, "Scan paused — waiting for resume");
   while (pausedScans.has(scanId) && !controller.signal.aborted) {
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 500));
   }
   if (controller.signal.aborted) return false;
   logger.info({ scanId }, "Scan resumed");
-  await db.update(scanSessionsTable)
+  await db
+    .update(scanSessionsTable)
     .set({ status: "running" })
     .where(eq(scanSessionsTable.id, scanId));
   return true;
 }
 
-export async function startScan(scanId: number, urls: string[], options: ScanOptions = {}): Promise<void> {
+export async function startScan(
+  scanId: number,
+  urls: string[],
+  options: ScanOptions = {},
+): Promise<void> {
   const controller = new AbortController();
   activeScanControllers.set(scanId, controller);
 
   const { maxConcurrency = 2 } = options;
 
   try {
-    await db.update(scanSessionsTable)
+    await db
+      .update(scanSessionsTable)
       .set({ status: "running" })
       .where(eq(scanSessionsTable.id, scanId));
 
@@ -83,30 +103,48 @@ export async function startScan(scanId: number, urls: string[], options: ScanOpt
         logger.info({ scanId }, "Scan cancelled by user");
         break;
       }
-      if (!await waitIfPaused(scanId, controller)) break;
+      if (!(await waitIfPaused(scanId, controller))) break;
 
       // Drain any URLs injected mid-scan via addUrlsToRunningScan
       const injected = injectedUrlQueue.get(scanId);
       if (injected && injected.length > 0) {
         liveQueue.push(...injected.splice(0));
-        logger.info({ scanId, count: liveQueue.length - qi }, "Injected URLs appended to live queue");
+        logger.info(
+          { scanId, count: liveQueue.length - qi },
+          "Injected URLs appended to live queue",
+        );
       }
 
       const batch = liveQueue.slice(qi, qi + maxConcurrency);
       qi += maxConcurrency;
-      await Promise.all(batch.map(url => scanSinglePage(scanId, url, options, controller.signal)));
+      await Promise.all(
+        batch.map((url) =>
+          scanSinglePage(scanId, url, options, controller.signal),
+        ),
+      );
     }
 
     // Final drain — pick up URLs injected right as the loop was finishing
     const finalInjected = injectedUrlQueue.get(scanId);
-    if (finalInjected && finalInjected.length > 0 && !controller.signal.aborted) {
+    if (
+      finalInjected &&
+      finalInjected.length > 0 &&
+      !controller.signal.aborted
+    ) {
       const extra = finalInjected.splice(0);
-      logger.info({ scanId, count: extra.length }, "Processing URLs injected after Phase 1 completion");
+      logger.info(
+        { scanId, count: extra.length },
+        "Processing URLs injected after Phase 1 completion",
+      );
       for (let i = 0; i < extra.length; i += maxConcurrency) {
         if (controller.signal.aborted) break;
-        if (!await waitIfPaused(scanId, controller)) break;
+        if (!(await waitIfPaused(scanId, controller))) break;
         const batch = extra.slice(i, i + maxConcurrency);
-        await Promise.all(batch.map(url => scanSinglePage(scanId, url, options, controller.signal)));
+        await Promise.all(
+          batch.map((url) =>
+            scanSinglePage(scanId, url, options, controller.signal),
+          ),
+        );
       }
     }
 
@@ -119,7 +157,7 @@ export async function startScan(scanId: number, urls: string[], options: ScanOpt
       const queued = queuedRetryUrls.get(scanId);
       if (!queued || queued.size === 0) break;
 
-      if (!await waitIfPaused(scanId, controller)) break;
+      if (!(await waitIfPaused(scanId, controller))) break;
 
       // Snapshot the current queue — scanSinglePage removes each URL from
       // the set at start, and may re-add it at end if another retry is needed.
@@ -127,7 +165,16 @@ export async function startScan(scanId: number, urls: string[], options: ScanOpt
       logger.info({ scanId, retryBatch }, "Processing retry queue batch");
       // skipCompletedPages: true — never re-scan a URL that succeeded while it
       // was waiting in the retry queue (e.g. completed by a concurrent Phase 1 worker).
-      await Promise.all(retryBatch.map(url => scanSinglePage(scanId, url, { ...options, skipCompletedPages: true }, controller.signal)));
+      await Promise.all(
+        retryBatch.map((url) =>
+          scanSinglePage(
+            scanId,
+            url,
+            { ...options, skipCompletedPages: true },
+            controller.signal,
+          ),
+        ),
+      );
     }
 
     // ── Phase 3: post-cycle retry loop (up to 5 rounds) ──────────────────────
@@ -158,14 +205,20 @@ export async function startScan(scanId: number, urls: string[], options: ScanOpt
         );
 
       if (failedRows.length === 0) {
-        logger.info({ scanId, round }, "Phase 3: no failed/not_available pages remaining — stopping early");
+        logger.info(
+          { scanId, round },
+          "Phase 3: no failed/not_available pages remaining — stopping early",
+        );
         break;
       }
 
       // Bail only when TWO consecutive rounds produced zero improvement —
       // this avoids abandoning a slow site after a single unlucky round while
       // still protecting against a truly unreachable target.
-      if (prevPhase3FailedCount !== -1 && failedRows.length >= prevPhase3FailedCount) {
+      if (
+        prevPhase3FailedCount !== -1 &&
+        failedRows.length >= prevPhase3FailedCount
+      ) {
         consecutiveNoProgress++;
       } else {
         consecutiveNoProgress = 0; // improvement this round — reset counter
@@ -174,7 +227,12 @@ export async function startScan(scanId: number, urls: string[], options: ScanOpt
 
       if (consecutiveNoProgress >= 2) {
         logger.warn(
-          { scanId, failedCount: failedRows.length, round, consecutiveNoProgress },
+          {
+            scanId,
+            failedCount: failedRows.length,
+            round,
+            consecutiveNoProgress,
+          },
           "Phase 3 aborted — no improvement over 2 consecutive rounds, site likely unreachable",
         );
         break;
@@ -203,23 +261,31 @@ export async function startScan(scanId: number, urls: string[], options: ScanOpt
       // Scan in batches — counter updates are skipped here and recomputed after.
       for (let i = 0; i < requeueUrls.length; i += maxConcurrency) {
         if (controller.signal.aborted) break;
-        if (!await waitIfPaused(scanId, controller)) break;
+        if (!(await waitIfPaused(scanId, controller))) break;
         const batch = requeueUrls.slice(i, i + maxConcurrency);
         logger.info({ scanId, round, batch }, "Phase 3 retry batch");
         // skipCompletedPages: true — Phase 3 must never re-scan a page that
         // already completed successfully, even if a duplicate failed row exists.
         await Promise.all(
-          batch.map((url) => scanSinglePage(scanId, url, { ...options, skipCompletedPages: true }, controller.signal, true)),
+          batch.map((url) =>
+            scanSinglePage(
+              scanId,
+              url,
+              { ...options, skipCompletedPages: true },
+              controller.signal,
+              true,
+            ),
+          ),
         );
       }
 
       // Recompute session totals from DB after every round so the UI stays accurate.
       const [totals] = await db
         .select({
-          totalIssues:    sql<number>`COALESCE(SUM(issue_count), 0)`,
+          totalIssues: sql<number>`COALESCE(SUM(issue_count), 0)`,
           criticalIssues: sql<number>`COALESCE(SUM(critical_count), 0)`,
-          scannedUrls:    sql<number>`COUNT(*) FILTER (WHERE status = 'completed')`,
-          failedUrls:     sql<number>`COUNT(*) FILTER (WHERE status IN ('failed', 'not_available'))`,
+          scannedUrls: sql<number>`COUNT(*) FILTER (WHERE status = 'completed')`,
+          failedUrls: sql<number>`COUNT(*) FILTER (WHERE status IN ('failed', 'not_available'))`,
         })
         .from(pageResultsTable)
         .where(eq(pageResultsTable.scanId, scanId));
@@ -228,19 +294,23 @@ export async function startScan(scanId: number, urls: string[], options: ScanOpt
         await db
           .update(scanSessionsTable)
           .set({
-            totalIssues:    Number(totals.totalIssues),
+            totalIssues: Number(totals.totalIssues),
             criticalIssues: Number(totals.criticalIssues),
-            scannedUrls:    Number(totals.scannedUrls),
-            failedUrls:     Number(totals.failedUrls),
+            scannedUrls: Number(totals.scannedUrls),
+            failedUrls: Number(totals.failedUrls),
           })
           .where(eq(scanSessionsTable.id, scanId));
-        logger.info({ scanId, round, totals }, "Phase 3 round totals recomputed");
+        logger.info(
+          { scanId, round, totals },
+          "Phase 3 round totals recomputed",
+        );
       }
     }
 
     const finalStatus = controller.signal.aborted ? "cancelled" : "completed";
 
-    await db.update(scanSessionsTable)
+    await db
+      .update(scanSessionsTable)
       .set({
         status: finalStatus,
         completedAt: new Date(),
@@ -250,7 +320,8 @@ export async function startScan(scanId: number, urls: string[], options: ScanOpt
     logger.info({ scanId, status: finalStatus }, "Scan session finished");
   } catch (err) {
     logger.error({ scanId, err }, "Scan session failed");
-    await db.update(scanSessionsTable)
+    await db
+      .update(scanSessionsTable)
       .set({ status: "failed", completedAt: new Date() })
       .where(eq(scanSessionsTable.id, scanId));
   } finally {
@@ -293,9 +364,11 @@ export async function addUrlsToRunningScan(
   }
 
   // Insert pending rows so the DB immediately reflects the new total
-  await db.insert(pageResultsTable).values(
-    newUrls.map((url) => ({ scanId, url, status: "pending" as const })),
-  );
+  await db
+    .insert(pageResultsTable)
+    .values(
+      newUrls.map((url) => ({ scanId, url, status: "pending" as const })),
+    );
 
   // Update total_urls on the session
   await db
@@ -329,7 +402,7 @@ async function scanSinglePage(
   if (pausedScans.has(scanId)) {
     logger.info({ scanId, url }, "Page waiting — scan is paused");
     while (pausedScans.has(scanId) && !signal.aborted) {
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 500));
     }
     if (signal.aborted) return;
   }
@@ -340,16 +413,22 @@ async function scanSinglePage(
   // the completed row is accidentally selected and then overwritten by a retry.
   let pageRow: typeof pageResultsTable.$inferSelect | undefined;
   try {
-    const rows = await db.select()
+    const rows = await db
+      .select()
       .from(pageResultsTable)
-      .where(and(eq(pageResultsTable.scanId, scanId), eq(pageResultsTable.url, url)))
+      .where(
+        and(eq(pageResultsTable.scanId, scanId), eq(pageResultsTable.url, url)),
+      )
       .orderBy(
         sql`CASE WHEN ${pageResultsTable.status} IN ('requeued','failed','not_available','pending') THEN 0 ELSE 1 END`,
         pageResultsTable.id,
       );
     pageRow = rows[0];
   } catch (err) {
-    logger.error({ scanId, url, err }, "DB error fetching page row — skipping URL");
+    logger.error(
+      { scanId, url, err },
+      "DB error fetching page row — skipping URL",
+    );
     return;
   }
 
@@ -370,15 +449,21 @@ async function scanSinglePage(
     // Hard per-URL deadline — 30 s beyond the configured Puppeteer timeout.
     // When it fires we abort the AbortController, which force-closes the live
     // Puppeteer page so the scan mutex is released immediately.
-    const configuredTimeout = options.timeout ?? await getGlobalPageTimeoutMs();
-    //const hardDeadline = configuredTimeout + 20_000;
-    const hardDeadline = configuredTimeout;
+    // Navigation timeout fixed at 30 s. scanDelayMs is the post-DOMContentLoaded dwell
+    // time (letting JS execute before checks run). Hard deadline covers all three phases.
+    const scanDelayMs = await getGlobalScanDelayMs();
+    const NAV_TIMEOUT_MS = 30_000;
+    const hardDeadline = NAV_TIMEOUT_MS + scanDelayMs + 60_000;
     const urlAbortController = new AbortController();
     let hardTimer: ReturnType<typeof setTimeout> | null = null;
     const hardTimeoutPromise = new Promise<never>((_, reject) => {
       hardTimer = setTimeout(() => {
         urlAbortController.abort(); // force-closes the Puppeteer page
-        reject(new Error(`URL scan hard-timeout after ${hardDeadline}ms — aborting stuck navigation`));
+        reject(
+          new Error(
+            `URL scan hard-timeout after ${hardDeadline}ms — aborting stuck navigation`,
+          ),
+        );
       }, hardDeadline);
     });
 
@@ -387,15 +472,16 @@ async function scanSinglePage(
     // shouldAutoRetry logic below still applies (Phase 2 queue) instead of
     // falling into the outer catch which skips retry altogether.
     let result: Awaited<ReturnType<typeof scanPage>>;
-     const scanStart = Date.now();
+    const scanStart = Date.now();
     try {
       result = await Promise.race([
         scanPage(url, {
-          timeout: configuredTimeout,
-          waitForNetworkIdle: options.waitForNetworkIdle,
+          timeout: NAV_TIMEOUT_MS,
+          scanDelayMs,
           bypassCSP: options.bypassCSP,
           rules: options.rules,
           proxyPacUrl: options.proxyPacUrl,
+          disableJavascript: options.disableJavascript,
           signal: urlAbortController.signal,
           onStage: async (stage: string) => {
             await setPageStatus(pageId, stage);
@@ -416,27 +502,35 @@ async function scanSinglePage(
     logger.info({ scanId, url }, "Saving scan results");
 
     const issueCount = result.issues.length;
-    const criticalCount = result.issues.filter(i => i.impact === "critical").length;
+    const criticalCount = result.issues.filter(
+      (i) => i.impact === "critical",
+    ).length;
 
     // Allow up to MAX_AUTO_RETRIES automatic retries per URL per scan run
-    if (!autoRetryCounters.has(scanId)) autoRetryCounters.set(scanId, new Map());
+    if (!autoRetryCounters.has(scanId))
+      autoRetryCounters.set(scanId, new Map());
     const counters = autoRetryCounters.get(scanId)!;
     const retryCount = counters.get(url) ?? 0;
     const shouldAutoRetry =
-      Boolean(result.error) && !result.notAvailable &&
+      Boolean(result.error) &&
+      !result.notAvailable &&
       activeScanControllers.has(scanId) &&
       retryCount < MAX_AUTO_RETRIES;
 
-    const pageStatus = result.notAvailable ? "not_available" : result.error ? "failed" : "completed";
+    const pageStatus = result.notAvailable
+      ? "not_available"
+      : result.error
+        ? "failed"
+        : "completed";
 
     // Update the primary row with full result data
- // Update the primary row with full result data
     const scanDurationMs = Date.now() - scanStart;
     logger.info(
       { scanId, url, pageId, pageStatus, loadDurationMs: result.loadDurationMs ?? null, scanDurationMs },
       "TIMING: writing page result to DB",
     );
-    await db.update(pageResultsTable)
+    await db
+      .update(pageResultsTable)
       .set({
         status: pageStatus,
         issueCount,
@@ -457,23 +551,33 @@ async function scanSinglePage(
     // Sync any duplicate rows for the same URL so they never stay "pending".
     // Crucially, NEVER overwrite a row that is already "completed" — doing so
     // would cause the DONE counter to drop when a retry of a duplicate row fails.
-    await db.update(pageResultsTable)
-      .set({ status: pageStatus, issueCount: 0, criticalCount: 0, errorMessage: result.error || null, scannedAt: new Date() })
-      .where(and(
-        eq(pageResultsTable.scanId, scanId),
-        eq(pageResultsTable.url, url),
-        sql`${pageResultsTable.id} != ${pageId}`,
-        sql`${pageResultsTable.status} != 'completed'`,
-      ));
+    await db
+      .update(pageResultsTable)
+      .set({
+        status: pageStatus,
+        issueCount: 0,
+        criticalCount: 0,
+        errorMessage: result.error || null,
+        scannedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(pageResultsTable.scanId, scanId),
+          eq(pageResultsTable.url, url),
+          sql`${pageResultsTable.id} != ${pageId}`,
+          sql`${pageResultsTable.status} != 'completed'`,
+        ),
+      );
 
     if (result.issues.length > 0) {
       await db.insert(accessibilityIssuesTable).values(
-        result.issues.map(issue => ({
+        result.issues.map((issue) => ({
           pageId,
           ruleId: issue.ruleId,
           impact: issue.impact,
           description: issue.description,
           element: issue.element,
+          elementContext: issue.elementContext ?? null,
           wcagCriteria: issue.wcagCriteria,
           wcagLevel: issue.wcagLevel,
           legalText: getLegalText(issue.legal),
@@ -483,21 +587,29 @@ async function scanSinglePage(
           bboxY: issue.bboxY ?? null,
           bboxWidth: issue.bboxWidth ?? null,
           bboxHeight: issue.bboxHeight ?? null,
-        }))
+        })),
       );
     }
 
     // Update session totals (skipped during post-cycle retry; recomputed from DB after)
     if (!skipCounterUpdates) {
-      const [session] = await db.select()
+      const [session] = await db
+        .select()
         .from(scanSessionsTable)
         .where(eq(scanSessionsTable.id, scanId));
 
       if (session) {
-        await db.update(scanSessionsTable)
+        await db
+          .update(scanSessionsTable)
           .set({
-            scannedUrls: (result.error && !result.notAvailable) ? session.scannedUrls : session.scannedUrls + 1,
-            failedUrls: (result.error && !result.notAvailable) ? session.failedUrls + 1 : session.failedUrls,
+            scannedUrls:
+              result.error && !result.notAvailable
+                ? session.scannedUrls
+                : session.scannedUrls + 1,
+            failedUrls:
+              result.error && !result.notAvailable
+                ? session.failedUrls + 1
+                : session.failedUrls,
             totalIssues: session.totalIssues + issueCount,
             criticalIssues: session.criticalIssues + criticalCount,
           })
@@ -507,31 +619,51 @@ async function scanSinglePage(
 
     if (shouldAutoRetry) {
       counters.set(url, retryCount + 1);
-      logger.info({ scanId, url, attempt: retryCount + 1, max: MAX_AUTO_RETRIES }, "Auto-retrying URL");
+      logger.info(
+        { scanId, url, attempt: retryCount + 1, max: MAX_AUTO_RETRIES },
+        "Auto-retrying URL",
+      );
       queueRetryUrl(scanId, url);
     } else if (result.error && !result.notAvailable) {
-      logger.info({ scanId, url, retryCount }, "URL exceeded max auto-retries — giving up");
+      logger.info(
+        { scanId, url, retryCount },
+        "URL exceeded max auto-retries — giving up",
+      );
     }
   } catch (err) {
     // An unexpected error (browser crash, DB failure, etc.) must never take
     // down the whole scan — record the page as failed and carry on.
-    logger.error({ scanId, url, err }, "Unexpected error scanning page — marking failed and continuing");
+    logger.error(
+      { scanId, url, err },
+      "Unexpected error scanning page — marking failed and continuing",
+    );
     try {
-      await db.update(pageResultsTable)
-        .set({ status: "failed", errorMessage: String(err), scannedAt: new Date() })
+      await db
+        .update(pageResultsTable)
+        .set({
+          status: "failed",
+          errorMessage: String(err),
+          scannedAt: new Date(),
+        })
         .where(eq(pageResultsTable.id, pageId));
-      const [session] = await db.select()
+      const [session] = await db
+        .select()
         .from(scanSessionsTable)
         .where(eq(scanSessionsTable.id, scanId));
       if (session) {
-        await db.update(scanSessionsTable)
+        await db
+          .update(scanSessionsTable)
           .set({ failedUrls: session.failedUrls + 1 })
           .where(eq(scanSessionsTable.id, scanId));
       }
     } catch (dbErr) {
-      logger.error({ scanId, url, dbErr }, "Could not persist page failure to DB");
+      logger.error(
+        { scanId, url, dbErr },
+        "Could not persist page failure to DB",
+      );
     }
   }
+
 }
 
 export function cancelScan(scanId: number): boolean {
@@ -590,7 +722,13 @@ function isReadOnlyError(err: unknown): boolean {
 let _watchdogSuspendedUntil = 0;
 
 export function startScanWatchdog(intervalMs = 60_000): void {
-  const MID_FLIGHT = ["navigating", "scanning", "rendering", "analyzing", "saving"] as const;
+  const MID_FLIGHT = [
+    "navigating",
+    "scanning",
+    "rendering",
+    "analyzing",
+    "saving",
+  ] as const;
   const RESTARTABLE = ["pending", "requeued"] as const;
 
   setInterval(async () => {
@@ -603,7 +741,10 @@ export function startScanWatchdog(intervalMs = 60_000): void {
       const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000);
 
       const runningSessions = await db
-        .select({ id: scanSessionsTable.id, options: scanSessionsTable.options })
+        .select({
+          id: scanSessionsTable.id,
+          options: scanSessionsTable.options,
+        })
         .from(scanSessionsTable)
         .where(
           and(
@@ -615,7 +756,10 @@ export function startScanWatchdog(intervalMs = 60_000): void {
       for (const session of runningSessions) {
         if (activeScanControllers.has(session.id)) continue;
 
-        logger.warn({ scanId: session.id }, "Watchdog: detected stuck scan — attempting recovery");
+        logger.warn(
+          { scanId: session.id },
+          "Watchdog: detected stuck scan — attempting recovery",
+        );
 
         await db
           .update(pageResultsTable)
@@ -642,17 +786,26 @@ export function startScanWatchdog(intervalMs = 60_000): void {
             .update(scanSessionsTable)
             .set({ status: "completed", completedAt: new Date() })
             .where(eq(scanSessionsTable.id, session.id));
-          logger.info({ scanId: session.id }, "Watchdog: stuck scan had no remaining pages — marked completed");
+          logger.info(
+            { scanId: session.id },
+            "Watchdog: stuck scan had no remaining pages — marked completed",
+          );
           continue;
         }
 
         const urls = remaining.map((r) => r.url);
-        logger.info({ scanId: session.id, urlCount: urls.length }, "Watchdog: restarting stuck scan");
+        logger.info(
+          { scanId: session.id, urlCount: urls.length },
+          "Watchdog: restarting stuck scan",
+        );
         startScan(session.id, urls, {
           ...((session.options as Record<string, unknown>) ?? {}),
           skipCompletedPages: true,
         }).catch((err) => {
-          logger.error({ scanId: session.id, err }, "Watchdog: stuck scan restart failed");
+          logger.error(
+            { scanId: session.id, err },
+            "Watchdog: stuck scan restart failed",
+          );
         });
       }
     } catch (err) {
@@ -668,9 +821,9 @@ export function startScanWatchdog(intervalMs = 60_000): void {
         logger.fatal(
           { err },
           "DATABASE IS READ-ONLY — all writes are blocked. " +
-          "Watchdog suspended for 10 minutes. " +
-          "Fix on Azure: (1) Storage ≥ 95%? Increase storage or delete data in the Azure portal. " +
-          "(2) DATABASE_URL pointing to a read-replica? Use the primary server hostname.",
+            "Watchdog suspended for 10 minutes. " +
+            "Fix on Azure: (1) Storage ≥ 95%? Increase storage or delete data in the Azure portal. " +
+            "(2) DATABASE_URL pointing to a read-replica? Use the primary server hostname.",
         );
       } else {
         logger.error({ err }, "Scan watchdog encountered an error");

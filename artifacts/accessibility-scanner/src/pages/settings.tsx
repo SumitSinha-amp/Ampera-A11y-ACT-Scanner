@@ -720,22 +720,22 @@ export default function Settings() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Clock className="w-5 h-5 text-muted-foreground" />
-                <CardTitle>Page Scan Timeout</CardTitle>
+                <CardTitle>Scan Delay</CardTitle>
                 {isSuperAdmin(user) && (
                   <Badge variant="outline" className="ml-auto text-xs text-purple-600 border-purple-300 dark:text-purple-400">Super Admin</Badge>
                 )}
               </div>
               <CardDescription>
-                Maximum time Puppeteer waits for each page to load before moving on. Applies globally to all scans.
+                How long the scanner dwells on each page after it loads (DOMContentLoaded) before running accessibility checks. During this wait, JavaScript continues executing — so a longer delay captures more JS-rendered content. Set to 0 for fastest scans; 10–60 s for JS-heavy sites.
                 {!isSuperAdmin(user) && " Only super admins can change this setting."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Current value shown to everyone */}
               <div className="flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground">Current timeout:</span>
+                <span className="text-muted-foreground">Current delay:</span>
                 <Badge variant="secondary" className="font-mono">
-                  {globalTimeoutMs >= 1000 ? `${globalTimeoutMs / 1000}s` : `${globalTimeoutMs}ms`}
+                  {globalTimeoutMs === 0 ? "0s (no delay)" : globalTimeoutMs >= 1000 ? `${globalTimeoutMs / 1000}s` : `${globalTimeoutMs}ms`}
                 </Badge>
               </div>
 
@@ -745,12 +745,11 @@ export default function Settings() {
                   <div className="space-y-2">
                     <Label className="text-xs text-muted-foreground uppercase tracking-wide">Preset values</Label>
                     <div className="flex flex-wrap gap-2">
-                      {[10, 30, 60, 80, 120].map((secs) => {
-                        const ms = secs * 1000;
+                      {[{ label: "0s", ms: 0 }, { label: "2s", ms: 2000 }, { label: "5s", ms: 5000 }, { label: "10s", ms: 10000 }, { label: "30s", ms: 30000 }].map(({ label, ms }) => {
                         const active = globalTimeoutMs === ms;
                         return (
                           <Button
-                            key={secs}
+                            key={ms}
                             size="sm"
                             variant={active ? "default" : "outline"}
                             className={`text-xs h-8 px-3 ${active ? "" : "text-muted-foreground"}`}
@@ -766,7 +765,7 @@ export default function Settings() {
                                 if (res.ok) {
                                   setGlobalTimeoutMs(ms);
                                   setCustomTimeoutSecs("");
-                                  toast({ title: `Page timeout set to ${secs}s` });
+                                  toast({ title: ms === 0 ? "Scan delay disabled (0 s)" : `Scan delay set to ${label}` });
                                 } else {
                                   toast({ title: "Failed to save", variant: "destructive" });
                                 }
@@ -778,7 +777,7 @@ export default function Settings() {
                             }}
                             disabled={savingTimeout}
                           >
-                            {secs}s
+                            {label}
                           </Button>
                         );
                       })}
@@ -792,9 +791,9 @@ export default function Settings() {
                       <Input
                         id="custom-timeout"
                         type="number"
-                        min={5}
-                        max={300}
-                        placeholder="e.g. 45"
+                        min={0}
+                        max={120}
+                        placeholder="e.g. 3"
                         value={customTimeoutSecs}
                         onChange={(e) => setCustomTimeoutSecs(e.target.value)}
                         className="w-28 h-8 text-sm"
@@ -804,14 +803,14 @@ export default function Settings() {
                         size="sm"
                         variant="outline"
                         className="h-8 text-xs"
-                        disabled={savingTimeout || !customTimeoutSecs}
+                        disabled={savingTimeout || customTimeoutSecs === ""}
                         onClick={async () => {
-                          const secs = parseInt(customTimeoutSecs, 10);
-                          if (!Number.isFinite(secs) || secs < 5 || secs > 300) {
-                            toast({ title: "Enter a value between 5 and 300 seconds", variant: "destructive" });
+                          const secs = parseFloat(customTimeoutSecs);
+                          if (!Number.isFinite(secs) || secs < 0 || secs > 120) {
+                            toast({ title: "Enter a value between 0 and 120 seconds", variant: "destructive" });
                             return;
                           }
-                          const ms = secs * 1000;
+                          const ms = Math.round(secs * 1000);
                           setSavingTimeout(true);
                           try {
                             const res = await fetch(`${BASE}/api/admin/settings`, {
@@ -823,7 +822,7 @@ export default function Settings() {
                             if (res.ok) {
                               setGlobalTimeoutMs(ms);
                               setCustomTimeoutSecs("");
-                              toast({ title: `Page timeout set to ${secs}s` });
+                              toast({ title: ms === 0 ? "Scan delay disabled" : `Scan delay set to ${secs}s` });
                             } else {
                               toast({ title: "Failed to save", variant: "destructive" });
                             }

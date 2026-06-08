@@ -1181,7 +1181,10 @@ export function scanPage(
   url: string,
   options: {
     timeout?: number;
-    waitForNetworkIdle?: boolean;
+    /** Post-load dwell time in ms — scanner waits this long after DOMContentLoaded, letting JS
+     *  execute and render content, before running accessibility checks. Default 0. */
+    scanDelayMs?: number;
+    //waitForNetworkIdle?: boolean;
     bypassCSP?: boolean;
     rules?: string[];
     proxyPacUrl?: string;
@@ -1195,7 +1198,7 @@ export function scanPage(
   // Safety valve: also advance after a hard cap in case _scanPageInternal hangs
   // before the abort handler is registered (e.g. Chrome crash inside getBrowser/newPage).
   // Without this the entire queue deadlocks permanently.
-  const mutexCap = (options.timeout ?? 120_000) + 90_000;
+  const mutexCap = (options.timeout ?? 30_000) + (options.scanDelayMs ?? 0) + 90_000;
   _scanMutex = Promise.race([
     result.then(
       () => {},
@@ -1210,7 +1213,8 @@ async function _scanPageInternal(
   url: string,
   options: {
     timeout?: number;
-    waitForNetworkIdle?: boolean;
+   // waitForNetworkIdle?: boolean;
+    scanDelayMs?: number;
     bypassCSP?: boolean;
     rules?: string[];
     proxyPacUrl?: string;
@@ -1220,8 +1224,9 @@ async function _scanPageInternal(
   } = {},
 ): Promise<PageScanResult> {
   const {
-    timeout = 60000,
-    waitForNetworkIdle = true,
+    timeout = 30_000,
+   // waitForNetworkIdle = true,
+    scanDelayMs = 0,
     bypassCSP = true,
     disableJavascript = false,
     onStage,
@@ -1341,6 +1346,8 @@ async function _scanPageInternal(
       });
       loadDurationMs = Date.now() - navStart;
     } catch (navErr) {
+      
+      loadDurationMs = Date.now() - navStart;
       const msg = String(navErr).toLowerCase();
       const isTimeout = msg.includes("timeout") || msg.includes("timed out");
       const isAborted = msg.includes("aborted") || msg.includes("net::err_aborted");
@@ -1348,7 +1355,7 @@ async function _scanPageInternal(
         // Check whether the browser has a usable DOM before giving up
         const hasDOM = await page.evaluate(() => !!document.body?.innerHTML?.trim()).catch(() => false);
         if (!hasDOM) {
-          return { url, issues: [], error: `Navigation did not load a usable page: ${String(navErr)}` };
+         return { url, issues: [], error: `Navigation did not load a usable page: ${String(navErr)}`, loadDurationMs };
         }
         navigationTimedOut = true;
         logger.info({ url, err: String(navErr) }, "Navigation timeout — continuing with partial DOM");
@@ -1380,19 +1387,6 @@ async function _scanPageInternal(
     const wasBlocked403 = httpStatus === 403;
 
     await onStage?.("rendering");
-
-    // Optionally wait for network to settle (up to 15s) — but never let it block scanning
-    if (waitForNetworkIdle) {
-      try {
-        await page.waitForNetworkIdle({ idleTime: 400, timeout: 10000 });
-      } catch {
-        // Network didn't fully settle — that's fine, the DOM is ready; continue scanning
-        logger.info(
-          { url },
-          "Network idle timeout — proceeding with available DOM",
-        );
-      }
-    }
 
     // Cloudflare Bot Management shows a challenge page before redirecting to the real page.
     // Detect it and wait up to 25s for the JS challenge to complete and the real page to load.
@@ -1555,55 +1549,16 @@ async function _scanPageInternal(
         error: "Page Not Available",
       };
     }
- // Wait for window.load event so all scripts have fully executed.
-    // domcontentloaded fires before scripts finish; window.load is the reliable signal.
-    // Step 1: Wait for DOMContentLoaded — HTML parsed, DOM built, deferred scripts run.
+ // Confirm DOMContentLoaded state — HTML parsed, initial DOM built.
+    // We scan this initial state without waiting for window.load or JS mutations,
+    // so accessibility issues are reported on what the server actually sent.
     await page.evaluate(() => new Promise<void>((resolve) => {
       if (document.readyState === "interactive" || document.readyState === "complete") return resolve();
       document.addEventListener("DOMContentLoaded", () => resolve(), { once: true });
-      // Hard cap: never wait more than 5s for DOMContentLoaded
       setTimeout(resolve, 5000);
     }));
-    // Step 2: Wait for window.load — all resources (images, stylesheets, iframes) loaded.
-    await page.evaluate(() => new Promise<void>((resolve) => {
-      if (document.readyState === "complete") return resolve();
-      window.addEventListener("load", () => resolve(), { once: true });
-      // Hard cap: never block scanning more than 8s waiting for load
-      setTimeout(resolve, 8000);
-    }));
 
-    // Step 3: Wait for DOM mutations to settle (no childList changes for 600ms, max 4s).
-    // This catches frameworks that inject content after window.load (React hydration,
-    // lazy component rendering, analytics widgets, etc.).
-    // observe only structural changes (childList) — skipping attribute/text mutations
-    // avoids perpetual triggering on animated elements, live clocks, analytics beacons, etc.
-    // Node-side race (6 s) guards against CDP hangs after the browser-side 4 s cap fires.
-    await Promise.race([
-      page.evaluate(() => new Promise<void>((resolve) => {
-        let timer: ReturnType<typeof setTimeout> = setTimeout(() => {
-          observer.disconnect();
-          resolve();
-        }, 500);
-        const observer = new MutationObserver(() => {
-          clearTimeout(timer);
-          timer = setTimeout(() => {
-            observer.disconnect();
-            resolve();
-          }, 500);
-        });
-        observer.observe(document.documentElement, {
-          childList: true,
-          subtree: true,
-          attributes: false,
-          characterData: false,
-        });
-        // Absolute hard cap so a perpetually-mutating page never blocks scanning
-        setTimeout(() => { observer.disconnect(); resolve(); }, 3000);
-      })).catch(() => { /* page navigated away during settle — handled below */ }),
-      new Promise<void>((resolve) => setTimeout(resolve, 6000)),
-    ]);
-
-    // Step 4: Detect and follow client-side redirects.
+    // Detect and follow client-side redirects.
     // CMS/AEM platforms (and some SPA routers) serve an intermediate page with placeholder
     // attributes — e.g. lang="en-SOFTWAREVERSIONREDIRECT" or lang="clienlibs-KEYSIGHT" —
     // then redirect to the real content via <meta http-equiv="refresh"> or window.location.
@@ -1637,46 +1592,25 @@ async function _scanPageInternal(
       try {
         await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 });
         const finalUrl = page.url();
-        logger.info({ url, finalUrl }, "Client-side redirect followed — re-settling final page");
-
-        // Re-apply full wait sequence on the final page
+        logger.info({ url, finalUrl }, "Client-side redirect followed — scanning final page at DOMContentLoaded");
+        // Confirm DOMContentLoaded on the final page before scanning
         await page.evaluate(() => new Promise<void>((resolve) => {
           if (document.readyState === "interactive" || document.readyState === "complete") return resolve();
           document.addEventListener("DOMContentLoaded", () => resolve(), { once: true });
           setTimeout(resolve, 5000);
         })).catch(() => {});
-
-        await page.evaluate(() => new Promise<void>((resolve) => {
-          if (document.readyState === "complete") return resolve();
-          window.addEventListener("load", () => resolve(), { once: true });
-          setTimeout(resolve, 8000);
-        })).catch(() => {});
-
-        await Promise.race([
-          page.evaluate(() => new Promise<void>((resolve) => {
-            let t: ReturnType<typeof setTimeout> = setTimeout(() => { obs.disconnect(); resolve(); }, 500);
-            const obs = new MutationObserver(() => {
-              clearTimeout(t);
-              t = setTimeout(() => { obs.disconnect(); resolve(); }, 500);
-            });
-            obs.observe(document.documentElement, {
-              childList: true,
-              subtree: true,
-              attributes: false,
-              characterData: false,
-            });
-            setTimeout(() => { obs.disconnect(); resolve(); }, 3000);
-          })).catch(() => {}),
-          new Promise<void>((resolve) => setTimeout(resolve, 6000)),
-        ]);
       } catch {
         logger.info({ url }, "Redirect navigation did not complete within 15s — scanning current page state");
       }
     }
 
-    logger.info({ url }, "Scrolling page to trigger lazy-loaded content");
-    await fullyRenderPage(page, timeout);
-
+    // Post-load dwell — sit on the page for scanDelayMs after DOMContentLoaded,
+    // letting deferred scripts, lazy components, and analytics widgets fully execute
+    // before running accessibility checks. Higher delays capture more JS-rendered content.
+    if (scanDelayMs > 0) {
+      logger.info({ url, scanDelayMs }, "Dwelling on page — letting JS execute before running checks");
+      await new Promise<void>((resolve) => setTimeout(resolve, scanDelayMs));
+    }
 
     // Capture a full-page snapshot and the rendered DOM before running rules
     let screenshot: string | undefined;

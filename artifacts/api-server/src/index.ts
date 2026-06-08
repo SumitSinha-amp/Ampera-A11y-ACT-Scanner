@@ -287,11 +287,20 @@ async function runStartupMigrations(): Promise<void> {
       END
       $$
     `);
-    // 19. Seed default scan_page_timeout_ms (10 s) if not already set
+    
+   // 19. Seed default scan_page_timeout_ms if not already set
     await client.query(`
       INSERT INTO app_settings (key, value, updated_at)
-      VALUES ('scan_page_timeout_ms', '10000', NOW())
+      VALUES ('scan_page_timeout_ms', '2000', NOW())
       ON CONFLICT (key) DO NOTHING
+    `);
+
+    // 20. Migrate old navigation-timeout default (10 000 ms) to scan-delay default (2 000 ms)
+    //     Only update if the value is still exactly the old default — user-customised values are preserved.
+    await client.query(`
+      UPDATE app_settings
+      SET value = '2000', updated_at = NOW()
+      WHERE key = 'scan_page_timeout_ms' AND value = '10000'
     `);
 
     await client.query("COMMIT");
