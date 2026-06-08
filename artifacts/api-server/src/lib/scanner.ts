@@ -1214,7 +1214,7 @@ async function _scanPageInternal(
     bypassCSP?: boolean;
     rules?: string[];
     proxyPacUrl?: string;
-    disableJavascript: options.disableJavascript,
+    disableJavascript?: boolean;
     onStage?: (stage: string) => void | Promise<void>;
     signal?: AbortSignal;
   } = {},
@@ -1223,7 +1223,7 @@ async function _scanPageInternal(
     timeout = 60000,
     waitForNetworkIdle = true,
     bypassCSP = true,
-    disableJavascript?: boolean,
+    disableJavascript = false,
     onStage,
   } = options;
 
