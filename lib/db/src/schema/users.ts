@@ -43,6 +43,7 @@ export const userPermissionsTable = pgTable("user_permissions", {
   canManageScan: boolean("can_manage_scan").notNull().default(true), // pause/resume/cancel/retry
   canCreateProject: boolean("can_create_project").notNull().default(true),
   canDeleteProject: boolean("can_delete_project").notNull().default(true),
+  canDisableJs: boolean("can_disable_js").notNull().default(false),
   allowedRules: jsonb("allowed_rules"), // null = all rules; string[] = restricted list
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   updatedBy: integer("updated_by"),

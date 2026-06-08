@@ -12,4 +12,6 @@ export interface ScanOptions {
   maxConcurrency?: number;
   bypassCSP?: boolean;
   stealthMode?: boolean;
+   /** When true, JavaScript is disabled in the browser before page navigation */
+  disableJavascript?: boolean;
 }

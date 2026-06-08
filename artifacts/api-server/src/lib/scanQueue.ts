@@ -1,4 +1,4 @@
-import { db, scanSessionsTable, pageResultsTable, accessibilityIssuesTable } from "@workspace/db";
+import { db, scanSessionsTable, pageResultsTable, accessibilityIssuesTable, appSettingsTable } from "@workspace/db";
 import { eq, and, sql, or, inArray, lt } from "drizzle-orm";
 import { scanPage } from "./scanner";
 import { logger } from "./logger";
@@ -11,8 +11,20 @@ interface ScanOptions {
   rules?: string[];
   proxyPacUrl?: string;
   skipCompletedPages?: boolean;
+  disableJavascript?: boolean;
 }
-
+async function getGlobalPageTimeoutMs(): Promise<number> {
+  try {
+    const [row] = await db
+      .select({ value: appSettingsTable.value })
+      .from(appSettingsTable)
+      .where(eq(appSettingsTable.key, "scan_page_timeout_ms"));
+    const parsed = parseInt(row?.value ?? "", 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000;
+  } catch {
+    return 10_000;
+  }
+}
 const activeScanControllers = new Map<number, AbortController>();
 const pausedScans = new Set<number>();
 const queuedRetryUrls = new Map<number, Set<string>>();
@@ -358,8 +370,9 @@ async function scanSinglePage(
     // Hard per-URL deadline — 30 s beyond the configured Puppeteer timeout.
     // When it fires we abort the AbortController, which force-closes the live
     // Puppeteer page so the scan mutex is released immediately.
-    const configuredTimeout = options.timeout ?? 60_000;
-    const hardDeadline = configuredTimeout + 20_000;
+    const configuredTimeout = options.timeout ?? await getGlobalPageTimeoutMs();
+    //const hardDeadline = configuredTimeout + 20_000;
+    const hardDeadline = configuredTimeout;
     const urlAbortController = new AbortController();
     let hardTimer: ReturnType<typeof setTimeout> | null = null;
     const hardTimeoutPromise = new Promise<never>((_, reject) => {

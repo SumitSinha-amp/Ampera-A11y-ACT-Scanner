@@ -68,6 +68,17 @@ router.get("/admin/users/:id", requireAdmin, async (req, res): Promise<void> => 
   res.json({ ...user, passwordHash: undefined, createdAt: user.createdAt.toISOString(), updatedAt: user.updatedAt.toISOString() });
 });
 
+// GET /scan-settings — return scanner settings accessible to all authenticated users
+router.get("/scan-settings", async (req, res): Promise<void> => {
+  if (!req.session?.user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const [row] = await db
+    .select({ value: appSettingsTable.value })
+    .from(appSettingsTable)
+    .where(eq(appSettingsTable.key, "scan_page_timeout_ms"));
+  const timeoutMs = parseInt(row?.value ?? "10000", 10);
+  res.json({ pageTimeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 10000 });
+});
+
 router.post("/admin/users", requireAdmin, async (req, res): Promise<void> => {
   const { email, username, fullName, role, groupIds } = req.body ?? {};
   if (!email || !username || !fullName) {
@@ -459,6 +470,8 @@ router.put("/admin/logo", requireAdmin, async (req, res): Promise<void> => {
 // ── SMTP settings ─────────────────────────────────────────────────────────────
 
 const SMTP_KEYS = ["smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from"] as const;
+const SCAN_KEYS = ["scan_page_timeout_ms"] as const;
+const ALL_SETTINGS_KEYS = [...SMTP_KEYS, ...SCAN_KEYS] as const;
 
 // GET /admin/settings — return current SMTP settings (super_admin only)
 router.get("/admin/settings", requireSuperAdmin, async (req, res): Promise<void> => {
@@ -508,5 +521,35 @@ router.post("/admin/settings/test-email", requireSuperAdmin, async (req, res): P
     res.status(502).json({ error: result.error ?? "Failed to send test email. Check SMTP configuration." });
   }
 });
+// PUT /admin/settings — upsert SMTP + AI settings (super_admin only)
+router.put("/admin/settings", requireSuperAdmin, async (req, res): Promise<void> => {
+  const updatedBy = req.session!.user!.id;
+  const body = req.body ?? {};
+  const now = new Date();
+
+  const rows = ALL_SETTINGS_KEYS
+    //.filter((k) => {
+     // if (typeof body[k] !== "string") return false;
+      // Don't overwrite the API key if the client sent back the masked sentinel
+      //if (k === "ai_external_api_key" && body[k] === "••••••••") return false;
+     // return true;
+   // })
+    .map((k) => ({ key: k, value: body[k] as string, updatedAt: now, updatedBy }));
+
+  if (rows.length > 0) {
+    for (const row of rows) {
+      await db
+        .insert(appSettingsTable)
+        .values(row)
+        .onConflictDoUpdate({
+          target: appSettingsTable.key,
+          set: { value: row.value, updatedAt: row.updatedAt, updatedBy: row.updatedBy },
+        });
+    }
+  }
+
+  res.json({ ok: true });
+});
+
 
 export default router;

@@ -277,6 +277,22 @@ async function runStartupMigrations(): Promise<void> {
       END
       $$
     `);
+   // 18. Add can_disable_js to user_permissions (JS-disabled scan permission)
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_permissions' AND column_name = 'can_disable_js') THEN
+          ALTER TABLE user_permissions ADD COLUMN can_disable_js BOOLEAN NOT NULL DEFAULT FALSE;
+        END IF;
+      END
+      $$
+    `);
+    // 19. Seed default scan_page_timeout_ms (10 s) if not already set
+    await client.query(`
+      INSERT INTO app_settings (key, value, updated_at)
+      VALUES ('scan_page_timeout_ms', '10000', NOW())
+      ON CONFLICT (key) DO NOTHING
+    `);
 
     await client.query("COMMIT");
     logger.info("Startup migrations completed");

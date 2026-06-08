@@ -1185,6 +1185,7 @@ export function scanPage(
     bypassCSP?: boolean;
     rules?: string[];
     proxyPacUrl?: string;
+    disableJavascript?: boolean;
     onStage?: (stage: string) => void | Promise<void>;
     signal?: AbortSignal;
   } = {},
@@ -1213,6 +1214,7 @@ async function _scanPageInternal(
     bypassCSP?: boolean;
     rules?: string[];
     proxyPacUrl?: string;
+    disableJavascript: options.disableJavascript,
     onStage?: (stage: string) => void | Promise<void>;
     signal?: AbortSignal;
   } = {},
@@ -1221,6 +1223,7 @@ async function _scanPageInternal(
     timeout = 60000,
     waitForNetworkIdle = true,
     bypassCSP = true,
+    disableJavascript?: boolean,
     onStage,
   } = options;
 
@@ -1276,6 +1279,9 @@ async function _scanPageInternal(
 
     if (bypassCSP) {
       await page.setBypassCSP(true);
+    }
+    if (disableJavascript) {
+      await page.setJavaScriptEnabled(false);
     }
 
     await page.setViewport({ width: 1440, height: 900 });
@@ -1821,9 +1827,11 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
             .join(".");
           if (cls) sel += `.${cls}`;
         }
-        const parent = current.parentElement;
+        //const parent = current.parentElement;
+        const parent: Element | null = current.parentElement;
         if (parent) {
-          const siblings = Array.from(parent.children);
+          //const siblings = Array.from(parent.children);
+          const siblings = Array.from(parent.children) as Element[];
           const sameTag = siblings.filter(
             (s) => s.tagName === current!.tagName,
           );

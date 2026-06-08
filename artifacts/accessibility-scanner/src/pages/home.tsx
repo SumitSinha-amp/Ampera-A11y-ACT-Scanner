@@ -55,7 +55,7 @@ import {
   ACTIVE_PROXY_KEY,
   isUrlLimitEnabled,
   getUrlLimitValue,
-  getScanTimeoutMs,
+  //getScanTimeoutMs,
 } from "@/pages/settings";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -113,7 +113,7 @@ const ALL_RULES: { id: string; label: string }[] = [
     label: "Multiple iframes with same accessible name (WCAG 4.1.2)",
   },
   { id: "SIA-R16", label: "Required ARIA attribute is missing (WCAG 4.1.2)" },
-  { id: "SIA-R17", label: "Hidden element has focusable content (WCAG 4.1.2)" },
+  { id: "SIA-R17", label: "Hidden element has focusable content (WCAG 4.1.2)" },  
   { id: "SIA-R18", label: "Unsupported ARIA attribute used (WCAG 4.1.2)" },
   { id: "SIA-R19", label: "Invalid ARIA value used (WCAG 4.1.2)" },
   { id: "SIA-R20", label: "Invalid ARIA attribute used (WCAG 4.1.2)" },
@@ -998,6 +998,7 @@ export default function Home() {
   // Proxy PAC state — PAC URL is managed in Settings; here we just toggle it on/off
   const [proxyEnabled, setProxyEnabled] = useState(false);
   const [activeProxyPac, setActiveProxyPac] = useState<string>("");
+  const [disableJavascript, setDisableJavascript] = useState(false);
 
   // URL limit state — toggled/configured in Settings
   const [urlLimitOn, setUrlLimitOn] = useState(false);
@@ -1281,8 +1282,9 @@ export default function Home() {
           groupId: groupId ?? undefined,
           options: {
             maxConcurrency: 5,
-            timeout: getScanTimeoutMs(),
+            //timeout: getScanTimeoutMs(),
             ...(selectedRules.length > 0 ? { rules: selectedRules } : {}),
+            ...(disableJavascript ? { disableJavascript: true } : {}),
             ...(effectiveProxy ? { proxyPacUrl: effectiveProxy } : {}),
           },
           initiatorName: initiatorName.trim() || undefined,
@@ -1727,6 +1729,31 @@ export default function Home() {
                 onChange={setSelectedRules}
               />
             </div>
+             {/* JS-disable toggle — shown only when user has canDisableJs permission */}
+            {user?.permissions?.canDisableJs && (
+              <div className={`border rounded-lg p-4 transition-colors ${disableJavascript ? "bg-amber-50/50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800" : "bg-muted/20"}`}>
+                <div className="flex items-center gap-3">
+                  <Shield className={`w-4 h-4 shrink-0 ${disableJavascript ? "text-amber-600" : "text-muted-foreground"}`} />
+                  <div className="flex-1 min-w-0">
+                    <Label className="text-sm font-medium">Disable JavaScript</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Scan pages with JS turned off — useful for static content audits and catching server-rendered issues.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={disableJavascript}
+                    onCheckedChange={setDisableJavascript}
+                    aria-label="Disable JavaScript for scan"
+                  />
+                </div>
+                {disableJavascript && (
+                  <div className="mt-3 pt-3 border-t border-amber-200/50 dark:border-amber-800/50 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>JS disabled — dynamic content, SPAs and client-rendered pages may appear as empty or incomplete.</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Proxy PAC section — PAC URL managed in Settings */}
             <div

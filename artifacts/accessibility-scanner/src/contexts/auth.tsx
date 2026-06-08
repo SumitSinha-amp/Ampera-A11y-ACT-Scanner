@@ -10,6 +10,7 @@ export interface UserPermissions {
   canManageScan: boolean;
   canCreateProject: boolean;
   canDeleteProject: boolean;
+  canDisableJs: boolean;
 }
 
 const DEFAULT_PERMISSIONS: UserPermissions = {
@@ -21,6 +22,7 @@ const DEFAULT_PERMISSIONS: UserPermissions = {
   canManageScan: true,
   canCreateProject: true,
   canDeleteProject: true,
+  canDisableJs: false,
 };
 
 export interface AuthUser {

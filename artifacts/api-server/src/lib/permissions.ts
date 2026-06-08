@@ -10,6 +10,7 @@ export interface EffectivePermissions {
   canManageScan: boolean;
   canCreateProject: boolean;
   canDeleteProject: boolean;
+  canDisableJs: boolean;
   allowedRules: string[] | null;
 }
 
@@ -22,6 +23,7 @@ const FULL_ACCESS: EffectivePermissions = {
   canManageScan: true,
   canCreateProject: true,
   canDeleteProject: true,
+  canDisableJs: true,
   allowedRules: null,
 };
 
@@ -45,6 +47,7 @@ export async function getEffectivePermissions(
     canManageScan: perm?.canManageScan ?? true,
     canCreateProject: perm?.canCreateProject ?? true,
     canDeleteProject: perm?.canDeleteProject ?? true,
+    canDisableJs: perm?.canDisableJs ?? false,
     allowedRules: (perm?.allowedRules as string[] | null) ?? null,
   };
 }
