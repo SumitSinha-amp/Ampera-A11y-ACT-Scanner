@@ -5782,31 +5782,38 @@ async function runSIARules(page: Page): Promise<ScanIssue[]> {
       }
     });
 
+
+// ════════════════════════════════════════════════════════════════════════
+    // SIA-R115: Heading is not descriptive
+    // Siteimprove uses AI; we approximate with text-based heuristics.
+    // Flag headings whose text is clearly non-descriptive:
+    //   – Pure measurement / number-only (e.g. "1.3m", "500", "3.5 GHz")
+    //   – Single character or empty after trim
+    // We do NOT use the "heading immediately followed by another heading" heuristic
+    // (that conflates R64 logic and flags the wrong element).
     // ════════════════════════════════════════════════════════════════════════
-    // SIA-R115: Heading immediately followed by heading at same/higher level
-    // ════════════════════════════════════════════════════════════════════════
+    // Matches strings that start with a digit and consist only of digits, spaces,
+    // punctuation, and at most 3 trailing letter characters (units).
+    // Examples: "1.3m", "500", "3.5 GHz", "100%" — but NOT "500 MHz Oscilloscope"
+    const MEASUREMENT_ONLY_RE = /^\d[\d\s.,:%\-\/\\+×xX()]*[a-zA-Z\u00B5\u03A9\u03BC]{0,4}$/;
     document.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach((el) => {
       if (!isVisible(el)) return;
-      let next = el.nextElementSibling;
-      while (next && next.textContent?.trim() === "")
-        next = next.nextElementSibling;
-      if (!next) return;
-      const nextTag = next.tagName?.toLowerCase();
-      if (["h1", "h2", "h3", "h4", "h5", "h6"].includes(nextTag)) {
-        const thisLevel = parseInt(el.tagName[1]);
-        const nextLevel = parseInt(nextTag[1]);
-        if (nextLevel <= thisLevel) {
-          results.push({
-            ruleId: "SIA-R115",
-            type: "Potential Issue",
-            impact: "minor",
-            description: `<${el.tagName.toLowerCase()}> heading immediately followed by another heading at same/higher level`,
-            element: outerHtmlSnippet(el),
-            selector: getSelector(el),
-          });
-        }
+      const text = (el.textContent || "").trim();
+      if (!text) return;
+      const isSingleChar = text.length <= 1;
+      const isMeasurementOnly = MEASUREMENT_ONLY_RE.test(text);
+      if (isSingleChar || isMeasurementOnly) {
+        results.push({
+          ruleId: "SIA-R115",
+          type: "Potential Issue",
+          impact: "minor",
+          description: `<${el.tagName.toLowerCase()}> heading text "${text.substring(0, 60)}" is not descriptive — use clear, meaningful heading text`,
+          element: outerHtmlSnippet(el), elementContext: elementContextForAI(el),
+          selector: getSelector(el),
+        });
       }
     });
+
 
     // ════════════════════════════════════════════════════════════════════════
     // SIA-R117: element with role='img' has no accessible name (WCAG 1.1.1)
