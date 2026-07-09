@@ -527,7 +527,7 @@ const HtmlTreeRow = memo(function HtmlTreeRow({
   );
 });
 
-function InteractiveHtmlTree({ pageHtml, elementHtml, selector }: { pageHtml: string; elementHtml: string; selector: string }) {
+function InteractiveHtmlTree({ pageHtml, elementHtml, elementContext, selector }: { pageHtml: string; elementHtml: string; elementContext?: string | null; selector: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [tree, setTree] = useState<HtmlTreeNode[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -536,24 +536,43 @@ function InteractiveHtmlTree({ pageHtml, elementHtml, selector }: { pageHtml: st
   const parsedDocRef = useRef<Document | null>(null);
   const parsedHtmlRef = useRef<string>("");
 
+  // Use elementContext (full element with children) as fallback when full page HTML is absent
+  const effectiveHtml = pageHtml || (elementContext ?? elementHtml);
+  // When using the element as the source, wrap it so DOMParser produces a valid document
+  const isElementFallback = !pageHtml && !!effectiveHtml;
+
   useEffect(() => {
-    if (!pageHtml) {
+    if (!effectiveHtml) {
       setTree([]);
       parsedDocRef.current = null;
       parsedHtmlRef.current = "";
       return;
     }
-    if (pageHtml === parsedHtmlRef.current && parsedDocRef.current) return;
-    const doc = new DOMParser().parseFromString(pageHtml, "text/html");
+    if (effectiveHtml === parsedHtmlRef.current && parsedDocRef.current) return;
+    const doc = new DOMParser().parseFromString(
+      isElementFallback ? `<!doctype html><html><body>${effectiveHtml}</body></html>` : effectiveHtml,
+      "text/html"
+    );
     parsedDocRef.current = doc;
-    parsedHtmlRef.current = pageHtml;
-    const rootNode = buildHtmlTree(doc.documentElement, "0");
-    setTree(rootNode ? [rootNode] : []);
-  }, [pageHtml]);
+    parsedHtmlRef.current = effectiveHtml;
+    // For element fallback, build tree from body children; for full page, from documentElement
+    if (isElementFallback) {
+      const children: HtmlTreeNode[] = [];
+      let ci = 0;
+      for (const child of Array.from(doc.body.childNodes)) {
+        const n = buildHtmlTree(child, `0.${ci}`);
+        if (n) { children.push(n); ci++; }
+      }
+      setTree(children);
+    } else {
+      const rootNode = buildHtmlTree(doc.documentElement, "0");
+      setTree(rootNode ? [rootNode] : []);
+    }
+  }, [effectiveHtml, isElementFallback]);
 
   useEffect(() => {
     const doc = parsedDocRef.current;
-    if (!pageHtml || !doc || tree.length === 0) return;
+    if (!effectiveHtml || !doc || tree.length === 0) return;
 
     const targetEl = findTargetElement(doc, selector, elementHtml);
 
@@ -565,21 +584,26 @@ function InteractiveHtmlTree({ pageHtml, elementHtml, selector }: { pageHtml: st
       for (const id of ancestorIds) newExpanded.add(id);
       newTarget = tid;
     } else {
-      function expandLevels(nodes: HtmlTreeNode[], depth: number) {
-        if (depth >= 2) return;
+      // Expand all nodes when no target found (or using element fallback — expand everything)
+      function expandAll(nodes: HtmlTreeNode[], depth: number) {
+        if (depth >= (isElementFallback ? 10 : 2)) return;
         for (const n of nodes) {
           if (n.kind === "element" && (n.children?.length ?? 0) > 0) {
             newExpanded.add(n.id);
-            expandLevels(n.children!, depth + 1);
+            expandAll(n.children!, depth + 1);
           }
         }
       }
-      expandLevels(tree, 0);
+      expandAll(tree, 0);
+      // For element fallback, highlight the root element node
+      if (isElementFallback && tree.length > 0 && tree[0].kind === "element") {
+        newTarget = tree[0].id;
+      }
     }
 
     setExpandedIds(newExpanded);
     setTargetId(newTarget);
-  }, [tree, selector, elementHtml, pageHtml]);
+  }, [tree, selector, elementHtml, effectiveHtml, isElementFallback]);
 
   useEffect(() => {
     if (!containerRef.current || !targetId) return;
@@ -591,17 +615,19 @@ function InteractiveHtmlTree({ pageHtml, elementHtml, selector }: { pageHtml: st
     setExpandedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }, []);
 
-  if (!pageHtml) {
+  if (!effectiveHtml) {
     return (
       <div className="flex-1 overflow-auto bg-white p-5">
-        <p className="text-xs text-gray-400 italic mb-2">Full page HTML not stored for this page</p>
-        <pre className="text-xs font-mono whitespace-pre-wrap" style={{ color: "#1a1a1a" }}>{elementHtml}</pre>
+        <p className="text-xs text-gray-400 italic">No element HTML available.</p>
       </div>
     );
   }
 
   return (
     <div ref={containerRef} className="flex-1 overflow-auto bg-white py-3 select-text">
+      {isElementFallback && (
+        <p className="text-[10px] text-amber-600 italic px-4 pb-1.5">Full page HTML not stored — showing element context only</p>
+      )}
       {tree.length === 0 ? (
         <div className="flex items-center justify-center h-32 text-gray-400 text-sm gap-2">
           <Loader2 className="w-4 h-4 animate-spin" />
@@ -623,6 +649,7 @@ interface Issue {
   impact: string;
   description: string;
   element: string | null;
+  elementContext?: string | null;
   selector: string | null;
   wcagCriteria: string | null;
   wcagLevel: string | null;
@@ -1101,14 +1128,15 @@ function IssueGroupList({
                                           )}
                                         </div>
                                       )}
-                                       <FixSuggestionPanel
+                                      <FixSuggestionPanel
                                         ruleId={issue.ruleId}
                                         description={issue.description}
                                         element={issue.element ?? null}
+                                        elementContext={issue.elementContext ?? null}
                                         selector={issue.selector ?? null}
                                         wcagCriteria={issue.wcagCriteria}
                                         wcagLevel={issue.wcagLevel}
-                                        pageUrl={page.url}
+                                        pageUrl={pageUrl}
                                       />
                                     </div>
                                   </td>
@@ -1573,7 +1601,7 @@ export default function ScanDetail() {
     topPages: string[];
     sampleDescriptions?: string[];
     issueVariants: SmartIssueVariant[];
-     sampleElement?: string | null;
+    sampleElement?: string | null;
     sampleSelector?: string | null;
     sampleRuleId?: string;
     sampleDescription?: string;
@@ -1594,7 +1622,7 @@ export default function ScanDetail() {
   const [smartExpanded, setSmartExpanded] = useState<Set<string>>(new Set());
   const [smartUrlFilter, setSmartUrlFilter] = useState("");
 
-  type CodeViewOccurrence = { id: number; ruleId: string; impact: string; element: string; selector: string; description: string; bboxX: number | null; bboxY: number | null; bboxWidth: number | null; bboxHeight: number | null };
+  type CodeViewOccurrence = { id: number; ruleId: string; impact: string; element: string; elementContext?: string | null; selector: string; description: string; bboxX: number | null; bboxY: number | null; bboxWidth: number | null; bboxHeight: number | null };
   const [codeViewOpen, setCodeViewOpen] = useState(false);
   const [codeViewLoading, setCodeViewLoading] = useState(false);
   const [codeViewUrl, setCodeViewUrl] = useState("");
@@ -2216,10 +2244,13 @@ export default function ScanDetail() {
       if (pageStatusFilter === "all") return true;
       if (pageStatusFilter === "completed_with_issues") return p.status === "completed" && p.issueCount > 0;
       if (pageStatusFilter === "completed_no_issues") return p.status === "completed" && p.issueCount === 0;
+      if (pageStatusFilter === "not_scanned") return !TERMINAL_PAGE_STATUSES.has(p.status) && p.status !== "completed";
       return p.status === pageStatusFilter;
     },
     [pageStatusFilter, pageUrlFilter, pageExtFilter],
   );
+
+  const TERMINAL_PAGE_STATUSES = new Set(["completed", "failed", "not_available", "pending", "requeued"]);
 
   const pageStatusCounts = useMemo(() => {
     const pages = scan?.pages ?? [];
@@ -2231,7 +2262,11 @@ export default function ScanDetail() {
       failed: pages.filter(p => p.status === "failed").length,
       not_available: pages.filter(p => p.status === "not_available").length,
       pending: pages.filter(p => p.status === "pending").length,
+      // Catch any pages stuck in a mid-flight status (running, navigating, scanning, etc.)
+      // that survived a container restart and were never cleaned up by the backend.
+      not_scanned: pages.filter(p => !TERMINAL_PAGE_STATUSES.has(p.status) && p.status !== "completed").length,
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scan?.pages]);
 
   const handleCopyAllUrls = async () => {
@@ -2703,13 +2738,15 @@ export default function ScanDetail() {
                               )}
                             </div>
                           )}
-                           {isSelected && (
+                          {isSelected && (
                             <div className="px-3 pb-3">
                               <FixSuggestionPanel
                                 ruleId={occ.ruleId}
                                 description={occ.description}
                                 element={occ.element}
+                                elementContext={occ.elementContext ?? null}
                                 selector={occ.selector}
+                                pageUrl={codeViewUrl}
                               />
                             </div>
                           )}
@@ -2798,6 +2835,7 @@ export default function ScanDetail() {
                       <InteractiveHtmlTree
                         pageHtml={codeViewPageHtml}
                         elementHtml={codeViewOccurrences[codeViewSelectedIdx].element}
+                        elementContext={codeViewOccurrences[codeViewSelectedIdx].elementContext}
                         selector={codeViewOccurrences[codeViewSelectedIdx].selector}
                       />
                     )}
@@ -3177,6 +3215,7 @@ export default function ScanDetail() {
                 { value: "failed",                 label: "Failed",       count: pageStatusCounts.failed,                 activeClass: "border-red-400 bg-red-50 dark:bg-red-950/30 dark:border-red-500",               Icon: XCircle },
                 { value: "not_available",          label: "Not Available",count: pageStatusCounts.not_available,          activeClass: "border-slate-400 bg-slate-50 dark:bg-slate-900/40 dark:border-slate-500",       Icon: CircleSlash },
                 { value: "pending",                label: "Pending",      count: pageStatusCounts.pending,                activeClass: "border-yellow-400 bg-yellow-50 dark:bg-yellow-950/30 dark:border-yellow-500",    Icon: Clock },
+                { value: "not_scanned",            label: "Not Scanned",  count: pageStatusCounts.not_scanned,            activeClass: "border-orange-400 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-500",   Icon: AlertTriangle },
               ].filter(t => t.value === "all" || t.count > 0);
               const iconColors: Record<string, string> = {
                 all: "text-slate-500",
@@ -3185,6 +3224,7 @@ export default function ScanDetail() {
                 failed: "text-red-500",
                 not_available: "text-slate-400",
                 pending: "text-yellow-500",
+                not_scanned: "text-orange-500",
               };
               const countColors: Record<string, string> = {
                 all: "text-slate-700 dark:text-slate-200",
@@ -3193,6 +3233,7 @@ export default function ScanDetail() {
                 failed: "text-red-700 dark:text-red-300",
                 not_available: "text-slate-600 dark:text-slate-300",
                 pending: "text-yellow-700 dark:text-yellow-300",
+                not_scanned: "text-orange-700 dark:text-orange-300",
               };
               return (
                 <div className="flex flex-wrap items-center gap-2">
@@ -3277,8 +3318,10 @@ export default function ScanDetail() {
                             <Ban className="w-5 h-5 text-slate-400 shrink-0" />
                           ) : page.status === "requeued" ? (
                             <RotateCcw className="w-5 h-5 text-indigo-500 shrink-0" />
-                          ) : (
+                          ) : page.status === "pending" ? (
                             <Clock className="w-5 h-5 text-yellow-500 shrink-0" />
+                          ) : (
+                            <AlertTriangle className="w-5 h-5 text-orange-500 shrink-0" />
                           )}
                           <div className="min-w-0 max-w-full">
                             <UrlCell url={page.url} />
@@ -3300,7 +3343,12 @@ export default function ScanDetail() {
                               Not Available
                             </Badge>
                           )}
-                           {(page.loadDurationMs != null || page.scanDurationMs != null) && (
+                          {!["completed","failed","not_available","pending","requeued"].includes(page.status) && (
+                            <Badge variant="outline" className="ml-auto bg-orange-50 text-orange-600 border-orange-200" title={`Interrupted mid-scan (status: ${page.status})`}>
+                              Not Scanned
+                            </Badge>
+                          )}
+                          {(page.loadDurationMs != null || page.scanDurationMs != null) && (
                             <div className="flex items-center gap-2 text-sm font-mono font-medium">
                               {page.loadDurationMs != null && (
                                 <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400" title="Page load time (DOMContentLoaded)">
@@ -3314,7 +3362,7 @@ export default function ScanDetail() {
                                 <span className="text-slate-400">·</span>
                               )}
                               {page.scanDurationMs != null && (
-                                <span className="flex items-center gap-1 text-violet-600 dark:text-violet-400" title="Total scan time (load + network idle + rule checks)">
+                                <span className="flex items-center gap-1 text-violet-600 dark:text-violet-400" title="Total scan time (load + scan delay + rule checks)">
                                   <Cpu className="w-3.5 h-3.5" />
                                   {page.scanDurationMs >= 1000
                                     ? `${(page.scanDurationMs / 1000).toFixed(1)}s`
@@ -3342,6 +3390,16 @@ export default function ScanDetail() {
                       </div>
                     </AccordionTrigger>
                     <AccordionContent className="pt-2 pb-4">
+                      {!["completed","failed","not_available","pending","requeued"].includes(page.status) && (
+                        <div className="p-4 bg-orange-50 text-orange-800 text-sm rounded-md mb-4 border border-orange-200 flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-orange-500" />
+                          <div>
+                            <p className="font-semibold mb-1">This page was not scanned</p>
+                            <p className="text-xs opacity-80">The scanner was interrupted (e.g. a server restart) while processing this URL. Use the <strong>Retry</strong> button to re-scan it.</p>
+                            <p className="text-xs opacity-60 mt-1 font-mono">Status at interruption: {page.status}</p>
+                          </div>
+                        </div>
+                      )}
                       {page.errorMessage && (
                         <div className="p-4 bg-destructive/10 text-destructive text-sm rounded-md mb-4 border border-destructive/20">
                           {page.errorMessage.includes("Cloudflare") ||
@@ -3382,7 +3440,7 @@ export default function ScanDetail() {
                           {pageIssues.length === 0 &&
                             page.status === "completed" && (
                               <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                               {page.issueCount > 0 ? (
+                                {page.issueCount > 0 ? (
                                   <>
                                     <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
                                     <span>
@@ -3395,7 +3453,7 @@ export default function ScanDetail() {
                                     No accessibility issues found on this page.
                                   </>
                                 )}
-                                 </div>
+                              </div>
                             )}
                           <IssueGroupList
                             issues={pageIssues}
@@ -3424,7 +3482,7 @@ export default function ScanDetail() {
                         </div>
                       ) : page.status === "completed" ? (
                         <div className="p-8 text-center text-muted-foreground border rounded-md mt-4 border-dashed bg-muted/10">
-                           {page.issueCount > 0 ? (
+                          {page.issueCount > 0 ? (
                             <>
                               <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2 opacity-70" />
                               <p className="text-sm font-medium">Issue details unavailable</p>
@@ -3650,7 +3708,7 @@ export default function ScanDetail() {
                           </span>
                         )}
                       </td>
-                       <td className="p-3 text-right text-sm font-mono font-medium">
+                      <td className="p-3 text-right text-sm font-mono font-medium">
                         {p.loadDurationMs != null
                           ? <span className="text-blue-600 dark:text-blue-400">{p.loadDurationMs >= 1000
                             ? `${(p.loadDurationMs / 1000).toFixed(1)}s`

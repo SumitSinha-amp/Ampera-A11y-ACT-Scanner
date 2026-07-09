@@ -5,8 +5,8 @@ import {
   accessibilityIssuesTable,
   appSettingsTable,
 } from "@workspace/db";
-import { eq, and, sql, or, inArray, lt } from "drizzle-orm";
-import { scanPage } from "./scanner";
+import { eq, and, sql, or, inArray, notInArray, lt } from "drizzle-orm";
+import { scanPage, resetBrowserInstance } from "./scanner";
 import { logger } from "./logger";
 
 interface ScanOptions {
@@ -258,24 +258,36 @@ export async function startScan(
           ),
         );
 
-      // Scan in batches — counter updates are skipped here and recomputed after.
-      for (let i = 0; i < requeueUrls.length; i += maxConcurrency) {
+      // Phase 3 retries one URL at a time (concurrency=1), not the scan's
+      // normal maxConcurrency.  Concurrent retries cause cascade failures:
+      // a TargetCloseError on one page destroys the browser context that
+      // adjacent concurrent pages are using at the same moment.
+      // Serialising ensures each URL gets a clean browser state.
+      //
+      // We also add a 10 s inter-round warm-up delay before each Phase 3
+      // round to let Cloudflare bot-detection trust accumulate in the
+      // persistent Chrome profile and give Chrome time to fully restart
+      // after a resetBrowserInstance() call.
+      const PHASE3_INTER_ROUND_DELAY_MS = 10_000;
+      logger.info(
+        { scanId, round, delayMs: PHASE3_INTER_ROUND_DELAY_MS },
+        "Phase 3: waiting before retry round to let browser recover",
+      );
+      await new Promise((r) => setTimeout(r, PHASE3_INTER_ROUND_DELAY_MS));
+
+      for (let i = 0; i < requeueUrls.length; i++) {
         if (controller.signal.aborted) break;
         if (!(await waitIfPaused(scanId, controller))) break;
-        const batch = requeueUrls.slice(i, i + maxConcurrency);
-        logger.info({ scanId, round, batch }, "Phase 3 retry batch");
+        const url = requeueUrls[i];
+        logger.info({ scanId, round, url, i: i + 1, total: requeueUrls.length }, "Phase 3 retry");
         // skipCompletedPages: true — Phase 3 must never re-scan a page that
         // already completed successfully, even if a duplicate failed row exists.
-        await Promise.all(
-          batch.map((url) =>
-            scanSinglePage(
-              scanId,
-              url,
-              { ...options, skipCompletedPages: true },
-              controller.signal,
-              true,
-            ),
-          ),
+        await scanSinglePage(
+          scanId,
+          url,
+          { ...options, skipCompletedPages: true },
+          controller.signal,
+          true,
         );
       }
 
@@ -305,6 +317,53 @@ export async function startScan(
           "Phase 3 round totals recomputed",
         );
       }
+    }
+
+    // Before closing out, reset any pages still in a non-terminal status
+    // (pending, requeued, running, navigating, scanning, rendering, analyzing,
+    // saving) to not_available so they surface in the UI "Not Available" tile
+    // instead of silently disappearing from the results.
+    const TERMINAL_STATUSES = ["completed", "failed", "not_available"] as const;
+    const resetResult = await db
+      .update(pageResultsTable)
+      .set({
+        status: "not_available",
+        errorMessage: "Page was not reached before the scan ended",
+      })
+      .where(
+        and(
+          eq(pageResultsTable.scanId, scanId),
+          notInArray(pageResultsTable.status, [...TERMINAL_STATUSES]),
+        ),
+      );
+    if (resetResult.rowCount && resetResult.rowCount > 0) {
+      logger.warn(
+        { scanId, resetCount: resetResult.rowCount },
+        "Reset non-terminal page rows to not_available on scan finish",
+      );
+    }
+
+    // Recompute final session totals after the reset so counts are accurate.
+    const [finalTotals] = await db
+      .select({
+        totalIssues: sql<number>`COALESCE(SUM(issue_count), 0)`,
+        criticalIssues: sql<number>`COALESCE(SUM(critical_count), 0)`,
+        scannedUrls: sql<number>`COUNT(*) FILTER (WHERE status = 'completed')`,
+        failedUrls: sql<number>`COUNT(*) FILTER (WHERE status IN ('failed', 'not_available'))`,
+      })
+      .from(pageResultsTable)
+      .where(eq(pageResultsTable.scanId, scanId));
+
+    if (finalTotals) {
+      await db
+        .update(scanSessionsTable)
+        .set({
+          totalIssues: Number(finalTotals.totalIssues),
+          criticalIssues: Number(finalTotals.criticalIssues),
+          scannedUrls: Number(finalTotals.scannedUrls),
+          failedUrls: Number(finalTotals.failedUrls),
+        })
+        .where(eq(scanSessionsTable.id, scanId));
     }
 
     const finalStatus = controller.signal.aborted ? "cancelled" : "completed";
@@ -526,7 +585,7 @@ async function scanSinglePage(
     // Update the primary row with full result data
     const scanDurationMs = Date.now() - scanStart;
     logger.info(
-      { scanId, url, pageId, pageStatus, loadDurationMs: result.loadDurationMs ?? null, scanDurationMs },
+      { scanId, url, pageId, pageStatus, issueCount, loadDurationMs: result.loadDurationMs ?? null, scanDurationMs },
       "TIMING: writing page result to DB",
     );
     await db
@@ -569,26 +628,33 @@ async function scanSinglePage(
         ),
       );
 
+    logger.info({ scanId, url, pageId, issueCount }, "Inserting issues into DB");
     if (result.issues.length > 0) {
-      await db.insert(accessibilityIssuesTable).values(
-        result.issues.map((issue) => ({
-          pageId,
-          ruleId: issue.ruleId,
-          impact: issue.impact,
-          description: issue.description,
-          element: issue.element,
-          elementContext: issue.elementContext ?? null,
-          wcagCriteria: issue.wcagCriteria,
-          wcagLevel: issue.wcagLevel,
-          legalText: getLegalText(issue.legal),
-          selector: issue.selector,
-          remediation: issue.remediation,
-          bboxX: issue.bboxX ?? null,
-          bboxY: issue.bboxY ?? null,
-          bboxWidth: issue.bboxWidth ?? null,
-          bboxHeight: issue.bboxHeight ?? null,
-        })),
-      );
+      try {
+        await db.insert(accessibilityIssuesTable).values(
+          result.issues.map((issue) => ({
+            pageId,
+            ruleId: issue.ruleId,
+            impact: issue.impact,
+            description: issue.description,
+            element: issue.element,
+            elementContext: issue.elementContext ?? null,
+            wcagCriteria: issue.wcagCriteria,
+            wcagLevel: issue.wcagLevel,
+            legalText: getLegalText(issue.legal),
+            selector: issue.selector,
+            remediation: issue.remediation,
+            bboxX: issue.bboxX ?? null,
+            bboxY: issue.bboxY ?? null,
+            bboxWidth: issue.bboxWidth ?? null,
+            bboxHeight: issue.bboxHeight ?? null,
+          })),
+        );
+        logger.info({ scanId, url, pageId, issueCount }, "Issues inserted successfully");
+      } catch (insertErr) {
+        logger.error({ scanId, url, pageId, issueCount, err: insertErr }, "ISSUE INSERT FAILED");
+        throw insertErr;
+      }
     }
 
     // Update session totals (skipped during post-cycle retry; recomputed from DB after)
@@ -617,12 +683,34 @@ async function scanSinglePage(
       }
     }
 
+    // Detect browser-corrupting errors: TargetCloseError means the Chrome
+    // DevTools target was destroyed (SPA navigation during rule evaluation,
+    // OOM reap, etc.).  Reset the browser instance so the next retry starts
+    // with a clean Chrome process instead of inheriting the broken state.
+    const errorStr = result.error ?? "";
+    const isBrowserCrash =
+      errorStr.includes("TargetCloseError") ||
+      errorStr.includes("Execution context was destroyed") ||
+      errorStr.includes("Target closed") ||
+      errorStr.includes("Session closed");
+    if (isBrowserCrash) {
+      logger.warn(
+        { scanId, url, error: errorStr.slice(0, 200) },
+        "Browser-corrupting error detected — resetting browser instance before next retry",
+      );
+      resetBrowserInstance();
+    }
+
     if (shouldAutoRetry) {
       counters.set(url, retryCount + 1);
+      // Exponential backoff: 5s, 10s, 15s … before re-queuing so Cloudflare
+      // bot detection has time to settle and Chrome can fully restart.
+      const backoffMs = (retryCount + 1) * 5_000;
       logger.info(
-        { scanId, url, attempt: retryCount + 1, max: MAX_AUTO_RETRIES },
-        "Auto-retrying URL",
+        { scanId, url, attempt: retryCount + 1, max: MAX_AUTO_RETRIES, backoffMs },
+        "Auto-retrying URL after backoff",
       );
+      await new Promise((r) => setTimeout(r, backoffMs));
       queueRetryUrl(scanId, url);
     } else if (result.error && !result.notAvailable) {
       logger.info(
