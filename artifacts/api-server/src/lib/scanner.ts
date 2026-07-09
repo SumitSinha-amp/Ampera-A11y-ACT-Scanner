@@ -5868,3 +5868,15 @@ export async function closeBrowser(): Promise<void> {
     browserInstance = null;
   }
 }
+/**
+ * Force-drops the browser instance so the next scanPage() call launches a
+ * fresh Chrome process.  Call this after a TargetCloseError or
+ * "Execution context was destroyed" error so the corrupted browser state
+ * doesn't poison subsequent retry attempts.
+ */
+export function resetBrowserInstance(): void {
+  if (browserInstance) {
+    browserInstance.close().catch(() => {});
+    browserInstance = null;
+  }
+}
