@@ -964,7 +964,7 @@ function IssueGroupList({
                 )}
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground mb-2">{count} element{count !== 1 ? "s" : ""} affected</p>
-                  <div className="border rounded-md overflow-hidden">
+                  <div className="border rounded-md overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-muted sticky top-0">
                         <tr>
@@ -974,8 +974,8 @@ function IssueGroupList({
                           {group.some((i) => i.description !== first.description) && (
                             <th className="text-left px-3 py-2 font-medium hidden lg:table-cell">Note</th>
                           )}
-                          <th className="w-6" />
-                          {onSelectOccurrence && <th className="w-28" />}
+                          <th className="w-8 shrink-0" />
+                          {onSelectOccurrence && <th className="w-32 shrink-0" />}
                         </tr>
                       </thead>
                       <tbody>
@@ -1042,8 +1042,8 @@ function IssueGroupList({
                                     ) : null}
                                   </td>
                                 )}
-                                <td className="px-3 py-2 text-muted-foreground">
-                                  <div className="flex items-center gap-2">
+                                <td className="px-2 py-2 text-muted-foreground w-8">
+                                  <div className="flex items-center gap-1.5">
                                     <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform duration-150 ${isExpanded ? "rotate-180" : ""}`} />
                                     {onFlagIssue && (
                                       <Button
@@ -1056,23 +1056,25 @@ function IssueGroupList({
                                         <Flag className={`w-3.5 h-3.5 ${isFlagged ? "fill-amber-400" : ""}`} />
                                       </Button>
                                     )}
-                                    {onSelectOccurrence && (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-6 text-[11px] px-2 gap-1 whitespace-nowrap"
-                                        onClick={(e) => { e.stopPropagation(); onSelectOccurrence(issue, group); }}
-                                      >
-                                        View Details
-                                      </Button>
-                                    )}
                                   </div>
                                 </td>
+                                {onSelectOccurrence && (
+                                  <td className="px-2 py-2 w-32 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-6 text-[11px] px-2 gap-1 whitespace-nowrap w-full"
+                                      onClick={(e) => { e.stopPropagation(); onSelectOccurrence(issue, group); }}
+                                    >
+                                      View Details
+                                    </Button>
+                                  </td>
+                                )}
                               </tr>
                               {isExpanded && (
                                 <tr key={`${issue.id}-detail`} className="bg-primary/5 border-t border-primary/10">
                                   <td
-                                    colSpan={(group.some((i) => i.description !== first.description) ? 7 : 6) + (onSelectOccurrence ? 1 : 0)}
+                                    colSpan={99}
                                     className="px-4 py-4"
                                   >
                                     <div className="space-y-3">
