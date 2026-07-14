@@ -35,6 +35,7 @@ import SettingsPage, {
   type LogoType,
 } from "@/pages/settings";
 import { useAuth, isAdmin } from "@/contexts/auth";
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function AppLogo() {
   const BASE_URL = import.meta.env.BASE_URL as string;
@@ -43,33 +44,38 @@ function AppLogo() {
   const [imgUrl, setImgUrl] = useState(() => `${BASE_URL}act-logo.png`);
   const [text, setText] = useState(DEFAULT_LOGO_TEXT);
   const [size, setSize] = useState(DEFAULT_LOGO_SIZE);
-  const [imgError, setImgError] = useState(false);
   const [textColor, setTextColor] = useState("");
-  useEffect(() => {
-    fetch(`${BASE}/api/logo`)
-      .then((r) => r.json())
-     .then((data: { type: string; imageUrl: string; text: string; size: number | null; textColor?: string }) => {
-        setLogoType(data.type === "text" ? "text" : data.type === "image-text" ? "image-text" : "image");
-        setImgUrl(data.imageUrl || `${BASE_URL}act-logo.png`);
-        setText(data.text || DEFAULT_LOGO_TEXT);
-        setSize(typeof data.size === "number" ? data.size : DEFAULT_LOGO_SIZE);
-        setTextColor(data.textColor ?? "");
-        setImgError(false);
-      })
-      .catch(() => {});
-
-    const sync = (e: Event) => {
-       const detail = (e as CustomEvent<{ type: LogoType; imageUrl: string; text: string; size: number; textColor?: string }>).detail;
-      if (!detail) return;
-      setLogoType(detail.type === "text" ? "text" : detail.type === "image-text" ? "image-text" : "image");
-      setImgUrl(detail.imageUrl || `${BASE_URL}act-logo.png`);
-      setText(detail.text || DEFAULT_LOGO_TEXT);
-      setSize(typeof detail.size === "number" ? detail.size : DEFAULT_LOGO_SIZE);
-      setTextColor(detail.textColor ?? "");
+  const [imgError, setImgError] = useState(false);
+ useEffect(() => {
+    const applyData = (data: { type: string; imageUrl: string; text: string; size: number | null; textColor?: string }) => {
+      setLogoType(data.type === "text" ? "text" : data.type === "image-text" ? "image-text" : "image");
+      setImgUrl(data.imageUrl || `${BASE_URL}act-logo.png`);
+      setText(data.text || DEFAULT_LOGO_TEXT);
+      setSize(typeof data.size === "number" ? data.size : DEFAULT_LOGO_SIZE);
+      setTextColor(data.textColor ?? "");
       setImgError(false);
     };
+
+    const fetchLogo = () =>
+      fetch(`${BASE}/api/logo`)
+        .then((r) => r.json())
+        .then(applyData)
+        .catch(() => {});
+
+    fetchLogo();
+    const sync = (e: Event) => {
+      const detail = (e as CustomEvent<{ type: LogoType; imageUrl: string; text: string; size: number; textColor?: string }>).detail;
+      if (detail) applyData({ ...detail, size: detail.size });
+    };
     window.addEventListener("a11y-logo-changed", sync);
-    return () => window.removeEventListener("a11y-logo-changed", sync);
+
+    const onVisibility = () => { if (document.visibilityState === "visible") fetchLogo(); };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      window.removeEventListener("a11y-logo-changed", sync);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [BASE, BASE_URL]);
 
   if (logoType === "image" && !imgError) {

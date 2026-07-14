@@ -179,13 +179,14 @@ function LogoSettingsCard() {
   const [logoUrlInput, setLogoUrlInput] = useState<string>("");
   const [logoTextInput, setLogoTextInput] = useState<string>(DEFAULT_LOGO_TEXT);
   const [logoSize, setLogoSizeState] = useState<number>(DEFAULT_LOGO_SIZE);
+  const [logoTextColor, setLogoTextColorState] = useState<string>("#000000");
   const [logoImgError, setLogoImgError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch(`${BASE}/api/logo`)
       .then((r) => r.json())
-      .then((data: { type: string; imageUrl: string; text: string; size: number | null }) => {
+      .then((data: { type: string; imageUrl: string; text: string; size: number | null; textColor?: string }) => {
         const type: LogoType = data.type === "text" ? "text" : data.type === "image-text" ? "image-text" : "image";
         const imgUrl = data.imageUrl || `${BASE_URL}act-logo.png`;
         const text = data.text || DEFAULT_LOGO_TEXT;
@@ -196,6 +197,7 @@ function LogoSettingsCard() {
         setLogoTextState(text);
         setLogoTextInput(text);
         setLogoSizeState(size);
+        setLogoTextColorState(data.textColor || "#000000");
       })
       .catch(() => {
         setLogoImageUrlState(`${BASE_URL}act-logo.png`);
@@ -203,7 +205,7 @@ function LogoSettingsCard() {
       .finally(() => setLoading(false));
   }, [BASE, BASE_URL]);
 
-  const saveLogo = async (patch: Partial<{ type: LogoType; imageUrl: string; text: string; size: number }>) => {
+  const saveLogo = async (patch: Partial<{ type: LogoType; imageUrl: string; text: string; size: number; textColor: string }>) => {
     try {
       await fetch(`${BASE}/api/admin/logo`, {
         method: "PUT",
@@ -216,14 +218,14 @@ function LogoSettingsCard() {
     }
   };
 
-  const dispatch = (detail: { type: LogoType; imageUrl: string; text: string; size: number }) => {
+  const dispatch = (detail: { type: LogoType; imageUrl: string; text: string; size: number; textColor?: string }) => {
     window.dispatchEvent(new CustomEvent("a11y-logo-changed", { detail }));
   };
 
   const handleLogoTypeChange = async (t: LogoType) => {
     setLogoTypeState(t);
     await saveLogo({ type: t });
-    dispatch({ type: t, imageUrl: logoImageUrl, text: logoText, size: logoSize });
+    dispatch({ type: t, imageUrl: logoImageUrl, text: logoText, size: logoSize, textColor: logoTextColor });
     toast({ title: t === "image" ? "Logo set to image" : t === "text" ? "Logo set to text" : "Logo set to image + text" });
   };
 
@@ -233,7 +235,7 @@ function LogoSettingsCard() {
     setLogoImageUrlState(imgUrl);
     setLogoImgError(false);
     await saveLogo({ imageUrl: trimmed });
-    dispatch({ type: logoType, imageUrl: imgUrl, text: logoText, size: logoSize });
+    dispatch({ type: logoType, imageUrl: imgUrl, text: logoText, size: logoSize, textColor: logoTextColor });
     toast({ title: "Logo image updated" });
   };
 
@@ -251,7 +253,7 @@ function LogoSettingsCard() {
       setLogoUrlInput("");
       setLogoImgError(false);
       await saveLogo({ imageUrl: dataUrl });
-      dispatch({ type: logoType, imageUrl: dataUrl, text: logoText, size: logoSize });
+      dispatch({ type: logoType, imageUrl: dataUrl, text: logoText, size: logoSize, textColor: logoTextColor });
       toast({ title: "Logo image uploaded" });
     };
     reader.readAsDataURL(file);
@@ -264,7 +266,7 @@ function LogoSettingsCard() {
     setLogoUrlInput("");
     setLogoImgError(false);
     await saveLogo({ imageUrl: "" });
-    dispatch({ type: logoType, imageUrl: def, text: logoText, size: logoSize });
+    dispatch({ type: logoType, imageUrl: def, text: logoText, size: logoSize, textColor: logoTextColor });
     toast({ title: "Logo reset to default" });
   };
 
@@ -273,7 +275,7 @@ function LogoSettingsCard() {
     setLogoTextState(trimmed);
     setLogoTextInput(trimmed);
     await saveLogo({ text: trimmed });
-    dispatch({ type: logoType, imageUrl: logoImageUrl, text: trimmed, size: logoSize });
+    dispatch({ type: logoType, imageUrl: logoImageUrl, text: trimmed, size: logoSize, textColor: logoTextColor });
     toast({ title: "Logo text updated" });
   };
 
@@ -281,7 +283,13 @@ function LogoSettingsCard() {
     const size = val[0];
     setLogoSizeState(size);
     await saveLogo({ size });
-    dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, size });
+    dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, size, textColor: logoTextColor });
+  };
+
+  const applyLogoTextColor = async (color: string) => {
+    setLogoTextColorState(color);
+    await saveLogo({ textColor: color });
+    dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, size: logoSize, textColor: color });
   };
 
   if (loading) {
@@ -417,7 +425,7 @@ function LogoSettingsCard() {
                       onLoad={() => setLogoImgError(false)}
                     />
                   )}
-                  <span className="font-bold text-foreground" style={{ fontSize: logoSize * 0.55 }}>{logoText}</span>
+                  <span className="font-bold" style={{ fontSize: logoSize * 0.55, color: logoTextColor || undefined }}>{logoText}</span>
                 </div>
               </div>
             )}
@@ -435,7 +443,7 @@ function LogoSettingsCard() {
                   className="max-w-xs"
                 />
                 {logoText !== DEFAULT_LOGO_TEXT && (
-                  <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={async () => { setLogoTextState(DEFAULT_LOGO_TEXT); setLogoTextInput(DEFAULT_LOGO_TEXT); await saveLogo({ text: DEFAULT_LOGO_TEXT }); dispatch({ type: logoType, imageUrl: logoImageUrl, text: DEFAULT_LOGO_TEXT, size: logoSize }); toast({ title: "Logo text reset to default" }); }}>
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={async () => { setLogoTextState(DEFAULT_LOGO_TEXT); setLogoTextInput(DEFAULT_LOGO_TEXT); await saveLogo({ text: DEFAULT_LOGO_TEXT }); dispatch({ type: logoType, imageUrl: logoImageUrl, text: DEFAULT_LOGO_TEXT, size: logoSize, textColor: logoTextColor }); toast({ title: "Logo text reset to default" }); }}>
                     <RotateCcw className="w-3.5 h-3.5" />
                     Reset
                   </Button>
@@ -443,6 +451,44 @@ function LogoSettingsCard() {
               </div>
               <p className="text-xs text-muted-foreground">Press Enter or click away to apply.</p>
             </div>
+            {logoType === "image-text" && (
+              <div className="space-y-2">
+                <Label htmlFor="logo-text-color">Text color</Label>
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <input
+                      id="logo-text-color"
+                      type="color"
+                      value={logoTextColor || "#000000"}
+                      onChange={(e) => applyLogoTextColor(e.target.value)}
+                      className="sr-only"
+                    />
+                    <label
+                      htmlFor="logo-text-color"
+                      className="flex items-center gap-2 cursor-pointer rounded-md border border-input bg-background px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                    >
+                      <span
+                        className="inline-block w-5 h-5 rounded border border-border shrink-0"
+                        style={{ backgroundColor: logoTextColor || "#000000" }}
+                      />
+                      <span className="font-mono text-xs">{logoTextColor || "#000000"}</span>
+                    </label>
+                  </div>
+                  {logoTextColor && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1.5 text-muted-foreground"
+                      onClick={() => applyLogoTextColor("")}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Reset
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">Color of the text next to the logo image.</p>
+              </div>
+            )}
             {logoType === "image-text" && (
               <div className="space-y-2">
                 <Label>Image</Label>
@@ -577,6 +623,17 @@ export default function Settings() {
     toast({ title: `Theme set to ${labels[t]}` });
   };
 
+  const syncProxyToServer = async (pacUrl: string) => {
+    try {
+      await fetch(`${BASE}/api/admin/active-proxy`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proxyPacUrl: pacUrl }),
+      });
+    } catch { /* best-effort */ }
+  };
+
   const addProxy = () => {
     const url = newPacUrl.trim();
     if (!url) return;
@@ -587,6 +644,7 @@ export default function Settings() {
     if (!activeProxy) {
       localStorage.setItem(ACTIVE_PROXY_KEY, url);
       setActiveProxy(url);
+      void syncProxyToServer(url);
     }
     setNewPacUrl("");
     toast({ title: "PAC URL saved" });
@@ -595,12 +653,14 @@ export default function Settings() {
   const selectProxy = (url: string) => {
     localStorage.setItem(ACTIVE_PROXY_KEY, url);
     setActiveProxy(url);
+    void syncProxyToServer(url);
     toast({ title: "Active proxy updated" });
   };
 
   const clearActiveProxy = () => {
     localStorage.removeItem(ACTIVE_PROXY_KEY);
     setActiveProxy("");
+    void syncProxyToServer("");
     toast({ title: "Active proxy cleared" });
   };
 
