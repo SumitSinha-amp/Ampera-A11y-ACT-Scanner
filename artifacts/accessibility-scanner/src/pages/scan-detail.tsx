@@ -97,7 +97,7 @@ import { Copy } from "lucide-react";
 import { ElementViewer, type ViewerIssue } from "@/components/element-viewer";
 import { isElementViewerEnabled } from "@/pages/settings";
 import { FixSuggestionPanel } from "@/components/fix-suggestion-panel";
-import { ScanQATab } from "@/pages/scan-qa";
+//import { ScanQATab } from "@/pages/scan-qa";
 
 // ── CSS Selector Hierarchy (expandable breadcrumb) ────────────────────────────
 function SelectorHierarchy({ selector }: { selector: string }) {
@@ -3183,43 +3183,12 @@ export default function ScanDetail() {
         </div>
       )}
 
-      {/* Main view tab bar — shown for completed/cancelled/failed scans */}
-      {!showUpdatingResults && !isActive && (
-        <div className="flex items-center border-b border-border gap-1">
-          <button
-            onClick={() => setMainView("accessibility")}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t transition-colors ${
-              mainView === "accessibility"
-                ? "text-foreground border border-b-0 border-border bg-background"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Globe className="w-4 h-4" />
-            Accessibility Results
-          </button>
-          <button
-            onClick={() => setMainView("qa")}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t transition-colors ${
-              mainView === "qa"
-                ? "text-foreground border border-b-0 border-border bg-background"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Shield className="w-4 h-4" />
-            Quality Assurance
-          </button>
-        </div>
-      )}
-
-      {/* QA tab — shown when mainView is "qa" */}
-      {!showUpdatingResults && !isActive && mainView === "qa" && (
-        <ScanQATab scanId={scan.id} />
-      )}
-
+     
+  
       {/* Completed page results */}
       {!showUpdatingResults &&
         !isActive &&
-        mainView === "accessibility" &&
+
         scan.pages &&
         scan.pages.length > 0 && (
           <div className="space-y-4">
@@ -3452,27 +3421,6 @@ export default function ScanDetail() {
                                 <p className="text-xs opacity-80">
                                   This website uses Cloudflare's bot detection
                                   and did not allow the scanner through.
-                                </p>
-                              </div>
-                            </div>
-                          ) : page.errorMessage.includes("403") ||
-                            page.errorMessage.includes("WAF") ||
-                            page.errorMessage.includes("Access Denied") ? (
-                            <div className="flex items-start gap-2">
-                              <span className="text-lg shrink-0">🔒</span>
-                              <div>
-                                <p className="font-semibold mb-1">
-                                  Site firewall blocked the scanner
-                                </p>
-                                <p className="text-xs opacity-80 mb-2">
-                                  The target site returned <strong>HTTP 403 Forbidden</strong> to our scanner's server IP.
-                                  This typically happens on financial, government, and enterprise sites that run
-                                  Akamai Bot Manager, Imperva Incapsula, or a custom WAF that blocks cloud/datacenter IP ranges.
-                                </p>
-                                <p className="text-xs opacity-70">
-                                  <strong>Options:</strong> (1) Use the <strong>Chrome Extension</strong> to scan from your own browser — it bypasses server-side IP blocks entirely.
-                                  (2) Ask the site owner to whitelist the scanner's IP.
-                                  (3) If the site is internal or staging, make sure it is publicly reachable.
                                 </p>
                               </div>
                             </div>
