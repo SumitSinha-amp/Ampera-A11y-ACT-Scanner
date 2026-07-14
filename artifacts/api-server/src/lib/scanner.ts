@@ -1566,13 +1566,39 @@ async function _scanPageInternal(
       );
     }
 
-    // If the initial response was 403 and no CF challenge was visible, retry once.
-    // Cloudflare sometimes returns 403 directly without showing a challenge page;
+     // If the initial response was 403 and no CF challenge was visible, retry once.
     // a second attempt with the warm stealth profile often gets through.
+    // Some WAFs (Cloudflare, Akamai, Imperva) return 403 on first contact; a second
+    // attempt with cleared cookies, a fresh Referer, and updated UA sometimes gets through.
     if (wasBlocked403 && !isCfChallenge) {
-      logger.info({ url }, "Initial 403 with no CF challenge — retrying with stealth profile");
+      logger.info({ url }, "Initial 403 with no CF challenge — clearing cookies and retrying");
       let retryStatus = 403;
       try {
+         // Clear cookies so session-based blocks don't persist into the retry
+        const client = await page.target().createCDPSession();
+        await client.send("Network.clearBrowserCookies");
+        await client.detach();
+        // Add a Referer that looks like the user clicked a link from a search engine
+        const urlObj = new URL(url);
+        await page.setExtraHTTPHeaders({
+          "Accept-Language": "en-US,en;q=0.9",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+          "Accept-Encoding": "gzip, deflate, br, zstd",
+          "Sec-Ch-Ua":
+            '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+          "Sec-Ch-Ua-Mobile": "?0",
+          "Sec-Ch-Ua-Platform": '"Windows"',
+          "Sec-Fetch-Dest": "document",
+          "Sec-Fetch-Mode": "navigate",
+          "Sec-Fetch-Site": "cross-site",
+          "Sec-Fetch-User": "?1",
+          "Upgrade-Insecure-Requests": "1",
+          "Cache-Control": "no-cache",
+          Referer: `https://www.google.com/search?q=${encodeURIComponent(urlObj.hostname)}`,
+        });
+        // Brief pause before retry so it doesn't look like an instant bot retry
+        await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1000));
         const retryResponse = await page.reload({ waitUntil: "domcontentloaded", timeout });
         retryStatus = retryResponse?.status() ?? 200;
       } catch {
@@ -1584,7 +1610,7 @@ async function _scanPageInternal(
           url,
           issues: [],
           notAvailable: true,
-          error: `HTTP ${retryStatus} – Page Not Available`,
+          error: `HTTP 403 – Access Denied by WAF/Firewall`,
         };
       }
       logger.info({ url, retryStatus }, "Retry succeeded — continuing with scan");

@@ -95,7 +95,7 @@ export const DEFAULT_LOGO_SIZE = 36;
 export const LOGO_SIZE_MIN = 20;
 export const LOGO_SIZE_MAX = 200;
 
-export type LogoType = "image" | "text";
+export type LogoType = "image" | "text" | "image-text";
 
 export function getLogoType(): LogoType {
   try {
@@ -186,7 +186,7 @@ function LogoSettingsCard() {
     fetch(`${BASE}/api/logo`)
       .then((r) => r.json())
       .then((data: { type: string; imageUrl: string; text: string; size: number | null }) => {
-        const type: LogoType = data.type === "text" ? "text" : "image";
+        const type: LogoType = data.type === "text" ? "text" : data.type === "image-text" ? "image-text" : "image";
         const imgUrl = data.imageUrl || `${BASE_URL}act-logo.png`;
         const text = data.text || DEFAULT_LOGO_TEXT;
         const size = typeof data.size === "number" ? data.size : DEFAULT_LOGO_SIZE;
@@ -224,7 +224,7 @@ function LogoSettingsCard() {
     setLogoTypeState(t);
     await saveLogo({ type: t });
     dispatch({ type: t, imageUrl: logoImageUrl, text: logoText, size: logoSize });
-    toast({ title: t === "image" ? "Logo set to image" : "Logo set to text" });
+    toast({ title: t === "image" ? "Logo set to image" : t === "text" ? "Logo set to text" : "Logo set to image + text" });
   };
 
   const applyLogoUrl = async (url: string) => {
@@ -306,10 +306,11 @@ function LogoSettingsCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           {([
             { value: "image" as LogoType, label: "Image logo", icon: ImageIcon },
             { value: "text" as LogoType, label: "Text logo", icon: Type },
+            { value: "image-text" as LogoType, label: "Image + text", icon: null },
           ]).map(({ value, label, icon: Icon }) => (
             <button
               key={value}
@@ -321,7 +322,14 @@ function LogoSettingsCard() {
                   : "border-border hover:border-primary/40 hover:bg-muted/40 text-muted-foreground"
               }`}
             >
-              <Icon className="w-5 h-5" />
+              {Icon ? (
+                <Icon className="w-5 h-5" />
+              ) : (
+                <span className="flex items-center gap-1">
+                  <ImageIcon className="w-4 h-4" />
+                  <Type className="w-4 h-4" />
+                </span>
+              )}
               <span className="text-sm font-medium">{label}</span>
             </button>
           ))}
@@ -380,17 +388,39 @@ function LogoSettingsCard() {
           </div>
         )}
 
-        {logoType === "text" && (
+        {(logoType === "text" || logoType === "image-text") && (
           <div className="space-y-4 pt-1 border-t">
-            <div>
-              <p className="text-sm font-medium mb-2">Preview</p>
-              <div className="flex items-center gap-2 rounded-lg border bg-background px-4 py-3">
-                <svg viewBox="0 0 24 24" style={{ width: logoSize * 0.6, height: logoSize * 0.6 }} className="text-primary shrink-0" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                </svg>
-                <span className="font-bold text-foreground" style={{ fontSize: logoSize * 0.55 }}>{logoText}</span>
+            {logoType === "text" && (
+              <div>
+                <p className="text-sm font-medium mb-2">Preview</p>
+                <div className="flex items-center gap-2 rounded-lg border bg-background px-4 py-3">
+                  <svg viewBox="0 0 24 24" style={{ width: logoSize * 0.6, height: logoSize * 0.6 }} className="text-primary shrink-0" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                  </svg>
+                  <span className="font-bold text-foreground" style={{ fontSize: logoSize * 0.55 }}>{logoText}</span>
+                </div>
               </div>
-            </div>
+            )}
+            {logoType === "image-text" && (
+              <div>
+                <p className="text-sm font-medium mb-2">Preview</p>
+                <div className="flex items-center gap-3 rounded-lg border bg-background px-4 py-3">
+                  {logoImgError ? (
+                    <span className="text-sm text-destructive">Failed to load image</span>
+                  ) : (
+                    <img
+                      src={logoImageUrl}
+                      alt="Logo preview"
+                      style={{ height: logoSize, maxWidth: logoSize * 4 }}
+                      className="w-auto object-contain shrink-0"
+                      onError={() => setLogoImgError(true)}
+                      onLoad={() => setLogoImgError(false)}
+                    />
+                  )}
+                  <span className="font-bold text-foreground" style={{ fontSize: logoSize * 0.55 }}>{logoText}</span>
+                </div>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="logo-text-input">Logo text</Label>
               <div className="flex gap-2">
@@ -413,6 +443,40 @@ function LogoSettingsCard() {
               </div>
               <p className="text-xs text-muted-foreground">Press Enter or click away to apply.</p>
             </div>
+            {logoType === "image-text" && (
+              <div className="space-y-2">
+                <Label>Image</Label>
+                <div className="flex gap-2">
+                  <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
+                  <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()}>
+                    <Upload className="w-4 h-4" />
+                    Choose file
+                  </Button>
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={resetLogoImage}>
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Reset image
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="logo-url-input-it" className="flex items-center gap-1.5">
+                    <LinkIcon className="w-3.5 h-3.5" />
+                    Or enter an image URL
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="logo-url-input-it"
+                      placeholder="https://example.com/logo.png"
+                      value={logoUrlInput}
+                      onChange={(e) => setLogoUrlInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { applyLogoUrl(logoUrlInput); (e.target as HTMLInputElement).blur(); } }}
+                      className="font-mono text-sm"
+                    />
+                    <Button onClick={() => applyLogoUrl(logoUrlInput)} disabled={!logoUrlInput.trim()}>Apply</Button>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">PNG, JPG, SVG, or WebP — transparent background recommended.</p>
+              </div>
+            )}
           </div>
         )}
 

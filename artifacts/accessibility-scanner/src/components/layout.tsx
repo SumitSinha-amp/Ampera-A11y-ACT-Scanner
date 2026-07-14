@@ -49,7 +49,7 @@ function AppLogo() {
     fetch(`${BASE}/api/logo`)
       .then((r) => r.json())
       .then((data: { type: string; imageUrl: string; text: string; size: number | null }) => {
-        setLogoType(data.type === "text" ? "text" : "image");
+        setLogoType(data.type === "text" ? "text" : data.type === "image-text" ? "image-text" : "image");
         setImgUrl(data.imageUrl || `${BASE_URL}act-logo.png`);
         setText(data.text || DEFAULT_LOGO_TEXT);
         setSize(typeof data.size === "number" ? data.size : DEFAULT_LOGO_SIZE);
@@ -60,7 +60,7 @@ function AppLogo() {
     const sync = (e: Event) => {
       const detail = (e as CustomEvent<{ type: LogoType; imageUrl: string; text: string; size: number }>).detail;
       if (!detail) return;
-      setLogoType(detail.type ?? "image");
+      setLogoType(detail.type === "text" ? "text" : detail.type === "image-text" ? "image-text" : "image");
       setImgUrl(detail.imageUrl || `${BASE_URL}act-logo.png`);
       setText(detail.text || DEFAULT_LOGO_TEXT);
       setSize(typeof detail.size === "number" ? detail.size : DEFAULT_LOGO_SIZE);
@@ -80,6 +80,28 @@ function AppLogo() {
         onError={() => setImgError(true)}
         onLoad={() => setImgError(false)}
       />
+    );
+  }
+  if (logoType === "image-text") {
+    return (
+      <span className="flex items-center gap-2">
+        {!imgError && (
+          <img
+            src={imgUrl}
+            alt=""
+            style={{ height: size, maxWidth: size * 4 }}
+            className="w-auto object-contain shrink-0"
+            onError={() => setImgError(true)}
+            onLoad={() => setImgError(false)}
+          />
+        )}
+        <span
+          className="font-bold text-foreground truncate"
+          style={{ fontSize: size * 0.55, maxWidth: size * 5 }}
+        >
+          {text}
+        </span>
+      </span>
     );
   }
 
