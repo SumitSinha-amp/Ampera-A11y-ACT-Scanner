@@ -961,17 +961,18 @@ export default function Settings() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Shield className="w-5 h-5 text-muted-foreground" />
-                <CardTitle>Proxy PAC Configuration</CardTitle>
+                <CardTitle>Proxy Configuration</CardTitle>
               </div>
               <CardDescription>
-                Add and manage PAC file URLs for scanning environments behind a
-                corporate proxy. The active PAC URL is used when proxy mode is
-                enabled on the scan page.
+                Add and manage proxy URLs for scanning environments behind a
+                corporate proxy. Supports PAC files (<code className="font-mono text-xs">http://host/proxy.pac</code>),
+                HTTP proxies (<code className="font-mono text-xs">http://host:port</code>), and SOCKS4/5 proxies (<code className="font-mono text-xs">socks4://host:port</code>).
+                The active proxy is used when proxy mode is enabled on the scan page.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="rounded-lg border p-4 space-y-2">
-                <p className="text-sm font-medium">Active Proxy PAC</p>
+                <p className="text-sm font-medium">Active Proxy</p>
                 {activeProxy ? (
                   <div className="flex items-center gap-2 flex-wrap">
                     <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
@@ -989,16 +990,16 @@ export default function Settings() {
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground italic">
-                    No active proxy PAC set. Select one below or add a new one.
+                    No active proxy set. Select one below or add a new one.
                   </p>
                 )}
               </div>
 
               <div className="space-y-2">
-                <Label>Add PAC URL</Label>
+                <Label>Add Proxy URL</Label>
                 <div className="flex gap-2">
                   <Input
-                    placeholder="http://example.com/proxy/autoproxy.pac"
+                    placeholder="socks4://host:port  or  http://host:port  or  http://host/proxy.pac"
                     value={newPacUrl}
                     onChange={(e) => setNewPacUrl(e.target.value)}
                     onKeyDown={(e) => {
@@ -1015,7 +1016,7 @@ export default function Settings() {
 
               {savedProxies.length > 0 ? (
                 <div className="space-y-2">
-                  <Label>Saved PAC URLs</Label>
+                  <Label>Saved Proxy URLs</Label>
                   <div className="border rounded-md overflow-hidden divide-y">
                     {savedProxies.map((pac) => (
                       <div

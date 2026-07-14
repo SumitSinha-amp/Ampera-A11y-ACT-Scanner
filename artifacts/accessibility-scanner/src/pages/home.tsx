@@ -55,7 +55,6 @@ import {
   ACTIVE_PROXY_KEY,
   isUrlLimitEnabled,
   getUrlLimitValue,
-  //getScanTimeoutMs,
 } from "@/pages/settings";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -113,7 +112,7 @@ const ALL_RULES: { id: string; label: string }[] = [
     label: "Multiple iframes with same accessible name (WCAG 4.1.2)",
   },
   { id: "SIA-R16", label: "Required ARIA attribute is missing (WCAG 4.1.2)" },
-  { id: "SIA-R17", label: "Hidden element has focusable content (WCAG 4.1.2)" },  
+  { id: "SIA-R17", label: "Hidden element has focusable content (WCAG 4.1.2)" },
   { id: "SIA-R18", label: "Unsupported ARIA attribute used (WCAG 4.1.2)" },
   { id: "SIA-R19", label: "Invalid ARIA value used (WCAG 4.1.2)" },
   { id: "SIA-R20", label: "Invalid ARIA attribute used (WCAG 4.1.2)" },
@@ -996,7 +995,14 @@ export default function Home() {
   };
 
   // Proxy PAC state — PAC URL is managed in Settings; here we just toggle it on/off
-  const [proxyEnabled, setProxyEnabled] = useState(false);
+  const PROXY_ENABLED_KEY = "a11y-scanner-proxy-enabled";
+  const [proxyEnabled, setProxyEnabled] = useState<boolean>(
+    () => localStorage.getItem(PROXY_ENABLED_KEY) === "true",
+  );
+  const setProxyEnabledPersisted = (val: boolean) => {
+    localStorage.setItem(PROXY_ENABLED_KEY, String(val));
+    setProxyEnabled(val);
+  };
   const [activeProxyPac, setActiveProxyPac] = useState<string>("");
   const [disableJavascript, setDisableJavascript] = useState(false);
 
@@ -1216,15 +1222,15 @@ export default function Home() {
     }
     if (proxyEnabled && !activeProxyPac) {
       toast({
-        title: "No proxy PAC configured",
+        title: "No proxy configured",
         description:
-          "Go to Settings to add a PAC file URL before enabling proxy mode.",
+          "Go to Settings → Proxy & Tools to add a proxy URL before enabling proxy mode.",
         variant: "destructive",
       });
       return;
     }
 
-    const effectiveProxy =
+    let resolvedProxy: string | undefined =
       proxyEnabled && activeProxyPac ? activeProxyPac : undefined;
 
     // Block internal/non-prod URLs when proxy is not active.
@@ -1263,13 +1269,23 @@ export default function Home() {
         return ENV_PREFIXES.some((prefix) => u.toLowerCase().includes(prefix));
       }
     });
-    if (internalUrls.length > 0 && !effectiveProxy) {
-      toast({
-        title: "Proxy PAC required for internal URLs",
-        description: `${internalUrls.length} URL${internalUrls.length > 1 ? "s appear" : " appears"} to be a stage/dev/preprod environment. Enable the proxy toggle and add a PAC file URL in Settings to scan internal addresses.`,
-        variant: "destructive",
-      });
-      return;
+    if (internalUrls.length > 0 && !resolvedProxy) {
+      if (activeProxyPac) {
+        // Proxy is configured in Settings but toggle was off — auto-enable and proceed
+        resolvedProxy = activeProxyPac;
+        setProxyEnabledPersisted(true);
+        toast({
+          title: "Proxy auto-enabled",
+          description: "Staging/internal URLs detected — scanning via your configured proxy automatically.",
+        });
+      } else {
+        toast({
+          title: "Proxy required for internal URLs",
+          description: `${internalUrls.length} URL${internalUrls.length > 1 ? "s appear" : " appears"} to be a stage/dev/preprod environment. Enable the proxy toggle and add a proxy URL in Settings → Proxy & Tools to scan internal addresses.`,
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     setStartingScan(true);
@@ -1282,10 +1298,9 @@ export default function Home() {
           groupId: groupId ?? undefined,
           options: {
             maxConcurrency: 5,
-            //timeout: getScanTimeoutMs(),
             ...(selectedRules.length > 0 ? { rules: selectedRules } : {}),
+            ...(resolvedProxy ? { proxyPacUrl: resolvedProxy } : {}),
             ...(disableJavascript ? { disableJavascript: true } : {}),
-            ...(effectiveProxy ? { proxyPacUrl: effectiveProxy } : {}),
           },
           initiatorName: initiatorName.trim() || undefined,
           initiatorRole: initiatorRole || undefined,
@@ -1729,7 +1744,8 @@ export default function Home() {
                 onChange={setSelectedRules}
               />
             </div>
-             {/* JS-disable toggle — shown only when user has canDisableJs permission */}
+
+            {/* JS-disable toggle — shown only when user has canDisableJs permission */}
             {user?.permissions?.canDisableJs && (
               <div className={`border rounded-lg p-4 transition-colors ${disableJavascript ? "bg-amber-50/50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800" : "bg-muted/20"}`}>
                 <div className="flex items-center gap-3">
@@ -1755,7 +1771,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* Proxy PAC section — PAC URL managed in Settings */}
+            {/* Proxy section — proxy URL managed in Settings → Proxy & Tools */}
             <div
               className={`border rounded-lg p-4 transition-colors ${proxyEnabled ? "bg-blue-50/50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-800" : "bg-muted/20"}`}
             >
@@ -1767,17 +1783,17 @@ export default function Home() {
                 )}
                 <div className="flex-1 min-w-0">
                   <Label className="text-sm font-medium">
-                    Proxy PAC (Optional)
+                    Proxy (Optional)
                   </Label>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Route scanning through a PAC file for internal or staging
-                    environments.
+                    Route scanning through a proxy for internal or staging
+                    environments. Supports PAC, HTTP, and SOCKS4/5.
                   </p>
                 </div>
                 <Switch
                   checked={proxyEnabled}
-                  onCheckedChange={setProxyEnabled}
-                  aria-label="Enable proxy PAC"
+                  onCheckedChange={setProxyEnabledPersisted}
+                  aria-label="Enable proxy"
                 />
               </div>
 
@@ -1793,7 +1809,7 @@ export default function Home() {
                   ) : (
                     <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
                       <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                      <span>No PAC URL configured. </span>
+                      <span>No proxy configured. </span>
                       <Link
                         href="/settings"
                         className="underline underline-offset-2 inline-flex items-center gap-0.5 hover:opacity-80"

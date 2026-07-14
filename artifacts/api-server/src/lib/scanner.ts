@@ -1125,22 +1125,49 @@ async function fullyRenderPage(page: Page, timeout: number): Promise<void> {
 }
 
 // ─── Proxy browser management ─────────────────────────────────────────────────
-// Proxy scans need a separate Chromium instance launched with --proxy-pac-url.
-// We cache one proxy browser per PAC URL to avoid relaunching on every page.
+// Proxy scans need a separate Chromium instance launched with either
+// --proxy-pac-url (for PAC files) or --proxy-server (for direct proxy URLs).
+// We cache one proxy browser per proxy URL to avoid relaunching on every page.
+/**
+ * Determine which Chromium proxy flag to use:
+ * - SOCKS proxies (socks4://, socks5://) → --proxy-server
+ * - HTTP/HTTPS with an explicit port (e.g. http://host:9002) → --proxy-server
+ * - Anything else (e.g. http://host/proxy.pac) → --proxy-pac-url
+ */
+function classifyProxy(proxyUrl: string): "--proxy-pac-url" | "--proxy-server" {
+  try {
+    const parsed = new URL(proxyUrl);
+    if (
+      parsed.protocol === "socks4:" ||
+      parsed.protocol === "socks5:" ||
+      parsed.protocol === "socks:"
+    ) {
+      return "--proxy-server";
+    }
+    if (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      parsed.port !== ""
+    ) {
+      return "--proxy-server";
+    }
+  } catch {
+    // fall through to PAC default
+  }
+  return "--proxy-pac-url";
+}
 let _proxyBrowserInstance: Browser | null = null;
-let _currentProxyPac: string | null = null;
-
-async function getProxyBrowser(proxyPacUrl: string): Promise<Browser> {
-  // Reuse if same PAC URL and browser is still connected
+let _currentProxyUrl: string | null = null;
+async function getProxyBrowser(proxyUrl: string): Promise<Browser> {
+  // Reuse if same proxy URL and browser is still connected
   if (
     _proxyBrowserInstance &&
     _proxyBrowserInstance.connected &&
-    _currentProxyPac === proxyPacUrl
+     _currentProxyUrl === proxyUrl
   ) {
     return _proxyBrowserInstance;
   }
 
-  // Close old proxy browser if PAC URL changed
+  // Close old proxy browser if proxy URL changed
   if (_proxyBrowserInstance && _proxyBrowserInstance.connected) {
     await _proxyBrowserInstance.close().catch(() => {});
     _proxyBrowserInstance = null;
@@ -1153,7 +1180,8 @@ async function getProxyBrowser(proxyPacUrl: string): Promise<Browser> {
     `chrome-proxy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   );
 
-  logger.info({ proxyPacUrl, proxySessionDir }, "Launching proxy browser");
+   const proxyFlag = classifyProxy(proxyUrl);
+  logger.info({ proxyUrl, proxyFlag, proxySessionDir }, "Launching proxy browser");
 
   _proxyBrowserInstance = await puppeteerExtra.launch({
     headless: true,
@@ -1163,19 +1191,19 @@ async function getProxyBrowser(proxyPacUrl: string): Promise<Browser> {
     userDataDir: proxySessionDir,
     args: [
       ...PUPPETEER_LAUNCH_ARGS,
-      `--proxy-pac-url=${proxyPacUrl}`,
+       `${proxyFlag}=${proxyUrl}`,
       // Ignore certificate errors on internal/staging environments
       "--ignore-certificate-errors",
       "--ignore-ssl-errors",
     ],
   });
 
-  _currentProxyPac = proxyPacUrl;
+   
 
   _proxyBrowserInstance.on("disconnected", () => {
     logger.warn("Proxy browser disconnected");
     _proxyBrowserInstance = null;
-    _currentProxyPac = null;
+    _currentProxyUrl = null;
   });
 
   return _proxyBrowserInstance;
@@ -1198,6 +1226,9 @@ export function scanPage(
     bypassCSP?: boolean;
     rules?: string[];
     proxyPacUrl?: string;
+    /** System-level proxy PAC URL to use as a fallback if a page returns 403 on the direct IP.
+     *  Ignored when proxyPacUrl is already set (proxy is already in use). */
+    fallbackProxyPacUrl?: string;
     disableJavascript?: boolean;
     onStage?: (stage: string) => void | Promise<void>;
     signal?: AbortSignal;
@@ -1228,6 +1259,7 @@ async function _scanPageInternal(
     bypassCSP?: boolean;
     rules?: string[];
     proxyPacUrl?: string;
+    fallbackProxyPacUrl?: string;
     disableJavascript?: boolean;
     onStage?: (stage: string) => void | Promise<void>;
     signal?: AbortSignal;
@@ -1605,6 +1637,17 @@ async function _scanPageInternal(
         /* timeout or navigation error — treat as still blocked */
       }
       if (retryStatus === 403 || retryStatus === 404 || retryStatus === 410 || retryStatus >= 500) {
+         // If a system proxy is configured and we're not already using it, retry via proxy browser.
+        // This lets the scan succeed even when the server's datacenter IP is blocklisted by the WAF.
+        if (options.fallbackProxyPacUrl && !options.proxyPacUrl) {
+          logger.info({ url, retryStatus, proxyPacUrl: options.fallbackProxyPacUrl },
+            "Still blocked after direct retry — re-running scan via system proxy");
+          return _scanPageInternal(url, {
+            ...options,
+            proxyPacUrl: options.fallbackProxyPacUrl,
+            fallbackProxyPacUrl: undefined, // prevent infinite recursion
+          });
+        }
         logger.info({ url, retryStatus }, "Still blocked after retry — marking page as not available");
         return {
           url,
