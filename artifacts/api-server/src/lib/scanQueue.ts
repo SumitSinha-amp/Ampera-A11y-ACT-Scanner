@@ -22,6 +22,18 @@ interface ScanOptions {
   disableJavascript?: boolean;
 }
 
+async function getSystemProxyPacUrl(): Promise<string> {
+  try {
+    const [row] = await db
+      .select({ value: appSettingsTable.value })
+      .from(appSettingsTable)
+      .where(eq(appSettingsTable.key, "active_proxy_pac"));
+    return row?.value?.trim() ?? "";
+  } catch {
+    return "";
+  }
+}
+
 async function getGlobalScanDelayMs(): Promise<number> {
   try {
     const [row] = await db
@@ -377,6 +389,13 @@ export async function startScan(
       .where(eq(scanSessionsTable.id, scanId));
 
     logger.info({ scanId, status: finalStatus }, "Scan session finished");
+
+    // Fire-and-forget QA link checker after successful scan
+    if (finalStatus === "completed") {
+      runQALinkChecker(scanId).catch((err) =>
+        logger.error({ scanId, err }, "QA link checker failed"),
+      );
+    }
   } catch (err) {
     logger.error({ scanId, err }, "Scan session failed");
     await db
@@ -530,6 +549,7 @@ async function scanSinglePage(
     // we convert the thrown error into a synthetic failed result so that the
     // shouldAutoRetry logic below still applies (Phase 2 queue) instead of
     // falling into the outer catch which skips retry altogether.
+    const systemProxyPacUrl = await getSystemProxyPacUrl();
     let result: Awaited<ReturnType<typeof scanPage>>;
     const scanStart = Date.now();
     try {
@@ -540,6 +560,9 @@ async function scanSinglePage(
           bypassCSP: options.bypassCSP,
           rules: options.rules,
           proxyPacUrl: options.proxyPacUrl,
+          // If a system proxy is configured and this scan isn't already using it,
+          // pass it as a fallback so 403-blocked pages can automatically retry via proxy.
+          fallbackProxyPacUrl: !options.proxyPacUrl && systemProxyPacUrl ? systemProxyPacUrl : undefined,
           disableJavascript: options.disableJavascript,
           signal: urlAbortController.signal,
           onStage: async (stage: string) => {
@@ -654,6 +677,42 @@ async function scanSinglePage(
       } catch (insertErr) {
         logger.error({ scanId, url, pageId, issueCount, err: insertErr }, "ISSUE INSERT FAILED");
         throw insertErr;
+      }
+    }
+
+    // Save QA page metadata
+    if (result.pageMeta && pageStatus === "completed") {
+      try {
+        await db.insert(qaPagesTable).values({
+          scanId,
+          url,
+          title: result.pageMeta.title ?? null,
+          h1: result.pageMeta.h1 ?? null,
+          metaDescription: result.pageMeta.metaDescription ?? null,
+          httpStatus: result.httpStatus ?? null,
+          wordCount: result.pageMeta.wordCount ?? null,
+          lastModified: result.pageMeta.lastModified ?? null,
+          scannedAt: new Date(),
+        });
+      } catch (qaPageErr) {
+        logger.warn({ scanId, url, err: qaPageErr }, "QA: failed to insert qa_pages row");
+      }
+    }
+
+    // Save extracted links for QA link graph
+    if (result.links && result.links.length > 0) {
+      try {
+        await db.insert(qaLinksTable).values(
+          result.links.map((link) => ({
+            scanId,
+            sourceUrl: url,
+            destUrl: link.href,
+            anchorText: link.anchorText || null,
+            linkType: link.linkType,
+          })),
+        );
+      } catch (qaLinkErr) {
+        logger.warn({ scanId, url, err: qaLinkErr }, "QA: failed to insert qa_links rows");
       }
     }
 

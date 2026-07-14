@@ -407,7 +407,7 @@ router.put("/admin/permissions/:userId", requireSuperAdmin, async (req, res): Pr
 
 // ── Logo settings ─────────────────────────────────────────────────────────────
 
-const LOGO_KEYS = ["logo_type", "logo_image_url", "logo_text", "logo_size"] as const;
+const LOGO_KEYS = ["logo_type", "logo_image_url", "logo_text", "logo_size", "logo_text_color"] as const;
 
 // GET /api/logo — public, no auth required; returns current logo settings for all users
 router.get("/logo", async (_req, res): Promise<void> => {
@@ -423,20 +423,21 @@ router.get("/logo", async (_req, res): Promise<void> => {
       imageUrl: map["logo_image_url"] ?? "",
       text: map["logo_text"] ?? "",
       size: map["logo_size"] ? parseInt(map["logo_size"], 10) : null,
+      textColor: map["logo_text_color"] ?? "",
     });
   } catch {
-    res.json({ type: "image", imageUrl: "", text: "", size: null });
+    res.json({ type: "image", imageUrl: "", text: "", size: null, textColor: "" });
   }
 });
 
 // PUT /api/admin/logo — admin/super_admin only; upserts logo settings
 router.put("/admin/logo", requireAdmin, async (req, res): Promise<void> => {
   const updatedBy = req.session!.user!.id;
-  const { type, imageUrl, text, size } = req.body ?? {};
+  const { type, imageUrl, text, size, textColor } = req.body ?? {};
   const now = new Date();
 
   const rows: { key: string; value: string; updatedAt: Date; updatedBy: number }[] = [];
-  if (type === "image" || type === "text") {
+  if (type === "image" || type === "text" || type === "image-text") {
     rows.push({ key: "logo_type", value: type, updatedAt: now, updatedBy });
   }
   if (typeof imageUrl === "string") {
@@ -447,6 +448,9 @@ router.put("/admin/logo", requireAdmin, async (req, res): Promise<void> => {
   }
   if (typeof size === "number" && Number.isFinite(size)) {
     rows.push({ key: "logo_size", value: String(size), updatedAt: now, updatedBy });
+  }
+  if (typeof textColor === "string") {
+    rows.push({ key: "logo_text_color", value: textColor, updatedAt: now, updatedBy });
   }
 
   for (const row of rows) {
@@ -462,9 +466,9 @@ router.put("/admin/logo", requireAdmin, async (req, res): Promise<void> => {
 // ── SMTP settings ─────────────────────────────────────────────────────────────
 
 const SMTP_KEYS = ["smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from"] as const;
-//const AI_KEYS = ["ai_engine_enabled", "ai_external_enabled", "ai_external_provider", "ai_external_api_key", "ai_external_model"] as const;
+const AI_KEYS = ["ai_engine_enabled", "ai_external_enabled", "ai_external_provider", "ai_external_api_key", "ai_external_model"] as const;
 const SCAN_KEYS = ["scan_page_timeout_ms"] as const;
-const ALL_SETTINGS_KEYS = [...SMTP_KEYS, ...SCAN_KEYS] as const;
+const ALL_SETTINGS_KEYS = [...SMTP_KEYS, ...AI_KEYS, ...SCAN_KEYS] as const;
 
 // GET /admin/settings — return current SMTP + AI settings (super_admin only)
 router.get("/admin/settings", requireSuperAdmin, async (req, res): Promise<void> => {
@@ -474,8 +478,8 @@ router.get("/admin/settings", requireSuperAdmin, async (req, res): Promise<void>
     if (row.value !== null && row.value !== undefined) map[row.key] = row.value;
   }
   // Never expose the raw API key — replace with a sentinel so the UI knows it's set
-//  if (map["ai_external_api_key"]) map["ai_external_api_key"] = "••••••••";
- // res.json(map);
+  if (map["ai_external_api_key"]) map["ai_external_api_key"] = "••••••••";
+  res.json(map);
 });
 
 // PUT /admin/settings — upsert SMTP + AI settings (super_admin only)
@@ -485,12 +489,12 @@ router.put("/admin/settings", requireSuperAdmin, async (req, res): Promise<void>
   const now = new Date();
 
   const rows = ALL_SETTINGS_KEYS
-    //.filter((k) => {
-    //  if (typeof body[k] !== "string") return false;
+    .filter((k) => {
+      if (typeof body[k] !== "string") return false;
       // Don't overwrite the API key if the client sent back the masked sentinel
-    //  if (k === "ai_external_api_key" && body[k] === "••••••••") return false;
-    //  return true;
-  //  })
+      if (k === "ai_external_api_key" && body[k] === "••••••••") return false;
+      return true;
+    })
     .map((k) => ({ key: k, value: body[k] as string, updatedAt: now, updatedBy }));
 
   if (rows.length > 0) {
@@ -517,6 +521,23 @@ router.get("/scan-settings", async (_req, res): Promise<void> => {
   // Use >= 0 so that 0 (no delay) is returned as-is, not replaced by the default.
   const timeoutMs = row?.value != null ? parseInt(row.value, 10) : 2000;
   res.json({ pageTimeoutMs: Number.isFinite(timeoutMs) && timeoutMs >= 0 ? timeoutMs : 2000 });
+});
+
+// ── Active proxy (system-level fallback for 403-blocked pages) ─────────────────
+// GET /admin/active-proxy — return current system proxy PAC URL (admin+)
+router.get("/admin/active-proxy", requireAdmin, async (_req, res): Promise<void> => {
+  const [row] = await db.select({ value: appSettingsTable.value }).from(appSettingsTable).where(eq(appSettingsTable.key, "active_proxy_pac"));
+  res.json({ proxyPacUrl: row?.value ?? "" });
+});
+
+// PUT /admin/active-proxy — set or clear system proxy PAC URL (admin+)
+router.put("/admin/active-proxy", requireAdmin, async (req, res): Promise<void> => {
+  const updatedBy = req.session!.user!.id;
+  const { proxyPacUrl } = req.body ?? {};
+  const value = typeof proxyPacUrl === "string" ? proxyPacUrl.trim() : "";
+  await db.insert(appSettingsTable).values({ key: "active_proxy_pac", value, updatedAt: new Date(), updatedBy })
+    .onConflictDoUpdate({ target: appSettingsTable.key, set: { value, updatedAt: new Date(), updatedBy } });
+  res.json({ ok: true });
 });
 
 // POST /admin/settings/test-email — send a test email using current SMTP config (super_admin only)

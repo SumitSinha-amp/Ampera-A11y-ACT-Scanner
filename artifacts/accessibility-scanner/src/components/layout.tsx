@@ -44,26 +44,28 @@ function AppLogo() {
   const [text, setText] = useState(DEFAULT_LOGO_TEXT);
   const [size, setSize] = useState(DEFAULT_LOGO_SIZE);
   const [imgError, setImgError] = useState(false);
-
+  const [textColor, setTextColor] = useState("");
   useEffect(() => {
     fetch(`${BASE}/api/logo`)
       .then((r) => r.json())
-      .then((data: { type: string; imageUrl: string; text: string; size: number | null }) => {
+     .then((data: { type: string; imageUrl: string; text: string; size: number | null; textColor?: string }) => {
         setLogoType(data.type === "text" ? "text" : data.type === "image-text" ? "image-text" : "image");
         setImgUrl(data.imageUrl || `${BASE_URL}act-logo.png`);
         setText(data.text || DEFAULT_LOGO_TEXT);
         setSize(typeof data.size === "number" ? data.size : DEFAULT_LOGO_SIZE);
+        setTextColor(data.textColor ?? "");
         setImgError(false);
       })
       .catch(() => {});
 
     const sync = (e: Event) => {
-      const detail = (e as CustomEvent<{ type: LogoType; imageUrl: string; text: string; size: number }>).detail;
+       const detail = (e as CustomEvent<{ type: LogoType; imageUrl: string; text: string; size: number; textColor?: string }>).detail;
       if (!detail) return;
       setLogoType(detail.type === "text" ? "text" : detail.type === "image-text" ? "image-text" : "image");
       setImgUrl(detail.imageUrl || `${BASE_URL}act-logo.png`);
       setText(detail.text || DEFAULT_LOGO_TEXT);
       setSize(typeof detail.size === "number" ? detail.size : DEFAULT_LOGO_SIZE);
+      setTextColor(detail.textColor ?? "");
       setImgError(false);
     };
     window.addEventListener("a11y-logo-changed", sync);
@@ -112,9 +114,9 @@ function AppLogo() {
         style={{ width: size * 0.6, height: size * 0.6 }}
       />
       <span
-        className="truncate"
-        style={{ fontSize: size * 0.55, maxWidth: size * 5 }}
-      >
+        className="font-bold truncate"
+          style={{ fontSize: size * 0.55, maxWidth: size * 5, color: textColor || undefined }}
+          >
         {text}
       </span>
     </span>

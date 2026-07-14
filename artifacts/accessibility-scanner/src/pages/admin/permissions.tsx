@@ -19,6 +19,7 @@ interface UserPermission {
   canManageScan: boolean;
   canCreateProject: boolean;
   canDeleteProject: boolean;
+  canDisableJs: boolean;
   allowedRules: string[] | null;
 }
 
@@ -41,6 +42,7 @@ const PERM_GROUPS = [
       { key: "canEditScan" as const,    label: "Edit Scans",     desc: "Rename and update metadata" },
       { key: "canDeleteScan" as const,  label: "Delete Scans",   desc: "Permanently remove scans" },
       { key: "canManageScan" as const,  label: "Manage Scans",   desc: "Pause, resume, cancel, retry" },
+      { key: "canDisableJs" as const,   label: "Disable JS Scans", desc: "Scan pages with JavaScript turned off" },
     ],
   },
   {
