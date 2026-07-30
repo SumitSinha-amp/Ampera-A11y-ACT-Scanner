@@ -19,13 +19,20 @@ import type {
 import type {
   CreateScanBody,
   ErrorResponse,
+  GrantSiteGroupAccess201,
+  GrantSiteGroupBody,
+  GrantSiteUserAccess201,
+  GrantSiteUserBody,
   HealthStatus,
+  ListScansParams,
+  MySitesResponse,
   ParseSitemapBody,
   ParseSitemapResponse,
   ScanReport,
   ScanSession,
   ScanSessionDetail,
   ScanStatus,
+  SiteAccessResponse,
   UpdateScanBody,
 } from "./api.schemas";
 
@@ -118,37 +125,57 @@ export function useHealthCheck<
  * Returns all scan sessions with summary info
  * @summary List all scans
  */
-export const getListScansUrl = () => {
-  return `/api/scans`;
+export const getListScansUrl = (params?: ListScansParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/scans?${stringifiedParams}`
+    : `/api/scans`;
 };
 
 export const listScans = async (
+  params?: ListScansParams,
   options?: RequestInit,
 ): Promise<ScanSession[]> => {
-  return customFetch<ScanSession[]>(getListScansUrl(), {
+  return customFetch<ScanSession[]>(getListScansUrl(params), {
     ...options,
     method: "GET",
   });
 };
 
-export const getListScansQueryKey = () => {
-  return [`/api/scans`] as const;
+export const getListScansQueryKey = (params?: ListScansParams) => {
+  return [`/api/scans`, ...(params ? [params] : [])] as const;
 };
 
 export const getListScansQueryOptions = <
   TData = Awaited<ReturnType<typeof listScans>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<Awaited<ReturnType<typeof listScans>>, TError, TData>;
-  request?: SecondParameter<typeof customFetch>;
-}) => {
+>(
+  params?: ListScansParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listScans>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getListScansQueryKey();
+  const queryKey = queryOptions?.queryKey ?? getListScansQueryKey(params);
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof listScans>>> = ({
     signal,
-  }) => listScans({ signal, ...requestOptions });
+  }) => listScans(params, { signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof listScans>>,
@@ -169,11 +196,18 @@ export type ListScansQueryError = ErrorType<unknown>;
 export function useListScans<
   TData = Awaited<ReturnType<typeof listScans>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<Awaited<ReturnType<typeof listScans>>, TError, TData>;
-  request?: SecondParameter<typeof customFetch>;
-}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getListScansQueryOptions(options);
+>(
+  params?: ListScansParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listScans>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListScansQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -346,6 +380,93 @@ export function useGetScan<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Update scan metadata (name, initiator)
+ */
+export const getUpdateScanUrl = (id: number) => {
+  return `/api/scans/${id}`;
+};
+
+export const updateScan = async (
+  id: number,
+  updateScanBody: UpdateScanBody,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getUpdateScanUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateScanBody),
+  });
+};
+
+export const getUpdateScanMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateScan>>,
+    TError,
+    { id: number; data: BodyType<UpdateScanBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateScan>>,
+  TError,
+  { id: number; data: BodyType<UpdateScanBody> },
+  TContext
+> => {
+  const mutationKey = ["updateScan"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateScan>>,
+    { id: number; data: BodyType<UpdateScanBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateScan(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateScanMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateScan>>
+>;
+export type UpdateScanMutationBody = BodyType<UpdateScanBody>;
+export type UpdateScanMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Update scan metadata (name, initiator)
+ */
+export const useUpdateScan = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateScan>>,
+    TError,
+    { id: number; data: BodyType<UpdateScanBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateScan>>,
+  TError,
+  { id: number; data: BodyType<UpdateScanBody> },
+  TContext
+> => {
+  return useMutation(getUpdateScanMutationOptions(options));
+};
 
 /**
  * @summary Delete a scan
@@ -692,74 +813,511 @@ export function useGetScanReport<
 }
 
 /**
- * @summary Update a scan's name and initiator fields
+ * Returns all sites the authenticated user can access. Admins get all sites; regular users get only their assigned sites (direct + group).
+ * @summary Get sites accessible to the current user
  */
-export const getUpdateScanUrl = (id: number) => {
-  return `/api/scans/${id}`;
+export const getGetMySitesUrl = () => {
+  return `/api/sites/my-sites`;
 };
 
-export const updateScan = async (
-  id: number,
-  updateScanBody: UpdateScanBody,
+export const getMySites = async (
   options?: RequestInit,
-): Promise<void> => {
-  return customFetch<void>(getUpdateScanUrl(id), {
+): Promise<MySitesResponse> => {
+  return customFetch<MySitesResponse>(getGetMySitesUrl(), {
     ...options,
-    method: "PATCH",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(updateScanBody),
+    method: "GET",
   });
 };
 
-export const getUpdateScanMutationOptions = <
-  TError = ErrorType<ErrorResponse>,
+export const getGetMySitesQueryKey = () => {
+  return [`/api/sites/my-sites`] as const;
+};
+
+export const getGetMySitesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMySites>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMySites>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMySitesQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMySites>>> = ({
+    signal,
+  }) => getMySites({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMySites>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMySitesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMySites>>
+>;
+export type GetMySitesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get sites accessible to the current user
+ */
+
+export function useGetMySites<
+  TData = Awaited<ReturnType<typeof getMySites>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMySites>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMySitesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List users and groups with access to a site
+ */
+export const getGetSiteAccessUrl = (id: number) => {
+  return `/api/admin/sites/${id}/access`;
+};
+
+export const getSiteAccess = async (
+  id: number,
+  options?: RequestInit,
+): Promise<SiteAccessResponse> => {
+  return customFetch<SiteAccessResponse>(getGetSiteAccessUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSiteAccessQueryKey = (id: number) => {
+  return [`/api/admin/sites/${id}/access`] as const;
+};
+
+export const getGetSiteAccessQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSiteAccess>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSiteAccess>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSiteAccessQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSiteAccess>>> = ({
+    signal,
+  }) => getSiteAccess(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSiteAccess>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSiteAccessQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSiteAccess>>
+>;
+export type GetSiteAccessQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List users and groups with access to a site
+ */
+
+export function useGetSiteAccess<
+  TData = Awaited<ReturnType<typeof getSiteAccess>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSiteAccess>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSiteAccessQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Grant a user access to a site
+ */
+export const getGrantSiteUserAccessUrl = (id: number) => {
+  return `/api/admin/sites/${id}/users`;
+};
+
+export const grantSiteUserAccess = async (
+  id: number,
+  grantSiteUserBody: GrantSiteUserBody,
+  options?: RequestInit,
+): Promise<GrantSiteUserAccess201> => {
+  return customFetch<GrantSiteUserAccess201>(getGrantSiteUserAccessUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(grantSiteUserBody),
+  });
+};
+
+export const getGrantSiteUserAccessMutationOptions = <
+  TError = ErrorType<unknown>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof updateScan>>,
+    Awaited<ReturnType<typeof grantSiteUserAccess>>,
     TError,
-    { id: number; data: BodyType<UpdateScanBody> },
+    { id: number; data: BodyType<GrantSiteUserBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
-  Awaited<ReturnType<typeof updateScan>>,
+  Awaited<ReturnType<typeof grantSiteUserAccess>>,
   TError,
-  { id: number; data: BodyType<UpdateScanBody> },
+  { id: number; data: BodyType<GrantSiteUserBody> },
   TContext
 > => {
-  const mutationKey = ["updateScan"];
-  const { mutation: mutationOptions, request: requestOptions } = options ?? {};
+  const mutationKey = ["grantSiteUserAccess"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
   const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof updateScan>>,
-    { id: number; data: BodyType<UpdateScanBody> }
-  > = ({ id, data }) => updateScan(id, data, requestOptions);
-  return { mutationKey, mutationFn, ...mutationOptions };
+    Awaited<ReturnType<typeof grantSiteUserAccess>>,
+    { id: number; data: BodyType<GrantSiteUserBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return grantSiteUserAccess(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
 };
 
-export type UpdateScanMutationResult = NonNullable<Awaited<ReturnType<typeof updateScan>>>;
-export type UpdateScanMutationBody = BodyType<UpdateScanBody>;
-export type UpdateScanMutationError = ErrorType<ErrorResponse>;
+export type GrantSiteUserAccessMutationResult = NonNullable<
+  Awaited<ReturnType<typeof grantSiteUserAccess>>
+>;
+export type GrantSiteUserAccessMutationBody = BodyType<GrantSiteUserBody>;
+export type GrantSiteUserAccessMutationError = ErrorType<unknown>;
 
-export function useUpdateScan<
-  TError = ErrorType<ErrorResponse>,
+/**
+ * @summary Grant a user access to a site
+ */
+export const useGrantSiteUserAccess = <
+  TError = ErrorType<unknown>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof updateScan>>,
+    Awaited<ReturnType<typeof grantSiteUserAccess>>,
     TError,
-    { id: number; data: BodyType<UpdateScanBody> },
+    { id: number; data: BodyType<GrantSiteUserBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
-  Awaited<ReturnType<typeof updateScan>>,
+  Awaited<ReturnType<typeof grantSiteUserAccess>>,
   TError,
-  { id: number; data: BodyType<UpdateScanBody> },
+  { id: number; data: BodyType<GrantSiteUserBody> },
   TContext
-> {
-  return useMutation(getUpdateScanMutationOptions(options));
-}
+> => {
+  return useMutation(getGrantSiteUserAccessMutationOptions(options));
+};
+
+/**
+ * @summary Revoke a user's access to a site
+ */
+export const getRevokeSiteUserAccessUrl = (id: number, userId: number) => {
+  return `/api/admin/sites/${id}/users/${userId}`;
+};
+
+export const revokeSiteUserAccess = async (
+  id: number,
+  userId: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getRevokeSiteUserAccessUrl(id, userId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getRevokeSiteUserAccessMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeSiteUserAccess>>,
+    TError,
+    { id: number; userId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof revokeSiteUserAccess>>,
+  TError,
+  { id: number; userId: number },
+  TContext
+> => {
+  const mutationKey = ["revokeSiteUserAccess"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof revokeSiteUserAccess>>,
+    { id: number; userId: number }
+  > = (props) => {
+    const { id, userId } = props ?? {};
+
+    return revokeSiteUserAccess(id, userId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RevokeSiteUserAccessMutationResult = NonNullable<
+  Awaited<ReturnType<typeof revokeSiteUserAccess>>
+>;
+
+export type RevokeSiteUserAccessMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Revoke a user's access to a site
+ */
+export const useRevokeSiteUserAccess = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeSiteUserAccess>>,
+    TError,
+    { id: number; userId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof revokeSiteUserAccess>>,
+  TError,
+  { id: number; userId: number },
+  TContext
+> => {
+  return useMutation(getRevokeSiteUserAccessMutationOptions(options));
+};
+
+/**
+ * @summary Grant a group access to a site
+ */
+export const getGrantSiteGroupAccessUrl = (id: number) => {
+  return `/api/admin/sites/${id}/groups`;
+};
+
+export const grantSiteGroupAccess = async (
+  id: number,
+  grantSiteGroupBody: GrantSiteGroupBody,
+  options?: RequestInit,
+): Promise<GrantSiteGroupAccess201> => {
+  return customFetch<GrantSiteGroupAccess201>(getGrantSiteGroupAccessUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(grantSiteGroupBody),
+  });
+};
+
+export const getGrantSiteGroupAccessMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof grantSiteGroupAccess>>,
+    TError,
+    { id: number; data: BodyType<GrantSiteGroupBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof grantSiteGroupAccess>>,
+  TError,
+  { id: number; data: BodyType<GrantSiteGroupBody> },
+  TContext
+> => {
+  const mutationKey = ["grantSiteGroupAccess"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof grantSiteGroupAccess>>,
+    { id: number; data: BodyType<GrantSiteGroupBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return grantSiteGroupAccess(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type GrantSiteGroupAccessMutationResult = NonNullable<
+  Awaited<ReturnType<typeof grantSiteGroupAccess>>
+>;
+export type GrantSiteGroupAccessMutationBody = BodyType<GrantSiteGroupBody>;
+export type GrantSiteGroupAccessMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Grant a group access to a site
+ */
+export const useGrantSiteGroupAccess = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof grantSiteGroupAccess>>,
+    TError,
+    { id: number; data: BodyType<GrantSiteGroupBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof grantSiteGroupAccess>>,
+  TError,
+  { id: number; data: BodyType<GrantSiteGroupBody> },
+  TContext
+> => {
+  return useMutation(getGrantSiteGroupAccessMutationOptions(options));
+};
+
+/**
+ * @summary Revoke a group's access to a site
+ */
+export const getRevokeSiteGroupAccessUrl = (id: number, groupId: number) => {
+  return `/api/admin/sites/${id}/groups/${groupId}`;
+};
+
+export const revokeSiteGroupAccess = async (
+  id: number,
+  groupId: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getRevokeSiteGroupAccessUrl(id, groupId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getRevokeSiteGroupAccessMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeSiteGroupAccess>>,
+    TError,
+    { id: number; groupId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof revokeSiteGroupAccess>>,
+  TError,
+  { id: number; groupId: number },
+  TContext
+> => {
+  const mutationKey = ["revokeSiteGroupAccess"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof revokeSiteGroupAccess>>,
+    { id: number; groupId: number }
+  > = (props) => {
+    const { id, groupId } = props ?? {};
+
+    return revokeSiteGroupAccess(id, groupId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RevokeSiteGroupAccessMutationResult = NonNullable<
+  Awaited<ReturnType<typeof revokeSiteGroupAccess>>
+>;
+
+export type RevokeSiteGroupAccessMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Revoke a group's access to a site
+ */
+export const useRevokeSiteGroupAccess = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeSiteGroupAccess>>,
+    TError,
+    { id: number; groupId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof revokeSiteGroupAccess>>,
+  TError,
+  { id: number; groupId: number },
+  TContext
+> => {
+  return useMutation(getRevokeSiteGroupAccessMutationOptions(options));
+};
 
 /**
  * @summary Parse a sitemap URL and return its URLs

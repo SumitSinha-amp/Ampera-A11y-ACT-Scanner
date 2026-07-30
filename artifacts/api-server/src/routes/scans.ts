@@ -7,6 +7,8 @@ import {
   pageResultsTable,
   accessibilityIssuesTable,
   projectsTable,
+  appSettingsTable,
+  sitesTable,
 } from "@workspace/db";
 import { eq, and, desc, sql, inArray, isNull, or } from "drizzle-orm";
 import {
@@ -28,11 +30,13 @@ import {
   isScanActive,
   queueRetryUrl,
   addUrlsToRunningScan,
+  wafPageTokens,
+  wafTokenIndex,
 } from "../lib/scanQueue";
 import { fetchSitemapUrls, parseUrlsFromCsv } from "../lib/sitemap";
 import { logger } from "../lib/logger";
 import { requireAuth } from "../middlewares/authMiddleware";
-import { getEffectivePermissions } from "../lib/permissions";
+import { getEffectivePermissions, canAccessSite, getEffectiveSites } from "../lib/permissions";
 
 const router: IRouter = Router();
 const upload = multer({
@@ -47,6 +51,41 @@ function getAuthUserId(req: any): string {
 function isAdminUser(req: any): boolean {
   const role = req.session?.user?.role;
   return role === "super_admin" || role === "admin";
+}
+
+/**
+ * Scan-level authorization with site-access enforcement.
+ *
+ * Rules:
+ *  - Admin/super_admin: always allowed.
+ *  - Scan has a siteId: caller must have access to that site; within that,
+ *    canViewAllScans lets them see all scans, otherwise only their own.
+ *  - Scan has no siteId: canViewAllScans or own scan (original behaviour).
+ */
+async function canAccessScan(req: any, scanId: number): Promise<boolean> {
+  if (isAdminUser(req)) return true;
+  const userId = getAuthUserId(req);
+  const userIdNum = parseInt(userId, 10);
+  const role = req.session?.user?.role ?? "user";
+
+  const [scan] = await db
+    .select({ userId: scanSessionsTable.userId, siteId: scanSessionsTable.siteId })
+    .from(scanSessionsTable)
+    .where(eq(scanSessionsTable.id, scanId))
+    .limit(1);
+
+  if (!scan) return false;
+
+  // If the scan is tied to a site, enforce site-level access first.
+  if (scan.siteId) {
+    const siteAccess = await canAccessSite(userIdNum, userId, role, scan.siteId);
+    if (!siteAccess) return false;
+  }
+
+  // Within site (or for site-less scans): canViewAllScans or own scan.
+  const perms = await getEffectivePermissions(userIdNum, role);
+  if (perms.canViewAllScans) return true;
+  return scan.userId?.toString() === userId;
 }
 
 router.get("/scans", requireAuth, async (req, res): Promise<void> => {
@@ -65,6 +104,7 @@ router.get("/scans", requireAuth, async (req, res): Promise<void> => {
     projectId: scanSessionsTable.projectId,
     projectName: projectsTable.name,
     name: scanSessionsTable.name,
+    siteId: scanSessionsTable.siteId,
     initiatorName: scanSessionsTable.initiatorName,
     initiatorRole: scanSessionsTable.initiatorRole,
     status: scanSessionsTable.status,
@@ -80,32 +120,70 @@ router.get("/scans", requireAuth, async (req, res): Promise<void> => {
   };
 
   const currentUserFullName = req.session?.user?.fullName ?? "";
+  const siteIdFilter = req.query["siteId"] ? parseInt(req.query["siteId"] as string, 10) : null;
+  const userRole = req.session?.user?.role ?? "user";
 
-  const sessions = canViewAll
+  // For non-admin users resolve their effective sites once. This is used both to
+  // gate an explicit ?siteId filter and to scope the scan list when canViewAllScans.
+  let effectiveSiteIds: number[] | null = null; // null = admin, unrestricted
+  if (!adminUser) {
+    const userIdNum = parseInt(userId, 10);
+    const effectiveSites = await getEffectiveSites(userIdNum, userId, userRole);
+    effectiveSiteIds = effectiveSites.map((s) => s.id);
+  }
+
+  // Verify the caller has access to the requested site before applying the filter
+  if (siteIdFilter && effectiveSiteIds !== null) {
+    if (!effectiveSiteIds.includes(siteIdFilter)) {
+      res.status(403).json({ error: "You do not have access to the specified site" });
+      return;
+    }
+  }
+
+  // Build WHERE condition for non-admin users.
+  // canViewAllScans → see all scans for accessible sites (+ own site-less scans)
+  // regular user   → see only own scans, restricted to accessible sites
+  const buildNonAdminWhere = () => {
+    const siteConstraint = effectiveSiteIds!.length > 0
+      ? inArray(scanSessionsTable.siteId, effectiveSiteIds!)
+      : eq(scanSessionsTable.siteId, -1); // impossible → empty set for sites with no access
+
+    if (canViewAll) {
+      // canViewAllScans: all scans for assigned sites; also include own scans with no siteId
+      const base = siteIdFilter
+        ? eq(scanSessionsTable.siteId, siteIdFilter)
+        : or(
+            siteConstraint,
+            and(isNull(scanSessionsTable.siteId), eq(scanSessionsTable.userId, userId)),
+          );
+      return base;
+    }
+
+    // Regular user: own scans only, within accessible sites (or no site)
+    const ownMatch = or(
+      eq(scanSessionsTable.userId, userId),
+      ...(currentUserFullName ? [eq(scanSessionsTable.initiatorName, currentUserFullName)] : []),
+    );
+    const siteMatch = effectiveSiteIds!.length > 0
+      ? or(siteConstraint, isNull(scanSessionsTable.siteId))
+      : isNull(scanSessionsTable.siteId);
+    const base = and(ownMatch, siteMatch);
+    return siteIdFilter ? and(base, eq(scanSessionsTable.siteId, siteIdFilter)) : base;
+  };
+
+  const sessions = adminUser
     ? await db
         .select(selectCols)
         .from(scanSessionsTable)
-        .leftJoin(
-          projectsTable,
-          eq(scanSessionsTable.projectId, projectsTable.id),
-        )
+        .leftJoin(projectsTable, eq(scanSessionsTable.projectId, projectsTable.id))
+        .where(siteIdFilter ? eq(scanSessionsTable.siteId, siteIdFilter) : undefined)
         .orderBy(desc(scanSessionsTable.createdAt))
         .limit(200)
     : await db
         .select(selectCols)
         .from(scanSessionsTable)
-        .leftJoin(
-          projectsTable,
-          eq(scanSessionsTable.projectId, projectsTable.id),
-        )
-        .where(
-          or(
-            eq(scanSessionsTable.userId, userId),
-            ...(currentUserFullName
-              ? [eq(scanSessionsTable.initiatorName, currentUserFullName)]
-              : []),
-          ),
-        )
+        .leftJoin(projectsTable, eq(scanSessionsTable.projectId, projectsTable.id))
+        .where(buildNonAdminWhere())
         .orderBy(desc(scanSessionsTable.createdAt))
         .limit(100);
 
@@ -135,12 +213,36 @@ router.post("/scans", requireAuth, async (req, res): Promise<void> => {
   const {
     urls,
     name,
+    siteId,
     projectId,
     groupId,
     options,
     initiatorName,
     initiatorRole,
   } = parsed.data;
+
+  // Validate siteId: verify existence then enforce access for non-admins
+  if (siteId != null) {
+    const [siteRow] = await db
+      .select({ id: sitesTable.id })
+      .from(sitesTable)
+      .where(eq(sitesTable.id, siteId))
+      .limit(1);
+    if (!siteRow) {
+      res.status(400).json({ error: "The specified site does not exist" });
+      return;
+    }
+
+    if (!isAdminUser(req)) {
+      const userIdNum = parseInt(userId, 10);
+      const userRole = req.session?.user?.role ?? "user";
+      const siteAccess = await canAccessSite(userIdNum, userId, userRole, siteId);
+      if (!siteAccess) {
+        res.status(403).json({ error: "You do not have access to the specified site" });
+        return;
+      }
+    }
+  }
 
   if (!urls || urls.length === 0) {
     res.status(400).json({ error: "At least one URL is required" });
@@ -166,6 +268,7 @@ router.post("/scans", requireAuth, async (req, res): Promise<void> => {
     .values({
       userId,
       name: name || null,
+      siteId: siteId ?? null,
       projectId: projectId ?? null,
       groupId: groupId ?? null,
       initiatorName: initiatorName ?? null,
@@ -500,6 +603,16 @@ router.get("/scans/compare", async (req, res): Promise<void> => {
       .json({ error: "scan1Id and scan2Id query params are required" });
     return;
   }
+
+  const [access1, access2] = await Promise.all([
+    canAccessScan(req, scan1Id),
+    canAccessScan(req, scan2Id),
+  ]);
+  if (!access1 || !access2) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
   const strip1 = (req.query.strip1 as string) || undefined;
   const strip2 = (req.query.strip2 as string) || undefined;
   const result = await buildComparison(scan1Id, scan2Id, strip1, strip2);
@@ -526,6 +639,16 @@ router.get("/scans/compare/csv", async (req, res): Promise<void> => {
       .json({ error: "scan1Id and scan2Id query params are required" });
     return;
   }
+
+  const [access1, access2] = await Promise.all([
+    canAccessScan(req, scan1Id),
+    canAccessScan(req, scan2Id),
+  ]);
+  if (!access1 || !access2) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
   const strip1 = (req.query.strip1 as string) || undefined;
   const strip2 = (req.query.strip2 as string) || undefined;
   const result = await buildComparison(scan1Id, scan2Id, strip1, strip2);
@@ -657,6 +780,11 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
     return;
   }
 
+  if (!(await canAccessScan(req, params.data.id))) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
   const [row] = await db
     .select({
       id: scanSessionsTable.id,
@@ -728,11 +856,17 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
     }
   }
 
-  const pagesWithIssues = pages.map((page) => ({
-    ...page,
-    scannedAt: page.scannedAt?.toISOString() ?? null,
-    issues: issuesByPageId.get(page.id) ?? [],
-  }));
+  const pagesWithIssues = pages.map((page) => {
+    const wafEntry = wafPageTokens.get(page.id);
+    const wafToken =
+      wafEntry && wafEntry.expires > Date.now() ? wafEntry.token : null;
+    return {
+      ...page,
+      scannedAt: page.scannedAt?.toISOString() ?? null,
+      issues: issuesByPageId.get(page.id) ?? [],
+      wafToken,
+    };
+  });
 
   res.json({
     ...row,
@@ -742,6 +876,92 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
     initiatorName: row.initiatorName ?? null,
     initiatorRole: row.initiatorRole ?? null,
     pages: pagesWithIssues,
+  });
+});
+
+// GET /api/scans/:scanId/pages/:pageId/report-data
+// Page-scoped payload for the full page report. Do not use the scan detail
+// endpoint here: large crawler scans can contain thousands of pages/issues.
+router.get("/scans/:scanId/pages/:pageId/report-data", requireAuth, async (req, res): Promise<void> => {
+  const scanId = parseInt(req.params.scanId as string, 10);
+  const pageId = parseInt(req.params.pageId as string, 10);
+  if (!Number.isInteger(scanId) || !Number.isInteger(pageId)) {
+    res.status(400).json({ error: "Invalid scan or page ID" });
+    return;
+  }
+  if (!(await canAccessScan(req, scanId))) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
+  const result = await db.execute(sql`
+    SELECT
+      ss.id AS scan_id,
+      ss.options,
+      pr.id AS page_id,
+      pr.scan_id AS page_scan_id,
+      pr.url,
+      pr.status,
+      pr.issue_count,
+      pr.critical_count,
+      pr.error_message,
+      pr.scanned_at,
+      pr.load_duration_ms,
+      pr.scan_duration_ms,
+      COALESCE(
+        jsonb_agg(
+          jsonb_build_object(
+            'id', ai.id,
+            'pageId', ai.page_id,
+            'ruleId', ai.rule_id,
+            'ruleType', ai.rule_type,
+            'impact', ai.impact,
+            'description', ai.description,
+            'element', ai.element,
+            'elementContext', ai.element_context,
+            'selector', ai.selector,
+            'wcagCriteria', ai.wcag_criteria,
+            'wcagLevel', ai.wcag_level,
+            'legalText', ai.legal_text,
+            'remediation', ai.remediation,
+            'bboxX', ai.bbox_x,
+            'bboxY', ai.bbox_y,
+            'bboxWidth', ai.bbox_width,
+            'bboxHeight', ai.bbox_height,
+            'falsePositive', ai.false_positive
+          ) ORDER BY ai.id
+        ) FILTER (WHERE ai.id IS NOT NULL),
+        '[]'::jsonb
+      ) AS issues
+    FROM scan_sessions ss
+    JOIN page_results pr ON pr.scan_id = ss.id
+    LEFT JOIN accessibility_issues ai ON ai.page_id = pr.id
+    WHERE ss.id = ${scanId} AND pr.id = ${pageId}
+    GROUP BY ss.id, ss.options, pr.id
+  `);
+
+  const row = result.rows[0] as Record<string, any> | undefined;
+  if (!row) {
+    res.status(404).json({ error: "Page not found in scan" });
+    return;
+  }
+
+  res.json({
+    scanId: Number(row.scan_id),
+    options: row.options ?? null,
+    page: {
+      id: Number(row.page_id),
+      scanId: Number(row.page_scan_id),
+      url: row.url,
+      status: row.status,
+      issueCount: Number(row.issue_count ?? 0),
+      criticalCount: Number(row.critical_count ?? 0),
+      errorMessage: row.error_message ?? null,
+      scannedAt: row.scanned_at ? new Date(row.scanned_at).toISOString() : null,
+      loadDurationMs: row.load_duration_ms ?? null,
+      scanDurationMs: row.scan_duration_ms ?? null,
+      issues: row.issues ?? [],
+    },
   });
 });
 
@@ -764,6 +984,12 @@ router.patch("/scans/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Invalid scan ID" });
     return;
   }
+
+  if (!(await canAccessScan(req, params.data.id))) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
   const parsed = UpdateScanBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -794,6 +1020,45 @@ router.patch("/scans/:id", async (req, res): Promise<void> => {
   res.status(204).send();
 });
 
+// Bulk-delete cancelled / failed scans ─────────────────────────────────────
+router.delete("/scans/bulk", async (req, res): Promise<void> => {
+  const userId = getAuthUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const role = req.session?.user?.role ?? "user";
+  const perms = await getEffectivePermissions(parseInt(userId, 10), role);
+  if (!perms.canDeleteScan) {
+    res.status(403).json({ error: "You don't have permission to delete scans" });
+    return;
+  }
+
+  const rawIds = (req.body as Record<string, unknown>)["ids"];
+  if (
+    !Array.isArray(rawIds) ||
+    rawIds.length === 0 ||
+    rawIds.length > 200 ||
+    !rawIds.every((id) => typeof id === "number" && Number.isInteger(id) && id > 0)
+  ) {
+    res.status(400).json({ error: "Invalid request body" });
+    return;
+  }
+  const ids = rawIds as number[];
+  const isAdmin = role === "super_admin" || role === "admin";
+
+  const deleted = await db
+    .delete(scanSessionsTable)
+    .where(
+      and(
+        inArray(scanSessionsTable.id, ids),
+        inArray(scanSessionsTable.status, ["cancelled", "failed"]),
+        ...(isAdmin ? [] : [eq(scanSessionsTable.userId, userId)]),
+      ),
+    )
+    .returning({ id: scanSessionsTable.id });
+
+  res.json({ deleted: deleted.length });
+});
+
 router.delete("/scans/:id", async (req, res): Promise<void> => {
   const userId = getAuthUserId(req);
   if (!userId) {
@@ -813,6 +1078,11 @@ router.delete("/scans/:id", async (req, res): Promise<void> => {
   const params = DeleteScanParams.safeParse({ id: parseInt(raw, 10) });
   if (!params.success) {
     res.status(400).json({ error: "Invalid scan ID" });
+    return;
+  }
+
+  if (!(await canAccessScan(req, params.data.id))) {
+    res.status(403).json({ error: "Forbidden" });
     return;
   }
 
@@ -845,6 +1115,11 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
     return;
   }
 
+  if (!(await canAccessScan(req, params.data.id))) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
   const scanId = params.data.id;
 
   const [session] = await db
@@ -856,6 +1131,7 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
       totalUrls: scanSessionsTable.totalUrls,
       scannedUrls: scanSessionsTable.scannedUrls,
       failedUrls: scanSessionsTable.failedUrls,
+      options: scanSessionsTable.options,
     })
     .from(scanSessionsTable)
     .where(eq(scanSessionsTable.id, scanId));
@@ -887,12 +1163,22 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
   }
 
   // Count completed pages that have at least one issue — single cheap query
-  const pagesWithIssuesResult = await pool.query<{ cnt: string }>(
-    `SELECT COUNT(*)::text AS cnt FROM page_results WHERE scan_id = $1 AND status = 'completed' AND issue_count > 0`,
-    [scanId],
-  );
+  const [pagesWithIssuesResult, pagesWithSnapshotResult] = await Promise.all([
+    pool.query<{ cnt: string }>(
+      `SELECT COUNT(*)::text AS cnt FROM page_results WHERE scan_id = $1 AND status = 'completed' AND issue_count > 0`,
+      [scanId],
+    ),
+    pool.query<{ cnt: string }>(
+      `SELECT COUNT(*)::text AS cnt FROM page_results WHERE scan_id = $1 AND (screenshot IS NOT NULL OR page_html IS NOT NULL)`,
+      [scanId],
+    ),
+  ]);
   const pagesWithIssues = parseInt(
     pagesWithIssuesResult.rows[0]?.cnt || "0",
+    10,
+  );
+  const pagesWithSnapshot = parseInt(
+    pagesWithSnapshotResult.rows[0]?.cnt || "0",
     10,
   );
 
@@ -911,6 +1197,7 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
   ] as const;
 
   const pageFields = {
+    id: pageResultsTable.id,
     url: pageResultsTable.url,
     status: pageResultsTable.status,
     issueCount: pageResultsTable.issueCount,
@@ -968,19 +1255,128 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
     totalUrls: session.totalUrls,
     scannedUrls: session.scannedUrls,
     failedUrls: session.failedUrls,
+    options: session.options ?? null,
     currentUrl,
     counts,
     pagesWithIssues,
-    pages: allLivePages.map((p) => ({
-      url: p.url,
-      status: p.status,
-      issueCount: p.issueCount,
-      criticalCount: p.criticalCount,
-      errorMessage: p.errorMessage ?? null,
-      loadDurationMs: p.loadDurationMs ?? null,
-      scanDurationMs: p.scanDurationMs ?? null,
-    })),
+    pagesWithSnapshot,
+    pages: allLivePages.map((p) => {
+      const wafEntry = wafPageTokens.get(p.id);
+      const wafToken =
+        wafEntry && wafEntry.expires > Date.now() ? wafEntry.token : null;
+      return {
+        id: p.id,
+        url: p.url,
+        status: p.status,
+        issueCount: p.issueCount,
+        criticalCount: p.criticalCount,
+        errorMessage: p.errorMessage ?? null,
+        loadDurationMs: p.loadDurationMs ?? null,
+        scanDurationMs: p.scanDurationMs ?? null,
+        wafToken,
+      };
+    }),
   });
+});
+
+/**
+ * POST /api/scans/:id/local-results
+ * Receive accessibility results from the Ampera WAF Scanner browser extension.
+ * Authenticates via a short-lived per-page token generated when the page was
+ * WAF-blocked. No session auth required — the token IS the credential.
+ *
+ * Body: { pageId, token, issues, loadDurationMs?, pageUrl }
+ */
+router.post("/scans/:id/local-results", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : (req.params.id as string);
+  const scanId = parseInt(raw, 10);
+  if (isNaN(scanId)) {
+    res.status(400).json({ error: "Invalid scan ID" });
+    return;
+  }
+
+  const { pageId, token, issues, loadDurationMs } = req.body ?? {};
+  if (!pageId || !token || !Array.isArray(issues)) {
+    res.status(400).json({ error: "pageId, token, and issues are required" });
+    return;
+  }
+
+  // Validate token
+  const tokenEntry = wafTokenIndex.get(token);
+  if (!tokenEntry) {
+    res.status(401).json({ error: "Invalid or expired token" });
+    return;
+  }
+  if (tokenEntry.expires < Date.now()) {
+    wafTokenIndex.delete(token);
+    wafPageTokens.delete(tokenEntry.pageId);
+    res.status(401).json({ error: "Token expired — please re-open the scan page" });
+    return;
+  }
+  if (tokenEntry.scanId !== scanId || tokenEntry.pageId !== pageId) {
+    res.status(401).json({ error: "Token does not match scan/page" });
+    return;
+  }
+
+  // One-time use: remove token immediately
+  wafTokenIndex.delete(token);
+  wafPageTokens.delete(pageId);
+
+  try {
+    const issueCount = issues.length;
+    const criticalCount = issues.filter((i: any) => i.impact === "critical").length;
+
+    // Update page result to completed
+    await db
+      .update(pageResultsTable)
+      .set({
+        status: "completed",
+        issueCount,
+        criticalCount,
+        errorMessage: null,
+        scannedAt: new Date(),
+        loadDurationMs: loadDurationMs ?? null,
+      })
+      .where(eq(pageResultsTable.id, pageId));
+
+    // Insert issues
+    if (issues.length > 0) {
+      await db.insert(accessibilityIssuesTable).values(
+        issues.map((issue: any) => ({
+          pageId,
+          ruleId: issue.ruleId ?? "",
+          impact: issue.impact ?? "moderate",
+          description: issue.description ?? issue.help ?? "",
+          element: issue.element ?? null,
+          elementContext: null,
+          wcagCriteria: issue.wcagCriteria ?? null,
+          wcagLevel: issue.wcagLevel ?? null,
+          legalText: null,
+          selector: issue.selector ?? null,
+          remediation: issue.remediation ?? null,
+          bboxX: null,
+          bboxY: null,
+          bboxWidth: null,
+          bboxHeight: null,
+        })),
+      );
+    }
+
+    // Update scan session totals
+    await db
+      .update(scanSessionsTable)
+      .set({
+        scannedUrls: sql`${scanSessionsTable.scannedUrls} + 1`,
+        totalIssues: sql`${scanSessionsTable.totalIssues} + ${issueCount}`,
+      })
+      .where(eq(scanSessionsTable.id, scanId));
+
+    logger.info({ scanId, pageId, issueCount }, "Local scan results received from WAF Scanner extension");
+    res.json({ ok: true, issueCount });
+  } catch (err) {
+    logger.error({ scanId, pageId, err }, "Failed to save local scan results");
+    res.status(500).json({ error: "Failed to save results" });
+  }
 });
 
 /**
@@ -1084,6 +1480,11 @@ router.post("/scans/:id/cancel", async (req, res): Promise<void> => {
     return;
   }
 
+  if (!(await canAccessScan(req, params.data.id))) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
   const [session] = await db
     .select()
     .from(scanSessionsTable)
@@ -1133,6 +1534,11 @@ router.post("/scans/:id/pause", async (req, res): Promise<void> => {
     return;
   }
 
+  if (!(await canAccessScan(req, scanId))) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
   const [session] = await db
     .select()
     .from(scanSessionsTable)
@@ -1179,6 +1585,11 @@ router.post("/scans/:id/resume", async (req, res): Promise<void> => {
   const scanId = parseInt(raw, 10);
   if (isNaN(scanId)) {
     res.status(400).json({ error: "Invalid scan ID" });
+    return;
+  }
+
+  if (!(await canAccessScan(req, scanId))) {
+    res.status(403).json({ error: "Forbidden" });
     return;
   }
 
@@ -1334,6 +1745,11 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
   const originalId = parseInt(raw, 10);
   if (isNaN(originalId)) {
     res.status(400).json({ error: "Invalid scan ID" });
+    return;
+  }
+
+  if (!(await canAccessScan(req, originalId))) {
+    res.status(403).json({ error: "Forbidden" });
     return;
   }
 
@@ -1499,10 +1915,10 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
       try {
         await pool.query(
           `INSERT INTO accessibility_issues
-             (page_id, rule_id, impact, description, element, wcag_criteria, wcag_level,
+             (page_id, rule_id, rule_type, impact, description, element, wcag_criteria, wcag_level,
               legal_text, selector, remediation, bbox_x, bbox_y, bbox_width, bbox_height,
               false_positive, false_positive_note)
-           SELECT new_pr.id, ai.rule_id, ai.impact, ai.description, ai.element,
+           SELECT new_pr.id, ai.rule_id, ai.rule_type, ai.impact, ai.description, ai.element,
                   ai.wcag_criteria, ai.wcag_level, ai.legal_text, ai.selector, ai.remediation,
                   ai.bbox_x, ai.bbox_y, ai.bbox_width, ai.bbox_height,
                   ai.false_positive, ai.false_positive_note
@@ -1527,11 +1943,22 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
 });
 
 router.post("/scans/:id/retry-url", async (req, res): Promise<void> => {
+  const userId = getAuthUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const scanId = parseInt(raw, 10);
   const url = typeof req.body?.url === "string" ? req.body.url.trim() : "";
   if (isNaN(scanId) || !url) {
     res.status(400).json({ error: "Invalid scan ID or URL" });
+    return;
+  }
+
+  if (!(await canAccessScan(req, scanId))) {
+    res.status(403).json({ error: "Forbidden" });
     return;
   }
 
@@ -1690,6 +2117,7 @@ router.get(
         legalText: accessibilityIssuesTable.legalText,
         selector: accessibilityIssuesTable.selector,
         element: accessibilityIssuesTable.element,
+        elementContext: accessibilityIssuesTable.elementContext,
         remediation: accessibilityIssuesTable.remediation,
       })
       .from(pageResultsTable)
@@ -1731,6 +2159,7 @@ router.get(
       legalText: r.legalText ?? "",
       selector: r.selector ?? "",
       element: r.element ?? "",
+      elementContext: r.elementContext ?? "",
       remediation: r.remediation ?? "",
     }));
 
@@ -1840,10 +2269,21 @@ router.get(
 );
 
 router.get("/scans/:id/report", async (req, res): Promise<void> => {
+  const userId = getAuthUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = GetScanReportParams.safeParse({ id: parseInt(raw, 10) });
   if (!params.success) {
     res.status(400).json({ error: "Invalid scan ID" });
+    return;
+  }
+
+  if (!(await canAccessScan(req, params.data.id))) {
+    res.status(403).json({ error: "Forbidden" });
     return;
   }
 
@@ -1883,7 +2323,7 @@ router.get("/scans/:id/report", async (req, res): Promise<void> => {
          JOIN page_results pr ON pr.id = ai.page_id
          WHERE pr.scan_id = $1
          GROUP BY ai.rule_id, ai.description
-         ORDER BY cnt::int DESC
+         ORDER BY COUNT(*) DESC
          LIMIT 10`,
         [params.data.id],
       ),
@@ -2152,6 +2592,18 @@ router.get(
       return;
     }
 
+    const saUserId = req.session?.user?.id;
+    const saRole = req.session?.user?.role ?? "user";
+    const saPerms = await getEffectivePermissions(Number(saUserId), saRole);
+    if (!saPerms.canSmartAnalysis) {
+      res.status(403).json({ error: "You do not have access to Smart Analysis" });
+      return;
+    }
+    if (!(await canAccessScan(req, scanId))) {
+      res.status(403).json({ error: "You do not have access to this scan" });
+      return;
+    }
+
     const [session] = await db
       .select({ id: scanSessionsTable.id })
       .from(scanSessionsTable)
@@ -2166,6 +2618,7 @@ router.get(
         ruleId: accessibilityIssuesTable.ruleId,
         impact: accessibilityIssuesTable.impact,
         element: accessibilityIssuesTable.element,
+        elementContext: accessibilityIssuesTable.elementContext,
         selector: accessibilityIssuesTable.selector,
         description: accessibilityIssuesTable.description,
         pageUrl: pageResultsTable.url,
@@ -2210,8 +2663,12 @@ router.get(
     };
 
     const map = new Map<string, Entry>();
+    // Scan-wide total occurrences per rule (excluding false positives) — lets
+    // the UI show "N of M total for this rule" scoping next to component counts
+    const ruleTotals: Record<string, number> = {};
 
     for (const row of rows) {
+      ruleTotals[row.ruleId] = (ruleTotals[row.ruleId] ?? 0) + 1;
       const { name, tag, hierarchy } = extractAemComponent(
         row.element,
         row.selector,
@@ -2279,6 +2736,10 @@ router.get(
           affectedPageCount: e.affectedPages.size,
           topPages: [...e.affectedPages].slice(0, 20),
           issueVariants,
+          sampleElement: e.sampleElement,
+          sampleSelector: e.sampleSelector,
+          sampleRuleId: e.sampleRuleId,
+          sampleDescription: e.sampleDescription,
         };
       })
       .sort((a, b) => b.totalOccurrences - a.totalOccurrences);
@@ -2287,6 +2748,7 @@ router.get(
       scanId,
       totalIssues: rows.length,
       totalComponents: components.length,
+      ruleTotals,
       components,
     });
   },
@@ -2301,6 +2763,18 @@ router.get(
     const scanId = parseInt(raw, 10);
     if (isNaN(scanId)) {
       res.status(400).json({ error: "Invalid scan ID" });
+      return;
+    }
+
+    const poUserId = req.session?.user?.id;
+    const poRole = req.session?.user?.role ?? "user";
+    const poPerms = await getEffectivePermissions(Number(poUserId), poRole);
+    if (!poPerms.canSmartAnalysis) {
+      res.status(403).json({ error: "You do not have access to Smart Analysis" });
+      return;
+    }
+    if (!(await canAccessScan(req, scanId))) {
+      res.status(403).json({ error: "You do not have access to this scan" });
       return;
     }
 
@@ -2322,6 +2796,7 @@ router.get(
         ruleId: accessibilityIssuesTable.ruleId,
         impact: accessibilityIssuesTable.impact,
         element: accessibilityIssuesTable.element,
+        elementContext: accessibilityIssuesTable.elementContext,
         selector: accessibilityIssuesTable.selector,
         description: accessibilityIssuesTable.description,
         bboxX: accessibilityIssuesTable.bboxX,
@@ -2344,10 +2819,20 @@ router.get(
 
     const pageId = rows[0]?.pageId ?? null;
 
+    // Deduplicate identical findings (same rule on the same exact element) so
+    // the code view doesn't show the same occurrence twice
+    const seenOccurrence = new Set<string>();
+
     const occurrences = rows
       .filter((row) => {
         const { name } = extractAemComponent(row.element, row.selector);
-        return name === componentName;
+        if (name !== componentName) return false;
+        // Include page + bounding box so distinct DOM instances that share the
+        // same selector/snippet are NOT merged — only true duplicates are
+        const dedupKey = `${row.pageId}|${row.ruleId}|${row.selector ?? ""}|${row.element ?? ""}|${row.description ?? ""}|${row.bboxX ?? ""},${row.bboxY ?? ""},${row.bboxWidth ?? ""},${row.bboxHeight ?? ""}`;
+        if (seenOccurrence.has(dedupKey)) return false;
+        seenOccurrence.add(dedupKey);
+        return true;
       })
       .map((row) => ({
         id: row.id,
@@ -2402,6 +2887,185 @@ router.patch("/issues/:id", async (req, res): Promise<void> => {
   }
 
   res.json(updated);
+});
+
+// ── Smart Analysis — AI-powered component insights ────────────────────────────
+router.post(
+  "/scans/:id/smart-analysis/ai-insights",
+  requireAuth,
+  async (req, res): Promise<void> => {
+    const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const scanId = parseInt(raw, 10);
+    if (isNaN(scanId)) { res.status(400).json({ error: "Invalid scan ID" }); return; }
+
+    const saUserId = req.session?.user?.id;
+    const saRole = req.session?.user?.role ?? "user";
+    const saPerms = await getEffectivePermissions(Number(saUserId), saRole);
+    if (!saPerms.canSmartAnalysis) {
+      res.status(403).json({ error: "Smart Analysis access required" }); return;
+    }
+    if (!(await canAccessScan(req, scanId))) {
+      res.status(403).json({ error: "Access denied" }); return;
+    }
+
+    const aiRows = await db.select().from(appSettingsTable)
+      .where(inArray(appSettingsTable.key, [
+        "smart_analysis_ai_enabled", "ai_external_enabled",
+        "ai_external_api_key", "ai_external_provider", "ai_external_model",
+      ]));
+    const cfg: Record<string, string> = {};
+    for (const r of aiRows) if (r.value != null) cfg[r.key] = r.value;
+
+    if (cfg["smart_analysis_ai_enabled"] !== "true") {
+      res.status(403).json({ error: "Smart Analysis AI is not enabled in settings" }); return;
+    }
+    if (cfg["ai_external_enabled"] !== "true" || !cfg["ai_external_api_key"]) {
+      res.status(503).json({ error: "External AI not configured — set provider + API key in Settings" }); return;
+    }
+
+    const { componentName, hierarchy, ruleIds, worstImpact, totalOccurrences, affectedPageCount, sampleDescription, sampleElement, sampleSelector } = req.body ?? {};
+    if (!componentName) { res.status(400).json({ error: "componentName is required" }); return; }
+
+    const provider = cfg["ai_external_provider"] ?? "gemini";
+    const model = cfg["ai_external_model"] || (provider === "gemini" ? "gemini-2.0-flash" : "gpt-4o-mini");
+    const ruleList = Array.isArray(ruleIds) ? ruleIds.join(", ") : String(ruleIds ?? "");
+    const elementSnippet = typeof sampleElement === "string" ? sampleElement.slice(0, 2000) : "";
+
+    const prompt = `You are a WCAG accessibility auditor reviewing a recurring pattern of issues across a website component.
+
+COMPONENT DATA
+Name: ${componentName}
+HTML hierarchy: ${hierarchy ?? "N/A"}
+Rules violated: ${ruleList}
+Worst impact: ${worstImpact ?? "unknown"}
+Occurrences: ${totalOccurrences ?? "?"} across ${affectedPageCount ?? "?"} pages
+Sample issue: ${sampleDescription ?? "N/A"}
+CSS selector: ${sampleSelector ?? "N/A"}
+${elementSnippet ? `Sample HTML:\n\`\`\`html\n${elementSnippet}\n\`\`\`` : ""}
+
+Return ONLY a valid JSON object (no markdown):
+{
+  "componentType": "≤6 words — what kind of UI component this is",
+  "issueSummary": "≤40 words — what accessibility pattern is failing and why",
+  "rootCause": "≤25 words — root cause, referencing HTML attributes if visible",
+  "fixStrategy": "≤30 words — most impactful fix for this component pattern",
+  "priority": "high|medium|low",
+  "priorityReason": "≤15 words — why this priority"
+}`;
+
+    try {
+      const apiKey = cfg["ai_external_api_key"];
+      let text = "";
+      if (provider === "gemini") {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.05, maxOutputTokens: 2048, responseMimeType: "application/json" },
+          }),
+        });
+        if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).slice(0, 200)}`);
+        const d = await r.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+        text = d.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+      } else {
+        const r = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model, temperature: 0.05, max_tokens: 2048,
+            response_format: { type: "json_object" },
+            messages: [
+              { role: "system", content: "WCAG accessibility engineer. Output only valid JSON." },
+              { role: "user", content: prompt },
+            ],
+          }),
+        });
+        if (!r.ok) throw new Error(`OpenAI ${r.status}: ${(await r.text()).slice(0, 200)}`);
+        const d = await r.json() as { choices?: { message?: { content?: string } }[] };
+        text = d.choices?.[0]?.message?.content ?? "";
+      }
+      // Extract JSON — handle pure JSON, markdown code blocks, and bare objects
+      const jsonStr =
+        text.match(/```json?\s*([\s\S]*?)\s*```/)?.[1]?.trim() ??
+        text.match(/(\{[\s\S]*\})/)?.[1]?.trim();
+      if (!jsonStr) {
+        req.log.warn({ rawText: text.slice(0, 500) }, "No JSON found in AI response");
+        throw new Error(`No JSON in AI response. Model returned: ${text.slice(0, 120) || "(empty)"}`);
+      }
+      res.json(JSON.parse(jsonStr));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      req.log.error({ err }, "Smart Analysis AI insights failed");
+      res.status(502).json({ error: `AI request failed: ${msg}` });
+    }
+  },
+);
+
+// GET /api/pages/:pageId/rule-report?rule=<ruleId>
+// Lightweight endpoint for the site-issue page report view —
+// returns only one page's issues for one rule, avoiding full-scan loading.
+router.get("/pages/:pageId/rule-report", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const pageId = parseInt(req.params["pageId"] as string, 10);
+  const ruleId = (req.query["rule"] as string | undefined)?.trim();
+  if (!pageId || !ruleId) { res.status(400).json({ error: "pageId and rule are required" }); return; }
+
+  const client = await pool.connect();
+  try {
+    const pageRes = await client.query(
+      `SELECT pr.url, pr.scan_id, pr.screenshot IS NOT NULL AS has_snapshot, ss.options
+       FROM page_results pr
+       JOIN scan_sessions ss ON ss.id = pr.scan_id
+       WHERE pr.id = $1`,
+      [pageId],
+    );
+    if (pageRes.rows.length === 0) { res.status(404).json({ error: "Page not found" }); return; }
+    const { url, scan_id, has_snapshot, options } = pageRes.rows[0];
+
+    if (!(await canAccessScan(req, scan_id))) { res.status(403).json({ error: "Forbidden" }); return; }
+
+    const isCrawlerScan = (options as Record<string, unknown> | null)?.source === "crawler";
+
+    const issuesRes = await client.query(
+      `SELECT id, rule_id, rule_type, impact, description, element, element_context,
+              selector, wcag_criteria, wcag_level, legal_text, remediation,
+              bbox_x, bbox_y, bbox_width, bbox_height, false_positive
+       FROM accessibility_issues
+       WHERE page_id = $1 AND rule_id = $2
+       ORDER BY id`,
+      [pageId, ruleId],
+    );
+
+    res.json({
+      pageId,
+      scanId: scan_id,
+      url,
+      ruleId,
+      hasSnapshot: has_snapshot,
+      isCrawlerScan,
+      issues: issuesRes.rows.map((r) => ({
+        id: r.id,
+        ruleId: r.rule_id,
+        ruleType: r.rule_type ?? null,
+        impact: r.impact,
+        description: r.description,
+        element: r.element ?? null,
+        elementContext: r.element_context ?? null,
+        selector: r.selector ?? null,
+        wcagCriteria: r.wcag_criteria ?? null,
+        wcagLevel: r.wcag_level ?? null,
+        remediation: r.remediation ?? null,
+        bboxX: r.bbox_x ?? null,
+        bboxY: r.bbox_y ?? null,
+        bboxWidth: r.bbox_width ?? null,
+        bboxHeight: r.bbox_height ?? null,
+        falsePositive: r.false_positive ?? false,
+      })),
+    });
+  } finally {
+    client.release();
+  }
 });
 
 export default router;

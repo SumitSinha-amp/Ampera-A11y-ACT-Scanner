@@ -11,6 +11,8 @@ export interface UserPermissions {
   canCreateProject: boolean;
   canDeleteProject: boolean;
   canDisableJs: boolean;
+  canSmartAnalysis: boolean;
+  canSwitchSite: boolean;
 }
 
 const DEFAULT_PERMISSIONS: UserPermissions = {
@@ -23,6 +25,8 @@ const DEFAULT_PERMISSIONS: UserPermissions = {
   canCreateProject: true,
   canDeleteProject: true,
   canDisableJs: false,
+  canSmartAnalysis: false,
+  canSwitchSite: false,
 };
 
 export interface AuthUser {

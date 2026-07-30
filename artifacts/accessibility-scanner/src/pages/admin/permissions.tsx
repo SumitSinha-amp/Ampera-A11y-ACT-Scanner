@@ -20,6 +20,8 @@ interface UserPermission {
   canCreateProject: boolean;
   canDeleteProject: boolean;
   canDisableJs: boolean;
+  canSmartAnalysis: boolean;
+  canSwitchSite: boolean;
   allowedRules: string[] | null;
 }
 
@@ -50,8 +52,10 @@ const PERM_GROUPS = [
     label: "Data Access",
     icon: Eye,
     items: [
-      { key: "canViewAllScans" as const, label: "View All Scans", desc: "See scans from all users" },
+      { key: "canViewAllScans" as const, label: "View All Scans",  desc: "See scans from all users" },
       { key: "canExport" as const,       label: "Export Reports",  desc: "Download scan reports" },
+      { key: "canSmartAnalysis" as const, label: "Smart Analysis", desc: "Access component-level Smart Analysis (Developer group always has access)" },
+      { key: "canSwitchSite" as const,   label: "Switch Sites",    desc: "Access the site selector to view crawler history across different companies (super admins always have this)" },
     ],
   },
   {

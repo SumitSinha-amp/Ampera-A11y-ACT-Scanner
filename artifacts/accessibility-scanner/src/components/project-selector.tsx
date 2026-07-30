@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/contexts/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -31,7 +32,7 @@ function getBase() {
 }
 
 async function fetchProjects(): Promise<Project[]> {
-  const res = await fetch(`${getBase()}/api/projects`);
+  const res = await fetch(`${getBase()}/api/projects`, { credentials: "include" });
   if (!res.ok) throw new Error("Failed to fetch projects");
   return res.json();
 }
@@ -39,6 +40,7 @@ async function fetchProjects(): Promise<Project[]> {
 async function createProject(name: string): Promise<Project> {
   const res = await fetch(`${getBase()}/api/projects`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
   });
@@ -59,6 +61,8 @@ export function ProjectSelector({
   required,
   error,
 }: ProjectSelectorProps) {
+  const { user } = useAuth();
+  const canCreate = user?.permissions.canCreateProject !== false;
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -157,8 +161,9 @@ export function ProjectSelector({
               </CommandGroup>
             )}
 
-            <CommandSeparator />
+            {canCreate && <CommandSeparator />}
 
+            {canCreate && (
             <CommandGroup>
               {!showCreate ? (
                 <CommandItem
@@ -196,6 +201,7 @@ export function ProjectSelector({
                 </div>
               )}
             </CommandGroup>
+            )}
           </CommandList>
         </Command>
       </PopoverContent>

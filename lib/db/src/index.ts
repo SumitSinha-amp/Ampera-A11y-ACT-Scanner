@@ -15,15 +15,10 @@ export const pool = new Pool({
   max: 10,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 15_000,
-  // TCP keepalives prevent Azure PostgreSQL from silently terminating idle
-  // connections after its ~5-minute server-side timeout.
   keepAlive: true,
   keepAliveInitialDelayMillis: 60_000,
 });
 
-// Without this handler an ETIMEDOUT (or any other error) on an idle pool
-// connection emits an unhandled 'error' event, which Node.js turns into an
-// uncaught exception that crashes the entire process.
 pool.on("error", (err) => {
   console.error(
     "[db-pool] idle client error — connection will be discarded:",
@@ -38,6 +33,10 @@ export {
   scanSessionsTable,
   pageResultsTable,
   accessibilityIssuesTable,
+  qaPagesTable,
+  qaLinksTable,
+  qaImagesTable,
+  qaWordInventoryTable,
   insertProjectSchema,
   insertScanSessionSchema,
   insertPageResultSchema,
@@ -51,5 +50,32 @@ export {
   type InsertAccessibilityIssue,
   type AccessibilityIssue,
 } from "./schema/scans";
+
+export {
+  sitesTable,
+  siteContentRulesTable,
+  crawlerSessionsTable,
+  crawlerPagesTable,
+  crawlerUrlEventsTable,
+  brokenLinksTable,
+  crawlerDiscoveryCacheTable,
+  insertSiteSchema,
+  insertCrawlerSessionSchema,
+  insertCrawlerPageSchema,
+  insertBrokenLinkSchema,
+  type InsertSite,
+  type Site,
+  type SiteContentRule,
+  type CrawlerUrlEvent,
+  type InsertCrawlerSession,
+  type CrawlerSession,
+  type InsertCrawlerPage,
+  type CrawlerPage,
+  type InsertBrokenLink,
+  type BrokenLink,
+} from "./schema/crawler";
+
 export * from "./schema";
 export { appSettingsTable } from "./schema/users";
+export { issueDecisionsTable, type IssueDecision, type InsertIssueDecision } from "./schema/scans";
+export { siteUserAccessTable, siteGroupAccessTable, type SiteUserAccess, type SiteGroupAccess } from "./schema/site-access";

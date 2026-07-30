@@ -22,12 +22,15 @@ export const ScanSessionStatus = {
   completed: "completed",
   cancelled: "cancelled",
   failed: "failed",
+  paused: "paused",
 } as const;
 
 export interface ScanSession {
   id: number;
   /** @nullable */
   name: string | null;
+  /** @nullable */
+  siteId?: number | null;
   status: ScanSessionStatus;
   totalUrls: number;
   scannedUrls: number;
@@ -48,7 +51,22 @@ export const ScanSessionDetailStatus = {
   completed: "completed",
   cancelled: "cancelled",
   failed: "failed",
+  paused: "paused",
 } as const;
+
+export interface ScanOptions {
+  waitForNetworkIdle?: boolean;
+  timeout?: number;
+  maxConcurrency?: number;
+  bypassCSP?: boolean;
+  stealthMode?: boolean;
+  /** If provided, only check these rule IDs (e.g. ["ACT-R14","ACT-R35"]) */
+  rules?: string[];
+  /** PAC file URL to route scan traffic through a corporate proxy */
+  proxyPacUrl?: string;
+  /** Skip pages whose raw HTML is unchanged since the last completed scan, carrying previous issues forward */
+  incremental?: boolean;
+}
 
 export type PageResultStatus =
   (typeof PageResultStatus)[keyof typeof PageResultStatus];
@@ -59,6 +77,18 @@ export const PageResultStatus = {
   completed: "completed",
   failed: "failed",
   skipped: "skipped",
+  requeued: "requeued",
+  not_available: "not_available",
+} as const;
+
+export type AccessibilityIssueRuleType =
+  (typeof AccessibilityIssueRuleType)[keyof typeof AccessibilityIssueRuleType];
+
+export const AccessibilityIssueRuleType = {
+  Issue: "Issue",
+  Potential_Issue: "Potential Issue",
+  Best_Practice: "Best Practice",
+  "WAI-ARIA": "WAI-ARIA",
 } as const;
 
 export type AccessibilityIssueImpact =
@@ -75,10 +105,13 @@ export interface AccessibilityIssue {
   id: number;
   pageId: number;
   ruleId: string;
+  ruleType: AccessibilityIssueRuleType;
   impact: AccessibilityIssueImpact;
   description: string;
   /** @nullable */
   element: string | null;
+  /** @nullable */
+  elementContext?: string | null;
   /** @nullable */
   wcagCriteria: string | null;
   /** @nullable */
@@ -98,8 +131,17 @@ export interface PageResult {
   criticalCount: number;
   /** @nullable */
   errorMessage: string | null;
+  /**
+   * Short-lived token for the Ampera WAF Scanner extension to authenticate local scan results
+   * @nullable
+   */
+  wafToken?: string | null;
   /** @nullable */
   scannedAt: string | null;
+  /** @nullable */
+  loadDurationMs: number | null;
+  /** @nullable */
+  scanDurationMs: number | null;
   issues: AccessibilityIssue[];
 }
 
@@ -116,6 +158,13 @@ export interface ScanSessionDetail {
   createdAt: string;
   /** @nullable */
   completedAt: string | null;
+  /** @nullable */
+  initiatorName: string | null;
+  /** @nullable */
+  initiatorRole: string | null;
+  /** @nullable */
+  projectName: string | null;
+  options?: ScanOptions;
   pages: PageResult[];
 }
 
@@ -128,17 +177,26 @@ export const ScanStatusStatus = {
   completed: "completed",
   cancelled: "cancelled",
   failed: "failed",
+  paused: "paused",
 } as const;
+
+export type ScanStatusCounts = { [key: string]: number };
 
 export type PageStatusStatus =
   (typeof PageStatusStatus)[keyof typeof PageStatusStatus];
 
 export const PageStatusStatus = {
   pending: "pending",
+  navigating: "navigating",
   scanning: "scanning",
+  rendering: "rendering",
+  analyzing: "analyzing",
+  saving: "saving",
   completed: "completed",
   failed: "failed",
   skipped: "skipped",
+  requeued: "requeued",
+  not_available: "not_available",
 } as const;
 
 export interface PageStatus {
@@ -148,6 +206,10 @@ export interface PageStatus {
   criticalCount: number;
   /** @nullable */
   errorMessage: string | null;
+  /** @nullable */
+  loadDurationMs: number | null;
+  /** @nullable */
+  scanDurationMs: number | null;
 }
 
 export interface ScanStatus {
@@ -158,6 +220,8 @@ export interface ScanStatus {
   failedUrls: number;
   /** @nullable */
   currentUrl: string | null;
+  counts: ScanStatusCounts;
+  pagesWithIssues: number;
   pages: PageStatus[];
 }
 
@@ -198,19 +262,33 @@ export interface ScanReport {
   pagesWithMostIssues: PageIssueCount[];
 }
 
-export interface ScanOptions {
-  waitForNetworkIdle?: boolean;
-  timeout?: number;
-  maxConcurrency?: number;
-  bypassCSP?: boolean;
-  stealthMode?: boolean;
-}
-
 export interface CreateScanBody {
   urls: string[];
   /** @nullable */
   name?: string | null;
+  /**
+   * @minimum 1
+   * @nullable
+   */
+  siteId?: number | null;
+  /** @nullable */
+  projectId?: number | null;
+  /** @nullable */
+  groupId?: number | null;
+  /** @nullable */
+  initiatorName?: string | null;
+  /** @nullable */
+  initiatorRole?: string | null;
   options?: ScanOptions;
+}
+
+export interface UpdateScanBody {
+  /** @nullable */
+  name?: string | null;
+  /** @nullable */
+  initiatorName?: string | null;
+  /** @nullable */
+  initiatorRole?: string | null;
 }
 
 export interface ParseSitemapBody {
@@ -222,10 +300,84 @@ export interface ParseSitemapResponse {
   count: number;
 }
 
-export interface UpdateScanBody {
-  name?: string;
+export type SiteWithRoleRole =
+  (typeof SiteWithRoleRole)[keyof typeof SiteWithRoleRole];
+
+export const SiteWithRoleRole = {
+  owner: "owner",
+  member: "member",
+  admin: "admin",
+} as const;
+
+export interface SiteWithRole {
+  id: number;
+  name: string;
+  baseUrl: string;
   /** @nullable */
-  initiatorName?: string | null;
-  /** @nullable */
-  initiatorRole?: string | null;
+  description: string | null;
+  role: SiteWithRoleRole;
+  pageCount: number;
 }
+
+export interface MySitesResponse {
+  sites: SiteWithRole[];
+}
+
+export type SiteAccessUserRole =
+  (typeof SiteAccessUserRole)[keyof typeof SiteAccessUserRole];
+
+export const SiteAccessUserRole = {
+  owner: "owner",
+  member: "member",
+} as const;
+
+export interface SiteAccessUser {
+  userId: number;
+  role: SiteAccessUserRole;
+  fullName: string;
+  email: string;
+  username: string;
+  createdAt: string;
+}
+
+export interface SiteAccessGroup {
+  groupId: number;
+  name: string;
+  /** @nullable */
+  description: string | null;
+  createdAt: string;
+}
+
+export interface SiteAccessResponse {
+  users: SiteAccessUser[];
+  groups: SiteAccessGroup[];
+}
+
+export type GrantSiteUserBodyRole =
+  (typeof GrantSiteUserBodyRole)[keyof typeof GrantSiteUserBodyRole];
+
+export const GrantSiteUserBodyRole = {
+  owner: "owner",
+  member: "member",
+} as const;
+
+export interface GrantSiteUserBody {
+  userId: number;
+  role?: GrantSiteUserBodyRole;
+}
+
+export interface GrantSiteGroupBody {
+  groupId: number;
+}
+
+export type ListScansParams = {
+  siteId?: number;
+};
+
+export type GrantSiteUserAccess201 = {
+  ok: boolean;
+};
+
+export type GrantSiteGroupAccess201 = {
+  ok: boolean;
+};

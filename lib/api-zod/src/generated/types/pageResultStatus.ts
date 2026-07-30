@@ -15,4 +15,6 @@ export const PageResultStatus = {
   completed: "completed",
   failed: "failed",
   skipped: "skipped",
+  requeued: "requeued",
+  not_available: "not_available",
 } as const;

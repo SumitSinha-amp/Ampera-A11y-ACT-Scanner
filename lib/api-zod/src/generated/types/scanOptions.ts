@@ -12,6 +12,10 @@ export interface ScanOptions {
   maxConcurrency?: number;
   bypassCSP?: boolean;
   stealthMode?: boolean;
-   /** When true, JavaScript is disabled in the browser before page navigation */
-  disableJavascript?: boolean;
+  /** If provided, only check these rule IDs (e.g. ["ACT-R14","ACT-R35"]) */
+  rules?: string[];
+  /** PAC file URL to route scan traffic through a corporate proxy */
+  proxyPacUrl?: string;
+  /** Skip pages whose raw HTML is unchanged since the last completed scan, carrying previous issues forward */
+  incremental?: boolean;
 }

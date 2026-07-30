@@ -6,15 +6,19 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AccessibilityIssueImpact } from "./accessibilityIssueImpact";
+import type { AccessibilityIssueRuleType } from "./accessibilityIssueRuleType";
 
 export interface AccessibilityIssue {
   id: number;
   pageId: number;
   ruleId: string;
+  ruleType: AccessibilityIssueRuleType;
   impact: AccessibilityIssueImpact;
   description: string;
   /** @nullable */
   element: string | null;
+  /** @nullable */
+  elementContext?: string | null;
   /** @nullable */
   wcagCriteria: string | null;
   /** @nullable */

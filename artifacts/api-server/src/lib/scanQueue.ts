@@ -1,13 +1,28 @@
 import {
   db,
+  pool,
   scanSessionsTable,
   pageResultsTable,
   accessibilityIssuesTable,
   appSettingsTable,
+  qaPagesTable,
+  qaLinksTable,
+  qaImagesTable,
 } from "@workspace/db";
 import { eq, and, sql, or, inArray, notInArray, lt } from "drizzle-orm";
-import { scanPage, resetBrowserInstance } from "./scanner";
+import { scanPage, resetBrowserInstance, setScanConcurrency, fetchRawHtmlViaBrowser } from "./scanner";
+import { runQALinkChecker } from "./qaLinkChecker";
 import { logger } from "./logger";
+import { randomBytes, createHash } from "crypto";
+
+// ── WAF token store ───────────────────────────────────────────────────────────
+// Keyed by pageId → token data. Tokens expire after 10 minutes.
+// Used by the Ampera WAF Scanner extension to authenticate local scan results.
+export const wafPageTokens = new Map<number, { token: string; scanId: number; expires: number }>();
+// Reverse index: token → pageId (for fast lookup on POST /local-results)
+export const wafTokenIndex = new Map<string, { pageId: number; scanId: number; expires: number }>();
+
+const WAF_TOKEN_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 interface ScanOptions {
   timeout?: number;
@@ -20,6 +35,223 @@ interface ScanOptions {
   proxyPacUrl?: string;
   skipCompletedPages?: boolean;
   disableJavascript?: boolean;
+  /** Incremental scan: skip pages whose raw HTML is unchanged since the last
+   *  completed scan of the same URL, carrying the previous issues forward. */
+  incremental?: boolean;
+}
+
+// ── Incremental scan helpers ─────────────────────────────────────────────────
+// Change detection uses a hash of the RAW (pre-JavaScript) HTML fetched with a
+// plain HTTP GET — cheap enough to run for every page. Script bodies and
+// whitespace are stripped so rotating nonces/CSRF tokens don't force rescans.
+
+function normalizeRawHtml(html: string): string {
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "<script></script>")
+    .replace(/\snonce="[^"]*"/gi, "")
+    .replace(/<meta[^>]*csrf[^>]*>/gi, "")
+    .replace(/\s+/g, " ");
+}
+
+function hashRawHtml(html: string): string {
+  return createHash("sha256").update(normalizeRawHtml(html)).digest("hex").slice(0, 32);
+}
+
+/**
+ * Fetch the raw HTML of a URL and return its normalized content hash, or null
+ * when the fetch fails, is non-HTML, or looks like a bot-challenge page (a
+ * volatile challenge body must never be treated as page content).
+ */
+async function fetchRawContentHash(url: string): Promise<string | null> {
+  try {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 12_000);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        signal: ac.signal,
+        redirect: "follow",
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml",
+        },
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) return null;
+    const ct = res.headers.get("content-type") ?? "";
+    if (ct && !ct.includes("html")) return null;
+    const body = await res.text();
+    if (!body) return null;
+    const lower = body.slice(0, 4000).toLowerCase();
+    if (lower.includes("just a moment") || lower.includes("verifying your connection") || lower.includes("cf-challenge")) {
+      return null;
+    }
+    return hashRawHtml(body);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * If the URL's raw content hash matches the newest completed result from a
+ * previous scan, copy that result (issues, counts, HTML, screenshot) into the
+ * current page row and mark it carried_forward. Returns true when the page
+ * was carried forward and needs no browser visit.
+ */
+/** URL as-is plus its with/without-trailing-slash twin, so lookups match regardless of how the URL was submitted. */
+function urlVariants(url: string): string[] {
+  const variants = [url];
+  if (url.endsWith("/")) variants.push(url.slice(0, -1));
+  else variants.push(`${url}/`);
+  return variants;
+}
+
+async function tryCarryForward(
+  scanId: number,
+  pageId: number,
+  url: string,
+  rawHash: string,
+): Promise<boolean> {
+  const variants = urlVariants(url);
+  const [prev] = await db
+    .select({
+      id: pageResultsTable.id,
+      scanId: pageResultsTable.scanId,
+      issueCount: pageResultsTable.issueCount,
+      criticalCount: pageResultsTable.criticalCount,
+      screenshot: pageResultsTable.screenshot,
+      pageHtml: pageResultsTable.pageHtml,
+      loadDurationMs: pageResultsTable.loadDurationMs,
+    })
+    .from(pageResultsTable)
+    .where(
+      and(
+        inArray(pageResultsTable.url, variants),
+        eq(pageResultsTable.status, "completed"),
+        sql`${pageResultsTable.errorMessage} IS NULL`,
+        eq(pageResultsTable.contentHash, rawHash),
+        sql`${pageResultsTable.scanId} != ${scanId}`,
+      ),
+    )
+    .orderBy(sql`${pageResultsTable.id} DESC`)
+    .limit(1);
+  if (!prev) return false;
+
+  const prevIssues = await db
+    .select()
+    .from(accessibilityIssuesTable)
+    .where(eq(accessibilityIssuesTable.pageId, prev.id));
+
+  if (prevIssues.length > 0) {
+    await db.insert(accessibilityIssuesTable).values(
+      prevIssues.map(({ id: _id, pageId: _pageId, ...rest }) => ({
+        ...rest,
+        pageId,
+      })),
+    );
+  }
+
+  await db
+    .update(pageResultsTable)
+    .set({
+      status: "completed",
+      issueCount: prev.issueCount,
+      criticalCount: prev.criticalCount,
+      errorMessage: null,
+      scannedAt: new Date(),
+      loadDurationMs: prev.loadDurationMs,
+      scanDurationMs: 0,
+      screenshot: prev.screenshot,
+      pageHtml: prev.pageHtml,
+      contentHash: rawHash,
+      carriedForward: true,
+    })
+    .where(eq(pageResultsTable.id, pageId));
+
+  // Carry forward QA artifacts (page metadata, links, images) so incremental
+  // scans produce complete QA datasets, not just accessibility issues.
+  try {
+    const [prevQaPage] = await db
+      .select()
+      .from(qaPagesTable)
+      .where(and(eq(qaPagesTable.scanId, prev.scanId), inArray(qaPagesTable.url, variants)))
+      .orderBy(sql`${qaPagesTable.id} DESC`)
+      .limit(1);
+    if (prevQaPage) {
+      const [existing] = await db
+        .select({ id: qaPagesTable.id })
+        .from(qaPagesTable)
+        .where(and(eq(qaPagesTable.scanId, scanId), inArray(qaPagesTable.url, variants)))
+        .limit(1);
+      if (!existing) {
+        const { id: _id, scanId: _sid, ...qaRest } = prevQaPage;
+        await db.insert(qaPagesTable).values({ ...qaRest, scanId });
+      }
+    }
+    const prevLinks = await db
+      .select()
+      .from(qaLinksTable)
+      .where(and(eq(qaLinksTable.scanId, prev.scanId), inArray(qaLinksTable.sourceUrl, variants)));
+    if (prevLinks.length > 0) {
+      await db.insert(qaLinksTable).values(
+        prevLinks.map(({ id: _id, scanId: _sid, ...rest }) => ({ ...rest, scanId })),
+      );
+    }
+    const prevImages = await db
+      .select()
+      .from(qaImagesTable)
+      .where(and(eq(qaImagesTable.scanId, prev.scanId), inArray(qaImagesTable.sourceUrl, variants)));
+    if (prevImages.length > 0) {
+      await db.insert(qaImagesTable).values(
+        prevImages.map(({ id: _id, scanId: _sid, ...rest }) => ({ ...rest, scanId })),
+      );
+    }
+  } catch (qaErr) {
+    logger.warn({ scanId, url, err: String(qaErr) }, "Incremental: QA carry-forward failed — continuing");
+  }
+
+  // Carry forward rule_page_stats so scoring uses true CRr even on unchanged pages
+  try {
+    const prevStatsRes = await pool.query<{ rule_id: string; total_checked: number; scope: string }>(
+      `SELECT rule_id, total_checked, scope FROM rule_page_stats WHERE page_result_id = $1`,
+      [prev.id],
+    );
+    if (prevStatsRes.rows.length > 0) {
+      const vals = prevStatsRes.rows
+        .map((r) => `(${pageId}, '${r.rule_id.replace(/'/g, "''")}', ${r.total_checked}, '${r.scope}')`)
+        .join(",");
+      await pool.query(
+        `INSERT INTO rule_page_stats (page_result_id, rule_id, total_checked, scope)
+         VALUES ${vals}
+         ON CONFLICT (page_result_id, rule_id) DO NOTHING`,
+      );
+    }
+  } catch (statsCarryErr) {
+    logger.warn({ scanId, url, err: statsCarryErr }, "Incremental: rule_page_stats carry-forward failed — scoring will use proxy");
+  }
+
+  logger.info(
+    { scanId, pageId, url, fromPageId: prev.id, issueCount: prev.issueCount },
+    "Incremental: page unchanged — issues carried forward without browser visit",
+  );
+  return true;
+}
+
+/** Read the configured browser pool size (app_settings.scan_concurrency, default 4, max 8). */
+async function getScanConcurrencySetting(): Promise<number> {
+  try {
+    const [row] = await db
+      .select({ value: appSettingsTable.value })
+      .from(appSettingsTable)
+      .where(eq(appSettingsTable.key, "scan_concurrency"));
+    const parsed = parseInt(row?.value ?? "", 10);
+    return Number.isFinite(parsed) && parsed >= 1 ? Math.min(parsed, 8) : 4;
+  } catch {
+    return 4;
+  }
 }
 
 async function getSystemProxyPacUrl(): Promise<string> {
@@ -53,6 +285,8 @@ const queuedRetryUrls = new Map<number, Set<string>>();
 // Tracks how many times each URL has been auto-retried within the current scan run
 const autoRetryCounters = new Map<number, Map<string, number>>();
 const MAX_AUTO_RETRIES = 3; // total auto-retry attempts per URL before giving up
+// URLs where the proxy itself failed (broken proxy) — skip fallback proxy on subsequent retries
+const proxyFailedUrls = new Map<number, Set<string>>();
 // URLs injected mid-scan via addUrlsToRunningScan — drained by the Phase 1 loop
 const injectedUrlQueue = new Map<number, string[]>();
 
@@ -97,7 +331,10 @@ export async function startScan(
   const controller = new AbortController();
   activeScanControllers.set(scanId, controller);
 
-  const { maxConcurrency = 2 } = options;
+  const configuredConcurrency = await getScanConcurrencySetting();
+  const maxConcurrency = options.maxConcurrency ?? configuredConcurrency;
+  // Size the browser pool to match so batches actually run in parallel.
+  setScanConcurrency(maxConcurrency);
 
   try {
     await db
@@ -397,10 +634,51 @@ export async function startScan(
       );
     }
   } catch (err) {
-    logger.error({ scanId, err }, "Scan session failed");
+    logger.error({ scanId, err }, "Scan session errored — determining final status from page results");
+    // Don't blindly mark the whole session "failed": if the pages themselves
+    // finished successfully and only a post-scan finalization step threw
+    // (transient DB/network hiccup — common on Azure App Service), the scan
+    // has real results and must be reported as completed.
+    let finalStatus: "completed" | "failed" | "cancelled" =
+      controller.signal.aborted ? "cancelled" : "failed";
+    try {
+      const [stats] = await db
+        .select({
+          completed: sql<number>`COUNT(*) FILTER (WHERE status = 'completed')`,
+          nonTerminal: sql<number>`COUNT(*) FILTER (WHERE status NOT IN ('completed', 'failed', 'not_available'))`,
+          totalIssues: sql<number>`COALESCE(SUM(issue_count), 0)`,
+          criticalIssues: sql<number>`COALESCE(SUM(critical_count), 0)`,
+          failedUrls: sql<number>`COUNT(*) FILTER (WHERE status IN ('failed', 'not_available'))`,
+        })
+        .from(pageResultsTable)
+        .where(eq(pageResultsTable.scanId, scanId));
+      if (
+        !controller.signal.aborted &&
+        stats &&
+        Number(stats.completed) > 0 &&
+        Number(stats.nonTerminal) === 0
+      ) {
+        finalStatus = "completed";
+        logger.warn(
+          { scanId, completedPages: Number(stats.completed), err: String(err) },
+          "Post-scan error but all pages terminal with completions — marking scan completed",
+        );
+        await db
+          .update(scanSessionsTable)
+          .set({
+            totalIssues: Number(stats.totalIssues),
+            criticalIssues: Number(stats.criticalIssues),
+            scannedUrls: Number(stats.completed),
+            failedUrls: Number(stats.failedUrls),
+          })
+          .where(eq(scanSessionsTable.id, scanId));
+      }
+    } catch (statsErr) {
+      logger.error({ scanId, statsErr }, "Could not read page stats after scan error");
+    }
     await db
       .update(scanSessionsTable)
-      .set({ status: "failed", completedAt: new Date() })
+      .set({ status: finalStatus, completedAt: new Date() })
       .where(eq(scanSessionsTable.id, scanId));
   } finally {
     activeScanControllers.delete(scanId);
@@ -408,6 +686,17 @@ export async function startScan(
     queuedRetryUrls.delete(scanId);
     autoRetryCounters.delete(scanId);
     injectedUrlQueue.delete(scanId);
+    proxyFailedUrls.delete(scanId);
+    // WAF tokens are intentionally kept alive until their TTL expires (10 min)
+    // so the user can still click "Scan from Browser" on a completed scan.
+    // Periodically purge globally expired tokens to avoid unbounded memory growth.
+    const now = Date.now();
+    for (const [pageId, entry] of wafPageTokens) {
+      if (entry.expires < now) {
+        wafTokenIndex.delete(entry.token);
+        wafPageTokens.delete(pageId);
+      }
+    }
   }
 }
 
@@ -520,18 +809,39 @@ async function scanSinglePage(
   const pageId = pageRow.id;
 
   try {
+    // ── Incremental change detection ─────────────────────────────────────
+    // A cheap raw-HTML fetch runs for every page so a content hash baseline
+    // is always stored. In incremental mode, an unchanged hash lets us carry
+    // the previous scan's issues forward and skip the browser entirely.
+    let rawHash: string | null = null;
+    if (options.incremental) {
+      await setPageStatus(pageId, "checking");
+      rawHash = await fetchRawContentHash(url);
+      if (!rawHash) {
+        // WAF-blocked plain fetch (e.g. 403) — retry through a stealth browser
+        // with all non-document resources blocked. Still far cheaper than a
+        // full scan when the page turns out to be unchanged.
+        const body = await fetchRawHtmlViaBrowser(url);
+        if (body) rawHash = hashRawHtml(body);
+      }
+      if (rawHash && (await tryCarryForward(scanId, pageId, url, rawHash))) {
+        return;
+      }
+    }
+
     // Stage 1: navigating
     await setPageStatus(pageId, "navigating");
     logger.info({ scanId, url }, "Navigating to page");
 
-    // Hard per-URL deadline — 30 s beyond the configured Puppeteer timeout.
+    // Hard per-URL deadline covers the scanner's 30s/60s/90s navigation retry
+    // sequence, plus post-load scanning and cleanup.
     // When it fires we abort the AbortController, which force-closes the live
     // Puppeteer page so the scan mutex is released immediately.
-    // Navigation timeout fixed at 30 s. scanDelayMs is the post-DOMContentLoaded dwell
-    // time (letting JS execute before checks run). Hard deadline covers all three phases.
+    // scanDelayMs is the post-DOMContentLoaded dwell time (letting JS execute
+    // before checks run).
     const scanDelayMs = await getGlobalScanDelayMs();
     const NAV_TIMEOUT_MS = 30_000;
-    const hardDeadline = NAV_TIMEOUT_MS + scanDelayMs + 60_000;
+    const hardDeadline = NAV_TIMEOUT_MS * 6 + scanDelayMs + 60_000;
     const urlAbortController = new AbortController();
     let hardTimer: ReturnType<typeof setTimeout> | null = null;
     const hardTimeoutPromise = new Promise<never>((_, reject) => {
@@ -550,6 +860,11 @@ async function scanSinglePage(
     // shouldAutoRetry logic below still applies (Phase 2 queue) instead of
     // falling into the outer catch which skips retry altogether.
     const systemProxyPacUrl = await getSystemProxyPacUrl();
+    // Fetch the raw content hash in parallel with the browser scan so every
+    // completed page stores a baseline for future incremental scans.
+    const rawHashPromise: Promise<string | null> = rawHash
+      ? Promise.resolve(rawHash)
+      : fetchRawContentHash(url);
     let result: Awaited<ReturnType<typeof scanPage>>;
     const scanStart = Date.now();
     try {
@@ -562,7 +877,7 @@ async function scanSinglePage(
           proxyPacUrl: options.proxyPacUrl,
           // If a system proxy is configured and this scan isn't already using it,
           // pass it as a fallback so 403-blocked pages can automatically retry via proxy.
-          fallbackProxyPacUrl: !options.proxyPacUrl && systemProxyPacUrl ? systemProxyPacUrl : undefined,
+          fallbackProxyPacUrl: !options.proxyPacUrl && systemProxyPacUrl && !proxyFailedUrls.get(scanId)?.has(url) ? systemProxyPacUrl : undefined,
           disableJavascript: options.disableJavascript,
           signal: urlAbortController.signal,
           onStage: async (stage: string) => {
@@ -599,11 +914,27 @@ async function scanSinglePage(
       activeScanControllers.has(scanId) &&
       retryCount < MAX_AUTO_RETRIES;
 
+    // Track URLs whose proxy fallback failed — future retries won't use the broken proxy
+    if (result.error?.includes("[proxy_failure]")) {
+      if (!proxyFailedUrls.has(scanId)) proxyFailedUrls.set(scanId, new Set());
+      proxyFailedUrls.get(scanId)!.add(url);
+    }
+
     const pageStatus = result.notAvailable
       ? "not_available"
       : result.error
         ? "failed"
         : "completed";
+
+    // When a page is WAF-blocked, generate a short-lived token so the Ampera
+    // WAF Scanner extension can authenticate its local scan results.
+    if (result.wafBlocked) {
+      const token = randomBytes(16).toString("hex");
+      const expires = Date.now() + WAF_TOKEN_TTL_MS;
+      wafPageTokens.set(pageId, { token, scanId, expires });
+      wafTokenIndex.set(token, { pageId, scanId, expires });
+      logger.info({ scanId, pageId, url }, "WAF-blocked page — local scan token issued");
+    }
 
     // Update the primary row with full result data
     const scanDurationMs = Date.now() - scanStart;
@@ -623,6 +954,16 @@ async function scanSinglePage(
         scanDurationMs,
         screenshot: result.screenshot ?? null,
         pageHtml: result.pageHtml ?? null,
+        // Only store a hash baseline for successfully completed pages —
+        // a hash on a failed page could cause a bad carry-forward later.
+        // Fall back to the browser's raw navigation response when the plain
+        // HTTP fetch was WAF-blocked (e.g. Keysight returns 403 to plain GETs).
+        contentHash:
+          pageStatus === "completed"
+            ? ((await rawHashPromise.catch(() => null)) ??
+              (result.rawHtml ? hashRawHtml(result.rawHtml) : null))
+            : null,
+        carriedForward: false,
       })
       .where(eq(pageResultsTable.id, pageId));
     logger.info(
@@ -658,6 +999,7 @@ async function scanSinglePage(
           result.issues.map((issue) => ({
             pageId,
             ruleId: issue.ruleId,
+            ruleType: issue.type ?? "Issue",
             impact: issue.impact,
             description: issue.description,
             element: issue.element,
@@ -677,6 +1019,26 @@ async function scanSinglePage(
       } catch (insertErr) {
         logger.error({ scanId, url, pageId, issueCount, err: insertErr }, "ISSUE INSERT FAILED");
         throw insertErr;
+      }
+    }
+
+    // Save per-rule check counts for true compliance ratio scoring
+    if (result.ruleStats && result.ruleStats.length > 0) {
+      try {
+        const statsValues = result.ruleStats
+          .filter((s) => s.totalChecked > 0)
+          .map((s) => `(${pageId}, '${s.ruleId.replace(/'/g, "''")}', ${s.totalChecked}, '${s.scope}')`)
+          .join(",");
+        if (statsValues) {
+          await pool.query(
+            `INSERT INTO rule_page_stats (page_result_id, rule_id, total_checked, scope)
+             VALUES ${statsValues}
+             ON CONFLICT (page_result_id, rule_id) DO UPDATE
+               SET total_checked = EXCLUDED.total_checked, scope = EXCLUDED.scope`,
+          );
+        }
+      } catch (statsErr) {
+        logger.warn({ scanId, url, err: statsErr }, "Failed to insert rule_page_stats — scoring will use proxy");
       }
     }
 

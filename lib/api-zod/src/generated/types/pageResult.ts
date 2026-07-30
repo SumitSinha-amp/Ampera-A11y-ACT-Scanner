@@ -17,7 +17,16 @@ export interface PageResult {
   criticalCount: number;
   /** @nullable */
   errorMessage: string | null;
+  /**
+   * Short-lived token for the Ampera WAF Scanner extension to authenticate local scan results
+   * @nullable
+   */
+  wafToken?: string | null;
   /** @nullable */
   scannedAt: string | null;
+  /** @nullable */
+  loadDurationMs: number | null;
+  /** @nullable */
+  scanDurationMs: number | null;
   issues: AccessibilityIssue[];
 }

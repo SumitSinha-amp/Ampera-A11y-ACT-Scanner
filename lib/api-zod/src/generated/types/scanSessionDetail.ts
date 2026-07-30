@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PageResult } from "./pageResult";
+import type { ScanOptions } from "./scanOptions";
 import type { ScanSessionDetailStatus } from "./scanSessionDetailStatus";
 
 export interface ScanSessionDetail {
@@ -21,5 +22,12 @@ export interface ScanSessionDetail {
   createdAt: string;
   /** @nullable */
   completedAt: string | null;
+  /** @nullable */
+  initiatorName: string | null;
+  /** @nullable */
+  initiatorRole: string | null;
+  /** @nullable */
+  projectName: string | null;
+  options?: ScanOptions;
   pages: PageResult[];
 }

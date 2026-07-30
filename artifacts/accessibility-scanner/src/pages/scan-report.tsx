@@ -22,7 +22,21 @@ export default function ScanReport() {
   const scanId = Number(id);
 
   const { data: scan } = useGetScan(scanId, { query: { enabled: !!scanId, queryKey: getGetScanQueryKey(scanId) } });
-  const { data: report, isLoading } = useGetScanReport(scanId, { query: { enabled: !!scanId, queryKey: getGetScanReportQueryKey(scanId) } });
+  const { data: report, isLoading, isError, refetch } = useGetScanReport(scanId, { query: { enabled: !!scanId, queryKey: getGetScanReportQueryKey(scanId) } });
+
+  if (isError || (!isLoading && !report)) {
+    return (
+      <div className="flex flex-col items-center gap-4 p-12 text-center" data-testid="report-error">
+        <p className="text-muted-foreground">Failed to load the report. Please try again.</p>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => refetch()}>Retry</Button>
+          <Link href={`/scans/${scanId}`}>
+            <Button variant="ghost"><ArrowLeft className="w-4 h-4 mr-2" />Back to scan</Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading || !report) {
     return <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>;

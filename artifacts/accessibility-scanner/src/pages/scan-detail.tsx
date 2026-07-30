@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
 import { useAuth } from "@/contexts/auth";
-import { SIA_RULES } from "@/lib/siaRules";
+import { ACT_RULES, getRuleTitle } from "@/lib/actRules";
 import { useParams, Link, useLocation } from "wouter";
 import {
   useGetScan,
@@ -82,22 +82,60 @@ import {
   ExternalLink,
   Monitor,
   Shield,
+  ListFilter,
+  Camera,
+  Zap,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { getStatusBadge } from "@/lib/status-badge";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Copy } from "lucide-react";
-import { ElementViewer, type ViewerIssue } from "@/components/element-viewer";
 import { isElementViewerEnabled } from "@/pages/settings";
 import { FixSuggestionPanel } from "@/components/fix-suggestion-panel";
-//import { ScanQATab } from "@/pages/scan-qa";
+import { ScanQATab } from "@/pages/scan-qa";
+import { InteractiveHtmlTree } from "@/components/page-report/html-tree";
+
+const DEPRECATED_RULES = new Set(["ACT-R3", "ACT-R6", "ACT-R34", "ACT-R36", "ACT-R83"]);
+
+// ── Extract meaningful component name from CSS selector hierarchy ─────────────
+// Walks from outermost to innermost, skipping generic structural/utility classes,
+// and returns the first class that looks like a real component name.
+function extractComponentName(hierarchy: string): string {
+  if (!hierarchy) return "";
+  // Any class whose hyphen/underscore-split word parts include these structural terms is skipped
+  const SKIP_WORDS = new Set([
+    "layout", "grid", "panel", "column", "columns", "wrapper", "container",
+    "row", "col", "flex", "content", "inner", "outer", "holder", "block",
+    "section", "header", "footer", "main", "nav", "sidebar", "rail",
+    "band", "strip", "slot", "region", "zone", "area", "two", "three",
+    "four", "five", "six", "expander",
+  ]);
+  const UTILITY_PREFIX = /^(fg|bg|text|link|btn|no|is|js|has|style|font|color|tint|align|float|clear|pull|push|active|disabled|hidden|visible|show|hide|loaded|authored|resized|selected|current|open|closed|data|dtm|aria|role|tabindex|nth)/i;
+  const hasSkipWord = (cls: string) =>
+    cls.toLowerCase().split(/[-_]/).some(w => SKIP_WORDS.has(w));
+  const parts = hierarchy.split(" > ");
+  for (const part of parts) {
+    const classes = (part.match(/\.[a-zA-Z][a-zA-Z0-9_-]*/g) ?? []).map(c => c.slice(1));
+    for (const cls of classes) {
+      if (hasSkipWord(cls)) continue;
+      if (UTILITY_PREFIX.test(cls)) continue;
+      if (cls.length < 4) continue;
+      if (cls.includes("-") || cls.length > 10) return cls;
+    }
+  }
+  return "";
+}
 
 // ── CSS Selector Hierarchy (expandable breadcrumb) ────────────────────────────
 function SelectorHierarchy({ selector }: { selector: string }) {
@@ -138,128 +176,6 @@ function SelectorHierarchy({ selector }: { selector: string }) {
   );
 }
 
-// ── Interactive HTML Tree (Siteimprove-style) ──────────────────────────────────
-
-/**
- * Try progressively weaker strategies to find the DOM element that matches a
- * scanner issue.  Returns the first matching element or null.
- *
- * Strategies (in order, each only tried if the previous failed):
- *  1. Direct `querySelector(selector)`
- *  2. Selector with pseudo-classes stripped (nth-child, pseudo-elements, etc.)
- *  3. Last 1 or 2 segments of the selector chain
- *  4. getElementById / CSS.escape-safe ID lookup
- *  5. Key-attribute query from elementHtml (name, for, href, aria-label, role…)
- *  6. Class + tag query from elementHtml (most-specific class combo first)
- *  7. outerHTML normalised-text fingerprint (opening tag, then full snippet)
- */
-function findTargetElement(doc: Document, selector: string, elementHtml: string): Element | null {
-  // 1. Direct querySelector
-  if (selector) {
-    try { const el = doc.querySelector(selector); if (el) return el; } catch { /* invalid */ }
-  }
-
-  // 2. Progressively stripped selectors
-  if (selector) {
-    const strips = [
-      selector.replace(/:nth-(?:child|of-type)\([^)]*\)/g, ""),
-      selector.replace(/:[a-zA-Z-]+(\([^)]*\))?/g, ""),
-      selector.split(/\s*>\s*/).pop() ?? "",
-      selector.split(/\s*>\s*/).slice(-2).join(" > "),
-      selector.split(/\s*>\s*/).slice(-3).join(" > "),
-    ];
-    for (const raw of strips) {
-      const s = raw.replace(/\s{2,}/g, " ").trim();
-      if (s && s !== selector) {
-        try { const el = doc.querySelector(s); if (el) return el; } catch { /* ignore */ }
-      }
-    }
-  }
-
-  // 3. ID lookup (from selector or elementHtml)
-  const idsToTry = [
-    selector?.match(/#([\w-]+)/)?.[1],
-    elementHtml?.match(/\sid=["']([^"']+)["']/)?.[1],
-  ].filter(Boolean) as string[];
-  for (const id of idsToTry) {
-    const el = doc.getElementById(id);
-    if (el) return el;
-  }
-
-  // 4. Key-attribute matching from elementHtml
-  if (elementHtml) {
-    const tagMatch = elementHtml.match(/^<([a-zA-Z][a-zA-Z0-9-]*)/i);
-    const tag = tagMatch?.[1]?.toLowerCase() ?? "*";
-    const attrCandidates: [string, string][] = [
-      ["name",              elementHtml.match(/\sname=["']([^"']{1,80})["']/)?.[1] ?? ""],
-      ["for",               elementHtml.match(/\sfor=["']([^"']{1,80})["']/)?.[1] ?? ""],
-      ["href",              elementHtml.match(/\shref=["']([^"']{1,200})["']/)?.[1] ?? ""],
-      ["src",               elementHtml.match(/\ssrc=["']([^"']{1,200})["']/)?.[1] ?? ""],
-      ["aria-label",        elementHtml.match(/\saria-label=["']([^"']{1,120})["']/)?.[1] ?? ""],
-      ["aria-labelledby",   elementHtml.match(/\saria-labelledby=["']([^"']{1,80})["']/)?.[1] ?? ""],
-      ["aria-describedby",  elementHtml.match(/\saria-describedby=["']([^"']{1,80})["']/)?.[1] ?? ""],
-      ["role",              elementHtml.match(/\srole=["']([^"']{1,40})["']/)?.[1] ?? ""],
-      ["type",              elementHtml.match(/\stype=["']([^"']{1,40})["']/)?.[1] ?? ""],
-      ["placeholder",       elementHtml.match(/\splaceholder=["']([^"']{1,80})["']/)?.[1] ?? ""],
-      ["alt",               elementHtml.match(/\salt=["']([^"']{1,120})["']/)?.[1] ?? ""],
-      ["title",             elementHtml.match(/\stitle=["']([^"']{1,120})["']/)?.[1] ?? ""],
-    ].filter(([, v]) => v.length > 0) as [string, string][];
-
-    for (const [attr, val] of attrCandidates) {
-      try {
-        const escaped = val.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-        const candidates = Array.from(doc.querySelectorAll(`${tag}[${attr}="${escaped}"]`));
-        if (candidates.length === 1) return candidates[0];
-        if (candidates.length > 1 && candidates.length <= 15) {
-          // Narrow down using classes
-          const cls = elementHtml.match(/\sclass=["']([^"']+)["']/)?.[1]?.trim().split(/\s+/)[0];
-          if (cls) { const r = candidates.filter(e => e.classList.contains(cls)); if (r.length >= 1) return r[0]; }
-          return candidates[0];
-        }
-      } catch { /* ignore */ }
-    }
-  }
-
-  // 5. Class + tag from elementHtml
-  if (elementHtml) {
-    const tagMatch = elementHtml.match(/^<([a-zA-Z][a-zA-Z0-9-]*)/i);
-    const tag = tagMatch?.[1]?.toLowerCase() ?? "*";
-    const classStr = elementHtml.match(/\sclass=["']([^"']+)["']/)?.[1];
-    if (classStr) {
-      const classes = classStr.trim().split(/\s+/).filter(c => c.length > 2 && !/^js-|^is-|^has-/.test(c));
-      for (let n = Math.min(classes.length, 3); n >= 1; n--) {
-        try {
-          const q = `${tag}.${classes.slice(0, n).map(c => CSS.escape(c)).join(".")}`;
-          const els = Array.from(doc.querySelectorAll(q));
-          if (els.length === 1) return els[0];
-          if (els.length > 1 && els.length <= 8) return els[0];
-        } catch { /* ignore */ }
-      }
-    }
-  }
-
-  // 6. outerHTML fingerprint — normalised whitespace & lowercase
-  if (elementHtml) {
-    const norm = (s: string) => s.replace(/\s+/g, " ").toLowerCase().trim();
-    const normed = norm(elementHtml.trim());
-    const openTag = normed.match(/^(<[^>]+>)/)?.[1] ?? "";
-    const needles = [
-      openTag.slice(0, 200),
-      normed.slice(0, 200),
-      normed.slice(0, 100),
-      normed.slice(0, 60),
-    ].filter((c, i, arr) => c.length > 12 && arr.indexOf(c) === i);
-    for (const needle of needles) {
-      for (const el of Array.from(doc.querySelectorAll("*"))) {
-        const oh = norm(el.outerHTML);
-        if (oh.startsWith(needle)) return el;
-        if (needle.length >= 40 && oh.includes(needle)) return el;
-      }
-    }
-  }
-
-  return null;
-}
 
 /** Stored page snapshot viewer — shows the JPEG captured by Puppeteer at scan time.
  *  Renders a highlight overlay at (bboxX, bboxY, bboxWidth, bboxHeight) and scrolls to it. */
@@ -375,279 +291,12 @@ function LivePreviewFrame({
   );
 }
 
-const VOID_TAGS = new Set(["area","base","br","col","embed","hr","img","input","link","meta","param","source","track","wbr"]);
-
-type HtmlTreeNode = {
-  id: string;
-  kind: "element" | "text" | "comment";
-  tag?: string;
-  attrs?: Array<{ name: string; value: string }>;
-  children?: HtmlTreeNode[];
-  selfClose?: boolean;
-  text?: string;
-  domEl?: Element;
-};
-
-function buildHtmlTree(node: ChildNode, idPrefix: string): HtmlTreeNode | null {
-  if (node.nodeType === Node.TEXT_NODE) {
-    const text = (node.textContent ?? "").trim();
-    if (!text) return null;
-    return { id: idPrefix, kind: "text", text };
-  }
-  if (node.nodeType === Node.COMMENT_NODE) {
-    return { id: idPrefix, kind: "comment", text: `<!--${node.textContent ?? ""}-->` };
-  }
-  if (node.nodeType === Node.ELEMENT_NODE) {
-    const el = node as Element;
-    const attrs = Array.from(el.attributes).map(a => ({ name: a.name, value: a.value }));
-    const selfClose = VOID_TAGS.has(el.tagName.toLowerCase());
-    const children: HtmlTreeNode[] = [];
-    if (!selfClose) {
-      let ci = 0;
-      for (const child of Array.from(el.childNodes)) {
-        const c = buildHtmlTree(child, `${idPrefix}.${ci}`);
-        if (c) { children.push(c); ci++; }
-      }
-    }
-    return { id: idPrefix, kind: "element", tag: el.tagName.toLowerCase(), attrs, children, selfClose, domEl: el };
-  }
-  return null;
-}
-
-function collectAncestors(nodes: HtmlTreeNode[], targetEl: Element): { ancestorIds: Set<string>; targetId: string | null } {
-  const ancestorIds = new Set<string>();
-  let targetId: string | null = null;
-  function walk(node: HtmlTreeNode, path: string[]): boolean {
-    if (node.domEl === targetEl) {
-      path.forEach(id => ancestorIds.add(id));
-      ancestorIds.add(node.id);
-      targetId = node.id;
-      return true;
-    }
-    if (node.children) {
-      for (const child of node.children) {
-        if (walk(child, [...path, node.id])) return true;
-      }
-    }
-    return false;
-  }
-  for (const root of nodes) walk(root, []);
-  return { ancestorIds, targetId };
-}
-
-function HtmlTag({ tag, attrs = [], close = false }: { tag: string; attrs?: Array<{ name: string; value: string }>; close?: boolean }) {
-  return (
-    <span style={{ fontFamily: "monospace", fontSize: "12px" }}>
-      <span style={{ color: "#444" }}>{close ? "</" : "<"}</span>
-      <span style={{ color: "#000080", fontWeight: 600 }}>{tag}</span>
-      {!close && attrs.map((a, i) => (
-        <span key={i}>
-          <span> </span>
-          <span style={{ color: "#8B0000" }}>{a.name}</span>
-          {a.value !== "" && <>
-            <span style={{ color: "#555" }}>=</span>
-            <span style={{ color: "#006400" }}>"{a.value}"</span>
-          </>}
-        </span>
-      ))}
-      <span style={{ color: "#444" }}>{">"}</span>
-    </span>
-  );
-}
-
-const HtmlTreeRow = memo(function HtmlTreeRow({
-  node, expandedIds, onToggle, targetId, depth,
-}: {
-  node: HtmlTreeNode;
-  expandedIds: Set<string>;
-  onToggle: (id: string) => void;
-  targetId: string | null;
-  depth: number;
-}) {
-  const indent = depth * 16;
-  const isTarget = node.id === targetId;
-
-  if (node.kind === "text") {
-    return (
-      <div data-is-target={isTarget || undefined} style={{ paddingLeft: `${indent + 20}px`, color: "#333", fontSize: "12px", fontFamily: "monospace", lineHeight: "1.8", whiteSpace: "pre-wrap", wordBreak: "break-word", background: isTarget ? "rgba(124,58,237,0.08)" : undefined, outline: isTarget ? "2px solid #7c3aed" : undefined, outlineOffset: "-2px" }}>
-        {node.text}
-      </div>
-    );
-  }
-  if (node.kind === "comment") {
-    return (
-      <div style={{ paddingLeft: `${indent + 20}px`, color: "#999", fontStyle: "italic", fontSize: "12px", fontFamily: "monospace", lineHeight: "1.8" }}>
-        {node.text}
-      </div>
-    );
-  }
-
-  const hasChildren = (node.children?.length ?? 0) > 0;
-  const isExpanded = expandedIds.has(node.id);
-
-  return (
-    <div data-is-target={isTarget || undefined}>
-      <div
-        onClick={hasChildren ? () => onToggle(node.id) : undefined}
-        style={{
-          display: "flex", alignItems: "flex-start",
-          paddingLeft: `${indent}px`, paddingTop: "1px", paddingBottom: "1px",
-          cursor: hasChildren ? "pointer" : "default",
-          background: isTarget ? "rgba(124,58,237,0.08)" : undefined,
-          outline: isTarget ? "2px solid #7c3aed" : undefined,
-          outlineOffset: "-2px",
-        }}
-      >
-        <span style={{ width: "20px", flexShrink: 0, color: "#aaa", userSelect: "none", fontSize: "11px", paddingTop: "3px", textAlign: "center" }}>
-          {hasChildren ? (isExpanded ? "▾" : "▸") : ""}
-        </span>
-        <div style={{ flex: 1, minWidth: 0, lineHeight: "1.8" }}>
-          {isExpanded || !hasChildren ? (
-            <HtmlTag tag={node.tag!} attrs={node.attrs} />
-          ) : (
-            <span>
-              <HtmlTag tag={node.tag!} attrs={node.attrs} />
-              <span style={{ color: "#bbb", fontFamily: "monospace", fontSize: "12px" }}> … </span>
-              <span style={{ color: "#444", fontFamily: "monospace", fontSize: "12px" }}>{"</"}</span>
-              <span style={{ color: "#000080", fontWeight: 600, fontFamily: "monospace", fontSize: "12px" }}>{node.tag}</span>
-              <span style={{ color: "#444", fontFamily: "monospace", fontSize: "12px" }}>{">"}</span>
-            </span>
-          )}
-        </div>
-      </div>
-      {isExpanded && hasChildren && (
-        <div>
-          {node.children!.map(child => (
-            <HtmlTreeRow key={child.id} node={child} expandedIds={expandedIds} onToggle={onToggle} targetId={targetId} depth={depth + 1} />
-          ))}
-          <div style={{ paddingLeft: `${indent + 20}px`, fontFamily: "monospace", fontSize: "12px", lineHeight: "1.8", color: "#444" }}>
-            {"</"}<span style={{ color: "#000080", fontWeight: 600 }}>{node.tag}</span>{">"}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-});
-
-function InteractiveHtmlTree({ pageHtml, elementHtml, elementContext, selector }: { pageHtml: string; elementHtml: string; elementContext?: string | null; selector: string }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [tree, setTree] = useState<HtmlTreeNode[]>([]);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [targetId, setTargetId] = useState<string | null>(null);
-
-  const parsedDocRef = useRef<Document | null>(null);
-  const parsedHtmlRef = useRef<string>("");
-
-  // Use elementContext (full element with children) as fallback when full page HTML is absent
-  const effectiveHtml = pageHtml || (elementContext ?? elementHtml);
-  // When using the element as the source, wrap it so DOMParser produces a valid document
-  const isElementFallback = !pageHtml && !!effectiveHtml;
-
-  useEffect(() => {
-    if (!effectiveHtml) {
-      setTree([]);
-      parsedDocRef.current = null;
-      parsedHtmlRef.current = "";
-      return;
-    }
-    if (effectiveHtml === parsedHtmlRef.current && parsedDocRef.current) return;
-    const doc = new DOMParser().parseFromString(
-      isElementFallback ? `<!doctype html><html><body>${effectiveHtml}</body></html>` : effectiveHtml,
-      "text/html"
-    );
-    parsedDocRef.current = doc;
-    parsedHtmlRef.current = effectiveHtml;
-    // For element fallback, build tree from body children; for full page, from documentElement
-    if (isElementFallback) {
-      const children: HtmlTreeNode[] = [];
-      let ci = 0;
-      for (const child of Array.from(doc.body.childNodes)) {
-        const n = buildHtmlTree(child, `0.${ci}`);
-        if (n) { children.push(n); ci++; }
-      }
-      setTree(children);
-    } else {
-      const rootNode = buildHtmlTree(doc.documentElement, "0");
-      setTree(rootNode ? [rootNode] : []);
-    }
-  }, [effectiveHtml, isElementFallback]);
-
-  useEffect(() => {
-    const doc = parsedDocRef.current;
-    if (!effectiveHtml || !doc || tree.length === 0) return;
-
-    const targetEl = findTargetElement(doc, selector, elementHtml);
-
-    const newExpanded = new Set<string>();
-    let newTarget: string | null = null;
-
-    if (targetEl) {
-      const { ancestorIds, targetId: tid } = collectAncestors(tree, targetEl);
-      for (const id of ancestorIds) newExpanded.add(id);
-      newTarget = tid;
-    } else {
-      // Expand all nodes when no target found (or using element fallback — expand everything)
-      function expandAll(nodes: HtmlTreeNode[], depth: number) {
-        if (depth >= (isElementFallback ? 10 : 2)) return;
-        for (const n of nodes) {
-          if (n.kind === "element" && (n.children?.length ?? 0) > 0) {
-            newExpanded.add(n.id);
-            expandAll(n.children!, depth + 1);
-          }
-        }
-      }
-      expandAll(tree, 0);
-      // For element fallback, highlight the root element node
-      if (isElementFallback && tree.length > 0 && tree[0].kind === "element") {
-        newTarget = tree[0].id;
-      }
-    }
-
-    setExpandedIds(newExpanded);
-    setTargetId(newTarget);
-  }, [tree, selector, elementHtml, effectiveHtml, isElementFallback]);
-
-  useEffect(() => {
-    if (!containerRef.current || !targetId) return;
-    const el = containerRef.current.querySelector("[data-is-target]");
-    if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "center" }), 120);
-  }, [targetId]);
-
-  const handleToggle = useCallback((id: string) => {
-    setExpandedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  }, []);
-
-  if (!effectiveHtml) {
-    return (
-      <div className="flex-1 overflow-auto bg-white p-5">
-        <p className="text-xs text-gray-400 italic">No element HTML available.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div ref={containerRef} className="flex-1 overflow-auto bg-white py-3 select-text">
-      {isElementFallback && (
-        <p className="text-[10px] text-amber-600 italic px-4 pb-1.5">Full page HTML not stored — showing element context only</p>
-      )}
-      {tree.length === 0 ? (
-        <div className="flex items-center justify-center h-32 text-gray-400 text-sm gap-2">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          <span>Parsing HTML…</span>
-        </div>
-      ) : (
-        tree.map(node => (
-          <HtmlTreeRow key={node.id} node={node} expandedIds={expandedIds} onToggle={handleToggle} targetId={targetId} depth={0} />
-        ))
-      )}
-    </div>
-  );
-}
 
 // ── Types & shared issue-level helpers ────────────────────────────────────────
 interface Issue {
   id: number;
   ruleId: string;
+  ruleType?: string | null;
   impact: string;
   description: string;
   element: string | null;
@@ -680,6 +329,7 @@ interface IssueFilters {
 
 interface RuleInfo {
   description: string;
+  ruleType?: string | null;
   impact: string;
   wcagCriteria: string | null;
   wcagLevel: string | null;
@@ -800,7 +450,7 @@ function IssueFilterBar({
           <span className="text-xs text-muted-foreground font-medium">Rule</span>
           <Select value={filters.ruleId} onValueChange={(v) => onChange({ ...filters, ruleId: v })}>
             <SelectTrigger className="h-8 text-xs w-[130px]"><SelectValue placeholder="Rule ID" /></SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-h-64 overflow-y-auto">
               <SelectItem value="all">All</SelectItem>
               {ruleIds.map((id) => <SelectItem key={id} value={id} className="font-mono text-xs">{id}</SelectItem>)}
             </SelectContent>
@@ -826,7 +476,7 @@ function IssueFilterBar({
             <span className="text-xs text-muted-foreground font-medium">WCAG</span>
             <Select value={filters.wcag} onValueChange={(v) => onChange({ ...filters, wcag: v })}>
               <SelectTrigger className="h-8 text-xs w-[140px]"><SelectValue placeholder="WCAG" /></SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-h-64 overflow-y-auto">
                 <SelectItem value="all">All</SelectItem>
                 {wcagCriteria.map((wc) => <SelectItem key={wc} value={wc} className="font-mono text-xs">{wc}</SelectItem>)}
               </SelectContent>
@@ -861,6 +511,8 @@ function IssueGroupList({
   selectedRules,
   ruleInfoMap,
   onFlagIssue,
+  isCrawlerScan,
+  onOpenUpdateResults,
 }: {
   issues: Issue[];
   filters: IssueFilters;
@@ -870,6 +522,8 @@ function IssueGroupList({
   selectedRules?: string[];
   ruleInfoMap?: Record<string, RuleInfo>;
   onFlagIssue?: (issue: Issue) => void;
+  isCrawlerScan?: boolean;
+  onOpenUpdateResults?: (ruleId: string, desc: string) => void;
 }) {
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
@@ -950,6 +604,16 @@ function IssueGroupList({
                       {count} {count === 1 ? "occurrence" : "occurrences"}
                     </Badge>
                     <Badge variant="outline" className="font-mono text-xs bg-background">{first.ruleId}</Badge>
+                    {first.ruleId.startsWith("ACT-") && (
+                      <Badge variant="outline" className="text-xs font-mono text-muted-foreground">
+                        Equivalent: {first.ruleId.replace(/^ACT-/, "SIA-")}
+                      </Badge>
+                    )}
+                    {DEPRECATED_RULES.has(first.ruleId) && (
+                      <Badge variant="outline" className="text-xs border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400">
+                        Deprecated
+                      </Badge>
+                    )}
                     <ImpactBadge impact={first.impact} />
                     {first.wcagCriteria && <Badge variant="secondary" className="text-xs font-mono">WCAG {first.wcagCriteria}</Badge>}
                     {first.wcagLevel && <Badge variant="outline" className="text-xs">Level {first.wcagLevel}</Badge>}
@@ -962,6 +626,19 @@ function IssueGroupList({
                   <div className="mb-3 p-3 bg-primary/5 border border-primary/20 rounded-md text-sm">
                     <span className="font-medium text-primary">How to fix: </span>
                     <span className="text-foreground/80">{first.remediation}</span>
+                  </div>
+                )}
+                {isCrawlerScan && onOpenUpdateResults && (
+                  <div className="mb-3">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs border-violet-300 text-violet-700 hover:bg-violet-50 gap-1.5"
+                      onClick={() => onOpenUpdateResults(first.ruleId, first.description)}
+                    >
+                      <ListFilter className="w-3.5 h-3.5" />
+                      Update Results across pages
+                    </Button>
                   </div>
                 )}
                 <div className="space-y-1">
@@ -1008,34 +685,23 @@ function IssueGroupList({
                                     <span className="text-muted-foreground italic">—</span>
                                   )}
                                 </td>
-                                <td className="px-3 py-2 hidden md:table-cell max-w-[300px]">
+                                <td className="px-3 py-2 hidden md:table-cell max-w-[380px]">
                                   {issue.element ? (
-                                    <code className="block truncate text-primary font-mono" title={issue.element}>
-                                      {issue.element.length > 80 ? issue.element.substring(0, 80) + "…" : issue.element}
-                                    </code>
+                                    <div className="flex items-center gap-2">
+                                      <code className="block truncate text-primary font-mono" title={issue.element}>{issue.element}</code>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 shrink-0"
+                                        onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(issue.element || ""); }}
+                                        title="Copy element HTML"
+                                      >
+                                        <Copy className="w-3.5 h-3.5" />
+                                      </Button>
+                                    </div>
                                   ) : (
                                     <span className="text-muted-foreground italic">—</span>
                                   )}
-                                </td>
-                                <td className="px-3 py-2 hidden xl:table-cell max-w-[380px]">
-                                  <div className="flex items-center gap-2">
-                                    {issue.element ? (
-                                      <>
-                                        <code className="block truncate text-foreground/80 font-mono" title={issue.element}>{issue.element}</code>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-7 w-7 shrink-0"
-                                          onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(issue.element || ""); }}
-                                          title="Copy element HTML"
-                                        >
-                                          <Copy className="w-3.5 h-3.5" />
-                                        </Button>
-                                      </>
-                                    ) : (
-                                      <span className="text-muted-foreground italic">—</span>
-                                    )}
-                                  </div>
                                 </td>
                                 {group.some((i) => i.description !== first.description) && (
                                   <td className="px-3 py-2 hidden lg:table-cell text-muted-foreground max-w-[200px]">
@@ -1168,10 +834,10 @@ function IssueGroupList({
                 <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-foreground/80 break-words">
-                    {SIA_RULES[ruleId]?.title ?? info?.description ?? "No issues detected for this rule on this page."}
+                    {getRuleTitle(ruleId, info?.ruleType, info?.description) ?? "No issues detected for this rule on this page."}
                   </p>
-                  {SIA_RULES[ruleId]?.detail && (
-                    <p className="text-xs text-muted-foreground mt-0.5 break-words">{SIA_RULES[ruleId].detail}</p>
+                  {ACT_RULES[ruleId]?.detail && (
+                    <p className="text-xs text-muted-foreground mt-0.5 break-words">{ACT_RULES[ruleId].detail}</p>
                   )}
                   <div className="flex flex-wrap items-center gap-2 mt-1.5">
                     <Badge variant="secondary" className="text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 font-mono">
@@ -1216,20 +882,20 @@ function buildExportRows(scan: {
 }): ExportIssueRow[] {
   const rows: ExportIssueRow[] = [];
   const selectedRules = scan.options?.rules ?? [];
-  const allRules = selectedRules.length === Object.keys(SIA_RULES).length;
+  const allRules = selectedRules.length === Object.keys(ACT_RULES).length;
   const selectedRulesLabel =
     selectedRules.length === 0
       ? "All rules"
       : allRules
         ? "All rules"
-        : selectedRules.map((ruleId) => `${ruleId} — ${SIA_RULES[ruleId]?.title ?? ""}`.trim()).join("; ");
+        : selectedRules.map((ruleId) => `${ruleId} — ${getRuleTitle(ruleId)}`.trim()).join("; ");
   const scanLabel = scan.name || `Scan #${scan.id}`;
   for (const page of scan.pages ?? []) {
     for (const issue of page.issues ?? []) {
       rows.push({
         pageUrl: page.url,
         ruleId: issue.ruleId,
-        ruleLabel: SIA_RULES[issue.ruleId]?.title ?? issue.description,
+        ruleLabel: getRuleTitle(issue.ruleId, issue.ruleType, issue.description),
         description: issue.description,
         impact: issue.impact,
         wcagCriteria: issue.wcagCriteria ?? "",
@@ -1429,7 +1095,7 @@ function ExportButtons({
 // ── Scan-level utility components & helpers ───────────────────────────────────
 function RulesBadges({ selectedRules }: { selectedRules: string[] }) {
   if (selectedRules.length === 0) return null;
-  const allRules = selectedRules.length === Object.keys(SIA_RULES).length;
+  const allRules = selectedRules.length === Object.keys(ACT_RULES).length;
   return (
     <div className="flex flex-wrap gap-2 mt-2">
       <Badge variant="secondary" className="text-xs">
@@ -1499,7 +1165,7 @@ function applyPrefix(urls: string[], prefix: string) {
 
 function getSelectedRuleSummary(selectedRules: string[]) {
   if (selectedRules.length === 0) return null;
-  if (selectedRules.length === Object.keys(SIA_RULES).length)
+  if (selectedRules.length === Object.keys(ACT_RULES).length)
     return "Scanning for all rules";
   if (selectedRules.length === 1) return `Rule ${selectedRules[0]}`;
   return `${selectedRules.length} selected rules`;
@@ -1529,6 +1195,12 @@ export default function ScanDetail() {
     level: "all",
     hideFalsePositives: true,
   });
+
+  const ALL_CATS = ["Issue", "Potential Issue", "Best Practice", "WAI-ARIA"] as const;
+  const [expandedCats, setExpandedCats] = useState<Set<string>>(() => new Set(ALL_CATS));
+  const [visibleCats, setVisibleCats] = useState<Set<string>>(() => new Set(ALL_CATS));
+  const toggleCat = (cat: string) =>
+    setExpandedCats(prev => { const n = new Set(prev); n.has(cat) ? n.delete(cat) : n.add(cat); return n; });
 
   const [pageStatusFilter, setPageStatusFilter] = useState<string>("all");
   const [pageUrlFilter, setPageUrlFilter] = useState("");
@@ -1614,6 +1286,8 @@ export default function ScanDetail() {
     scanId: number;
     totalIssues: number;
     totalComponents: number;
+    /** Scan-wide occurrence totals per rule (excludes false positives) */
+    ruleTotals?: Record<string, number>;
     components: SmartComponent[];
   };
 
@@ -1625,6 +1299,11 @@ export default function ScanDetail() {
   const [smartRule, setSmartRule] = useState("all");
   const [smartExpanded, setSmartExpanded] = useState<Set<string>>(new Set());
   const [smartUrlFilter, setSmartUrlFilter] = useState("");
+  const [smartAnalysisAiEnabled, setSmartAnalysisAiEnabled] = useState(false);
+  type AiInsight = { componentType: string; issueSummary: string; rootCause: string; fixStrategy: string; priority: "high" | "medium" | "low"; priorityReason: string };
+  const [aiInsights, setAiInsights] = useState<Map<string, AiInsight>>(new Map());
+  const [aiInsightsLoading, setAiInsightsLoading] = useState<Set<string>>(new Set());
+  const [aiInsightsError, setAiInsightsError] = useState<Map<string, string>>(new Map());
 
   type CodeViewOccurrence = { id: number; ruleId: string; impact: string; element: string; elementContext?: string | null; selector: string; description: string; bboxX: number | null; bboxY: number | null; bboxWidth: number | null; bboxHeight: number | null };
   const [codeViewOpen, setCodeViewOpen] = useState(false);
@@ -1842,10 +1521,49 @@ export default function ScanDetail() {
     setSmartData(null);
     try {
       const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
-      const res = await fetch(`${BASE}/api/scans/${scanId}/smart-analysis`, { credentials: "include" });
+      const [res, cfgRes] = await Promise.all([
+        fetch(`${BASE}/api/scans/${scanId}/smart-analysis`, { credentials: "include" }),
+        fetch(`${BASE}/api/ai/config`, { credentials: "include" }),
+      ]);
       if (res.ok) setSmartData(await res.json());
+      if (cfgRes.ok) {
+        const cfg = await cfgRes.json();
+        setSmartAnalysisAiEnabled(cfg.smartAnalysisAiEnabled === true);
+      }
     } finally {
       setSmartLoading(false);
+    }
+  }
+
+  async function getAiInsights(comp: SmartComponent, rowKey: string) {
+    const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+    setAiInsightsLoading(prev => { const n = new Set(prev); n.add(rowKey); return n; });
+    setAiInsightsError(prev => { const n = new Map(prev); n.delete(rowKey); return n; });
+    try {
+      const firstOcc = comp.sampleDescriptions?.[0] ?? "";
+      const r = await fetch(`${BASE}/api/scans/${scanId}/smart-analysis/ai-insights`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          componentName: comp.componentName,
+          hierarchy: comp.hierarchy ?? comp.componentName,
+          ruleIds: comp.ruleIds,
+          worstImpact: comp.worstImpact,
+          totalOccurrences: comp.totalOccurrences,
+          affectedPageCount: comp.affectedPageCount,
+          sampleDescription: firstOcc,
+          sampleSelector: comp.componentName,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "AI request failed");
+      setAiInsights(prev => { const n = new Map(prev); n.set(rowKey, data as AiInsight); return n; });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAiInsightsError(prev => { const n = new Map(prev); n.set(rowKey, msg); return n; });
+    } finally {
+      setAiInsightsLoading(prev => { const n = new Set(prev); n.delete(rowKey); return n; });
     }
   }
 
@@ -1898,13 +1616,23 @@ export default function ScanDetail() {
     }
   }, [codeViewOpen, codeViewSelectedIdx, codeViewPageHtml]);
 
-  const filteredSmartComponents = (smartData?.components ?? []).filter(c => {
-    if (smartImpact !== "all" && c.worstImpact !== smartImpact) return false;
-    if (smartRule !== "all" && !c.ruleIds.includes(smartRule)) return false;
-    if (smartSearch && !c.componentName.toLowerCase().includes(smartSearch.toLowerCase()) && !c.hierarchy.toLowerCase().includes(smartSearch.toLowerCase())) return false;
-    if (smartUrlFilter && !c.topPages.some(u => u.toLowerCase().includes(smartUrlFilter.toLowerCase()))) return false;
-    return true;
-  });
+  const filteredSmartComponents = (smartData?.components ?? [])
+    .map(c => ({ ...c, ruleIds: c.ruleIds.filter(r => !DEPRECATED_RULES.has(r)) }))
+    .filter(c => {
+      if (c.ruleIds.length === 0) return false;
+      if (smartImpact !== "all" && c.worstImpact !== smartImpact) return false;
+      if (smartRule !== "all" && !c.ruleIds.includes(smartRule)) return false;
+      if (smartSearch && !c.componentName.toLowerCase().includes(smartSearch.toLowerCase()) && !c.hierarchy.toLowerCase().includes(smartSearch.toLowerCase())) return false;
+      if (smartUrlFilter && !c.topPages.some(u => u.toLowerCase().includes(smartUrlFilter.toLowerCase()))) return false;
+      return true;
+    })
+    // Consistent severity hierarchy: Critical → Serious → Moderate → Minor, then by occurrence count
+    .sort((a, b) => {
+      const ai = IMPACT_ORDER[a.worstImpact] ?? 99;
+      const bi = IMPACT_ORDER[b.worstImpact] ?? 99;
+      if (ai !== bi) return ai - bi;
+      return (b.totalOccurrences ?? 0) - (a.totalOccurrences ?? 0);
+    });
 
   const allSmartRules = [...new Set((smartData?.components ?? []).flatMap(c => c.ruleIds))].sort();
 
@@ -1976,26 +1704,13 @@ export default function ScanDetail() {
       window.removeEventListener("focus", syncViewer);
     };
   }, []);
-  const [viewerSel, setViewerSel] = useState<{
-    issue: ViewerIssue;
-    group: ViewerIssue[];
-    groupIndex: number;
-    pageUrl: string;
-    pageId: number;
-  } | null>(null);
-
   const handleSelectOccurrence = useCallback(
-    (issue: Issue, group: Issue[], pageUrl: string, pageId: number) => {
-      const idx = group.findIndex((i) => i.id === issue.id);
-      setViewerSel({
-        issue: issue as ViewerIssue,
-        group: group as ViewerIssue[],
-        groupIndex: idx >= 0 ? idx : 0,
-        pageUrl,
-        pageId,
-      });
+    (issue: Issue, _group: Issue[], _pageUrl: string, pageId: number) => {
+      // Open the full-screen Siteimprove-style page report for this page,
+      // pre-selecting the clicked occurrence.
+      setLocation(`/scans/${scanId}/pages/${pageId}/report?issue=${issue.id}`);
     },
-    [],
+    [scanId, setLocation],
   );
 
   const { data: scan, isLoading: scanLoading } = useGetScan(scanId, {
@@ -2316,6 +2031,80 @@ export default function ScanDetail() {
     const opts = (scan?.options ?? {}) as Record<string, unknown>;
     return Array.isArray(opts.rules) ? (opts.rules as string[]) : [];
   }, [scan?.options]);
+
+  const isCrawlerScan = useMemo(
+    () => (scan?.options as Record<string, unknown>)?.source === "crawler",
+    [scan?.options],
+  );
+
+  const isCrawlBoost = useMemo(
+    () => !!(scan?.options as Record<string, unknown>)?.crawlBoost,
+    [scan?.options],
+  );
+
+  // ── Update Results dialog state ──────────────────────────────────────────────
+  const [urOpen, setUrOpen] = useState(false);
+  const [urRuleId, setUrRuleId] = useState<string | null>(null);
+  const [urRuleDesc, setUrRuleDesc] = useState<string>("");
+  const [urSelectedPages, setUrSelectedPages] = useState<Set<number>>(new Set());
+  const [urReason, setUrReason] = useState("");
+  const [urSubmitting, setUrSubmitting] = useState(false);
+
+  const handleOpenUpdateResults = useCallback(
+    (ruleId: string, desc: string) => {
+      if (!scan) return;
+      const pagesWithRule = (scan.pages ?? []).filter((p: { issues?: Issue[]; id: number }) =>
+        (p.issues ?? []).some((i: Issue) => i.ruleId === ruleId),
+      );
+      setUrRuleId(ruleId);
+      setUrRuleDesc(desc);
+      setUrSelectedPages(new Set(pagesWithRule.map((p: { id: number }) => p.id)));
+      setUrReason("");
+      setUrOpen(true);
+    },
+    [scan],
+  );
+
+  const handleUpdateResults = async () => {
+    if (!urRuleId || urSelectedPages.size === 0) return;
+    setUrSubmitting(true);
+    const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+    let successCount = 0;
+    try {
+      for (const pageId of urSelectedPages) {
+        const page = (scan?.pages ?? []).find((p: { id: number }) => p.id === pageId);
+        if (!page) continue;
+        const firstIssue = ((page as { issues?: Issue[] }).issues ?? []).find(
+          (i: Issue) => i.ruleId === urRuleId,
+        );
+        if (!firstIssue) continue;
+        const res = await fetch(`${BASE}/api/decisions`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            issueId: firstIssue.id,
+            scanId: scanId,
+            scope: "page",
+            reason: urReason.trim() || "Flagged via Update Results",
+            decisionType: "false_positive",
+          }),
+        });
+        if (res.ok) successCount++;
+      }
+      toast({
+        title: "False positives applied",
+        description: `Flagged ${urRuleId} as FP on ${successCount} page${successCount !== 1 ? "s" : ""}`,
+      });
+      setUrOpen(false);
+      queryClient.invalidateQueries({ queryKey: getGetScanQueryKey(scanId) });
+    } catch {
+      toast({ title: "Error applying decisions", variant: "destructive" });
+    } finally {
+      setUrSubmitting(false);
+    }
+  };
+
   const estimatedMinutes = useMemo(() => {
     if (!scan) return 0;
     const remaining = Math.max(
@@ -2373,7 +2162,7 @@ export default function ScanDetail() {
 
       {/* Smart Analysis Dialog */}
       <Dialog open={smartOpen} onOpenChange={setSmartOpen}>
-        <DialogContent className="max-w-[90vw] max-h-[90vh] flex flex-col gap-0 p-0">
+        <DialogContent className="max-w-[99vw] w-screen max-h-[95vh] flex flex-col gap-0 p-0">
           <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
             <DialogTitle className="flex items-center gap-2 text-lg">
               <Sparkles className="w-5 h-5 text-violet-500" />
@@ -2495,7 +2284,8 @@ export default function ScanDetail() {
                     <thead className="sticky top-0 z-10 bg-background border-b">
                       <tr>
                         <th className="text-left px-6 py-3 font-medium text-muted-foreground w-8"></th>
-                        <th className="text-left px-3 py-3 font-medium text-muted-foreground">Component Hierarchy</th>
+                        <th className="text-left px-3 py-3 font-medium text-muted-foreground">Component</th>
+                        <th className="text-left px-3 py-3 font-medium text-muted-foreground">HTML Hierarchy</th>
                         <th className="text-left px-3 py-3 font-medium text-muted-foreground">Rules</th>
                         <th className="text-left px-3 py-3 font-medium text-muted-foreground">Worst Impact</th>
                         <th className="text-right px-3 py-3 font-medium text-muted-foreground">Occurrences</th>
@@ -2528,6 +2318,18 @@ export default function ScanDetail() {
                             >
                               <td className="px-6 py-3 text-muted-foreground">
                                 <ChevronRight className={`w-4 h-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                              </td>
+                              <td className="px-3 py-3 max-w-[180px]">
+                                {(() => {
+                                  const cname = extractComponentName(comp.hierarchy ?? comp.componentName);
+                                  return cname ? (
+                                    <span className="inline-block px-2 py-0.5 rounded text-xs font-mono border bg-sky-50 border-sky-200 text-sky-800 dark:bg-sky-950/30 dark:border-sky-800 dark:text-sky-300 truncate max-w-full" title={cname}>
+                                      {cname}
+                                    </span>
+                                  ) : (
+                                    <span className="text-muted-foreground text-xs">—</span>
+                                  );
+                                })()}
                               </td>
                               <td className="px-3 py-3 max-w-sm">
                                 <div className="flex items-center flex-wrap gap-0.5">
@@ -2574,8 +2376,100 @@ export default function ScanDetail() {
                             </tr>
                             {isExpanded && (
                               <tr key={`${comp.componentName}-expanded`} className="border-b bg-muted/20">
-                                <td colSpan={7} className="px-10 py-4">
+                                <td colSpan={8} className="px-10 py-4">
                                   <div className="space-y-3">
+                                    {/* AI Insights */}
+                                    {smartAnalysisAiEnabled && authUser?.permissions?.canSmartAnalysis && (() => {
+                                      const rk = `${comp.componentName}::${comp.tag}`;
+                                      const insight = aiInsights.get(rk);
+                                      const loading = aiInsightsLoading.has(rk);
+                                      const error = aiInsightsError.get(rk);
+                                      const priorityColor: Record<string, string> = { high: "text-red-600 dark:text-red-400", medium: "text-amber-600 dark:text-amber-500", low: "text-green-600 dark:text-green-500" };
+                                      return (
+                                        <div className="rounded-lg border border-violet-200 dark:border-violet-800 bg-violet-50/60 dark:bg-violet-950/20 p-3">
+                                          <div className="flex items-center justify-between mb-2">
+                                            <p className="text-xs font-semibold text-violet-700 dark:text-violet-300 flex items-center gap-1.5">
+                                              <Sparkles className="w-3.5 h-3.5" />
+                                              AI Insights
+                                            </p>
+                                            {!insight && (
+                                              <button
+                                                type="button"
+                                                disabled={loading}
+                                                onClick={() => getAiInsights(comp, rk)}
+                                                className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md bg-violet-600 hover:bg-violet-700 text-white transition-colors disabled:opacity-50"
+                                              >
+                                                {loading ? (
+                                                  <><svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>Analyzing…</>
+                                                ) : (
+                                                  <><Sparkles className="w-3 h-3" />Get AI Insights</>
+                                                )}
+                                              </button>
+                                            )}
+                                            {insight && (
+                                              <button
+                                                type="button"
+                                                onClick={() => getAiInsights(comp, rk)}
+                                                disabled={loading}
+                                                className="text-xs text-violet-600 dark:text-violet-400 hover:underline disabled:opacity-50"
+                                              >
+                                                {loading ? "Refreshing…" : "Refresh"}
+                                              </button>
+                                            )}
+                                          </div>
+                                          {error && !loading && (
+                                            <p className="text-xs text-destructive">{error}</p>
+                                          )}
+                                          {!insight && !loading && !error && (
+                                            <p className="text-xs text-muted-foreground">Click &ldquo;Get AI Insights&rdquo; to analyze this component&apos;s accessibility pattern.</p>
+                                          )}
+                                          {insight && (
+                                            <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-1">
+                                              <div>
+                                                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Component Type</p>
+                                                <p className="text-xs text-foreground mt-0.5">{insight.componentType}</p>
+                                              </div>
+                                              <div>
+                                                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Priority</p>
+                                                <p className={`text-xs font-semibold mt-0.5 ${priorityColor[insight.priority] ?? ""}`}>
+                                                  {insight.priority.charAt(0).toUpperCase() + insight.priority.slice(1)}
+                                                  {" · "}
+                                                  <span className="text-muted-foreground font-normal">{insight.priorityReason}</span>
+                                                </p>
+                                              </div>
+                                              <div className="col-span-2">
+                                                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Issue Summary</p>
+                                                <p className="text-xs text-foreground mt-0.5">{insight.issueSummary}</p>
+                                              </div>
+                                              <div>
+                                                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Root Cause</p>
+                                                <p className="text-xs text-foreground mt-0.5">{insight.rootCause}</p>
+                                              </div>
+                                              <div>
+                                                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Fix Strategy</p>
+                                                <p className="text-xs text-foreground mt-0.5">{insight.fixStrategy}</p>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
+                                    {smartData?.ruleTotals && comp.ruleIds.length > 0 && (
+                                      <div>
+                                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Count Scope</p>
+                                        <p className="text-xs text-muted-foreground mb-1.5">
+                                          This component accounts for {comp.totalOccurrences.toLocaleString()} of the occurrences below. Scan-wide totals per rule (all components, excluding false positives):
+                                        </p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {comp.ruleIds.map(r => (
+                                            <span key={r} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-background border font-mono">
+                                              {r}
+                                              <span className="text-muted-foreground font-sans">· {smartData.ruleTotals?.[r]?.toLocaleString() ?? "?"} total in scan</span>
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
                                     {(comp.sampleDescriptions?.length ?? 0) > 0 && (
                                       <div>
                                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Sample Issue Descriptions</p>
@@ -2698,6 +2592,9 @@ export default function ScanDetail() {
                 <div className="px-4 py-2.5 border-b bg-muted/30 shrink-0">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     {codeViewOccurrences.length > 99 ? "99+" : codeViewOccurrences.length} occurrence{codeViewOccurrences.length !== 1 ? "s" : ""}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 normal-case tracking-normal">
+                    For this component on this page only — scan-wide rule totals are shown in Smart Analysis
                   </p>
                 </div>
                 {codeViewOccurrences.length === 0 ? (
@@ -3029,6 +2926,16 @@ export default function ScanDetail() {
               <Pencil className="w-4 h-4" />
             </Button>
             {getStatusBadge(displayStatus)}
+            {isCrawlBoost && (
+              <Badge variant="outline" className="gap-1.5 text-xs border-emerald-500 text-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+                <Zap className="w-3 h-3" />
+                Crawl Boost
+              </Badge>
+            )}
             {elapsedText && (
               <Badge variant="outline" className="text-xs">
                 {isRunning || isPaused ? "Elapsed" : "Time taken"} {elapsedText}
@@ -3133,10 +3040,12 @@ export default function ScanDetail() {
           )}
           {!isRunning && scan.status === "completed" && !isUpdatingResults && (
             <>
-              <Button variant="outline" onClick={openSmartAnalysis}>
-                <Sparkles className="w-4 h-4 mr-2 text-violet-500" />
-                Smart Analysis
-              </Button>
+              {authUser?.permissions?.canSmartAnalysis && (
+                <Button variant="outline" onClick={openSmartAnalysis} data-testid="smart-analysis-btn">
+                  <Sparkles className="w-4 h-4 mr-2 text-violet-500" />
+                  Smart Analysis
+                </Button>
+              )}
               <Link href={`/scans/${scan.id}/report`}>
                 <Button>
                   <BarChart2 className="w-4 h-4 mr-2" />
@@ -3183,12 +3092,43 @@ export default function ScanDetail() {
         </div>
       )}
 
-     
-  
+      {/* Main view tab bar — shown for completed/cancelled/failed scans */}
+      {!showUpdatingResults && !isActive && (
+        <div className="flex items-center border-b border-border gap-1">
+          <button
+            onClick={() => setMainView("accessibility")}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t transition-colors ${
+              mainView === "accessibility"
+                ? "text-foreground border border-b-0 border-border bg-background"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Globe className="w-4 h-4" />
+            Accessibility Results
+          </button>
+          <button
+            onClick={() => setMainView("qa")}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t transition-colors ${
+              mainView === "qa"
+                ? "text-foreground border border-b-0 border-border bg-background"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Shield className="w-4 h-4" />
+            Quality Assurance
+          </button>
+        </div>
+      )}
+
+      {/* QA tab — shown when mainView is "qa" */}
+      {!showUpdatingResults && !isActive && mainView === "qa" && (
+        <ScanQATab scanId={scan.id} />
+      )}
+
       {/* Completed page results */}
       {!showUpdatingResults &&
         !isActive &&
-
+        mainView === "accessibility" &&
         scan.pages &&
         scan.pages.length > 0 && (
           <div className="space-y-4">
@@ -3346,10 +3286,27 @@ export default function ScanDetail() {
                               Requeued
                             </Badge>
                           )}
-                          {page.status === "not_available" && (
+                          {page.status === "not_available" && !page.wafToken && (
                             <Badge variant="outline" className="ml-auto bg-slate-50 text-slate-500 border-slate-200">
                               Not Available
                             </Badge>
+                          )}
+                          {page.status === "not_available" && page.wafToken && (
+                            <button
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-amber-500 hover:bg-amber-600 text-white transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const hash = [
+                                  `_ampera_sid=${scan.id}`,
+                                  `_ampera_pid=${page.id}`,
+                                  `_ampera_srv=${encodeURIComponent(window.location.origin)}`,
+                                  `_ampera_tok=${page.wafToken}`,
+                                ].join("&");
+                                window.open(`${page.url}#${hash}`, "_blank", "noopener");
+                              }}
+                            >
+                              🔍 Scan from Browser
+                            </button>
                           )}
                           {!["completed","failed","not_available","pending","requeued"].includes(page.status) && (
                             <Badge variant="outline" className="ml-auto bg-orange-50 text-orange-600 border-orange-200" title={`Interrupted mid-scan (status: ${page.status})`}>
@@ -3424,6 +3381,49 @@ export default function ScanDetail() {
                                 </p>
                               </div>
                             </div>
+                          ) : page.errorMessage.includes("403") ||
+                            page.errorMessage.includes("WAF") ||
+                            page.errorMessage.includes("Access Denied") ? (
+                            <div className="flex items-start gap-2">
+                              <span className="text-lg shrink-0">🔒</span>
+                              <div className="flex-1">
+                                <p className="font-semibold mb-1">
+                                  Site firewall blocked the scanner
+                                </p>
+                                <p className="text-xs opacity-80 mb-2">
+                                  The target site returned <strong>HTTP 403 Forbidden</strong> to our scanner's server IP.
+                                  This typically happens on financial, government, and enterprise sites that run
+                                  Akamai Bot Manager, Imperva Incapsula, or a custom WAF that blocks cloud/datacenter IP ranges.
+                                </p>
+                                {page.wafToken ? (
+                                  <div className="mt-2">
+                                    <button
+                                      className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md bg-amber-500 hover:bg-amber-600 text-white transition-colors"
+                                      onClick={() => {
+                                        const hash = [
+                                          `_ampera_sid=${scan.id}`,
+                                          `_ampera_pid=${page.id}`,
+                                          `_ampera_srv=${encodeURIComponent(window.location.origin)}`,
+                                          `_ampera_tok=${page.wafToken}`,
+                                        ].join("&");
+                                        window.open(`${page.url}#${hash}`, "_blank", "noopener");
+                                      }}
+                                    >
+                                      🔍 Open &amp; Scan from Browser
+                                    </button>
+                                    <p className="text-xs opacity-60 mt-1">
+                                      Requires the <strong>Ampera WAF Scanner</strong> Chrome Extension. The page will open in your browser and scan results will be reported back automatically.
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <p className="text-xs opacity-70">
+                                    <strong>Options:</strong> (1) Use the <strong>Ampera WAF Scanner</strong> Chrome Extension to scan from your own browser.
+                                    (2) Ask the site owner to whitelist the scanner's IP.
+                                    (3) If the site is internal or staging, make sure it is publicly reachable.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
                           ) : (
                             <span className="font-mono">
                               Error: {page.errorMessage}
@@ -3434,59 +3434,184 @@ export default function ScanDetail() {
 
                       {pageIssues.length > 0 || selectedRules.length >= 2 ? (
                         <div className="space-y-3">
-                          {pageIssues.length > 0 ||
-                          selectedRules.length >= 2 ? (
-                            <IssueFilterBar
-                              issues={pageIssues}
-                              filters={filters}
-                              onChange={setFilters}
-                              singleRule={selectedRules.length === 1}
-                              selectedRules={selectedRules}
-                              ruleInfoMap={ruleInfoMap}
-                            />
-                          ) : null}
-                          {pageIssues.length === 0 &&
-                            page.status === "completed" && (
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                                {page.issueCount > 0 ? (
-                                  <>
-                                    <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
-                                    <span>
-                                      Issue details unavailable — {page.issueCount} issue{page.issueCount !== 1 ? "s" : ""} were recorded at scan time but could not be loaded. Re-scan this URL to restore them.
-                                    </span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-                                    No accessibility issues found on this page.
-                                  </>
-                                )}
+                          {/* Filter bar + Category visibility dropdown */}
+                          {(pageIssues.length > 0 || selectedRules.length >= 2) && (
+                            <div className="flex items-start gap-2">
+                              <div className="flex-1">
+                                <IssueFilterBar
+                                  issues={pageIssues}
+                                  filters={filters}
+                                  onChange={setFilters}
+                                  singleRule={selectedRules.length === 1}
+                                  selectedRules={selectedRules}
+                                  ruleInfoMap={ruleInfoMap}
+                                />
                               </div>
-                            )}
-                          <IssueGroupList
-                            issues={pageIssues}
-                            filters={filters}
-                            pageUrl={page.url}
-                            selectedRules={selectedRules}
-                            ruleInfoMap={ruleInfoMap}
-                            selectedIssueId={
-                              viewerSel?.pageUrl === page.url
-                                ? viewerSel.issue.id
-                                : undefined
-                            }
-                            onFlagIssue={handleOpenFlagDialog}
-                            onSelectOccurrence={
-                              viewerEnabled
-                                ? (issue, group) =>
-                                    handleSelectOccurrence(
-                                      issue,
-                                      group,
-                                      page.url,
-                                      page.id,
-                                    )
-                                : undefined
-                            }
-                          />
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="outline" size="sm" className="shrink-0 gap-1.5 text-xs h-8 px-2.5 mt-0.5">
+                                    <Filter className="w-3.5 h-3.5" />
+                                    Categories
+                                    {visibleCats.size < 4 && (
+                                      <Badge variant="secondary" className="px-1 py-0 text-[10px]">{visibleCats.size}/4</Badge>
+                                    )}
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-52">
+                                  <DropdownMenuLabel className="text-xs text-muted-foreground">Show categories</DropdownMenuLabel>
+                                  <DropdownMenuSeparator />
+                                  {([
+                                    { key: "Issue", label: "Issues", cls: "text-red-600" },
+                                    { key: "Potential Issue", label: "Potential Issues", cls: "text-amber-600" },
+                                    { key: "Best Practice", label: "Best Practices", cls: "text-blue-600" },
+                                    { key: "WAI-ARIA", label: "WAI-ARIA", cls: "text-purple-600" },
+                                  ] as const).map(({ key, label, cls }) => (
+                                    <DropdownMenuCheckboxItem
+                                      key={key}
+                                      checked={visibleCats.has(key)}
+                                      onCheckedChange={(checked) =>
+                                        setVisibleCats(prev => { const n = new Set(prev); checked ? n.add(key) : n.delete(key); return n; })
+                                      }
+                                      className={`text-xs ${cls}`}
+                                    >
+                                      {label}
+                                    </DropdownMenuCheckboxItem>
+                                  ))}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          )}
+                          {pageIssues.length === 0 && page.status === "completed" && (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                              {page.issueCount > 0 ? (
+                                <>
+                                  <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+                                  <span>Issue details unavailable — {page.issueCount} issue{page.issueCount !== 1 ? "s" : ""} were recorded at scan time but could not be loaded. Re-scan this URL to restore them.</span>
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                                  No accessibility issues found on this page.
+                                </>
+                              )}
+                            </div>
+                          )}
+                          {/* Issues section */}
+                          {visibleCats.has("Issue") && pageIssues.filter((i) => !i.ruleType || i.ruleType === "Issue").length > 0 && (
+                            <div>
+                              <button
+                                onClick={() => toggleCat("Issue")}
+                                className="w-full flex items-center justify-between px-2.5 py-1.5 mb-2 rounded-md bg-red-50 border border-red-200 text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors"
+                              >
+                                <span className="flex items-center gap-1.5">
+                                  <XCircle className="w-3.5 h-3.5" />
+                                  Issues ({pageIssues.filter((i) => !i.ruleType || i.ruleType === "Issue").length})
+                                </span>
+                                {expandedCats.has("Issue") ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                              </button>
+                              {expandedCats.has("Issue") && (
+                                <IssueGroupList
+                                  issues={pageIssues.filter((i) => !i.ruleType || i.ruleType === "Issue")}
+                                  filters={filters}
+                                  pageUrl={page.url}
+                                  selectedRules={selectedRules}
+                                  ruleInfoMap={ruleInfoMap}
+                                  selectedIssueId={undefined}
+                                  onFlagIssue={handleOpenFlagDialog}
+                                  onSelectOccurrence={viewerEnabled ? (issue, group) => handleSelectOccurrence(issue, group, page.url, page.id) : undefined}
+                                  isCrawlerScan={isCrawlerScan}
+                                  onOpenUpdateResults={handleOpenUpdateResults}
+                                />
+                              )}
+                            </div>
+                          )}
+                          {/* Potential issues section */}
+                          {visibleCats.has("Potential Issue") && pageIssues.filter((i) => i.ruleType === "Potential Issue").length > 0 && (
+                            <div>
+                              <button
+                                onClick={() => toggleCat("Potential Issue")}
+                                className="w-full flex items-center justify-between px-2.5 py-1.5 mb-2 rounded-md bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition-colors"
+                              >
+                                <span className="flex items-center gap-1.5">
+                                  <AlertCircle className="w-3.5 h-3.5" />
+                                  Potential Issues ({pageIssues.filter((i) => i.ruleType === "Potential Issue").length})
+                                </span>
+                                {expandedCats.has("Potential Issue") ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                              </button>
+                              {expandedCats.has("Potential Issue") && (
+                                <IssueGroupList
+                                  issues={pageIssues.filter((i) => i.ruleType === "Potential Issue")}
+                                  filters={filters}
+                                  pageUrl={page.url}
+                                  selectedRules={selectedRules}
+                                  ruleInfoMap={ruleInfoMap}
+                                  selectedIssueId={undefined}
+                                  onFlagIssue={handleOpenFlagDialog}
+                                  onSelectOccurrence={viewerEnabled ? (issue, group) => handleSelectOccurrence(issue, group, page.url, page.id) : undefined}
+                                  isCrawlerScan={isCrawlerScan}
+                                  onOpenUpdateResults={handleOpenUpdateResults}
+                                />
+                              )}
+                            </div>
+                          )}
+                          {/* Best practices section */}
+                          {visibleCats.has("Best Practice") && pageIssues.filter((i) => i.ruleType === "Best Practice").length > 0 && (
+                            <div>
+                              <button
+                                onClick={() => toggleCat("Best Practice")}
+                                className="w-full flex items-center justify-between px-2.5 py-1.5 mb-2 rounded-md bg-blue-50 border border-blue-200 text-xs font-semibold text-blue-700 hover:bg-blue-100 transition-colors"
+                              >
+                                <span className="flex items-center gap-1.5">
+                                  <Info className="w-3.5 h-3.5" />
+                                  Best Practices ({pageIssues.filter((i) => i.ruleType === "Best Practice").length})
+                                </span>
+                                {expandedCats.has("Best Practice") ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                              </button>
+                              {expandedCats.has("Best Practice") && (
+                                <IssueGroupList
+                                  issues={pageIssues.filter((i) => i.ruleType === "Best Practice")}
+                                  filters={filters}
+                                  pageUrl={page.url}
+                                  selectedRules={selectedRules}
+                                  ruleInfoMap={ruleInfoMap}
+                                  selectedIssueId={undefined}
+                                  onFlagIssue={handleOpenFlagDialog}
+                                  onSelectOccurrence={viewerEnabled ? (issue, group) => handleSelectOccurrence(issue, group, page.url, page.id) : undefined}
+                                  isCrawlerScan={isCrawlerScan}
+                                  onOpenUpdateResults={handleOpenUpdateResults}
+                                />
+                              )}
+                            </div>
+                          )}
+                          {/* WAI-ARIA section */}
+                          {visibleCats.has("WAI-ARIA") && pageIssues.filter((i) => i.ruleType === "WAI-ARIA").length > 0 && (
+                            <div>
+                              <button
+                                onClick={() => toggleCat("WAI-ARIA")}
+                                className="w-full flex items-center justify-between px-2.5 py-1.5 mb-2 rounded-md bg-purple-50 border border-purple-200 text-xs font-semibold text-purple-700 hover:bg-purple-100 transition-colors"
+                              >
+                                <span className="flex items-center gap-1.5">
+                                  <Code className="w-3.5 h-3.5" />
+                                  WAI-ARIA ({pageIssues.filter((i) => i.ruleType === "WAI-ARIA").length})
+                                </span>
+                                {expandedCats.has("WAI-ARIA") ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                              </button>
+                              {expandedCats.has("WAI-ARIA") && (
+                                <IssueGroupList
+                                  issues={pageIssues.filter((i) => i.ruleType === "WAI-ARIA")}
+                                  filters={filters}
+                                  pageUrl={page.url}
+                                  selectedRules={selectedRules}
+                                  ruleInfoMap={ruleInfoMap}
+                                  selectedIssueId={undefined}
+                                  onFlagIssue={handleOpenFlagDialog}
+                                  onSelectOccurrence={viewerEnabled ? (issue, group) => handleSelectOccurrence(issue, group, page.url, page.id) : undefined}
+                                  isCrawlerScan={isCrawlerScan}
+                                  onOpenUpdateResults={handleOpenUpdateResults}
+                                />
+                              )}
+                            </div>
+                          )}
                         </div>
                       ) : page.status === "completed" ? (
                         <div className="p-8 text-center text-muted-foreground border rounded-md mt-4 border-dashed bg-muted/10">
@@ -3570,8 +3695,9 @@ export default function ScanDetail() {
             const notAvail       = c?.["not_available"]?? pages.filter(p => p.status === "not_available").length;
             const pagesWithIssues = liveStatus!.pagesWithIssues
               ?? (pages.filter(p => p.status === "completed" && (p.issueCount ?? 0) > 0).length);
+            const pagesWithSnapshot = (liveStatus as { pagesWithSnapshot?: number })?.pagesWithSnapshot ?? 0;
             return (
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-2">
                 <div className="flex items-center gap-2.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2.5">
                   <Globe className="w-4 h-4 text-violet-500 shrink-0 animate-pulse" />
                   <div>
@@ -3629,6 +3755,13 @@ export default function ScanDetail() {
                   <div>
                     <p className="text-[10px] font-medium uppercase tracking-wide text-orange-600">Pages w/ Issues</p>
                     <p className="text-xl font-bold text-orange-700 leading-none mt-0.5">{pagesWithIssues}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2.5">
+                  <Camera className="w-4 h-4 text-teal-500 shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-teal-600">HTML + Snapshot</p>
+                    <p className="text-xl font-bold text-teal-700 leading-none mt-0.5">{pagesWithSnapshot}</p>
                   </div>
                 </div>
               </div>
@@ -3762,38 +3895,116 @@ export default function ScanDetail() {
         </div>
       )}
 
-      {/* Element Viewer modal */}
-      <Dialog
-        open={!!viewerSel}
-        onOpenChange={(open) => {
-          if (!open) setViewerSel(null);
-        }}
-      >
-        <DialogContent
-          className="max-w-4xl w-full p-0 overflow-hidden flex flex-col"
-          style={{ maxHeight: "90vh", height: "90vh" }}
-          aria-describedby={undefined}
-        >
-          <DialogHeader className="sr-only">
-            <DialogTitle>Element Viewer</DialogTitle>
-          </DialogHeader>
-          {viewerSel && (
-            <ElementViewer
-              pageUrl={viewerSel.pageUrl}
-              pageId={viewerSel.pageId}
-              group={viewerSel.group}
-              groupIndex={viewerSel.groupIndex}
-              showClose={false}
-              onNavigate={(idx) =>
-                setViewerSel((s) =>
-                  s ? { ...s, groupIndex: idx, issue: s.group[idx] } : s,
-                )
-              }
-              onClose={() => setViewerSel(null)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Update Results Dialog */}
+      {isCrawlerScan && (
+        <Dialog open={urOpen} onOpenChange={setUrOpen}>
+          <DialogContent className="max-w-lg max-h-[80vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-base">
+                <ListFilter className="w-4 h-4 text-violet-600" />
+                Update Results
+              </DialogTitle>
+              <p className="text-xs text-muted-foreground mt-1 font-mono">{urRuleId}</p>
+              <p className="text-sm text-foreground/80 leading-snug">{urRuleDesc}</p>
+            </DialogHeader>
+
+            <div className="flex-1 overflow-y-auto space-y-3 py-2">
+              {(() => {
+                const pagesWithRule = (scan?.pages ?? []).filter((p: { id: number; url: string; issues?: Issue[] }) =>
+                  (p.issues ?? []).some((i: Issue) => i.ruleId === urRuleId),
+                );
+                return (
+                  <>
+                    <div className="flex items-center justify-between pb-1 border-b">
+                      <p className="text-xs text-muted-foreground">
+                        {pagesWithRule.length} page{pagesWithRule.length !== 1 ? "s" : ""} affected · {urSelectedPages.size} selected
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          className="text-xs text-primary underline underline-offset-2"
+                          onClick={() => setUrSelectedPages(new Set(pagesWithRule.map(p => p.id)))}
+                        >
+                          Select all
+                        </button>
+                        <button
+                          className="text-xs text-muted-foreground underline underline-offset-2"
+                          onClick={() => setUrSelectedPages(new Set())}
+                        >
+                          Deselect all
+                        </button>
+                      </div>
+                    </div>
+                    {pagesWithRule.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-4">No pages found with this rule.</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {pagesWithRule.map((p: { id: number; url: string; issues?: Issue[] }) => {
+                          const count = (p.issues ?? []).filter((i: Issue) => i.ruleId === urRuleId).length;
+                          const checked = urSelectedPages.has(p.id);
+                          return (
+                            <label
+                              key={p.id}
+                              className={`flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer transition-colors ${checked ? "bg-violet-50 border border-violet-200" : "hover:bg-muted/50 border border-transparent"}`}
+                            >
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(v) => {
+                                  setUrSelectedPages(prev => {
+                                    const next = new Set(prev);
+                                    if (v) next.add(p.id); else next.delete(p.id);
+                                    return next;
+                                  });
+                                }}
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-mono truncate text-foreground/80" title={p.url}>{p.url}</p>
+                              </div>
+                              <Badge variant="secondary" className="text-xs shrink-0">{count} occ.</Badge>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+
+              <div className="space-y-1 pt-2 border-t">
+                <Label className="text-xs font-medium">Reason <span className="text-muted-foreground">(optional)</span></Label>
+                <Textarea
+                  placeholder="Why is this a false positive on the selected pages?"
+                  value={urReason}
+                  onChange={e => setUrReason(e.target.value)}
+                  rows={2}
+                  className="text-sm resize-none"
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="pt-2 border-t gap-2">
+              <Button variant="outline" size="sm" onClick={() => setUrOpen(false)} disabled={urSubmitting}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="bg-violet-600 hover:bg-violet-700 text-white"
+                onClick={handleUpdateResults}
+                disabled={urSubmitting || urSelectedPages.size === 0}
+              >
+                {urSubmitting ? (
+                  <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Applying…</>
+                ) : (
+                  <>
+                    <Flag className="w-3.5 h-3.5 mr-1.5" />
+                    Flag as FP on {urSelectedPages.size} page{urSelectedPages.size !== 1 ? "s" : ""}
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
     </div>
   );
 }

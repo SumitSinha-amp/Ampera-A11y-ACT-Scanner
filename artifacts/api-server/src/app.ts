@@ -57,6 +57,7 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
 const SESSION_TTL_SEC = 7 * 24 * 60 * 60; // 7 days in seconds (for PgStore)
+
 // Treat the session cookie as secure whenever we're behind an HTTPS-terminating
 // reverse proxy.  We detect three cases:
 //   1. NODE_ENV=production  — explicit production flag
@@ -88,25 +89,22 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      // Auto-enable secure flag when running behind HTTPS proxy (production / Azure / Replit)
-      //secure: process.env.NODE_ENV === "production",
       secure: BEHIND_HTTPS_PROXY,
       // "none" allows the cookie to be sent on cross-origin requests (required when
       // the front-end and API are on different Azure hostnames).  "none" is only
       // valid when secure:true, so we fall back to "lax" in local dev.
       sameSite: BEHIND_HTTPS_PROXY ? "none" : "lax",
       maxAge: SESSION_MAX_AGE_MS,
-      //sameSite: "lax",
     },
   })
 );
 
 app.use("/api", router);
+
 // ── Serve React frontend (production only) ─────────────────────────────────
 // The production build copies the Vite output into dist/public/ next to this
 // bundle.  In development, the Vite dev server handles the frontend separately.
-//const publicDir = join(dirname(fileURLToPath(import.meta.url)), "public");
-const publicDir = "/app/artifacts/accessibility-scanner/dist/public";
+const publicDir = join(dirname(fileURLToPath(import.meta.url)), "public");
 if (existsSync(publicDir)) {
   // Serve static assets (JS, CSS, images, etc.) — skip auto-serving index.html
   // so the SPA catch-all below controls which paths get it.
@@ -114,7 +112,8 @@ if (existsSync(publicDir)) {
 
   // SPA catch-all: any non-API path returns index.html so React Router can
   // handle client-side navigation (e.g. /login, /scans/123, /admin/users).
- app.get(/.*/, (_req, res) => {
+  // Express 5 uses path-to-regexp v8 which rejects bare "*" — use a regex instead.
+  app.get(/.*/, (_req, res) => {
     res.sendFile(join(publicDir, "index.html"));
   });
 }

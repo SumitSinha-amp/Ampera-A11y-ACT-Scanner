@@ -1,0 +1,141 @@
+import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useSite } from "@/contexts/site";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Loader2 } from "lucide-react";
+
+export const QA_BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+
+export interface QASiteEntry {
+  siteId: number;
+  siteName: string;
+  siteUrl: string;
+  crawlerSessionId: number;
+  scanId: number | null;
+  crawledAt: string | null;
+  pageCount: number;
+  brokenLinksCount: number;
+}
+
+export function useQASites() {
+  return useQuery<QASiteEntry[]>({
+    queryKey: ["qa-sites"],
+    queryFn: async () => {
+      const r = await fetch(`${QA_BASE}/api/qa/sites`, { credentials: "include" });
+      if (!r.ok) return [];
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function useQASelectedSite(sites: QASiteEntry[]) {
+  const { activeSite } = useSite();
+  const globalSiteId = activeSite?.id ?? null;
+
+  const [selectedSiteId, setSelectedSiteId] = useState<number | null>(() => {
+    // Prefer global activeSite if it matches a QA site entry
+    if (globalSiteId != null && sites.some((s) => s.siteId === globalSiteId)) {
+      return globalSiteId;
+    }
+    try {
+      const v = sessionStorage.getItem("qa-selected-site");
+      return v ? parseInt(v) : null;
+    } catch { return null; }
+  });
+
+  // Auto-select first when no valid selection exists
+  useEffect(() => {
+    if (!sites.length) return;
+    if (selectedSiteId !== null && sites.some((s) => s.siteId === selectedSiteId)) return;
+    const first = sites[0].siteId;
+    setSelectedSiteId(first);
+    try { sessionStorage.setItem("qa-selected-site", String(first)); } catch {}
+  }, [sites, selectedSiteId]);
+
+  // Sync with global header selector when activeSite changes
+  useEffect(() => {
+    if (globalSiteId != null && sites.some((s) => s.siteId === globalSiteId)) {
+      setSelectedSiteId(globalSiteId);
+      try { sessionStorage.setItem("qa-selected-site", String(globalSiteId)); } catch {}
+    }
+  }, [globalSiteId, sites]);
+
+  const setSite = (id: number) => {
+    setSelectedSiteId(id);
+    try { sessionStorage.setItem("qa-selected-site", String(id)); } catch {}
+  };
+
+  const selected = sites.find((s) => s.siteId === selectedSiteId) ?? null;
+  return [selectedSiteId, selected, setSite] as const;
+}
+
+export function QASiteSelector({
+  value,
+  onChange,
+  sites,
+  loading,
+}: {
+  value: number | null;
+  onChange: (id: number) => void;
+  sites: QASiteEntry[];
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading sites…
+      </div>
+    );
+  }
+  if (!sites.length) {
+    return (
+      <p className="text-sm text-muted-foreground italic">
+        No crawler-linked sites with completed scans found.
+      </p>
+    );
+  }
+  return (
+    <Select
+      value={value !== null ? String(value) : ""}
+      onValueChange={(v) => onChange(parseInt(v))}
+    >
+      <SelectTrigger className="w-full max-w-sm bg-background border-border text-sm">
+        <SelectValue placeholder="Select a site…" />
+      </SelectTrigger>
+      <SelectContent>
+        {sites.map((s) => (
+          <SelectItem key={s.siteId} value={String(s.siteId)}>
+            <span className="font-medium">{s.siteName}</span>
+            <span className="ml-2 text-muted-foreground text-xs truncate max-w-[200px]">
+              {s.siteUrl}
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+export function QAComingSoon({ feature, description }: { feature: string; description?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 gap-4 text-muted-foreground">
+      <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center">
+        <span className="text-2xl">🔜</span>
+      </div>
+      <p className="text-lg font-semibold text-foreground">{feature}</p>
+      {description && (
+        <p className="text-sm text-center max-w-md">{description}</p>
+      )}
+      <p className="text-xs text-muted-foreground/60 mt-2">
+        This feature is planned for a future release.
+      </p>
+    </div>
+  );
+}

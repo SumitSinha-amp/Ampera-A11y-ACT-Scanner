@@ -216,7 +216,7 @@ export interface SnapshotHandle {
 }
 
 // ── Snapshot view with element highlight overlay ───────────────────────────
-const SnapshotView = forwardRef<
+export const SnapshotView = forwardRef<
   SnapshotHandle,
   {
     pageId: number;

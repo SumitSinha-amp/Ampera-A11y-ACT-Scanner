@@ -19,12 +19,22 @@ export const HealthCheckResponse = zod.object({
  * Returns all scan sessions with summary info
  * @summary List all scans
  */
+export const ListScansQueryParams = zod.object({
+  siteId: zod.coerce.number().optional(),
+});
+
 export const ListScansResponseItem = zod.object({
   id: zod.number(),
-  projectId: zod.number().nullable(),
-  projectName: zod.string().nullable(),
   name: zod.string().nullable(),
-  status: zod.enum(["pending", "running", "completed", "cancelled", "failed"]),
+  siteId: zod.number().nullish(),
+  status: zod.enum([
+    "pending",
+    "running",
+    "completed",
+    "cancelled",
+    "failed",
+    "paused",
+  ]),
   totalUrls: zod.number(),
   scannedUrls: zod.number(),
   failedUrls: zod.number(),
@@ -39,12 +49,15 @@ export const ListScansResponse = zod.array(ListScansResponseItem);
  * Start a new accessibility scan for one or more URLs
  * @summary Create a new scan
  */
+
 export const CreateScanBody = zod.object({
   urls: zod.array(zod.string()),
-  name: zod.string().min(1),
-  projectId: zod.number().int().positive().optional().nullable(),
-  initiatorName: zod.string().optional().nullable(),
-  initiatorRole: zod.string().optional().nullable(),
+  name: zod.string().nullish(),
+  siteId: zod.number().min(1).nullish(),
+  projectId: zod.number().nullish(),
+  groupId: zod.number().nullish(),
+  initiatorName: zod.string().nullish(),
+  initiatorRole: zod.string().nullish(),
   options: zod
     .object({
       waitForNetworkIdle: zod.boolean().optional(),
@@ -52,8 +65,24 @@ export const CreateScanBody = zod.object({
       maxConcurrency: zod.number().optional(),
       bypassCSP: zod.boolean().optional(),
       stealthMode: zod.boolean().optional(),
-      rules: zod.array(zod.string()).optional(),
-      proxyPacUrl: zod.string().optional(),
+      rules: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+          'If provided, only check these rule IDs (e.g. [\"ACT-R14\",\"ACT-R35\"])',
+        ),
+      proxyPacUrl: zod
+        .string()
+        .optional()
+        .describe(
+          "PAC file URL to route scan traffic through a corporate proxy",
+        ),
+      incremental: zod
+        .boolean()
+        .optional()
+        .describe(
+          "Skip pages whose raw HTML is unchanged since the last completed scan, carrying previous issues forward",
+        ),
     })
     .optional(),
 });
@@ -69,7 +98,14 @@ export const GetScanParams = zod.object({
 export const GetScanResponse = zod.object({
   id: zod.number(),
   name: zod.string().nullable(),
-  status: zod.enum(["pending", "running", "completed", "cancelled", "failed"]),
+  status: zod.enum([
+    "pending",
+    "running",
+    "completed",
+    "cancelled",
+    "failed",
+    "paused",
+  ]),
   totalUrls: zod.number(),
   scannedUrls: zod.number(),
   failedUrls: zod.number(),
@@ -77,6 +113,36 @@ export const GetScanResponse = zod.object({
   criticalIssues: zod.number(),
   createdAt: zod.string(),
   completedAt: zod.string().nullable(),
+  initiatorName: zod.string().nullable(),
+  initiatorRole: zod.string().nullable(),
+  projectName: zod.string().nullable(),
+  options: zod
+    .object({
+      waitForNetworkIdle: zod.boolean().optional(),
+      timeout: zod.number().optional(),
+      maxConcurrency: zod.number().optional(),
+      bypassCSP: zod.boolean().optional(),
+      stealthMode: zod.boolean().optional(),
+      rules: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+          'If provided, only check these rule IDs (e.g. [\"ACT-R14\",\"ACT-R35\"])',
+        ),
+      proxyPacUrl: zod
+        .string()
+        .optional()
+        .describe(
+          "PAC file URL to route scan traffic through a corporate proxy",
+        ),
+      incremental: zod
+        .boolean()
+        .optional()
+        .describe(
+          "Skip pages whose raw HTML is unchanged since the last completed scan, carrying previous issues forward",
+        ),
+    })
+    .optional(),
   pages: zod.array(
     zod.object({
       id: zod.number(),
@@ -88,19 +154,36 @@ export const GetScanResponse = zod.object({
         "completed",
         "failed",
         "skipped",
+        "requeued",
+        "not_available",
       ]),
       issueCount: zod.number(),
       criticalCount: zod.number(),
       errorMessage: zod.string().nullable(),
+      wafToken: zod
+        .string()
+        .nullish()
+        .describe(
+          "Short-lived token for the Ampera WAF Scanner extension to authenticate local scan results",
+        ),
       scannedAt: zod.string().nullable(),
+      loadDurationMs: zod.number().nullable(),
+      scanDurationMs: zod.number().nullable(),
       issues: zod.array(
         zod.object({
           id: zod.number(),
           pageId: zod.number(),
           ruleId: zod.string(),
+          ruleType: zod.enum([
+            "Issue",
+            "Potential Issue",
+            "Best Practice",
+            "WAI-ARIA",
+          ]),
           impact: zod.enum(["critical", "serious", "moderate", "minor"]),
           description: zod.string(),
           element: zod.string().nullable(),
+          elementContext: zod.string().nullish(),
           wcagCriteria: zod.string().nullable(),
           wcagLevel: zod.string().nullable(),
           selector: zod.string().nullable(),
@@ -109,6 +192,19 @@ export const GetScanResponse = zod.object({
       ),
     }),
   ),
+});
+
+/**
+ * @summary Update scan metadata (name, initiator)
+ */
+export const UpdateScanParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateScanBody = zod.object({
+  name: zod.string().nullish(),
+  initiatorName: zod.string().nullish(),
+  initiatorRole: zod.string().nullish(),
 });
 
 /**
@@ -128,24 +224,41 @@ export const GetScanStatusParams = zod.object({
 
 export const GetScanStatusResponse = zod.object({
   id: zod.number(),
-  status: zod.enum(["pending", "running", "completed", "cancelled", "failed"]),
+  status: zod.enum([
+    "pending",
+    "running",
+    "completed",
+    "cancelled",
+    "failed",
+    "paused",
+  ]),
   totalUrls: zod.number(),
   scannedUrls: zod.number(),
   failedUrls: zod.number(),
   currentUrl: zod.string().nullable(),
+  counts: zod.record(zod.string(), zod.number()),
+  pagesWithIssues: zod.number(),
   pages: zod.array(
     zod.object({
       url: zod.string(),
       status: zod.enum([
         "pending",
+        "navigating",
         "scanning",
+        "rendering",
+        "analyzing",
+        "saving",
         "completed",
         "failed",
         "skipped",
+        "requeued",
+        "not_available",
       ]),
       issueCount: zod.number(),
       criticalCount: zod.number(),
       errorMessage: zod.string().nullable(),
+      loadDurationMs: zod.number().nullable(),
+      scanDurationMs: zod.number().nullable(),
     }),
   ),
 });
@@ -160,7 +273,15 @@ export const CancelScanParams = zod.object({
 export const CancelScanResponse = zod.object({
   id: zod.number(),
   name: zod.string().nullable(),
-  status: zod.enum(["pending", "running", "completed", "cancelled", "failed"]),
+  siteId: zod.number().nullish(),
+  status: zod.enum([
+    "pending",
+    "running",
+    "completed",
+    "cancelled",
+    "failed",
+    "paused",
+  ]),
   totalUrls: zod.number(),
   scannedUrls: zod.number(),
   failedUrls: zod.number(),
@@ -212,6 +333,94 @@ export const GetScanReportResponse = zod.object({
 });
 
 /**
+ * Returns all sites the authenticated user can access. Admins get all sites; regular users get only their assigned sites (direct + group).
+ * @summary Get sites accessible to the current user
+ */
+export const GetMySitesResponse = zod.object({
+  sites: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+      baseUrl: zod.string(),
+      description: zod.string().nullable(),
+      role: zod.enum(["owner", "member", "admin"]),
+      pageCount: zod.number(),
+    }),
+  ),
+});
+
+/**
+ * @summary List users and groups with access to a site
+ */
+export const GetSiteAccessParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetSiteAccessResponse = zod.object({
+  users: zod.array(
+    zod.object({
+      userId: zod.number(),
+      role: zod.enum(["owner", "member"]),
+      fullName: zod.string(),
+      email: zod.string(),
+      username: zod.string(),
+      createdAt: zod.string(),
+    }),
+  ),
+  groups: zod.array(
+    zod.object({
+      groupId: zod.number(),
+      name: zod.string(),
+      description: zod.string().nullable(),
+      createdAt: zod.string(),
+    }),
+  ),
+});
+
+/**
+ * @summary Grant a user access to a site
+ */
+export const GrantSiteUserAccessParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const grantSiteUserAccessBodyRoleDefault = `member`;
+
+export const GrantSiteUserAccessBody = zod.object({
+  userId: zod.number(),
+  role: zod
+    .enum(["owner", "member"])
+    .default(grantSiteUserAccessBodyRoleDefault),
+});
+
+/**
+ * @summary Revoke a user's access to a site
+ */
+export const RevokeSiteUserAccessParams = zod.object({
+  id: zod.coerce.number(),
+  userId: zod.coerce.number(),
+});
+
+/**
+ * @summary Grant a group access to a site
+ */
+export const GrantSiteGroupAccessParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GrantSiteGroupAccessBody = zod.object({
+  groupId: zod.number(),
+});
+
+/**
+ * @summary Revoke a group's access to a site
+ */
+export const RevokeSiteGroupAccessParams = zod.object({
+  id: zod.coerce.number(),
+  groupId: zod.coerce.number(),
+});
+
+/**
  * @summary Parse a sitemap URL and return its URLs
  */
 export const ParseSitemapBody = zod.object({
@@ -221,18 +430,4 @@ export const ParseSitemapBody = zod.object({
 export const ParseSitemapResponse = zod.object({
   urls: zod.array(zod.string()),
   count: zod.number(),
-});
-
-/**
- * Update scan name / initiator fields
- * @summary Update a scan
- */
-export const UpdateScanParams = zod.object({
-  id: zod.coerce.number(),
-});
-
-export const UpdateScanBody = zod.object({
-  name: zod.string().min(1).optional(),
-  initiatorName: zod.string().optional().nullable(),
-  initiatorRole: zod.string().optional().nullable(),
 });

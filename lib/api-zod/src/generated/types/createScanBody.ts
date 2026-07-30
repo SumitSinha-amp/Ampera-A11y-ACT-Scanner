@@ -11,5 +11,18 @@ export interface CreateScanBody {
   urls: string[];
   /** @nullable */
   name?: string | null;
+  /**
+   * @minimum 1
+   * @nullable
+   */
+  siteId?: number | null;
+  /** @nullable */
+  projectId?: number | null;
+  /** @nullable */
+  groupId?: number | null;
+  /** @nullable */
+  initiatorName?: string | null;
+  /** @nullable */
+  initiatorRole?: string | null;
   options?: ScanOptions;
 }

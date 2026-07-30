@@ -84,10 +84,6 @@ export const SIA_RULES: Record<string, { title: string; detail: string }> = {
     detail:
       'Elements inside aria-hidden="true" regions or display:none containers must not contain keyboard-focusable children. Hidden content that remains in the tab order confuses all users.',
   },
-  "SIA-R17(1)": {
-    title: "Role with Implied Hidden Content has focusable content",
-    detail: "Interactive content contains an element with an interactive role.",
-  },
   "SIA-R18": {
     title: "Unsupported ARIA attribute is used",
     detail:
@@ -444,9 +440,9 @@ export const SIA_RULES: Record<string, { title: string; detail: string }> = {
       "For Level AAA conformance, all text must achieve at least 7:1 contrast. Identify elements that meet AA (4.5:1) but fall short of the enhanced AAA threshold.",
   },
   "SIA-R90": {
-    title: "aria-hidden content contains focusable elements",
+    title: "Role with implied hidden content has keyboard focus",
     detail:
-      'Elements inside an aria-hidden="true" container are invisible to assistive technology, but if they remain in the tab order, keyboard users can reach them — a major inconsistency.',
+      "Elements with interactive ARIA roles must not contain nested interactive content, and focusable elements must not be hidden inside opacity:0 containers. Both patterns create invisible or ambiguous keyboard focus that assistive technologies cannot correctly announce.",
   },
   "SIA-R91": {
     title: "Letter spacing is insufficient",

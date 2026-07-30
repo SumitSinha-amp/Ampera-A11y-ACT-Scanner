@@ -12,6 +12,8 @@ tags:
     description: Health operations
   - name: scans
     description: Accessibility scan operations
+  - name: sites
+    description: Site management and access control
 paths:
   /healthz:
     get:
@@ -33,6 +35,12 @@ paths:
       tags: [scans]
       summary: List all scans
       description: Returns all scan sessions with summary info
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          schema:
+            type: integer
       responses:
         "200":
           description: List of scans
@@ -87,6 +95,38 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ScanSessionDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    patch:
+      operationId: updateScan
+      tags: [scans]
+      summary: Update scan metadata (name, initiator)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateScanBody"
+      responses:
+        "204":
+          description: Updated
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Not found
           content:
@@ -191,6 +231,137 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /sites/my-sites:
+    get:
+      operationId: getMySites
+      tags: [sites]
+      summary: Get sites accessible to the current user
+      description: Returns all sites the authenticated user can access. Admins get all sites; regular users get only their assigned sites (direct + group).
+      responses:
+        "200":
+          description: List of accessible sites with role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MySitesResponse"
+
+  /admin/sites/{id}/access:
+    get:
+      operationId: getSiteAccess
+      tags: [sites]
+      summary: List users and groups with access to a site
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Site access details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteAccessResponse"
+
+  /admin/sites/{id}/users:
+    post:
+      operationId: grantSiteUserAccess
+      tags: [sites]
+      summary: Grant a user access to a site
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GrantSiteUserBody"
+      responses:
+        "201":
+          description: Access granted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required: [ok]
+
+  /admin/sites/{id}/users/{userId}:
+    delete:
+      operationId: revokeSiteUserAccess
+      tags: [sites]
+      summary: Revoke a user's access to a site
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Access revoked
+
+  /admin/sites/{id}/groups:
+    post:
+      operationId: grantSiteGroupAccess
+      tags: [sites]
+      summary: Grant a group access to a site
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GrantSiteGroupBody"
+      responses:
+        "201":
+          description: Access granted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required: [ok]
+
+  /admin/sites/{id}/groups/{groupId}:
+    delete:
+      operationId: revokeSiteGroupAccess
+      tags: [sites]
+      summary: Revoke a group's access to a site
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Access revoked
+
   /scans/parse-sitemap:
     post:
       operationId: parseSitemap
@@ -241,9 +412,11 @@ components:
           type: integer
         name:
           type: ["string", "null"]
+        siteId:
+          type: ["integer", "null"]
         status:
           type: string
-          enum: [pending, running, completed, cancelled, failed]
+          enum: [pending, running, completed, cancelled, failed, paused]
         totalUrls:
           type: integer
         scannedUrls:
@@ -279,7 +452,7 @@ components:
           type: ["string", "null"]
         status:
           type: string
-          enum: [pending, running, completed, cancelled, failed]
+          enum: [pending, running, completed, cancelled, failed, paused]
         totalUrls:
           type: integer
         scannedUrls:
@@ -294,6 +467,14 @@ components:
           type: string
         completedAt:
           type: ["string", "null"]
+        initiatorName:
+          type: ["string", "null"]
+        initiatorRole:
+          type: ["string", "null"]
+        projectName:
+          type: ["string", "null"]
+        options:
+          $ref: "#/components/schemas/ScanOptions"
         pages:
           type: array
           items:
@@ -310,6 +491,9 @@ components:
         - completedAt
         - pages
         - name
+        - initiatorName
+        - initiatorRole
+        - projectName
 
     PageResult:
       type: object
@@ -322,15 +506,22 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, scanning, completed, failed, skipped]
+          enum: [pending, scanning, completed, failed, skipped, requeued, not_available]
         issueCount:
           type: integer
         criticalCount:
           type: integer
         errorMessage:
           type: ["string", "null"]
+        wafToken:
+          type: ["string", "null"]
+          description: Short-lived token for the Ampera WAF Scanner extension to authenticate local scan results
         scannedAt:
           type: ["string", "null"]
+        loadDurationMs:
+          type: ["integer", "null"]
+        scanDurationMs:
+          type: ["integer", "null"]
         issues:
           type: array
           items:
@@ -344,6 +535,8 @@ components:
         - criticalCount
         - errorMessage
         - scannedAt
+        - loadDurationMs
+        - scanDurationMs
         - issues
 
     AccessibilityIssue:
@@ -355,12 +548,17 @@ components:
           type: integer
         ruleId:
           type: string
+        ruleType:
+          type: string
+          enum: [Issue, "Potential Issue", "Best Practice", "WAI-ARIA"]
         impact:
           type: string
           enum: [critical, serious, moderate, minor]
         description:
           type: string
         element:
+          type: ["string", "null"]
+        elementContext:
           type: ["string", "null"]
         wcagCriteria:
           type: ["string", "null"]
@@ -374,6 +572,7 @@ components:
         - id
         - pageId
         - ruleId
+        - ruleType
         - impact
         - description
         - element
@@ -389,7 +588,7 @@ components:
           type: integer
         status:
           type: string
-          enum: [pending, running, completed, cancelled, failed]
+          enum: [pending, running, completed, cancelled, failed, paused]
         totalUrls:
           type: integer
         scannedUrls:
@@ -398,6 +597,12 @@ components:
           type: integer
         currentUrl:
           type: ["string", "null"]
+        counts:
+          type: object
+          additionalProperties:
+            type: integer
+        pagesWithIssues:
+          type: integer
         pages:
           type: array
           items:
@@ -409,6 +614,8 @@ components:
         - scannedUrls
         - failedUrls
         - currentUrl
+        - counts
+        - pagesWithIssues
         - pages
 
     PageStatus:
@@ -418,19 +625,25 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, scanning, completed, failed, skipped]
+          enum: [pending, navigating, scanning, rendering, analyzing, saving, completed, failed, skipped, requeued, not_available]
         issueCount:
           type: integer
         criticalCount:
           type: integer
         errorMessage:
           type: ["string", "null"]
+        loadDurationMs:
+          type: ["integer", "null"]
+        scanDurationMs:
+          type: ["integer", "null"]
       required:
         - url
         - status
         - issueCount
         - criticalCount
         - errorMessage
+        - loadDurationMs
+        - scanDurationMs
 
     ScanReport:
       type: object
@@ -536,6 +749,17 @@ components:
             type: string
         name:
           type: ["string", "null"]
+        siteId:
+          type: ["integer", "null"]
+          minimum: 1
+        projectId:
+          type: ["integer", "null"]
+        groupId:
+          type: ["integer", "null"]
+        initiatorName:
+          type: ["string", "null"]
+        initiatorRole:
+          type: ["string", "null"]
         options:
           $ref: "#/components/schemas/ScanOptions"
       required:
@@ -558,7 +782,24 @@ components:
           type: array
           items:
             type: string
-          description: If provided, only check these rule IDs (e.g. ["SIA-R14","SIA-R35"])
+          description: If provided, only check these rule IDs (e.g. ["ACT-R14","ACT-R35"])
+        proxyPacUrl:
+          type: string
+          description: PAC file URL to route scan traffic through a corporate proxy
+        incremental:
+          type: boolean
+          description: Skip pages whose raw HTML is unchanged since the last completed scan, carrying previous issues forward
+      required: []
+
+    UpdateScanBody:
+      type: object
+      properties:
+        name:
+          type: ["string", "null"]
+        initiatorName:
+          type: ["string", "null"]
+        initiatorRole:
+          type: ["string", "null"]
       required: []
 
     ParseSitemapBody:
@@ -581,3 +822,113 @@ components:
       required:
         - urls
         - count
+
+    SiteWithRole:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        baseUrl:
+          type: string
+        description:
+          type: ["string", "null"]
+        role:
+          type: string
+          enum: [owner, member, admin]
+        pageCount:
+          type: integer
+      required:
+        - id
+        - name
+        - baseUrl
+        - description
+        - role
+        - pageCount
+
+    MySitesResponse:
+      type: object
+      properties:
+        sites:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiteWithRole"
+      required:
+        - sites
+
+    SiteAccessUser:
+      type: object
+      properties:
+        userId:
+          type: integer
+        role:
+          type: string
+          enum: [owner, member]
+        fullName:
+          type: string
+        email:
+          type: string
+        username:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - userId
+        - role
+        - fullName
+        - email
+        - username
+        - createdAt
+
+    SiteAccessGroup:
+      type: object
+      properties:
+        groupId:
+          type: integer
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - groupId
+        - name
+        - description
+        - createdAt
+
+    SiteAccessResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiteAccessUser"
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiteAccessGroup"
+      required:
+        - users
+        - groups
+
+    GrantSiteUserBody:
+      type: object
+      properties:
+        userId:
+          type: integer
+        role:
+          type: string
+          enum: [owner, member]
+          default: member
+      required:
+        - userId
+
+    GrantSiteGroupBody:
+      type: object
+      properties:
+        groupId:
+          type: integer
+      required:
+        - groupId

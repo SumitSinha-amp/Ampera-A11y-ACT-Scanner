@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PageStatus } from "./pageStatus";
+import type { ScanStatusCounts } from "./scanStatusCounts";
 import type { ScanStatusStatus } from "./scanStatusStatus";
 
 export interface ScanStatus {
@@ -16,5 +17,7 @@ export interface ScanStatus {
   failedUrls: number;
   /** @nullable */
   currentUrl: string | null;
+  counts: ScanStatusCounts;
+  pagesWithIssues: number;
   pages: PageStatus[];
 }

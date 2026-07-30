@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import net from "net";
 import { db } from "@workspace/db";
 import { usersTable, userGroupsTable, userGroupMembersTable, userPermissionsTable, appSettingsTable } from "@workspace/db";
 import { eq, asc, inArray, and } from "drizzle-orm";
@@ -348,6 +349,7 @@ router.get("/admin/permissions", requireSuperAdmin, async (_req, res): Promise<v
       canCreateProject: true,
       canDeleteProject: true,
       canDisableJs: false,
+      canSmartAnalysis: false,
       allowedRules: null,
     },
   })));
@@ -358,7 +360,7 @@ router.put("/admin/permissions/:userId", requireSuperAdmin, async (req, res): Pr
   const userId = parseInt(req.params["userId"] as string, 10);
   if (isNaN(userId)) { res.status(400).json({ error: "Invalid user ID" }); return; }
 
-  const { canScan, canExport, canViewAllScans, canEditScan, canDeleteScan, canManageScan, canCreateProject, canDeleteProject, canDisableJs, allowedRules } = req.body ?? {};
+  const { canScan, canExport, canViewAllScans, canEditScan, canDeleteScan, canManageScan, canCreateProject, canDeleteProject, canDisableJs, canSmartAnalysis, allowedRules } = req.body ?? {};
   const updatedBy = req.session!.user!.id;
 
   const bool = (v: unknown, def: boolean) => typeof v === "boolean" ? v : def;
@@ -374,6 +376,7 @@ router.put("/admin/permissions/:userId", requireSuperAdmin, async (req, res): Pr
     canCreateProject: bool(canCreateProject, true),
     canDeleteProject: bool(canDeleteProject, true),
     canDisableJs: bool(canDisableJs, false),
+    canSmartAnalysis: bool(canSmartAnalysis, false),
     allowedRules: Array.isArray(allowedRules) ? allowedRules : null,
     updatedAt: new Date(),
     updatedBy,
@@ -394,6 +397,7 @@ router.put("/admin/permissions/:userId", requireSuperAdmin, async (req, res): Pr
         canCreateProject: values.canCreateProject,
         canDeleteProject: values.canDeleteProject,
         canDisableJs: values.canDisableJs,
+        canSmartAnalysis: values.canSmartAnalysis,
         allowedRules: values.allowedRules,
         updatedAt: values.updatedAt,
         updatedBy: values.updatedBy,
@@ -466,7 +470,7 @@ router.put("/admin/logo", requireAdmin, async (req, res): Promise<void> => {
 // ── SMTP settings ─────────────────────────────────────────────────────────────
 
 const SMTP_KEYS = ["smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from"] as const;
-const AI_KEYS = ["ai_engine_enabled", "ai_external_enabled", "ai_external_provider", "ai_external_api_key", "ai_external_model"] as const;
+const AI_KEYS = ["ai_engine_enabled", "ai_external_enabled", "ai_external_provider", "ai_external_api_key", "ai_external_model", "smart_analysis_ai_enabled"] as const;
 const SCAN_KEYS = ["scan_page_timeout_ms"] as const;
 const ALL_SETTINGS_KEYS = [...SMTP_KEYS, ...AI_KEYS, ...SCAN_KEYS] as const;
 
@@ -538,6 +542,117 @@ router.put("/admin/active-proxy", requireAdmin, async (req, res): Promise<void> 
   await db.insert(appSettingsTable).values({ key: "active_proxy_pac", value, updatedAt: new Date(), updatedBy })
     .onConflictDoUpdate({ target: appSettingsTable.key, set: { value, updatedAt: new Date(), updatedBy } });
   res.json({ ok: true });
+});
+
+// ── Proxy test ──────────────────────────────────────────────────────────────────
+// POST /admin/proxy/test — validate that a proxy URL is reachable and supports HTTPS CONNECT
+
+function testProxyConnectivity(proxyUrl: string): Promise<{ ok: boolean; ms?: number; error?: string }> {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    let parsed: URL;
+    try { parsed = new URL(proxyUrl); } catch {
+      resolve({ ok: false, error: "Invalid proxy URL — must start with http://, socks4://, or socks5://" });
+      return;
+    }
+
+    const proxyHost = parsed.hostname;
+    const defaultPort = parsed.protocol === "https:" ? 443 : 1080;
+    const proxyPort = parsed.port ? parseInt(parsed.port, 10) : defaultPort;
+
+    if (!proxyHost || isNaN(proxyPort)) {
+      resolve({ ok: false, error: "Cannot parse proxy host or port" });
+      return;
+    }
+
+    const socket = new net.Socket();
+    let settled = false;
+
+    const done = (result: { ok: boolean; ms?: number; error?: string }) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(result);
+    };
+
+    socket.setTimeout(8000);
+    socket.on("timeout", () => done({ ok: false, error: "Timed out connecting to proxy (8s)" }));
+    socket.on("error", (err) => done({ ok: false, error: `TCP connect failed: ${err.message}` }));
+
+    socket.connect(proxyPort, proxyHost, () => {
+      const protocol = parsed.protocol;
+
+      if (protocol === "socks4:") {
+        // SOCKS4 CONNECT to 93.184.216.34:443 (example.com)
+        const buf = Buffer.alloc(9);
+        buf[0] = 4; buf[1] = 1;
+        buf.writeUInt16BE(443, 2);
+        buf[4] = 93; buf[5] = 184; buf[6] = 216; buf[7] = 34;
+        buf[8] = 0; // null-terminated user ID
+        socket.write(buf);
+        socket.once("data", (data) => {
+          if (data[0] === 0 && data[1] === 90) {
+            done({ ok: true, ms: Date.now() - start });
+          } else {
+            done({ ok: false, error: `SOCKS4 rejected CONNECT (code ${data[1]}) — proxy may require auth or blocked the target` });
+          }
+        });
+      } else if (protocol === "socks5:" || protocol === "socks:") {
+        // SOCKS5 greeting (no-auth)
+        socket.write(Buffer.from([5, 1, 0]));
+        socket.once("data", (data) => {
+          if (data[0] !== 5 || data[1] !== 0) {
+            done({ ok: false, error: `SOCKS5 auth failed (server method: ${data[1]})` });
+            return;
+          }
+          // CONNECT to example.com:443
+          const domain = "example.com";
+          const req = Buffer.alloc(7 + domain.length);
+          req[0] = 5; req[1] = 1; req[2] = 0; req[3] = 3;
+          req[4] = domain.length;
+          Buffer.from(domain).copy(req, 5);
+          req.writeUInt16BE(443, 5 + domain.length);
+          socket.write(req);
+          socket.once("data", (data2) => {
+            if (data2[0] === 5 && data2[1] === 0) {
+              done({ ok: true, ms: Date.now() - start });
+            } else {
+              done({ ok: false, error: `SOCKS5 CONNECT rejected (code ${data2[1]})` });
+            }
+          });
+        });
+      } else {
+        // HTTP proxy: test CONNECT tunneling for HTTPS
+        socket.write(`CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\nProxy-Connection: keep-alive\r\n\r\n`);
+        let buf = "";
+        const onData = (chunk: Buffer) => {
+          buf += chunk.toString("utf8");
+          if (buf.includes("\r\n\r\n") || buf.length > 512) {
+            socket.off("data", onData);
+            const statusLine = buf.split("\r\n")[0] ?? "";
+            if (statusLine.includes(" 200")) {
+              done({ ok: true, ms: Date.now() - start });
+            } else if (statusLine) {
+              done({ ok: false, error: `HTTP proxy rejected CONNECT: ${statusLine} — proxy may not support HTTPS tunneling` });
+            } else {
+              done({ ok: false, error: "HTTP proxy returned empty response — does not support HTTPS CONNECT tunneling" });
+            }
+          }
+        };
+        socket.on("data", onData);
+      }
+    });
+  });
+}
+
+router.post("/admin/proxy/test", requireAdmin, async (req, res): Promise<void> => {
+  const { proxyUrl } = req.body ?? {};
+  if (!proxyUrl || typeof proxyUrl !== "string") {
+    res.status(400).json({ ok: false, error: "proxyUrl is required" });
+    return;
+  }
+  const result = await testProxyConnectivity(proxyUrl.trim());
+  res.json(result);
 });
 
 // POST /admin/settings/test-email — send a test email using current SMTP config (super_admin only)

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { useAuth } from "@/contexts/auth";
+import { useAuth, isAdmin } from "@/contexts/auth";
 import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,7 +10,7 @@ import {
   getGetScanStatusQueryKey,
   getGetScanQueryKey,
 } from "@workspace/api-client-react";
-import { SIA_RULES } from "@/lib/siaRules";
+import { ACT_RULES } from "@/lib/actRules";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -48,6 +48,7 @@ import {
   Play,
   Timer,
   CopyCheck,
+  RefreshCw,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -59,7 +60,15 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getStatusBadge } from "@/lib/status-badge";
-import { ProjectSelector } from "@/components/project-selector";
+import { useSite, type MySite } from "@/contexts/site";
+import { Building2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Accordion,
   AccordionContent,
@@ -81,169 +90,181 @@ import {
 } from "@/components/ui/dialog";
 
 const ALL_RULES: { id: string; label: string }[] = [
-  { id: "SIA-R1", label: "Page has no title (WCAG 2.4.2)" },
-  { id: "SIA-R2", label: "Image without a text alternative (WCAG 1.1.1)" },
-  { id: "SIA-R3", label: "Element IDs are not unique (WCAG 4.1.1)" },
-  { id: "SIA-R4", label: "Page language has not been identified (WCAG 3.1.1)" },
-  { id: "SIA-R5", label: "Page language not recognized (WCAG 3.1.1)" },
-  { id: "SIA-R6", label: "Language declarations inconsistent (WCAG 3.1.1)" },
-  { id: "SIA-R7", label: "Content language not identified (WCAG 3.1.2)" },
-  { id: "SIA-R8", label: "Form field is not labeled (WCAG 1.3.1)" },
+  { id: "ACT-R1", label: "Page has no title (WCAG 2.4.2)" },
+  { id: "ACT-R2", label: "Image without a text alternative (WCAG 1.1.1)" },
+  { id: "ACT-R3", label: "Element IDs are not unique (WCAG 4.1.1)" },
+  { id: "ACT-R4", label: "Page language has not been identified (WCAG 3.1.1)" },
+  { id: "ACT-R5", label: "Page language not recognized (WCAG 3.1.1)" },
+  { id: "ACT-R6", label: "Language declarations inconsistent (WCAG 3.1.1)" },
+  { id: "ACT-R7", label: "Content language not identified (WCAG 3.1.2)" },
+  { id: "ACT-R8", label: "Form field is not labeled (WCAG 1.3.1)" },
   {
-    id: "SIA-R9",
+    id: "ACT-R9",
     label: "Page refreshes or redirects without warning (WCAG 2.2.1)",
   },
   {
-    id: "SIA-R10",
+    id: "ACT-R10",
     label: "Autocomplete does not work as intended (WCAG 1.3.5)",
   },
-  { id: "SIA-R11", label: "Link without a text alternative (WCAG 2.4.4)" },
-  { id: "SIA-R12", label: "Button without a text alternative (WCAG 4.1.2)" },
+  { id: "ACT-R11", label: "Link missing a text alternative (WCAG 2.4.4)" },
+  { id: "ACT-R12", label: "Button missing a text alternative (WCAG 4.1.2)" },
   {
-    id: "SIA-R13",
+    id: "ACT-R13",
     label: "Inline frame without a text alternative (WCAG 4.1.2)",
   },
   {
-    id: "SIA-R14",
+    id: "ACT-R14",
     label: "Visible label and accessible name do not match (WCAG 2.5.3)",
   },
   {
-    id: "SIA-R15",
+    id: "ACT-R15",
     label: "Multiple iframes with same accessible name (WCAG 4.1.2)",
   },
-  { id: "SIA-R16", label: "Required ARIA attribute is missing (WCAG 4.1.2)" },
-  { id: "SIA-R17", label: "Hidden element has focusable content (WCAG 4.1.2)" },
-  { id: "SIA-R18", label: "Unsupported ARIA attribute used (WCAG 4.1.2)" },
-  { id: "SIA-R19", label: "Invalid ARIA value used (WCAG 4.1.2)" },
-  { id: "SIA-R20", label: "Invalid ARIA attribute used (WCAG 4.1.2)" },
-  { id: "SIA-R21", label: "Invalid ARIA role used (WCAG 4.1.2)" },
-  { id: "SIA-R22", label: "Video without captions (WCAG 1.2.2)" },
-  { id: "SIA-R23", label: "Audio/video without transcript (WCAG 1.2.1)" },
-  { id: "SIA-R26", label: "Abbreviation has no expansion (WCAG 3.1.4)" },
+  { id: "ACT-R16", label: "Required ARIA attribute is missing (WCAG 4.1.2)" },
+  { id: "ACT-R17", label: "Hidden element has focusable content (WCAG 4.1.2)" },
+  { id: "ACT-R18", label: "Unsupported ARIA attribute used (WCAG 4.1.2)" },
+  { id: "ACT-R19", label: "Invalid state or property (WCAG 4.1.2)" },
+  { id: "ACT-R20", label: "ARIA attribute does not exist (WCAG 4.1.2)" },
+  { id: "ACT-R21", label: "Invalid ARIA role used (WCAG 4.1.2)" },
+  { id: "ACT-R22", label: "Does this video have captions? (WCAG 1.2.2)" },
+  { id: "ACT-R23", label: "Audio/video without transcript (WCAG 1.2.1)" },
+  { id: "ACT-R24", label: "Video element visual content has no transcript (WCAG 1.2.3)" },
+  { id: "ACT-R25", label: "Video element visual content has no audio description (WCAG 1.2.5)" },
+  { id: "ACT-R26", label: "Video without audio is a media alternative for text (WCAG 1.2.1)" },
   {
-    id: "SIA-R27",
-    label: "Audio-only content missing transcript (WCAG 1.2.1)",
+    id: "ACT-R27",
+    label: "Does this video have captions? (WCAG 1.2.2)",
   },
   {
-    id: "SIA-R28",
-    label: "Image button without text alternative (WCAG 1.1.1)",
+    id: "ACT-R28",
+    label: "Image button without a text alternative (WCAG 1.1.1)",
   },
   {
-    id: "SIA-R29",
-    label: "Video-only content missing alternative (WCAG 1.2.1)",
+    id: "ACT-R29",
+    label: "Audio content is a media alternative for text (WCAG 1.2.1)",
   },
-  { id: "SIA-R30", label: "Enhanced contrast insufficient (WCAG 1.4.6)" },
-  { id: "SIA-R31", label: "Line height below minimum (WCAG 1.4.12)" },
-  { id: "SIA-R32", label: "Target size insufficient (WCAG 2.5.8)" },
+  { id: "ACT-R30", label: "Audio content has a text alternative (WCAG 1.2.1)" },
+  { id: "ACT-R31", label: "Video with audio is a media alternative for text (WCAG 1.2.1)" },
+  { id: "ACT-R32", label: "Target size insufficient (WCAG 2.5.8)" },
   {
-    id: "SIA-R33",
+    id: "ACT-R33",
     label: "Media alternative may be insufficient (WCAG 1.2.x)",
   },
-  { id: "SIA-R34", label: "Content missing after heading (WCAG 2.4.6)" },
-  { id: "SIA-R35", label: "Text not in landmark region (WCAG 1.3.1)" },
-  { id: "SIA-R36", label: "Unsupported ARIA usage (WCAG 4.1.2)" },
-  { id: "SIA-R37", label: "Video not audio-described (WCAG 1.2.5)" },
-  { id: "SIA-R38", label: "Video missing accessible alternative (WCAG 1.2.x)" },
-  { id: "SIA-R39", label: "Image filename used as alt text (WCAG 1.1.1)" },
-  { id: "SIA-R40", label: "Region without accessible name (WCAG 1.3.1)" },
+  { id: "ACT-R34", label: "Content missing after heading (WCAG 2.4.6)" },
+  { id: "ACT-R35", label: "Does video without audio have an accessible alternative? (WCAG 1.2.1)" },
+  { id: "ACT-R36", label: "Unsupported ARIA usage (WCAG 4.1.2)" },
+  { id: "ACT-R37", label: "Is this video audio-described? (WCAG 1.2.5)" },
+  { id: "ACT-R38", label: "Is there an alternative to the visual content in this video? (WCAG 1.2.x)" },
+  { id: "ACT-R39", label: "Image filename used as alt text (WCAG 1.1.1)" },
+  { id: "ACT-R40", label: "Page region without an accessible name (WCAG 1.3.1)" },
   {
-    id: "SIA-R41",
+    id: "ACT-R41",
     label: "Links with same text different purpose (WCAG 2.4.4)",
   },
-  { id: "SIA-R42", label: "ARIA role used in incorrect context (WCAG 4.1.2)" },
-  { id: "SIA-R43", label: "SVG without accessible name (WCAG 1.1.1)" },
-  { id: "SIA-R44", label: "Page orientation is locked (WCAG 1.3.4)" },
-  { id: "SIA-R45", label: "Table headers not properly defined (WCAG 1.3.1)" },
+  { id: "ACT-R42", label: "Role not inside the required context (WCAG 4.1.2)" },
+  { id: "ACT-R43", label: "Vector image without a text alternative (WCAG 1.1.1)" },
+  { id: "ACT-R44", label: "Page orientation is locked (WCAG 1.3.4)" },
+  { id: "ACT-R45", label: "Table headers aren't referenced correctly (WCAG 1.3.1)" },
   {
-    id: "SIA-R46",
-    label: "Table cells not associated with headers (WCAG 1.3.1)",
+    id: "ACT-R46",
+    label: "No data cells assigned to table header (WCAG 1.3.1)",
   },
-  { id: "SIA-R47", label: "Zoom is restricted (WCAG 1.4.4)" },
-  { id: "SIA-R48", label: "Media autoplay with audio (WCAG 1.4.2)" },
-  { id: "SIA-R49", label: "Media alternative missing (WCAG 1.2.x)" },
-  { id: "SIA-R50", label: "Audio cannot be stopped (WCAG 1.4.2)" },
-  { id: "SIA-R51", label: "Audio control missing (WCAG 1.4.2)" },
-  { id: "SIA-R53", label: "Headings not structured properly (WCAG 1.3.1)" },
-  { id: "SIA-R54", label: "Status message not announced (WCAG 4.1.3)" },
+  { id: "ACT-R47", label: "Page zoom is restricted (WCAG 1.4.4)" },
+  { id: "ACT-R48", label: "<audio> or <video> that plays automatically has no audio that lasts more than 3 seconds (WCAG 1.4.2)" },
+  { id: "ACT-R49", label: "<audio> or <video> that plays automatically has a control mechanism (WCAG 1.4.2)" },
+  { id: "ACT-R50", label: "Audio cannot be stopped (WCAG 1.4.2)" },
+  { id: "ACT-R51", label: "Audio control missing (WCAG 1.4.2)" },
+  { id: "ACT-R52", label: "Video autoplay without controls (WCAG 1.4.2)" },
+  { id: "ACT-R53", label: "Headings are structured (WCAG 1.3.1)" },
+  { id: "ACT-R54", label: "Field input error is not announced in full (WCAG 4.1.3)" },
   {
-    id: "SIA-R55",
+    id: "ACT-R55",
     label: "Sections with same name different purpose (WCAG 1.3.1)",
   },
-  { id: "SIA-R57", label: "Non-text contrast insufficient (WCAG 1.4.11)" },
-  { id: "SIA-R59", label: "Page has no headings (WCAG 2.4.6)" },
-  { id: "SIA-R60", label: "Grouped controls missing name (WCAG 1.3.1)" },
-  { id: "SIA-R61", label: "Page does not start with H1 (WCAG 2.4.6)" },
-  { id: "SIA-R62", label: "Links not distinguishable (WCAG 1.4.1)" },
-  { id: "SIA-R63", label: "Object without text alternative (WCAG 1.1.1)" },
-  { id: "SIA-R64", label: "Empty heading (WCAG 1.3.1)" },
-  { id: "SIA-R65", label: "Focus indicator missing (WCAG 2.4.7)" },
-  { id: "SIA-R66", label: "Enhanced contrast insufficient (WCAG 1.4.6)" },
-  { id: "SIA-R67", label: "Decorative image exposed (WCAG 1.1.1)" },
-  { id: "SIA-R68", label: "Empty container element (WCAG 1.3.1)" },
-  { id: "SIA-R69", label: "Text contrast insufficient (WCAG 1.4.3)" },
-  { id: "SIA-R70", label: "Deprecated HTML element used (Best Practice)" },
-  { id: "SIA-R71", label: "Uneven text spacing (Best Practice)" },
-  { id: "SIA-R72", label: "Text in all caps (Best Practice)" },
-  { id: "SIA-R73", label: "Line height too small (WCAG 1.4.12)" },
-  { id: "SIA-R74", label: "Font size fixed (WCAG 1.4.4)" },
-  { id: "SIA-R75", label: "Font size too small (WCAG 1.4.4)" },
-  { id: "SIA-R76", label: "Table header missing role (WCAG 1.3.1)" },
-  { id: "SIA-R77", label: "Table data missing context (WCAG 1.3.1)" },
-  { id: "SIA-R78", label: "Content missing after heading (WCAG 2.4.6)" },
-  { id: "SIA-R79", label: "Improper use of pre element (Best Practice)" },
-  { id: "SIA-R80", label: "Line height fixed (Best Practice)" },
+  { id: "ACT-R56", label: "Landmarks of same type have a unique accessible name (WCAG 1.3.1)" },
+  { id: "ACT-R57", label: "Non-text contrast insufficient (WCAG 1.4.11)" },
+  { id: "ACT-R59", label: "Documents have headings (WCAG 2.4.6)" },
+  { id: "ACT-R60", label: "Groups have an accessible name (WCAG 1.3.1)" },
+  { id: "ACT-R61", label: "Documents start with a level 1 heading (WCAG 2.4.6)" },
+  { id: "ACT-R62", label: "Links are not clearly identifiable (WCAG 1.4.1)" },
+  { id: "ACT-R63", label: "Object without a text alternative (WCAG 1.1.1)" },
+  { id: "ACT-R64", label: "Empty headings (WCAG 1.3.1)" },
+  { id: "ACT-R65", label: "Focus indicator missing (WCAG 2.4.7)" },
+  { id: "ACT-R66", label: "Enhanced contrast insufficient (WCAG 1.4.6)" },
+  { id: "ACT-R67", label: "Decorative image exposed (WCAG 1.1.1)" },
+  { id: "ACT-R68", label: "Empty container element (WCAG 1.3.1)" },
+  { id: "ACT-R69", label: "Text contrast insufficient (WCAG 1.4.3)" },
+  { id: "ACT-R70", label: "No obsolete or deprecated elements are used (Best Practice)" },
+  { id: "ACT-R71", label: "Uneven spacing in text (Best Practice)" },
+  { id: "ACT-R72", label: "Paragraphs of text are not all uppercase (Best Practice)" },
+  { id: "ACT-R73", label: "Line height too small (WCAG 1.4.12)" },
+  { id: "ACT-R74", label: "Font size fixed (WCAG 1.4.4)" },
+  { id: "ACT-R75", label: "Font size too small (WCAG 1.4.4)" },
+  { id: "ACT-R76", label: "Table header cell is missing a header role (WCAG 1.3.1)" },
+  { id: "ACT-R77", label: "Table data missing context (WCAG 1.3.1)" },
+  { id: "ACT-R78", label: "Headings of same level have text content between them (WCAG 2.4.6)" },
+  { id: "ACT-R79", label: "Preformatted text represents either code or a figure (Best Practice)" },
+  { id: "ACT-R80", label: "Line height fixed (Best Practice)" },
   {
-    id: "SIA-R81",
+    id: "ACT-R81",
     label: "Links identical different destinations (WCAG 2.4.4)",
   },
-  { id: "SIA-R82", label: "Missing semantic structure (WCAG 1.3.1)" },
-  { id: "SIA-R83", label: "Text clipped when resized (WCAG 1.4.4)" },
+  { id: "ACT-R82", label: "Error message describes invalid form field value (WCAG 1.3.1)" },
+  { id: "ACT-R83", label: "Text is clipped when resized (DEPRECATED) (WCAG 1.4.4)" },
   {
-    id: "SIA-R84",
+    id: "ACT-R84",
     label: "Scrollable element not keyboard accessible (WCAG 2.1.1)",
   },
-  { id: "SIA-R85", label: "Overuse of italics (Best Practice)" },
-  { id: "SIA-R86", label: "Presentational element exposed (Best Practice)" },
-  { id: "SIA-R87", label: "Skip link missing (WCAG 2.4.1)" },
-  { id: "SIA-R88", label: "Word spacing insufficient (WCAG 1.4.12)" },
-  { id: "SIA-R89", label: "Enhanced contrast insufficient (WCAG 1.4.6)" },
-  { id: "SIA-R90", label: "Role with implied hidden content has keyboard focus (WCAG 4.1.2)" },
-  { id: "SIA-R91", label: "Letter spacing insufficient (WCAG 1.4.12)" },
-  { id: "SIA-R92", label: "Word spacing insufficient (WCAG 1.4.12)" },
-  { id: "SIA-R93", label: "Line height insufficient (WCAG 1.4.12)" },
-  { id: "SIA-R94", label: "Menu item missing accessible name (WCAG 4.1.2)" },
-  { id: "SIA-R95", label: "Keyboard interaction not supported (WCAG 2.1.1)" },
-  { id: "SIA-R96", label: "Page refresh without warning (WCAG 2.2.1)" },
-  { id: "SIA-R97", label: "Collapsible content not accessible (WCAG 4.1.2)" },
-  { id: "SIA-R98", label: "Main content missing heading (WCAG 2.4.6)" },
-  { id: "SIA-R99", label: "Missing main landmark (WCAG 1.3.1)" },
+  { id: "ACT-R85", label: "Paragraphs of text are not all italics (Best Practice)" },
+  { id: "ACT-R86", label: "Elements that are marked as decorative are not exposed to assistive technologies (Best Practice)" },
+  { id: "ACT-R87", label: "Skip to main content link is missing (WCAG 2.4.1)" },
+  { id: "ACT-R88", label: "Text in link has minimum contrast (WCAG 1.4.3)" },
+  { id: "ACT-R89", label: "Text in link has enhanced contrast (WCAG 1.4.6)" },
+  { id: "ACT-R90", label: "Role with implied hidden content has keyboard focus (WCAG 4.1.2)" },
+  { id: "ACT-R91", label: "Letter spacing is not wide enough (WCAG 1.4.12)" },
+  { id: "ACT-R92", label: "Word spacing is not wide enough (WCAG 1.4.12)" },
+  { id: "ACT-R93", label: "Line height is too narrow (WCAG 1.4.12)" },
+  { id: "ACT-R94", label: "Menu item missing a text alternative (WCAG 4.1.2)" },
+  { id: "ACT-R95", label: "<iframe> element with interactive elements does not have a negative tabindex (WCAG 2.1.1)" },
+  { id: "ACT-R96", label: "Refreshes implemented using the <meta> element have no delay, without exception (WCAG 2.2.1)" },
+  { id: "ACT-R97", label: "Document has collapsible blocks of content (WCAG 4.1.2)" },
+  { id: "ACT-R98", label: "Document has heading at the start of its main content (WCAG 2.4.6)" },
+  { id: "ACT-R99", label: "Document has its main content inside a landmark (WCAG 1.3.1)" },
   {
-    id: "SIA-R100",
+    id: "ACT-R100",
     label: "PDF without accessible alternative (Best Practice)",
   },
-  { id: "SIA-R101", label: "Skip link missing (WCAG 2.4.1)" },
-  { id: "SIA-R102", label: "Skip link missing (WCAG 2.4.1)" },
-  { id: "SIA-R103", label: "Text contrast insufficient (WCAG 1.4.3)" },
-  { id: "SIA-R104", label: "Enhanced contrast insufficient (WCAG 1.4.6)" },
+  { id: "ACT-R101", label: "Repeated content before main content can be bypassed (WCAG 2.4.1)" },
+  { id: "ACT-R102", label: "Document either has no repeated content, or a skip link as its first focusable element (WCAG 2.4.1)" },
+  { id: "ACT-R103", label: "Text in widget has minimum contrast (WCAG 1.4.3)" },
+  { id: "ACT-R104", label: "Text in widget has enhanced contrast (WCAG 1.4.6)" },
   {
-    id: "SIA-R105",
+    id: "ACT-R105",
     label: "Duplicate link text different destination (WCAG 2.4.4)",
   },
-  { id: "SIA-R106", label: "Invalid ARIA usage (WCAG 4.1.2)" },
-  { id: "SIA-R107", label: "Keyboard access issue (WCAG 2.1.1)" },
-  { id: "SIA-R108", label: "ARIA misuse (WCAG 4.1.2)" },
-  { id: "SIA-R109", label: "Page language mismatch (WCAG 3.1.1)" },
-  { id: "SIA-R110", label: "Invalid role values (WCAG 4.1.2)" },
-  { id: "SIA-R111", label: "Target size too small enhanced (WCAG 2.5.5)" },
-  { id: "SIA-R112", label: "Missing semantic structure (WCAG 1.3.1)" },
-  { id: "SIA-R113", label: "Target size too small (WCAG 2.5.8)" },
-  { id: "SIA-R114", label: "Page title not descriptive (WCAG 2.4.2)" },
-  { id: "SIA-R115", label: "Heading not descriptive (WCAG 2.4.6)" },
+  { id: "ACT-R106", label: "Invalid ARIA usage (WCAG 4.1.2)" },
+  { id: "ACT-R107", label: "Keyboard access issue (WCAG 2.1.1)" },
+  { id: "ACT-R108", label: "ARIA misuse (WCAG 4.1.2)" },
+  { id: "ACT-R109", label: "Page language mismatch (WCAG 3.1.1)" },
+  { id: "ACT-R110", label: "Role attribute has at least one valid value (WCAG 4.1.2)" },
+  { id: "ACT-R111", label: "Target size too small enhanced (WCAG 2.5.5)" },
+  { id: "ACT-R112", label: "Missing semantic structure (WCAG 1.3.1)" },
+  { id: "ACT-R113", label: "Target size too small (WCAG 2.5.8)" },
+  { id: "ACT-R114", label: "Page title not descriptive (WCAG 2.4.2)" },
+  { id: "ACT-R115", label: "Heading not descriptive (WCAG 2.4.6)" },
   {
-    id: "SIA-R116",
+    id: "ACT-R116",
     label: "Summary element missing accessible name (WCAG 4.1.2)",
   },
-  { id: "SIA-R117", label: "Image missing accessible name (WCAG 1.1.1)" },
+  { id: "ACT-R117", label: "Image missing accessible name (WCAG 1.1.1)" },
+  { id: "ACT-R119", label: "Fixed or sticky element may obscure keyboard focus (WCAG 2.4.11)" },
+  { id: "ACT-R121", label: "Focus indicator suppressed without visible replacement (WCAG 2.4.13)" },
+  { id: "ACT-R126", label: "Accessible authentication alternative required (WCAG 3.3.8)" },
+  { id: "ACT-R120", label: "Focus not fully visible (WCAG 2.4.12)" },
+  { id: "ACT-R122", label: "Dragging interaction has no pointer alternative (WCAG 2.5.7)" },
+  { id: "ACT-R124", label: "Help mechanism not consistently located (WCAG 3.2.6)" },
+  { id: "ACT-R125", label: "User required to re-enter information (WCAG 3.3.7)" },
+  { id: "ACT-R127", label: "Authentication has no cognitive function test (WCAG 3.3.9)" },
 ];
 
 function RuleFilterSelector({
@@ -299,7 +320,7 @@ function RuleFilterSelector({
         <div className="relative flex-1">
           <Input
             ref={inputRef}
-            placeholder="Search rule ID or name (e.g. SIA-R14, contrast)..."
+            placeholder="Search rule ID or name (e.g. ACT-R14, contrast)..."
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -610,7 +631,7 @@ function InlineScanMonitor({
               </Button>
             </Link>
             <Button variant="ghost" size="sm" onClick={onNewScan}>
-              New Scan
+              Manual Page Check
             </Button>
           </div>
         </div>
@@ -900,7 +921,7 @@ function InlineScanMonitor({
                             {ruleId}
                           </span>
                           <span className="text-xs text-foreground/70 truncate flex-1">
-                            {SIA_RULES[ruleId]?.title ?? "No issues detected"}
+                            {ACT_RULES[ruleId]?.title ?? "No issues detected"}
                           </span>
                           <Badge
                             variant="secondary"
@@ -924,8 +945,13 @@ function InlineScanMonitor({
 export default function Home() {
   const { toast } = useToast();
   const { user } = useAuth();
-  const [projectId, setProjectId] = useState<number | null>(null);
-  const [projectName, setProjectName] = useState<string | null>(null);
+  const { activeSite, sites } = useSite();
+  const adminUser = isAdmin(user);
+  // Admins can override which site the scan is tagged to; other users inherit activeSite
+  const [adminSiteOverride, setAdminSiteOverride] = useState<MySite | null | undefined>(undefined);
+  const effectiveSite = adminUser
+    ? (adminSiteOverride === undefined ? activeSite : adminSiteOverride)
+    : activeSite;
   const [scanName, setScanName] = useState("");
   const [initiatorName] = useState(() => user?.fullName ?? "");
   const [initiatorRole, setInitiatorRole] = useState("");
@@ -948,7 +974,6 @@ export default function Home() {
   }, []);
 
   const [scanNameError, setScanNameError] = useState(false);
-  const [projectError, setProjectError] = useState(false);
   const [selectedRules, setSelectedRules] = useState<string[]>([]);
   const [activeScanId, setActiveScanId] = useState<number | null>(null);
 
@@ -1005,6 +1030,7 @@ export default function Home() {
   };
   const [activeProxyPac, setActiveProxyPac] = useState<string>("");
   const [disableJavascript, setDisableJavascript] = useState(false);
+  const [incremental, setIncremental] = useState(false);
 
   // URL limit state — toggled/configured in Settings
   const [urlLimitOn, setUrlLimitOn] = useState(false);
@@ -1294,13 +1320,14 @@ export default function Home() {
         data: {
           urls: parsedUrls,
           name: scanName.trim(),
-          projectId,
+          siteId: effectiveSite?.id ?? undefined,
           groupId: groupId ?? undefined,
           options: {
             maxConcurrency: 5,
             ...(selectedRules.length > 0 ? { rules: selectedRules } : {}),
             ...(resolvedProxy ? { proxyPacUrl: resolvedProxy } : {}),
             ...(disableJavascript ? { disableJavascript: true } : {}),
+            ...(incremental ? { incremental: true } : {}),
           },
           initiatorName: initiatorName.trim() || undefined,
           initiatorRole: initiatorRole || undefined,
@@ -1329,9 +1356,6 @@ export default function Home() {
     setParsedUrls([]);
     setScanName("");
     setScanNameError(false);
-    setProjectId(null);
-    setProjectName(null);
-    setProjectError(false);
     setSelectedRules([]);
     // Re-apply auto-select if user is in exactly one group
     if (myGroups.length === 1) {
@@ -1367,23 +1391,46 @@ export default function Home() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label>Project</Label>
-              <ProjectSelector
-                value={projectId}
-                onChange={(id, name) => {
-                  setProjectId(id);
-                  setProjectName(name);
-                  if (id) setProjectError(false);
-                }}
-                error={projectError}
-              />
-              {projectError && (
-                <p className="text-xs text-destructive">
-                  Please select or create a project.
+            {adminUser ? (
+              <div className="space-y-2">
+                <Label>Site (optional)</Label>
+                <Select
+                  value={effectiveSite ? String(effectiveSite.id) : "__none__"}
+                  onValueChange={(val) => {
+                    if (val === "__none__") { setAdminSiteOverride(null); return; }
+                    const found = sites.find((s) => String(s.id) === val);
+                    setAdminSiteOverride(found as MySite ?? null);
+                  }}
+                >
+                  <SelectTrigger>
+                    <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0 mr-1" />
+                    <SelectValue placeholder="No site (untagged)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No site (untagged)</SelectItem>
+                    {sites.map((s) => (
+                      <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Tag this scan with a site for reporting. Defaults to the active site in the header.
                 </p>
-              )}
-            </div>
+              </div>
+            ) : effectiveSite ? (
+              <div className="space-y-2">
+                <Label>Site</Label>
+                <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-muted/40 text-sm">
+                  <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <span className="font-medium truncate">{effectiveSite.name}</span>
+                  <span className="text-muted-foreground truncate text-xs">{effectiveSite.baseUrl}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  This scan will be associated with the currently selected site.
+                  Switch sites using the selector in the header.
+                </p>
+              </div>
+            ) : null}
 
             <div className="space-y-2">
               <Label htmlFor="scanName">
@@ -1770,6 +1817,24 @@ export default function Home() {
                 )}
               </div>
             )}
+
+            {/* Incremental scan toggle */}
+            <div className={`border rounded-lg p-4 transition-colors ${incremental ? "bg-teal-50/50 border-teal-200 dark:bg-teal-950/20 dark:border-teal-800" : "bg-muted/20"}`}>
+              <div className="flex items-center gap-3">
+                <RefreshCw className={`w-4 h-4 shrink-0 ${incremental ? "text-teal-600" : "text-muted-foreground"}`} />
+                <div className="flex-1 min-w-0">
+                  <Label className="text-sm font-medium">Incremental scan</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Skip pages whose content hasn't changed since the last completed scan — previous results are carried forward, making repeat scans much faster.
+                  </p>
+                </div>
+                <Switch
+                  checked={incremental}
+                  onCheckedChange={setIncremental}
+                  aria-label="Enable incremental scan"
+                />
+              </div>
+            </div>
 
             {/* Proxy section — proxy URL managed in Settings → Proxy & Tools */}
             <div

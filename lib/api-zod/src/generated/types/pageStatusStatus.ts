@@ -11,8 +11,14 @@ export type PageStatusStatus =
 
 export const PageStatusStatus = {
   pending: "pending",
+  navigating: "navigating",
   scanning: "scanning",
+  rendering: "rendering",
+  analyzing: "analyzing",
+  saving: "saving",
   completed: "completed",
   failed: "failed",
   skipped: "skipped",
+  requeued: "requeued",
+  not_available: "not_available",
 } as const;

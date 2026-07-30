@@ -9,8 +9,10 @@ import {
   getGetScanReportQueryKey,
   getListScansQueryKey,
   getGetScanQueryKey,
+  type ListScansParams,
 } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/auth";
+import { useSite } from "@/contexts/site";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -607,8 +609,46 @@ function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
   );
 }
 
+const ACTIVE_STATUSES = ["running", "pending", "paused"];
+
 export default function ScanList() {
-  const { data: scans, isLoading } = useListScans();
+  const { activeSite, activeSiteId } = useSite();
+  // Use activeSiteId (available from localStorage immediately on mount) rather than
+  // activeSite?.id so the correct siteId filter is applied on the very first render,
+  // before the sites list has finished loading from the network/cache.
+  const listParams: ListScansParams = activeSiteId !== null ? { siteId: activeSiteId } : {};
+  const { data: scans, isLoading } = useListScans(listParams, {
+    query: {
+      queryKey: getListScansQueryKey(listParams),
+      refetchInterval: (query) => {
+        const data = query.state.data;
+        if (!Array.isArray(data)) return false;
+        const hasActive = data.some((s: ScanItem) => ACTIVE_STATUSES.includes(s.status));
+        return hasActive ? 10_000 : false;
+      },
+    },
+  });
+
+  const isPolling = Array.isArray(scans) && scans.some((s) => ACTIVE_STATUSES.includes(s.status));
+
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+  const [secondsSinceRefresh, setSecondsSinceRefresh] = useState(0);
+
+  useEffect(() => {
+    if (scans !== undefined) {
+      setLastRefreshedAt(new Date());
+      setSecondsSinceRefresh(0);
+    }
+  }, [scans]);
+
+  useEffect(() => {
+    if (!isPolling) return;
+    const id = setInterval(() => {
+      setSecondsSinceRefresh((s) => s + 1);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isPolling]);
+
   const deleteScan = useDeleteScan();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -618,6 +658,7 @@ export default function ScanList() {
   const [dateToFilter, setDateToFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [projectFilter, setProjectFilter] = useState<string[]>([]);
+  const [hideCrawlerScans, setHideCrawlerScans] = useState(true);
   const [editingScan, setEditingScan] = useState<{
     id: number;
     name: string | null;
@@ -655,6 +696,29 @@ export default function ScanList() {
     onError: () => toast({ title: "Could not resume scan", variant: "destructive" }),
   });
 
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      const res = await fetch(`${BASE_URL}/api/scans/bulk`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) throw new Error("Failed to delete");
+      return res.json() as Promise<{ deleted: number }>;
+    },
+    onSuccess: (data) => {
+      toast({ title: `${data.deleted} scan${data.deleted === 1 ? "" : "s"} deleted` });
+      setSelectedIds(new Set());
+      setBulkDeleteOpen(false);
+      queryClient.invalidateQueries({ queryKey: getListScansQueryKey() });
+    },
+    onError: () => toast({ title: "Failed to delete scans", variant: "destructive" }),
+  });
+
   // Hover preview state
   const [hoveredScan, setHoveredScan] = useState<{ scan: ScanItem; rect: DOMRect } | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -689,7 +753,11 @@ export default function ScanList() {
         projectName?: string | null;
         initiatorName?: string | null;
         initiatorRole?: string | null;
+        siteId?: number | null;
       };
+      if (hideCrawlerScans && scan.name?.startsWith("[Crawler]")) return false;
+      // Site filter: when an active site is selected, only show scans for that site
+      if (activeSite && s.siteId !== activeSite.id) return false;
       const searchTarget = [
         scan.name,
         s.projectName,
@@ -720,11 +788,40 @@ export default function ScanList() {
         matchesStatus && matchesProject
       );
     });
-  }, [scans, nameFilter, initiatorFilter, dateFromFilter, dateToFilter, statusFilter, projectFilter]);
+  }, [scans, nameFilter, initiatorFilter, dateFromFilter, dateToFilter, statusFilter, projectFilter, hideCrawlerScans, activeSite]);
 
   const hasActiveFilters =
     nameFilter || initiatorFilter || dateFromFilter || dateToFilter ||
     statusFilter.length > 0 || projectFilter.length > 0;
+
+  const selectableIds = useMemo(
+    () => filteredScans.filter((s) => s.status === "cancelled" || s.status === "failed").map((s) => s.id),
+    [filteredScans],
+  );
+  const allSelectableSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id));
+  const someSelectableSelected = selectableIds.some((id) => selectedIds.has(id));
+
+  const toggleSelectAll = () => {
+    if (allSelectableSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(selectableIds));
+    }
+  };
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Clear selection when visible scans change (filter change / refresh)
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [nameFilter, initiatorFilter, dateFromFilter, dateToFilter, statusFilter, projectFilter, hideCrawlerScans]);
 
   const handleDelete = (id: number) => {
     deleteScan.mutate(
@@ -765,13 +862,15 @@ export default function ScanList() {
 
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Scan History</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Manual Scan History</h1>
           <p className="text-muted-foreground mt-2">
-            View past audits and reports.
+            {activeSite
+              ? <>Showing scans for <span className="font-semibold text-foreground">{activeSite.name}</span>. Select a different site in the header to switch.</>
+              : "View past manual page audits and reports."}
           </p>
         </div>
         <Link href="/new">
-          <Button>New Scan</Button>
+          <Button>Manual Page Check</Button>
         </Link>
       </div>
 
@@ -827,24 +926,58 @@ export default function ScanList() {
 
           <div className="shrink-0 space-y-1">
             <Label className="text-xs text-muted-foreground">Date Range</Label>
-            <div className="flex items-center gap-1.5 border rounded-md px-2.5 h-9 bg-background">
-              <CalendarDays className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-              <input
-                type="date"
-                value={dateFromFilter}
-                onChange={(e) => setDateFromFilter(e.target.value)}
-                aria-label="From date"
-                className="bg-transparent text-sm outline-none w-[118px] text-foreground [color-scheme:dark]"
-              />
-              <span className="text-muted-foreground text-xs">–</span>
-              <input
-                type="date"
-                value={dateToFilter}
-                onChange={(e) => setDateToFilter(e.target.value)}
-                aria-label="To date"
-                className="bg-transparent text-sm outline-none w-[118px] text-foreground [color-scheme:dark]"
-              />
+            <div className="flex items-center gap-1.5">
+              <div
+                className="flex items-center gap-1.5 border rounded-md px-2.5 h-9 bg-background cursor-pointer hover:border-primary/50 transition-colors"
+                onClick={(e) => {
+                  const input = e.currentTarget.querySelector("input");
+                  try { input?.showPicker(); } catch { input?.focus(); }
+                }}
+                data-testid="date-from-box"
+              >
+                <CalendarDays className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                <span className="text-xs text-muted-foreground shrink-0">From</span>
+                <input
+                  type="date"
+                  value={dateFromFilter}
+                  onChange={(e) => setDateFromFilter(e.target.value)}
+                  aria-label="From date"
+                  className="bg-transparent text-sm outline-none w-[118px] text-foreground [color-scheme:dark] cursor-pointer"
+                />
+              </div>
+              <div
+                className="flex items-center gap-1.5 border rounded-md px-2.5 h-9 bg-background cursor-pointer hover:border-primary/50 transition-colors"
+                onClick={(e) => {
+                  const input = e.currentTarget.querySelector("input");
+                  try { input?.showPicker(); } catch { input?.focus(); }
+                }}
+                data-testid="date-to-box"
+              >
+                <CalendarDays className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                <span className="text-xs text-muted-foreground shrink-0">To</span>
+                <input
+                  type="date"
+                  value={dateToFilter}
+                  onChange={(e) => setDateToFilter(e.target.value)}
+                  aria-label="To date"
+                  className="bg-transparent text-sm outline-none w-[118px] text-foreground [color-scheme:dark] cursor-pointer"
+                />
+              </div>
             </div>
+          </div>
+
+          <div className="shrink-0 space-y-1">
+            <div className="h-4" />
+            <Button
+              variant={hideCrawlerScans ? "outline" : "secondary"}
+              size="sm"
+              onClick={() => setHideCrawlerScans((v) => !v)}
+              className="h-9 text-xs gap-1.5"
+              title={hideCrawlerScans ? "Crawler-generated scans are hidden — click to show" : "Click to hide crawler-generated scans"}
+            >
+              <Globe className="w-3.5 h-3.5" />
+              {hideCrawlerScans ? "Show Crawler Scans" : "Hide Crawler Scans"}
+            </Button>
           </div>
 
           {hasActiveFilters && (
@@ -871,16 +1004,53 @@ export default function ScanList() {
         </div>
       </div>
 
-      {hasActiveFilters && (
-        <p className="text-sm text-muted-foreground -mt-2 px-1">
-          Showing {filteredScans.length} of {(scans ?? []).length} scans
-        </p>
-      )}
+      <div className="flex items-center justify-between -mt-2 px-1 min-h-[20px]">
+        {hasActiveFilters ? (
+          <p className="text-sm text-muted-foreground">
+            Showing {filteredScans.length} of {(scans ?? []).length} scans
+          </p>
+        ) : <span />}
+
+        <AnimatePresence>
+          {isPolling && (
+            <motion.div
+              key="live-badge"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ duration: 0.2 }}
+              className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-500"
+              title={lastRefreshedAt ? `Last updated at ${lastRefreshedAt.toLocaleTimeString()}` : undefined}
+            >
+              <span className="relative flex h-2 w-2 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              Auto-refreshing
+              {secondsSinceRefresh > 0 && (
+                <span className="text-emerald-500/70 font-normal">
+                  · updated {secondsSinceRefresh}s ago
+                </span>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       <div className="border rounded-lg bg-card">
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10 pl-3">
+                <Checkbox
+                  checked={allSelectableSelected}
+                  data-state={someSelectableSelected && !allSelectableSelected ? "indeterminate" : undefined}
+                  onCheckedChange={toggleSelectAll}
+                  disabled={selectableIds.length === 0}
+                  aria-label="Select all cancelled/failed scans"
+                  title={selectableIds.length === 0 ? "No cancelled/failed scans to select" : "Select all cancelled/failed scans"}
+                />
+              </TableHead>
               <TableHead>Project / Scan Name</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Progress</TableHead>
@@ -894,7 +1064,7 @@ export default function ScanList() {
             {filteredScans.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="text-center py-12 text-muted-foreground"
                 >
                   No scans found.{" "}
@@ -912,8 +1082,21 @@ export default function ScanList() {
                 };
                 const isRunning = scan.status === "running";
                 const isPaused = (scan.status as string) === "paused";
+                const isSelectable = scan.status === "cancelled" || scan.status === "failed";
+                const isSelected = selectedIds.has(scan.id);
                 return (
-                  <TableRow key={scan.id}>
+                  <TableRow key={scan.id} className={isSelected ? "bg-muted/40" : undefined}>
+                    <TableCell className="pl-3">
+                      {isSelectable ? (
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={() => toggleSelect(scan.id)}
+                          aria-label={`Select ${scan.name || `Scan #${scan.id}`}`}
+                        />
+                      ) : (
+                        <span className="w-4 h-4 block" />
+                      )}
+                    </TableCell>
                     <TableCell className="font-medium">
                       {s.projectName && (
                         <div className="flex items-center gap-1 mb-0.5">
@@ -1091,6 +1274,69 @@ export default function ScanList() {
           />
         )}
       </AnimatePresence>
+
+      {/* Floating bulk-action bar */}
+      <AnimatePresence>
+        {selectedIds.size > 0 && (
+          <motion.div
+            key="bulk-bar"
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 24 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl border border-border bg-popover px-4 py-2.5 shadow-2xl"
+          >
+            <span className="text-sm font-medium text-foreground whitespace-nowrap">
+              {selectedIds.size} scan{selectedIds.size === 1 ? "" : "s"} selected
+            </span>
+            <div className="h-4 w-px bg-border" />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 text-xs text-muted-foreground"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              <X className="w-3.5 h-3.5 mr-1" />
+              Clear
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              className="h-8 text-xs gap-1.5"
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete {selectedIds.size} selected
+            </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Bulk delete confirmation */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedIds.size} scan{selectedIds.size === 1 ? "" : "s"}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete {selectedIds.size} cancelled/failed scan{selectedIds.size === 1 ? "" : "s"} and all
+              associated issue data. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={bulkDeleteMutation.isPending}
+              onClick={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
+            >
+              {bulkDeleteMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : null}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

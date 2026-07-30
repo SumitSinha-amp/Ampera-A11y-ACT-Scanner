@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { pool, db, scanSessionsTable, pageResultsTable, usersTable } from "@workspace/db";
 import { inArray, eq, and, lt } from "drizzle-orm";
 import { startScan, startScanWatchdog } from "./lib/scanQueue";
+import { resumeOrphanedCrawlerSessions, runScheduledCrawls, runDueCrawlerSessions } from "./lib/crawler";
 import bcrypt from "bcryptjs";
 import { execSync } from "child_process";
 import { existsSync, readdirSync } from "fs";
@@ -222,7 +223,26 @@ async function runStartupMigrations(): Promise<void> {
         updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
       )
     `);
-   // 16. Add page_results columns added after initial deploy
+
+    // 16. Create scan_domain_profiles table for adaptive scan domain memory
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS scan_domain_profiles (
+        id                  SERIAL      PRIMARY KEY,
+        domain              TEXT        NOT NULL UNIQUE,
+        strategy            TEXT        NOT NULL DEFAULT 'context_pool',
+        has_cloudflare      BOOLEAN     NOT NULL DEFAULT FALSE,
+        requires_js         BOOLEAN     NOT NULL DEFAULT FALSE,
+        has_rate_limit      BOOLEAN     NOT NULL DEFAULT FALSE,
+        success_rate        REAL        NOT NULL DEFAULT 1.0,
+        total_scans         INTEGER     NOT NULL DEFAULT 0,
+        fingerprint_signals JSONB,
+        last_scan_at        TIMESTAMP,
+        created_at          TIMESTAMP   NOT NULL DEFAULT NOW(),
+        updated_at          TIMESTAMP   NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // 17. Add page_results columns added after initial deploy
     await client.query(`
       DO $$
       BEGIN
@@ -238,10 +258,29 @@ async function runStartupMigrations(): Promise<void> {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'page_results' AND column_name = 'page_html') THEN
           ALTER TABLE page_results ADD COLUMN page_html TEXT;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'page_results' AND column_name = 'content_hash') THEN
+          ALTER TABLE page_results ADD COLUMN content_hash TEXT;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'page_results' AND column_name = 'carried_forward') THEN
+          ALTER TABLE page_results ADD COLUMN carried_forward BOOLEAN NOT NULL DEFAULT FALSE;
+        END IF;
+        CREATE INDEX IF NOT EXISTS page_results_url_hash_idx ON page_results (url, content_hash);
       END
       $$
     `);
-    // 17. Add accessibility_issues columns added after initial deploy.
+
+    // 18. Add scan_sessions.options if missing (JSONB column for scan config)
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'scan_sessions' AND column_name = 'options') THEN
+          ALTER TABLE scan_sessions ADD COLUMN options JSONB;
+        END IF;
+      END
+      $$
+    `);
+
+    // 19. Add accessibility_issues columns added after initial deploy.
     // If any of these are missing the INSERT in scanQueue.ts throws and the page
     // ends up with issue_count > 0 but zero rows in accessibility_issues.
     await client.query(`
@@ -274,10 +313,14 @@ async function runStartupMigrations(): Promise<void> {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'accessibility_issues' AND column_name = 'false_positive_note') THEN
           ALTER TABLE accessibility_issues ADD COLUMN false_positive_note TEXT;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'accessibility_issues' AND column_name = 'element_context') THEN
+          ALTER TABLE accessibility_issues ADD COLUMN element_context TEXT;
+        END IF;
       END
       $$
     `);
-   // 18. Add can_disable_js to user_permissions (JS-disabled scan permission)
+
+    // 20. Add can_disable_js to user_permissions (JS-disabled scan permission)
     await client.query(`
       DO $$
       BEGIN
@@ -287,20 +330,529 @@ async function runStartupMigrations(): Promise<void> {
       END
       $$
     `);
-    
-   // 19. Seed default scan_page_timeout_ms if not already set
+
+    // 20b. Add can_smart_analysis to user_permissions (Smart Analysis feature access)
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_permissions' AND column_name = 'can_smart_analysis') THEN
+          ALTER TABLE user_permissions ADD COLUMN can_smart_analysis BOOLEAN NOT NULL DEFAULT FALSE;
+        END IF;
+      END
+      $$
+    `);
+
+    // 20c. Rule-ID rebrand: legacy SIA-* rule ids become ACT-* everywhere.
+    // Historical rows are renamed once so old and new scans display the same
+    // rule identifiers. (The legacy id is derivable: ACT-Rn ↔ SIA-Rn.)
+    // Runs BEFORE the wcag_criteria backfills so those match on ACT ids.
+    await client.query(`
+      UPDATE accessibility_issues SET rule_id = 'ACT-' || substring(rule_id from 5)
+      WHERE rule_id LIKE 'SIA-%'
+    `);
+
+    // 20d. Backfill WCAG mappings on historical issues: ACT-R84 rows scanned
+    // before the mapping existed, and ACT-R35 rows stored with the old 1.2.1
+    // mapping (corrected to 1.3.1)
+    await client.query(`
+      UPDATE accessibility_issues SET wcag_criteria = '2.1.1'
+      WHERE rule_id = 'ACT-R84' AND (wcag_criteria IS NULL OR wcag_criteria = '')
+    `);
+    await client.query(`
+      UPDATE accessibility_issues SET wcag_criteria = '1.3.1'
+      WHERE rule_id = 'ACT-R35' AND wcag_criteria = '1.2.1'
+    `);
+
+    // 20e. Add rule_type column to accessibility_issues (stores Issue / Potential Issue / Best Practice)
+    await client.query(`
+      ALTER TABLE accessibility_issues ADD COLUMN IF NOT EXISTS rule_type TEXT NOT NULL DEFAULT 'Issue'
+    `);
+
+    // 21. Seed default scan_page_timeout_ms if not already set
     await client.query(`
       INSERT INTO app_settings (key, value, updated_at)
       VALUES ('scan_page_timeout_ms', '2000', NOW())
       ON CONFLICT (key) DO NOTHING
     `);
 
-    // 20. Migrate old navigation-timeout default (10 000 ms) to scan-delay default (2 000 ms)
+    // 22. Migrate old navigation-timeout default (10 000 ms) to scan-delay default (2 000 ms)
     //     Only update if the value is still exactly the old default — user-customised values are preserved.
     await client.query(`
       UPDATE app_settings
       SET value = '2000', updated_at = NOW()
       WHERE key = 'scan_page_timeout_ms' AND value = '10000'
+    `);
+
+    // 23. Create crawler_sessions table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS crawler_sessions (
+        id                  SERIAL      PRIMARY KEY,
+        user_id             TEXT,
+        name                TEXT        NOT NULL,
+        seed_url            TEXT        NOT NULL,
+        status              TEXT        NOT NULL DEFAULT 'pending',
+        config              JSONB       NOT NULL DEFAULT '{}',
+        scan_session_id     INTEGER     REFERENCES scan_sessions(id) ON DELETE SET NULL,
+        total_discovered    INTEGER     NOT NULL DEFAULT 0,
+        total_scanned       INTEGER     NOT NULL DEFAULT 0,
+        total_failed        INTEGER     NOT NULL DEFAULT 0,
+        total_skipped       INTEGER     NOT NULL DEFAULT 0,
+        total_issues        INTEGER     NOT NULL DEFAULT 0,
+        broken_links_count  INTEGER     NOT NULL DEFAULT 0,
+        created_at          TIMESTAMP   NOT NULL DEFAULT NOW(),
+        started_at          TIMESTAMP,
+        completed_at        TIMESTAMP,
+        paused_at           TIMESTAMP,
+        error_message       TEXT
+      )
+    `);
+
+    // 24. Create crawler_pages table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS crawler_pages (
+        id               SERIAL    PRIMARY KEY,
+        session_id       INTEGER   NOT NULL REFERENCES crawler_sessions(id) ON DELETE CASCADE,
+        url              TEXT      NOT NULL,
+        url_hash         TEXT      NOT NULL,
+        status           TEXT      NOT NULL DEFAULT 'pending',
+        depth            INTEGER   NOT NULL DEFAULT 0,
+        discovered_from  TEXT,
+        content_hash     TEXT,
+        http_status      INTEGER,
+        issue_count      INTEGER   NOT NULL DEFAULT 0,
+        error_message    TEXT,
+        scanned_at       TIMESTAMP,
+        UNIQUE(session_id, url_hash)
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS crawler_pages_session_status_idx ON crawler_pages(session_id, status)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS crawler_pages_session_hash_idx ON crawler_pages(session_id, url_hash)
+    `);
+
+    // 25. Create broken_links table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS broken_links (
+        id          SERIAL    PRIMARY KEY,
+        session_id  INTEGER   NOT NULL REFERENCES crawler_sessions(id) ON DELETE CASCADE,
+        source_url  TEXT      NOT NULL,
+        broken_url  TEXT      NOT NULL,
+        http_status INTEGER,
+        error_type  TEXT,
+        anchor_text TEXT,
+        checked_at  TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS broken_links_session_idx ON broken_links(session_id)
+    `);
+
+    // 26. Create sites table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS sites (
+        id          SERIAL    PRIMARY KEY,
+        user_id     TEXT,
+        name        TEXT      NOT NULL,
+        base_url    TEXT      NOT NULL,
+        description TEXT,
+        created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // 27. Add site_id column to crawler_sessions
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'crawler_sessions' AND column_name = 'site_id'
+        ) THEN
+          ALTER TABLE crawler_sessions
+            ADD COLUMN site_id INTEGER REFERENCES sites(id) ON DELETE SET NULL;
+        END IF;
+      END
+      $$
+    `);
+
+    // 28. Add page_type to crawler_pages + discovered_at to crawler_sessions
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'crawler_pages' AND column_name = 'page_type'
+        ) THEN
+          ALTER TABLE crawler_pages ADD COLUMN page_type TEXT;
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'crawler_sessions' AND column_name = 'discovered_at'
+        ) THEN
+          ALTER TABLE crawler_sessions ADD COLUMN discovered_at TIMESTAMP;
+        END IF;
+      END
+      $$
+    `);
+
+    // 28b. Siteimprove-style crawl policy, scheduling, and URL disposition tables.
+    // All additions are idempotent so existing sites and crawler sessions remain
+    // usable with their saved configuration.
+    await client.query(`
+      ALTER TABLE sites
+        ADD COLUMN IF NOT EXISTS default_scope TEXT NOT NULL DEFAULT 'subdomain',
+        ADD COLUMN IF NOT EXISTS sitemap_url TEXT,
+        ADD COLUMN IF NOT EXISTS crawl_type TEXT NOT NULL DEFAULT 'javascript',
+        ADD COLUMN IF NOT EXISTS max_pages INTEGER NOT NULL DEFAULT 500,
+        ADD COLUMN IF NOT EXISTS max_depth INTEGER NOT NULL DEFAULT 5,
+        ADD COLUMN IF NOT EXISTS respect_robots_txt BOOLEAN NOT NULL DEFAULT TRUE,
+        ADD COLUMN IF NOT EXISTS asset_mode TEXT NOT NULL DEFAULT 'all',
+        ADD COLUMN IF NOT EXISTS schedule_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS schedule_interval_days INTEGER NOT NULL DEFAULT 7,
+        ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'UTC',
+        ADD COLUMN IF NOT EXISTS next_crawl_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS last_completed_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS lifecycle_status TEXT NOT NULL DEFAULT 'idle'
+    `);
+    await client.query(`
+      ALTER TABLE crawler_sessions
+        ADD COLUMN IF NOT EXISTS lifecycle_status TEXT NOT NULL DEFAULT 'queued',
+        ADD COLUMN IF NOT EXISTS scheduled_start_at TIMESTAMP
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS site_content_rules (
+        id            SERIAL PRIMARY KEY,
+        site_id       INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+        rule_type     TEXT NOT NULL,
+        pattern       TEXT NOT NULL,
+        pattern_type  TEXT NOT NULL DEFAULT 'contains',
+        note          TEXT,
+        enabled       BOOLEAN NOT NULL DEFAULT TRUE,
+        created_by    TEXT,
+        created_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at    TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS site_content_rules_site_idx
+      ON site_content_rules(site_id)
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS crawler_url_events (
+        id           SERIAL PRIMARY KEY,
+        session_id   INTEGER NOT NULL REFERENCES crawler_sessions(id) ON DELETE CASCADE,
+        url          TEXT NOT NULL,
+        disposition  TEXT NOT NULL,
+        reason       TEXT NOT NULL,
+        source_url   TEXT,
+        rule_id      INTEGER REFERENCES site_content_rules(id) ON DELETE SET NULL,
+        created_at   TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS crawler_url_events_session_idx
+      ON crawler_url_events(session_id)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS crawler_url_events_disposition_idx
+      ON crawler_url_events(session_id, disposition)
+    `);
+
+    // 30. Add rule_count to crawler_pages (distinct rules with ≥1 occurrence per page)
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'crawler_pages' AND column_name = 'rule_count'
+        ) THEN
+          ALTER TABLE crawler_pages ADD COLUMN rule_count INTEGER NOT NULL DEFAULT 0;
+        END IF;
+      END
+      $$
+    `);
+
+    // 29. Create crawler_discovery_cache table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS crawler_discovery_cache (
+        id                SERIAL PRIMARY KEY,
+        domain            TEXT    NOT NULL UNIQUE,
+        seed_url          TEXT    NOT NULL,
+        source_session_id INTEGER REFERENCES crawler_sessions(id) ON DELETE SET NULL,
+        url_count         INTEGER NOT NULL DEFAULT 0,
+        cached_at         TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // 31. Create site_score_history table (persists per-session score for history + delta)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS site_score_history (
+        id                  SERIAL       PRIMARY KEY,
+        site_id             INTEGER      NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+        crawler_session_id  INTEGER      NOT NULL REFERENCES crawler_sessions(id) ON DELETE CASCADE,
+        score               NUMERIC(5,1) NOT NULL,
+        scanned_at          TIMESTAMP    NOT NULL DEFAULT NOW(),
+        UNIQUE(crawler_session_id)
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS site_score_history_site_idx
+      ON site_score_history(site_id, scanned_at DESC)
+    `);
+
+    // 32. QA pages table — per-page metadata collected during accessibility scans
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS qa_pages (
+        id            SERIAL      PRIMARY KEY,
+        scan_id       INTEGER     NOT NULL REFERENCES scan_sessions(id) ON DELETE CASCADE,
+        url           TEXT        NOT NULL,
+        title         TEXT,
+        meta_description TEXT,
+        h1            TEXT,
+        http_status   INTEGER,
+        word_count    INTEGER,
+        content_hash  TEXT,
+        crawl_depth   INTEGER,
+        inlink_count  INTEGER     NOT NULL DEFAULT 0,
+        is_pdf        BOOLEAN     NOT NULL DEFAULT FALSE,
+        last_modified TEXT,
+        scanned_at    TIMESTAMP   DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS qa_pages_scan_id_idx ON qa_pages(scan_id)
+    `);
+
+    // 33. QA links table — link graph collected during accessibility scans
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS qa_links (
+        id           SERIAL    PRIMARY KEY,
+        scan_id      INTEGER   NOT NULL REFERENCES scan_sessions(id) ON DELETE CASCADE,
+        source_url   TEXT      NOT NULL,
+        dest_url     TEXT      NOT NULL,
+        anchor_text  TEXT,
+        link_type    TEXT      NOT NULL DEFAULT 'internal',
+        http_status  INTEGER,
+        is_redirect  BOOLEAN   NOT NULL DEFAULT FALSE,
+        redirect_to  TEXT,
+        checked_at   TIMESTAMP
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS qa_links_scan_id_idx ON qa_links(scan_id)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS qa_links_dest_url_idx ON qa_links(scan_id, dest_url)
+    `);
+
+    // 34. Crawler QA pipeline — new columns on existing tables
+    await client.query(`ALTER TABLE qa_pages ADD COLUMN IF NOT EXISTS body_text TEXT`);
+    await client.query(`ALTER TABLE qa_pages ADD COLUMN IF NOT EXISTS in_sitemap BOOLEAN NOT NULL DEFAULT FALSE`);
+    await client.query(`ALTER TABLE qa_links ADD COLUMN IF NOT EXISTS is_unsafe BOOLEAN NOT NULL DEFAULT FALSE`);
+
+    // 35. QA images table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS qa_images (
+        id           SERIAL    PRIMARY KEY,
+        scan_id      INTEGER   NOT NULL REFERENCES scan_sessions(id) ON DELETE CASCADE,
+        source_url   TEXT      NOT NULL,
+        src          TEXT      NOT NULL,
+        alt          TEXT,
+        width        INTEGER,
+        height       INTEGER,
+        is_external  BOOLEAN   NOT NULL DEFAULT FALSE,
+        http_status  INTEGER,
+        is_broken    BOOLEAN   NOT NULL DEFAULT FALSE,
+        checked_at   TIMESTAMP
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS qa_images_scan_id_idx ON qa_images(scan_id)`);
+
+    // 36. QA word inventory table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS qa_word_inventory (
+        id           SERIAL    PRIMARY KEY,
+        scan_id      INTEGER   NOT NULL REFERENCES scan_sessions(id) ON DELETE CASCADE,
+        word         TEXT      NOT NULL,
+        page_count   INTEGER   NOT NULL DEFAULT 0,
+        total_count  INTEGER   NOT NULL DEFAULT 0
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS qa_word_inventory_scan_id_idx ON qa_word_inventory(scan_id)`);
+
+    // issue_decisions — false positive / can't-fix decisions per occurrence
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS issue_decisions (
+        id               SERIAL    PRIMARY KEY,
+        scan_session_id  INTEGER   NOT NULL REFERENCES scan_sessions(id) ON DELETE CASCADE,
+        page_id          INTEGER,
+        issue_id         INTEGER,
+        rule_id          TEXT      NOT NULL,
+        selector         TEXT,
+        element_snippet  TEXT,
+        page_url         TEXT,
+        issue_description TEXT,
+        decision_type    TEXT      NOT NULL,
+        scope            TEXT      NOT NULL DEFAULT 'single',
+        reason           TEXT,
+        submitted_by     INTEGER   NOT NULL,
+        submitter_name   TEXT,
+        review_status    TEXT      NOT NULL DEFAULT 'pending',
+        reviewed_by      INTEGER,
+        reviewer_name    TEXT,
+        review_comment   TEXT,
+        created_at       TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at       TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS issue_decisions_scan_id_idx ON issue_decisions(scan_session_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS issue_decisions_submitted_by_idx ON issue_decisions(submitted_by)`);
+
+    // Add class_pattern and pages_affected columns to issue_decisions if missing
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'issue_decisions' AND column_name = 'class_pattern'
+        ) THEN
+          ALTER TABLE issue_decisions ADD COLUMN class_pattern TEXT;
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'issue_decisions' AND column_name = 'pages_affected'
+        ) THEN
+          ALTER TABLE issue_decisions ADD COLUMN pages_affected INTEGER;
+        END IF;
+      END
+      $$
+    `);
+
+    // Add scan_started_at to crawler_sessions (tracks when Phase 2 began)
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'crawler_sessions' AND column_name = 'scan_started_at'
+        ) THEN
+          ALTER TABLE crawler_sessions ADD COLUMN scan_started_at TIMESTAMP;
+        END IF;
+      END
+      $$
+    `);
+
+    // Add can_switch_site to user_permissions (site dropdown access for non-super_admin)
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'user_permissions' AND column_name = 'can_switch_site'
+        ) THEN
+          ALTER TABLE user_permissions ADD COLUMN can_switch_site BOOLEAN NOT NULL DEFAULT FALSE;
+        END IF;
+      END
+      $$
+    `);
+
+    // 37. site_user_access — direct per-user site access (multi-site model)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS site_user_access (
+        id         SERIAL    PRIMARY KEY,
+        site_id    INTEGER   NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+        user_id    INTEGER   NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role       TEXT      NOT NULL DEFAULT 'member',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        UNIQUE(site_id, user_id)
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS site_user_access_site_idx ON site_user_access(site_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS site_user_access_user_idx ON site_user_access(user_id)`);
+
+    // 38. site_group_access — group-level site access (users inherit via group membership)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS site_group_access (
+        id         SERIAL    PRIMARY KEY,
+        site_id    INTEGER   NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+        group_id   INTEGER   NOT NULL REFERENCES user_groups(id) ON DELETE CASCADE,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        UNIQUE(site_id, group_id)
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS site_group_access_site_idx ON site_group_access(site_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS site_group_access_group_idx ON site_group_access(group_id)`);
+
+    // 39. Enforce role domain on site_user_access (idempotent via DO block)
+    await client.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'site_user_access_role_check'
+            AND conrelid = 'site_user_access'::regclass
+        ) THEN
+          ALTER TABLE site_user_access
+            ADD CONSTRAINT site_user_access_role_check
+            CHECK (role IN ('owner', 'member'));
+        END IF;
+      END $$
+    `);
+
+    // 40. Add site_id to scan_sessions — associates a manual scan with a site
+    await client.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'scan_sessions' AND column_name = 'site_id'
+        ) THEN
+          ALTER TABLE scan_sessions
+            ADD COLUMN site_id INTEGER REFERENCES sites(id) ON DELETE SET NULL;
+          CREATE INDEX IF NOT EXISTS scan_sessions_site_id_idx ON scan_sessions(site_id);
+        END IF;
+      END $$
+    `);
+
+    // 41. Backfill site_id on existing scan_sessions by matching their page URLs to
+    //     sites.base_url. scan_sessions has no direct url column — URLs live in
+    //     page_results. Picks the longest matching (most specific) site.
+    //     Safe to re-run — only touches rows where site_id IS NULL.
+    await client.query(`
+      UPDATE scan_sessions ss
+      SET site_id = (
+        SELECT s.id
+        FROM sites s
+        WHERE EXISTS (
+          SELECT 1 FROM page_results pr
+          WHERE pr.scan_id = ss.id
+            AND pr.url LIKE rtrim(s.base_url, '/') || '%'
+          LIMIT 1
+        )
+        ORDER BY LENGTH(s.base_url) DESC
+        LIMIT 1
+      )
+      WHERE ss.site_id IS NULL
+        AND EXISTS (
+          SELECT 1 FROM page_results pr
+          JOIN sites s ON pr.url LIKE rtrim(s.base_url, '/') || '%'
+          WHERE pr.scan_id = ss.id
+        )
+    `);
+
+    // 42. rule_page_stats — per-rule element/page check counts for true CRr scoring
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rule_page_stats (
+        id              SERIAL  PRIMARY KEY,
+        page_result_id  INTEGER NOT NULL REFERENCES page_results(id) ON DELETE CASCADE,
+        rule_id         TEXT    NOT NULL,
+        total_checked   INTEGER NOT NULL DEFAULT 0,
+        scope           TEXT    NOT NULL DEFAULT 'element',
+        UNIQUE(page_result_id, rule_id)
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS rule_page_stats_page_idx ON rule_page_stats(page_result_id)
     `);
 
     await client.query("COMMIT");
@@ -534,6 +1086,14 @@ function startListening(port: number, remainingRetries = 8, retryDelayMs = 2000)
   server.on("listening", () => {
     logger.info({ port }, "Server listening");
     startScanWatchdog();
+    const scheduleTick = () => {
+      void Promise.all([runScheduledCrawls(), runDueCrawlerSessions()]).catch((err) =>
+        logger.error({ err }, "Scheduled crawler tick failed"),
+      );
+    };
+    scheduleTick();
+    const timer = setInterval(scheduleTick, 60_000);
+    timer.unref();
   });
 
   server.on("error", (err: NodeJS.ErrnoException) => {
@@ -555,7 +1115,6 @@ function startListening(port: number, remainingRetries = 8, retryDelayMs = 2000)
     }
   });
 }
-
 
 /**
  * Verify the database accepts writes before starting the server.
@@ -603,8 +1162,9 @@ async function checkDatabaseWritable(): Promise<void> {
 
 runStartupMigrations()
   .then(() => checkDatabaseWritable())
-  .then(() => Promise.all([seedDefaultAdmin()]))
+  .then(() => Promise.all([seedDefaultAdmin(), ensureChromeDependencies()]))
   .then(() => recoverOrphanedScans())
+  .then(() => resumeOrphanedCrawlerSessions())
   .then(() => startListening(port))
   .catch((err) => {
     logger.error({ err }, "Startup failed");

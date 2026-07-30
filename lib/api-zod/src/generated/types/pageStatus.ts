@@ -14,4 +14,8 @@ export interface PageStatus {
   criticalCount: number;
   /** @nullable */
   errorMessage: string | null;
+  /** @nullable */
+  loadDurationMs: number | null;
+  /** @nullable */
+  scanDurationMs: number | null;
 }

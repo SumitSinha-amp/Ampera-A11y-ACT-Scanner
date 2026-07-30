@@ -15,4 +15,5 @@ export const ScanStatusStatus = {
   completed: "completed",
   cancelled: "cancelled",
   failed: "failed",
+  paused: "paused",
 } as const;

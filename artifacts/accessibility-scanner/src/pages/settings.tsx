@@ -460,7 +460,8 @@ function LogoSettingsCard() {
                       id="logo-text-color"
                       type="color"
                       value={logoTextColor || "#000000"}
-                      onChange={(e) => applyLogoTextColor(e.target.value)}
+                      onChange={(e) => setLogoTextColorState(e.target.value)}
+                      onBlur={(e) => applyLogoTextColor(e.target.value)}
                       className="sr-only"
                     />
                     <label
@@ -558,6 +559,7 @@ export default function Settings() {
   const [savedProxies, setSavedProxies] = useState<string[]>([]);
   const [activeProxy, setActiveProxy] = useState<string>("");
   const [newPacUrl, setNewPacUrl] = useState("");
+  const [testingProxy, setTestingProxy] = useState<string | null>(null);
   const [elementViewerEnabled, setElementViewerEnabledState] =
     useState<boolean>(false);
   const [theme, setThemeState] = useState<Theme>("system");
@@ -567,6 +569,8 @@ export default function Settings() {
   const [globalTimeoutMs, setGlobalTimeoutMs] = useState<number>(10000);
   const [customTimeoutSecs, setCustomTimeoutSecs] = useState("");
   const [savingTimeout, setSavingTimeout] = useState(false);
+  const [smartAnalysisAiEnabled, setSmartAnalysisAiEnabled] = useState(false);
+  const [savingSmartAi, setSavingSmartAi] = useState(false);
 
   const saveScanDelay = useCallback(async (ms: number, label: string) => {
     setSavingTimeout(true);
@@ -606,6 +610,10 @@ export default function Settings() {
     fetch(`${BASE}/api/scan-settings`, { credentials: "include" })
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d != null && typeof d.pageTimeoutMs === "number") setGlobalTimeoutMs(d.pageTimeoutMs); })
+      .catch(() => {});
+    fetch(`${BASE}/api/ai/config`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.smartAnalysisAiEnabled != null) setSmartAnalysisAiEnabled(d.smartAnalysisAiEnabled); })
       .catch(() => {});
   }, []);
 
@@ -675,12 +683,37 @@ export default function Settings() {
     toast({ title: "PAC URL removed" });
   };
 
+  const testProxy = async (proxyUrl: string) => {
+    setTestingProxy(proxyUrl);
+    try {
+      const resp = await fetch("/api/admin/proxy/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proxyUrl }),
+      });
+      const data = (await resp.json()) as { ok: boolean; ms?: number; error?: string };
+      if (data.ok) {
+        toast({
+          title: "Proxy reachable",
+          description: `HTTPS tunneling confirmed in ${data.ms}ms`,
+        });
+      } else {
+        toast({
+          title: "Proxy test failed",
+          description: data.error ?? "Unknown error",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      toast({ title: "Proxy test failed", description: "Network error — could not reach API", variant: "destructive" });
+    } finally {
+      setTestingProxy(null);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-2xl">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground mt-1">Manage your appearance, scan, and proxy preferences.</p>
-      </div>
+      <p className="text-muted-foreground">Manage your appearance, scan, and proxy preferences.</p>
 
       <Tabs defaultValue="appearance">
         <TabsList className="mb-2">
@@ -878,7 +911,7 @@ export default function Settings() {
                 )}
               </div>
               <CardDescription>
-                How long to wait after <strong>DOMContentLoaded</strong> before running checks. At <strong>0 s</strong> the scanner captures the DOM before JS post-load callbacks (setTimeout, requestAnimationFrame, etc.) have had a chance to patch accessibility issues — this matches Siteimprove's scan point. Increasing the delay lets more JS run first, which can cause issues to disappear from results.
+                How long to wait after <strong>DOMContentLoaded</strong> before running checks. At <strong>0 s</strong> the scanner captures the DOM before JS post-load callbacks (setTimeout, requestAnimationFrame, etc.) have had a chance to patch accessibility issues — this matches the scan point used by leading accessibility platforms. Increasing the delay lets more JS run first, which can cause issues to disappear from results.
                 {!isSuperAdmin(user) && " Only super admins can change this setting."}
               </CardDescription>
             </CardHeader>
@@ -953,6 +986,55 @@ export default function Settings() {
               )}
             </CardContent>
           </Card>
+
+          {isSuperAdmin(user) && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-muted-foreground" />
+                  <CardTitle>Smart Analysis AI</CardTitle>
+                </div>
+                <CardDescription>
+                  When enabled, users with Smart Analysis access can request AI-generated
+                  insights for individual components — root cause, fix strategy, and priority.
+                  Requires an external AI provider to be configured in the Admin panel.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Enable AI insights for Smart Analysis</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Adds a per-component &ldquo;Get AI Insights&rdquo; button in Smart Analysis
+                    </p>
+                  </div>
+                  <Switch
+                    checked={smartAnalysisAiEnabled}
+                    disabled={savingSmartAi}
+                    onCheckedChange={async (v) => {
+                      setSavingSmartAi(true);
+                      try {
+                        const r = await fetch(`${BASE}/api/admin/settings`, {
+                          method: "PUT",
+                          credentials: "include",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ smart_analysis_ai_enabled: String(v) }),
+                        });
+                        if (r.ok) {
+                          setSmartAnalysisAiEnabled(v);
+                          toast({ title: v ? "Smart Analysis AI enabled" : "Smart Analysis AI disabled" });
+                        } else {
+                          toast({ title: "Failed to save setting", variant: "destructive" });
+                        }
+                      } finally {
+                        setSavingSmartAi(false);
+                      }
+                    }}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* ── Proxy & Tools tab ───────────────────────────────────────────── */}
@@ -1027,6 +1109,24 @@ export default function Settings() {
                           {pac}
                         </code>
                         <div className="flex items-center gap-2 shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                            disabled={testingProxy === pac}
+                            onClick={() => void testProxy(pac)}
+                            title="Test if this proxy supports HTTPS tunneling"
+                          >
+                            {testingProxy === pac ? (
+                              <span className="flex items-center gap-1">
+                                <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                                </svg>
+                                Testing…
+                              </span>
+                            ) : "Test"}
+                          </Button>
                           {activeProxy === pac ? (
                             <Badge
                               variant="secondary"

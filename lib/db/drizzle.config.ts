@@ -7,7 +7,10 @@ if (!process.env.DATABASE_URL) {
 }
 
 export default defineConfig({
-  schema: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "src/schema"),
+  schema: path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "src/schema",
+  ),
   dialect: "postgresql",
   dbCredentials: {
     url: process.env.DATABASE_URL,
