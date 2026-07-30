@@ -68,6 +68,7 @@ import { SiteProvider } from "@/contexts/site";
 import AdminSiteManagerPage from "@/pages/admin/site-manager";
 import { AppStatusProvider, useAppStatus } from "@/contexts/app-status";
 import MaintenancePage from "@/pages/maintenance";
+import WelcomePage from "@/pages/welcome";
 import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
 
@@ -141,7 +142,10 @@ function Router() {
 
       {/* Protected app routes */}
       <Route path="/">
-        <AuthGuard><Redirect to="/scans" /></AuthGuard>
+        <AuthGuard><Redirect to="/welcome" /></AuthGuard>
+      </Route>
+      <Route path="/welcome">
+        <AuthGuard><Layout><WelcomePage /></Layout></AuthGuard>
       </Route>
       <Route path="/new">
         <AuthGuard><Layout><Home /></Layout></AuthGuard>
@@ -179,9 +183,6 @@ function Router() {
       <Route path="/activity">
         <AuthGuard><Layout><ActivityPage /></Layout></AuthGuard>
       </Route>
-     {/*} <Route path="/advanced">
-        <AuthGuard><Layout><AdvancedScanPage /></Layout></AuthGuard>
-      </Route>*/}
       <Route path="/crawler/new">
         <AuthGuard><Layout><CrawlerNewPage /></Layout></AuthGuard>
       </Route>
@@ -286,9 +287,6 @@ function Router() {
       <Route path="/quality-assurance/spelling/progress">
         <AuthGuard><Layout><QAStubPage /></Layout></AuthGuard>
       </Route>
-     {/*<Route path="/seo">
-        <AuthGuard><Layout><SeoPage /></Layout></AuthGuard>
-      </Route>*/}
       <Route path="/sites/:siteId/issues/:ruleId">
         {(params: { siteId: string; ruleId: string }) => (
           <AuthGuard>
