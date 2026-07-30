@@ -98,19 +98,10 @@ app.use(
     },
   })
 );
-// Health endpoint for Azure/App Service
-app.get("/", (_req, res) => {
-  res.status(200).json({
-    status: "OK",
-    service: "Accessibility Scanner API",
-    uptime: process.uptime(),
-  });
-});
-
-app.get("/health", (_req, res) => {
-  res.status(200).json({
-    status: "healthy",
-  });
+app.get("/api/healthz", (_req, res) => {
+    res.json({
+        status: "healthy"
+    });
 });
 app.use("/api", router);
 
