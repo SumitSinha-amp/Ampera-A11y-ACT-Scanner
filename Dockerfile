@@ -87,12 +87,9 @@ RUN pnpm rebuild esbuild puppeteer core-js @clerk/shared
 RUN pnpm --filter @workspace/api-server build
 
 RUN pnpm --filter @workspace/accessibility-scanner build
-RUN echo "===== Build Output =====" && \
-    find /app -name "index.html" && \
-    echo "===== Dist Directories =====" && \
-    find /app -type d -name "dist" && \
-    echo "===== Artifacts =====" && \
-    find /app/artifacts -maxdepth 4
+RUN mkdir -p artifacts/api-server/dist/public && \
+    cp -a artifacts/accessibility-scanner/dist/public/. \
+          artifacts/api-server/dist/public/
 # =========================
 # Expose Port
 # =========================
