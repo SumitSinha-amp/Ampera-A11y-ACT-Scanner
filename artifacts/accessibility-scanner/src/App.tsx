@@ -22,7 +22,7 @@ import AdminDashboardPage from "@/pages/admin/dashboard";
 import AdminPermissionsPage from "@/pages/admin/permissions";
 import AdminSettingsPage from "@/pages/admin/settings";
 import TicketsPage from "@/pages/tickets";
-import AdvancedScanPage from "@/pages/advanced-scan";
+//import AdvancedScanPage from "@/pages/advanced-scan";
 import CrawlerListPage from "@/pages/crawler-list";
 import CrawlerNewPage from "@/pages/crawler-new";
 import CrawlerDetailPage from "@/pages/crawler-detail";
@@ -62,7 +62,7 @@ import QAPagesWithBrokenPage from "@/pages/qa-pages-with-broken";
 import QAUnsafeLinksPage from "@/pages/qa-unsafe-links";
 import QASitemapPage from "@/pages/qa-sitemap";
 import QAWordInventoryPage from "@/pages/qa-word-inventory";
-import SeoPage from "@/pages/seo";
+//import SeoPage from "@/pages/seo";
 import { AuthProvider, useAuth } from "@/contexts/auth";
 import { SiteProvider } from "@/contexts/site";
 import AdminSiteManagerPage from "@/pages/admin/site-manager";
@@ -179,9 +179,9 @@ function Router() {
       <Route path="/activity">
         <AuthGuard><Layout><ActivityPage /></Layout></AuthGuard>
       </Route>
-      <Route path="/advanced">
+     {/*} <Route path="/advanced">
         <AuthGuard><Layout><AdvancedScanPage /></Layout></AuthGuard>
-      </Route>
+      </Route>*/}
       <Route path="/crawler/new">
         <AuthGuard><Layout><CrawlerNewPage /></Layout></AuthGuard>
       </Route>
@@ -286,9 +286,9 @@ function Router() {
       <Route path="/quality-assurance/spelling/progress">
         <AuthGuard><Layout><QAStubPage /></Layout></AuthGuard>
       </Route>
-      <Route path="/seo">
+     {/*<Route path="/seo">
         <AuthGuard><Layout><SeoPage /></Layout></AuthGuard>
-      </Route>
+      </Route>*/}
       <Route path="/sites/:siteId/issues/:ruleId">
         {(params: { siteId: string; ruleId: string }) => (
           <AuthGuard>
