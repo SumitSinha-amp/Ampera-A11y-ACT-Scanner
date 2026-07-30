@@ -88,7 +88,7 @@ RUN pnpm --filter @workspace/api-server build
 
 RUN pnpm --filter @workspace/accessibility-scanner build
 RUN mkdir -p artifacts/api-server/dist/public && \
-    cp -R artifacts/accessibility-scanner/dist/* artifacts/api-server/dist/public/
+    cp -a artifacts/accessibility-scanner/dist/. artifacts/api-server/dist/public/
 # =========================
 # Expose Port
 # =========================
