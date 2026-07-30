@@ -1,0 +1,251 @@
+import { Link } from "wouter";
+import { useListScans, getListScansQueryKey } from "@workspace/api-client-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  History,
+  BookOpen,
+  PlayCircle,
+  Sparkles,
+  ArrowRight,
+  Layers,
+  FilePlus2,
+  Route,
+  PersonStanding,
+} from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+
+interface Scan {
+  id: number;
+  name: string | null;
+  status: string;
+  totalUrls: number;
+  totalIssues?: number | null;
+  createdAt?: string | null;
+}
+
+export default function WelcomePage() {
+  const listParams = {};
+  const { data: allScans, isLoading } = useListScans(
+    listParams,
+    {
+      query: {
+        queryKey: getListScansQueryKey(listParams),
+        refetchOnWindowFocus: false,
+      },
+    }
+  );
+
+  const recentScans = ((allScans as Scan[] | undefined) || []).slice(0, 3);
+
+  return (
+    <div className="min-h-[100dvh] flex flex-col">
+      {/* Compact header tab */}
+      <div className="border-b bg-card/50">
+        <div className="flex items-center gap-2 px-6 py-2.5">
+          <div className="flex items-center gap-2 px-3 py-1 rounded-md bg-primary/10 border border-primary/20">
+           <PersonStanding className="w-3.5 h-3.5 text-primary" />
+            <span className="text-lg font-medium text-foreground">Welcome</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-5xl space-y-10 px-6 py-10 md:py-12">
+          {/* Header */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
+                  Ampera Accessibility Compliance Platform(ACT)
+                </h1>
+                <p className="mt-0.5 text-sm font-medium text-primary">
+                  Accessibility workspace
+                </p>
+              </div>
+            </div>
+            <p className="max-w-2xl text-base leading-7 text-muted-foreground md:text-lg">
+              Professional accessibility and quality assurance workspace for enterprise.
+            </p>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Badge variant="outline" className="font-mono text-xs">
+                Version 1.2.0
+              </Badge>
+              <Link href="/app-updates">
+                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5">
+                  What's new
+                  <ArrowRight className="w-3 h-3" />
+                </Button>
+              </Link>
+            </div>
+          </div>
+
+          {/* Start section */}
+          <section className="space-y-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+              Start
+            </h2>
+            <div className="grid items-stretch gap-4 sm:grid-cols-2">
+              <Link href="/new" data-testid="link-start-manual-scan">
+                <Card className="group h-full min-h-[132px] cursor-pointer border-border/80 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-muted/30 hover:shadow-md">
+                  <CardContent className="flex h-full items-start gap-4 p-5">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+                      <FilePlus2 className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <h3 className="text-base font-semibold">Start a manual scan</h3>
+                      <p className="text-sm leading-relaxed text-muted-foreground">
+                        Check one or more URLs for accessibility issues
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+
+              <Link href="/crawler/new" data-testid="link-start-crawler-scan">
+                <Card className="group h-full min-h-[132px] cursor-pointer border-border/80 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-muted/30 hover:shadow-md">
+                  <CardContent className="flex h-full items-start gap-4 p-5">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+                      <Route className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <h3 className="text-base font-semibold">Start a crawler scan</h3>
+                      <p className="text-sm leading-relaxed text-muted-foreground">
+                        Scan entire sites with sitemap, URL list, or crawl-based workflows
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            </div>
+          </section>
+
+          {/* Recent section */}
+          {!isLoading && recentScans.length > 0 && (
+            <section className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                  Recent
+                </h2>
+                <Link href="/scans">
+                  <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" data-testid="link-view-all-scans">
+                    View all
+                    <ArrowRight className="w-3 h-3" />
+                  </Button>
+                </Link>
+              </div>
+              <div className="space-y-3">
+                {recentScans.map((scan) => (
+                  <Link href={`/scans/${scan.id}`} key={scan.id} data-testid={`link-recent-scan-${scan.id}`}>
+                    <Card className="group cursor-pointer border-border/80 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-muted/30 hover:shadow-sm">
+                      <CardContent className="flex min-h-[72px] items-center gap-4 p-4">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
+                          <Layers className="h-4 w-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-medium text-sm truncate">
+                              {scan.name || `Scan #${scan.id}`}
+                            </h3>
+                            {scan.status === "completed" && (
+                              <Badge variant="outline" className="text-xs bg-green-500/10 text-green-600 border-green-500/20">
+                                Complete
+                              </Badge>
+                            )}
+                            {scan.status === "running" && (
+                              <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/20">
+                                Running
+                              </Badge>
+                            )}
+                            {scan.status === "failed" && (
+                              <Badge variant="outline" className="text-xs bg-red-500/10 text-red-600 border-red-500/20">
+                                Failed
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            <span className="font-mono">
+                              {scan.totalUrls} {scan.totalUrls === 1 ? "page" : "pages"}
+                            </span>
+                            {scan.totalIssues !== undefined && scan.totalIssues !== null && (
+                              <span>
+                                {scan.totalIssues} {scan.totalIssues === 1 ? "issue" : "issues"}
+                              </span>
+                            )}
+                            {scan.createdAt && (
+                              <span>
+                                {formatDistanceToNow(new Date(scan.createdAt), { addSuffix: true })}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Help section */}
+          <section className="space-y-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+              Help
+            </h2>
+            <div className="grid items-stretch gap-3 sm:grid-cols-3">
+              <Link href="/app-walkthrough" data-testid="link-app-walkthrough">
+                <div className="group flex h-full min-h-[76px] items-center gap-3 rounded-xl border border-border/70 bg-card/40 px-4 py-3 text-left transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-muted/50 hover:shadow-sm">
+                    <PlayCircle className="h-5 w-5 shrink-0 text-primary" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold transition-colors group-hover:text-primary">
+                        App Walkthrough
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Learn the interface
+                      </div>
+                    </div>
+                    <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                </div>
+              </Link>
+
+              <Link href="/documentation" data-testid="link-documentation">
+                <div className="group flex h-full min-h-[76px] items-center gap-3 rounded-xl border border-border/70 bg-card/40 px-4 py-3 text-left transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-muted/50 hover:shadow-sm">
+                    <BookOpen className="h-5 w-5 shrink-0 text-primary" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold transition-colors group-hover:text-primary">
+                        Documentation
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Rules and guidance
+                      </div>
+                    </div>
+                    <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                </div>
+              </Link>
+
+              <Link href="/scans" data-testid="link-scan-history">
+                <div className="group flex h-full min-h-[76px] items-center gap-3 rounded-xl border border-border/70 bg-card/40 px-4 py-3 text-left transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-muted/50 hover:shadow-sm">
+                    <History className="h-5 w-5 shrink-0 text-primary" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold transition-colors group-hover:text-primary">
+                        Scan History
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Review past scans
+                      </div>
+                    </div>
+                    <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                </div>
+              </Link>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}

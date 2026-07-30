@@ -39,6 +39,7 @@ import {
   Map,
   Megaphone,
   X,
+  Home,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -1899,7 +1900,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </aside>
 
           <main className="flex-1 min-w-0 overflow-auto">
-            <div className="p-6 md:p-8 w-full">{children}</div>
+            <div className="p-6 md:p-8 w-full">
+              {location !== "/welcome" && (
+                <Link
+                  href="/welcome"
+                  data-testid="link-back-to-home"
+                  className="mb-6 inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Home className="h-4 w-4" />
+                  Back to Home
+                </Link>
+              )}
+              {children}
+            </div>
           </main>
         </div>
 
