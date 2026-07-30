@@ -398,6 +398,7 @@ async function runStartupMigrations(): Promise<void> {
         total_failed        INTEGER     NOT NULL DEFAULT 0,
         total_skipped       INTEGER     NOT NULL DEFAULT 0,
         total_issues        INTEGER     NOT NULL DEFAULT 0,
+        total_rules         INTEGER     NOT NULL DEFAULT 0,
         broken_links_count  INTEGER     NOT NULL DEFAULT 0,
         created_at          TIMESTAMP   NOT NULL DEFAULT NOW(),
         started_at          TIMESTAMP,
@@ -405,6 +406,14 @@ async function runStartupMigrations(): Promise<void> {
         paused_at           TIMESTAMP,
         error_message       TEXT
       )
+    `);
+
+    // 23b. Add total_rules to existing crawler_sessions tables.
+    // The column is included above for new databases, while this migration
+    // brings existing Azure/PostgreSQL deployments up to the current schema.
+    await client.query(`
+      ALTER TABLE crawler_sessions
+        ADD COLUMN IF NOT EXISTS total_rules INTEGER NOT NULL DEFAULT 0
     `);
 
     // 24. Create crawler_pages table
