@@ -680,6 +680,12 @@ export default function CrawlerNewPage() {
                   </div>
                 )}
 
+               </CardContent>
+             </Card>
+
+             <Card>
+               <CardHeader><CardTitle>Filters &amp; Scan Behavior</CardTitle></CardHeader>
+               <CardContent className="space-y-4">
                 <Separator />
 
                 {/* Locale / Path Filter — toggle */}
@@ -772,7 +778,7 @@ export default function CrawlerNewPage() {
               </CardContent>
             </Card>
 
-             <Card>
+              <Card className="lg:col-span-2">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2"><Upload className="w-4 h-4" />Bulk URL Import</CardTitle>
                 <CardDescription>
