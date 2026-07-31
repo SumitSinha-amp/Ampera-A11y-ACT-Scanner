@@ -46,6 +46,7 @@ interface Site {
   nextCrawlAt: string | null;
   crawlType: string;
   assetMode: string;
+  maxPages: number;
 }
 
 interface Overview {
@@ -504,6 +505,7 @@ function SettingsTab({ siteId, site }: { siteId: string, site: Site }) {
     defaultScope: site.defaultScope,
     crawlType: site.crawlType,
     assetMode: site.assetMode,
+    maxPages: site.maxPages,
   });
 
   const updateSettings = useMutation({
@@ -572,6 +574,26 @@ function SettingsTab({ siteId, site }: { siteId: string, site: Site }) {
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">Controls bandwidth usage and thoroughness of structural integrity checks.</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="managedMaxPages" className="text-foreground">Managed Crawl Page Limit</Label>
+            <Input
+              id="managedMaxPages"
+              type="number"
+              min={1}
+              max={100000}
+              step={100}
+              value={formData.maxPages ?? 2000}
+              onChange={(e) => setFormData({
+                ...formData,
+                maxPages: Math.min(100000, Math.max(1, parseInt(e.target.value, 10) || 1)),
+              })}
+              className="font-mono"
+            />
+            <p className="text-xs text-muted-foreground">
+              Used by scheduled and “Run now” crawls. Manual crawls use the limit entered on their setup form.
+            </p>
           </div>
 
           <div className="space-y-2">
