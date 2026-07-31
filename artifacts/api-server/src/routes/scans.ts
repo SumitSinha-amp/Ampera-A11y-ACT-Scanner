@@ -3014,16 +3014,32 @@ router.get("/pages/:pageId/rule-report", requireAuth, async (req: Request, res: 
   const client = await pool.connect();
   try {
     const pageRes = await client.query(
-      `SELECT pr.url, pr.scan_id, pr.screenshot IS NOT NULL AS has_snapshot, ss.options
+      `SELECT pr.url, pr.scan_id, pr.screenshot IS NOT NULL AS has_snapshot,
+              ss.options, ss.site_id
        FROM page_results pr
        JOIN scan_sessions ss ON ss.id = pr.scan_id
        WHERE pr.id = $1`,
       [pageId],
     );
     if (pageRes.rows.length === 0) { res.status(404).json({ error: "Page not found" }); return; }
-    const { url, scan_id, has_snapshot, options } = pageRes.rows[0];
+    const { url, scan_id, has_snapshot, options, site_id } = pageRes.rows[0];
 
     if (!(await canAccessScan(req, scan_id))) { res.status(403).json({ error: "Forbidden" }); return; }
+    const user = req.session?.user;
+    const perms = await getEffectivePermissions(user?.id ?? 0, user?.role ?? "user");
+    if (!perms.canViewSiteAccessibilityDashboard) {
+      res.status(403).json({ error: "Site accessibility dashboard access is disabled" });
+      return;
+    }
+    if (!site_id || !(await canAccessSite(
+      user?.id ?? 0,
+      String(user?.id ?? 0),
+      user?.role ?? "user",
+      site_id,
+    ))) {
+      res.status(403).json({ error: "You do not have access to this site's accessibility report" });
+      return;
+    }
 
     const isCrawlerScan = (options as Record<string, unknown> | null)?.source === "crawler";
 

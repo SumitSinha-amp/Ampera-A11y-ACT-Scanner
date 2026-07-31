@@ -206,6 +206,34 @@ async function runStartupMigrations(): Promise<void> {
       $$
     `);
 
+    // 13b. Add crawler and site dashboard permissions.
+    // These are explicit so existing production user_permissions rows receive
+    // the same defaults as newly created rows.
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_permissions' AND column_name = 'can_create_crawl') THEN
+          ALTER TABLE user_permissions ADD COLUMN can_create_crawl BOOLEAN NOT NULL DEFAULT TRUE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_permissions' AND column_name = 'can_delete_crawl') THEN
+          ALTER TABLE user_permissions ADD COLUMN can_delete_crawl BOOLEAN NOT NULL DEFAULT TRUE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_permissions' AND column_name = 'can_view_crawl_history') THEN
+          ALTER TABLE user_permissions ADD COLUMN can_view_crawl_history BOOLEAN NOT NULL DEFAULT TRUE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_permissions' AND column_name = 'can_view_quality_assurance') THEN
+          ALTER TABLE user_permissions ADD COLUMN can_view_quality_assurance BOOLEAN NOT NULL DEFAULT TRUE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_permissions' AND column_name = 'can_view_site_accessibility_dashboard') THEN
+          ALTER TABLE user_permissions ADD COLUMN can_view_site_accessibility_dashboard BOOLEAN NOT NULL DEFAULT TRUE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_permissions' AND column_name = 'can_manage_sites') THEN
+          ALTER TABLE user_permissions ADD COLUMN can_manage_sites BOOLEAN NOT NULL DEFAULT FALSE;
+        END IF;
+      END
+      $$
+    `);
+
     // 14. Assign orphaned scans (NULL user_id) to superadmin
     await client.query(`
       UPDATE scan_sessions
@@ -504,6 +532,16 @@ async function runStartupMigrations(): Promise<void> {
         END IF;
       END
       $$
+    `);
+
+    // 28c. Bring existing crawler_pages tables up to the current page schema.
+    // CREATE TABLE IF NOT EXISTS does not alter an older Azure table, so every
+    // column introduced after the initial crawler release must be idempotently
+    // added for existing deployments as well.
+    await client.query(`
+      ALTER TABLE crawler_pages
+        ADD COLUMN IF NOT EXISTS rule_count INTEGER NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS captured_html TEXT
     `);
 
     // 28b. Siteimprove-style crawl policy, scheduling, and URL disposition tables.

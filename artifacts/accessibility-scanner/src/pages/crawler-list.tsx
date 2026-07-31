@@ -243,6 +243,7 @@ export default function CrawlerListPage() {
   const { activeSite } = useSite();
 
   const selectedSiteId = activeSite ? String(activeSite.id) : "all";
+  const canDeleteCrawl = user?.permissions?.canDeleteCrawl ?? false;
 
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
@@ -324,14 +325,16 @@ export default function CrawlerListPage() {
               : "View crawl timing and history per site."}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <Button asChild>
-            <Link href="/crawler/new">
-              <Plus className="w-4 h-4 mr-2" />
-              New Crawler
-            </Link>
-          </Button>
-        </div>
+        {user?.permissions.canCreateCrawl && (
+          <div className="flex items-center gap-3">
+            <Button asChild>
+              <Link href="/crawler/new">
+                <Plus className="w-4 h-4 mr-2" />
+                New Crawler
+              </Link>
+            </Button>
+          </div>
+        )}
       </div>
 
       {isLoading && (
@@ -343,9 +346,11 @@ export default function CrawlerListPage() {
           <CardContent className="py-16 text-center space-y-3">
             <Globe className="w-10 h-10 mx-auto text-muted-foreground" />
             <p className="text-muted-foreground">No crawler sessions yet.</p>
-            <Button asChild variant="outline">
-              <Link href="/crawler/new">Start your first crawl</Link>
-            </Button>
+            {user?.permissions.canCreateCrawl && (
+              <Button asChild variant="outline">
+                <Link href="/crawler/new">Start your first crawl</Link>
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -605,9 +610,11 @@ export default function CrawlerListPage() {
                                   <XCircle className="w-4 h-4" /> Cancel
                                 </DropdownMenuItem>
                               ) : null}
-                              <DropdownMenuItem onClick={() => setDeleteId(s.id)} className="gap-2 text-destructive focus:text-destructive">
-                                <Trash2 className="w-4 h-4" /> Delete
-                              </DropdownMenuItem>
+                              {canDeleteCrawl && (
+                                <DropdownMenuItem onClick={() => setDeleteId(s.id)} className="gap-2 text-destructive focus:text-destructive">
+                                  <Trash2 className="w-4 h-4" /> Delete
+                                </DropdownMenuItem>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>

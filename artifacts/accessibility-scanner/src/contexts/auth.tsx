@@ -13,6 +13,12 @@ export interface UserPermissions {
   canDisableJs: boolean;
   canSmartAnalysis: boolean;
   canSwitchSite: boolean;
+  canCreateCrawl: boolean;
+  canDeleteCrawl: boolean;
+  canViewCrawlHistory: boolean;
+  canViewQualityAssurance: boolean;
+  canViewSiteAccessibilityDashboard: boolean;
+  canManageSites: boolean;
 }
 
 const DEFAULT_PERMISSIONS: UserPermissions = {
@@ -27,6 +33,12 @@ const DEFAULT_PERMISSIONS: UserPermissions = {
   canDisableJs: false,
   canSmartAnalysis: false,
   canSwitchSite: false,
+  canCreateCrawl: true,
+  canDeleteCrawl: true,
+  canViewCrawlHistory: true,
+  canViewQualityAssurance: true,
+  canViewSiteAccessibilityDashboard: true,
+  canManageSites: false,
 };
 
 export interface AuthUser {

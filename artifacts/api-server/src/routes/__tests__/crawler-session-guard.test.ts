@@ -7,14 +7,16 @@ import session from "express-session";
 const {
   mockDbQuery,
   mockCanAccessSite,
+  mockGetEffectivePermissions,
   mockPauseCrawlerJob,
   mockCancelCrawlerJob,
 } = vi.hoisted(() => {
   const mockDbQuery = vi.fn();
   const mockCanAccessSite = vi.fn();
+  const mockGetEffectivePermissions = vi.fn();
   const mockPauseCrawlerJob = vi.fn();
   const mockCancelCrawlerJob = vi.fn();
-  return { mockDbQuery, mockCanAccessSite, mockPauseCrawlerJob, mockCancelCrawlerJob };
+  return { mockDbQuery, mockCanAccessSite, mockGetEffectivePermissions, mockPauseCrawlerJob, mockCancelCrawlerJob };
 });
 
 // ─── Module mocks ─────────────────────────────────────────────────────────────
@@ -68,7 +70,7 @@ vi.mock("@workspace/db", () => {
 
 vi.mock("../../lib/permissions", () => ({
   canAccessSite: mockCanAccessSite,
-  getEffectivePermissions: vi.fn(),
+  getEffectivePermissions: mockGetEffectivePermissions,
   getEffectiveSites: vi.fn().mockResolvedValue([]),
 }));
 
@@ -175,6 +177,11 @@ const MOCK_SESSION_OWN = {
 describe("Crawler session IDOR guard — GET /api/crawler/sessions/:id", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetEffectivePermissions.mockResolvedValue({
+      canCreateCrawl: true,
+      canViewCrawlHistory: true,
+      canViewAllScans: false,
+    });
     mockPauseCrawlerJob.mockResolvedValue(undefined);
     mockCancelCrawlerJob.mockResolvedValue(undefined);
   });
@@ -392,6 +399,23 @@ describe("POST /api/crawler/sessions — siteId ownership guard", () => {
     expect(res.status).toBe(401);
   });
 
+  it("returns 403 when the user cannot create crawls", async () => {
+    mockGetEffectivePermissions.mockResolvedValueOnce({
+      canCreateCrawl: false,
+      canViewCrawlHistory: true,
+      canViewAllScans: false,
+    });
+
+    const app = await createTestApp(REGULAR_USER);
+    const res = await request(app)
+      .post("/api/crawler/sessions")
+      .send({ seedUrl: "https://example.com" });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ error: "Crawl creation is disabled" });
+    expect(mockDbQuery).not.toHaveBeenCalled();
+  });
+
   it("returns 400 when the siteId does not exist in the database", async () => {
     mockDbQuery.mockResolvedValueOnce([]); // site lookup returns nothing
 
@@ -429,5 +453,34 @@ describe("POST /api/crawler/sessions — siteId ownership guard", () => {
 
     // The guard must have been skipped — canAccessSite should never be reached
     expect(mockCanAccessSite).not.toHaveBeenCalled();
+  });
+});
+
+describe("Crawler history permission guards", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetEffectivePermissions.mockResolvedValue({
+      canCreateCrawl: true,
+      canViewCrawlHistory: false,
+      canViewAllScans: false,
+    });
+  });
+
+  it("denies the crawler history list when viewing history is disabled", async () => {
+    const app = await createTestApp(REGULAR_USER);
+    const res = await request(app).get("/api/crawler/sessions");
+
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ error: "Crawler history access is disabled" });
+    expect(mockDbQuery).not.toHaveBeenCalled();
+  });
+
+  it("denies crawler details before loading the session", async () => {
+    const app = await createTestApp(REGULAR_USER);
+    const res = await request(app).get("/api/crawler/sessions/999");
+
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ error: "Crawler history access is disabled" });
+    expect(mockDbQuery).not.toHaveBeenCalled();
   });
 });

@@ -22,7 +22,6 @@ import AdminDashboardPage from "@/pages/admin/dashboard";
 import AdminPermissionsPage from "@/pages/admin/permissions";
 import AdminSettingsPage from "@/pages/admin/settings";
 import TicketsPage from "@/pages/tickets";
-//import AdvancedScanPage from "@/pages/advanced-scan";
 import CrawlerListPage from "@/pages/crawler-list";
 import CrawlerNewPage from "@/pages/crawler-new";
 import CrawlerDetailPage from "@/pages/crawler-detail";
@@ -62,7 +61,6 @@ import QAPagesWithBrokenPage from "@/pages/qa-pages-with-broken";
 import QAUnsafeLinksPage from "@/pages/qa-unsafe-links";
 import QASitemapPage from "@/pages/qa-sitemap";
 import QAWordInventoryPage from "@/pages/qa-word-inventory";
-//import SeoPage from "@/pages/seo";
 import { AuthProvider, useAuth } from "@/contexts/auth";
 import { SiteProvider } from "@/contexts/site";
 import AdminSiteManagerPage from "@/pages/admin/site-manager";
@@ -114,6 +112,36 @@ function AdminGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function PermissionGuard({
+  permission,
+  children,
+}: {
+  permission:
+    | "canCreateCrawl"
+    | "canDeleteCrawl"
+    | "canViewCrawlHistory"
+    | "canViewQualityAssurance"
+    | "canViewSiteAccessibilityDashboard"
+    | "canManageSites";
+  children: React.ReactNode;
+}) {
+  const { user } = useAuth();
+  if (!user?.permissions?.[permission]) {
+    return <Redirect to="/welcome" />;
+  }
+  return <>{children}</>;
+}
+
+function QARoute({ children }: { children: React.ReactNode }) {
+  return (
+    <AuthGuard>
+      <PermissionGuard permission="canViewQualityAssurance">
+        <Layout>{children}</Layout>
+      </PermissionGuard>
+    </AuthGuard>
+  );
+}
+
 function SuperAdminGuard({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   if (!user || user.role !== "super_admin") {
@@ -154,7 +182,11 @@ function Router() {
         <AuthGuard><PageReport /></AuthGuard>
       </Route>
       <Route path="/sites/:siteId/page-report/:pageId">
-        <AuthGuard><SiteRulePageReport /></AuthGuard>
+        <AuthGuard>
+          <PermissionGuard permission="canViewSiteAccessibilityDashboard">
+            <SiteRulePageReport />
+          </PermissionGuard>
+        </AuthGuard>
       </Route>
       <Route path="/scans/:id/report">
         <AuthGuard><Layout><ScanReport /></Layout></AuthGuard>
@@ -184,161 +216,215 @@ function Router() {
         <AuthGuard><Layout><ActivityPage /></Layout></AuthGuard>
       </Route>
       <Route path="/crawler/new">
-        <AuthGuard><Layout><CrawlerNewPage /></Layout></AuthGuard>
+        <AuthGuard>
+          <PermissionGuard permission="canCreateCrawl">
+            <Layout><CrawlerNewPage /></Layout>
+          </PermissionGuard>
+        </AuthGuard>
       </Route>
       <Route path="/crawler/manage">
-        <AuthGuard><Layout><SiteManagementPage /></Layout></AuthGuard>
+        <AuthGuard>
+          <PermissionGuard permission="canManageSites">
+            <Layout><SiteManagementPage /></Layout>
+          </PermissionGuard>
+        </AuthGuard>
       </Route>
       <Route path="/crawler/sites/:siteId/manage">
-        <AuthGuard><Layout><SiteManagementPage /></Layout></AuthGuard>
+        <AuthGuard>
+          <PermissionGuard permission="canManageSites">
+            <Layout><SiteManagementPage /></Layout>
+          </PermissionGuard>
+        </AuthGuard>
       </Route>
       <Route path="/crawler/sites">
-        <AuthGuard><Layout><SitesPage /></Layout></AuthGuard>
+        <AuthGuard>
+          <PermissionGuard permission="canManageSites">
+            <Layout><SitesPage /></Layout>
+          </PermissionGuard>
+        </AuthGuard>
       </Route>
       {/* Quality Assurance — functional routes */}
       <Route path="/quality-assurance/check-history">
-        <AuthGuard><Layout><QACheckHistoryPage /></Layout></AuthGuard>
+        <QARoute><QACheckHistoryPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/links/broken">
-        <AuthGuard><Layout><QABrokenLinksPage /></Layout></AuthGuard>
+        <QARoute><QABrokenLinksPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/links/overview">
-        <AuthGuard><Layout><QALinksOverviewPage /></Layout></AuthGuard>
+        <QARoute><QALinksOverviewPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/inventory/pages">
-        <AuthGuard><Layout><QAInventoryPagesPage /></Layout></AuthGuard>
+        <QARoute><QAInventoryPagesPage /></QARoute>
       </Route>
       <Route path="/quality-assurance">
-        <AuthGuard><Layout><QualityAssurancePage /></Layout></AuthGuard>
+        <QARoute><QualityAssurancePage /></QARoute>
       </Route>
       {/* Quality Assurance — stub routes */}
       <Route path="/quality-assurance/priority-pages">
-        <AuthGuard><Layout><QAPriorityPagesPage /></Layout></AuthGuard>
+        <QARoute><QAPriorityPagesPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/single-page-check">
-        <AuthGuard><Layout><QAStubPage /></Layout></AuthGuard>
+        <QARoute><QAStubPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/inventory">
-        <AuthGuard><Layout><QAInventorySummaryPage /></Layout></AuthGuard>
+        <QARoute><QAInventorySummaryPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/inventory/links">
-        <AuthGuard><Layout><QAInventoryLinksPage /></Layout></AuthGuard>
+        <QARoute><QAInventoryLinksPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/inventory/link-text">
-        <AuthGuard><Layout><QALinkTextPage /></Layout></AuthGuard>
+        <QARoute><QALinkTextPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/inventory/documents">
-        <AuthGuard><Layout><QAInventoryDocumentsPage /></Layout></AuthGuard>
+        <QARoute><QAInventoryDocumentsPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/inventory/media">
-        <AuthGuard><Layout><QAInventoryMediaPage /></Layout></AuthGuard>
+        <QARoute><QAInventoryMediaPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/inventory/email">
-        <AuthGuard><Layout><QAInventoryEmailPage /></Layout></AuthGuard>
+        <QARoute><QAInventoryEmailPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/inventory/phones">
-        <AuthGuard><Layout><QAInventoryPhonesPage /></Layout></AuthGuard>
+        <QARoute><QAInventoryPhonesPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/inventory/ssn">
-        <AuthGuard><Layout><QAStubPage /></Layout></AuthGuard>
+        <QARoute><QAStubPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/inventory/javascript">
-        <AuthGuard><Layout><QAInventoryJavascriptPage /></Layout></AuthGuard>
+        <QARoute><QAInventoryJavascriptPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/inventory/css">
-        <AuthGuard><Layout><QAInventoryCSSPage /></Layout></AuthGuard>
+        <QARoute><QAInventoryCSSPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/inventory/meta-tags">
-        <AuthGuard><Layout><QAMetaTagsPage /></Layout></AuthGuard>
+        <QARoute><QAMetaTagsPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/inventory/sitemap">
-        <AuthGuard><Layout><QASitemapPage /></Layout></AuthGuard>
+        <QARoute><QASitemapPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/issues">
-        <AuthGuard><Layout><QAIssuesPage /></Layout></AuthGuard>
+        <QARoute><QAIssuesPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/issues/resolved">
-        <AuthGuard><Layout><QAStubPage /></Layout></AuthGuard>
+        <QARoute><QAStubPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/links/pages-with-broken">
-        <AuthGuard><Layout><QAPagesWithBrokenPage /></Layout></AuthGuard>
+        <QARoute><QAPagesWithBrokenPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/links/pdfs-broken">
-        <AuthGuard><Layout><QAStubPage /></Layout></AuthGuard>
+        <QARoute><QAStubPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/links/broken-in-pdfs">
-        <AuthGuard><Layout><QAStubPage /></Layout></AuthGuard>
+        <QARoute><QAStubPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/links/unsafe">
-        <AuthGuard><Layout><QAUnsafeLinksPage /></Layout></AuthGuard>
+        <QARoute><QAUnsafeLinksPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/spelling/pages">
-        <AuthGuard><Layout><QAStubPage /></Layout></AuthGuard>
+        <QARoute><QAStubPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/spelling/misspellings">
-        <AuthGuard><Layout><QAStubPage /></Layout></AuthGuard>
+        <QARoute><QAStubPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/spelling/word-inventory">
-        <AuthGuard><Layout><QAWordInventoryPage /></Layout></AuthGuard>
+        <QARoute><QAWordInventoryPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/spelling/decisions">
-        <AuthGuard><Layout><QAStubPage /></Layout></AuthGuard>
+        <QARoute><QAStubPage /></QARoute>
       </Route>
       <Route path="/quality-assurance/spelling/progress">
-        <AuthGuard><Layout><QAStubPage /></Layout></AuthGuard>
+        <QARoute><QAStubPage /></QARoute>
       </Route>
       <Route path="/sites/:siteId/issues/:ruleId">
         {(params: { siteId: string; ruleId: string }) => (
           <AuthGuard>
-            <Layout>
-              <SiteIssueDetail
-                siteId={parseInt(params.siteId)}
-                ruleId={decodeURIComponent(params.ruleId)}
-              />
-            </Layout>
+            <PermissionGuard permission="canViewSiteAccessibilityDashboard">
+              <Layout>
+                <SiteIssueDetail
+                  siteId={parseInt(params.siteId)}
+                  ruleId={decodeURIComponent(params.ruleId)}
+                />
+              </Layout>
+            </PermissionGuard>
           </AuthGuard>
         )}
       </Route>
       <Route path="/sites/:id/page-groups">
         {(params: { id: string }) => (
-          <AuthGuard><Layout><SitePageGroups siteId={parseInt(params.id)} /></Layout></AuthGuard>
+          <AuthGuard>
+            <PermissionGuard permission="canViewSiteAccessibilityDashboard">
+              <Layout><SitePageGroups siteId={parseInt(params.id)} /></Layout>
+            </PermissionGuard>
+          </AuthGuard>
         )}
       </Route>
       <Route path="/sites/:id/issues">
         {(params: { id: string }) => (
-          <AuthGuard><Layout><SiteIssues siteId={parseInt(params.id)} /></Layout></AuthGuard>
+          <AuthGuard>
+            <PermissionGuard permission="canViewSiteAccessibilityDashboard">
+              <Layout><SiteIssues siteId={parseInt(params.id)} /></Layout>
+            </PermissionGuard>
+          </AuthGuard>
         )}
       </Route>
       <Route path="/sites/:id/potential-issues">
         {(params: { id: string }) => (
-          <AuthGuard><Layout><SitePotentialIssues siteId={parseInt(params.id)} /></Layout></AuthGuard>
+          <AuthGuard>
+            <PermissionGuard permission="canViewSiteAccessibilityDashboard">
+              <Layout><SitePotentialIssues siteId={parseInt(params.id)} /></Layout>
+            </PermissionGuard>
+          </AuthGuard>
         )}
       </Route>
       <Route path="/sites/:id/compliance/wcag">
         {(params: { id: string }) => (
-          <AuthGuard><Layout><SiteComplianceWcag siteId={parseInt(params.id)} /></Layout></AuthGuard>
+          <AuthGuard>
+            <PermissionGuard permission="canViewSiteAccessibilityDashboard">
+              <Layout><SiteComplianceWcag siteId={parseInt(params.id)} /></Layout>
+            </PermissionGuard>
+          </AuthGuard>
         )}
       </Route>
       <Route path="/sites/:id/compliance/eaa">
         {(params: { id: string }) => (
-          <AuthGuard><Layout><SiteComplianceEaa siteId={parseInt(params.id)} /></Layout></AuthGuard>
+          <AuthGuard>
+            <PermissionGuard permission="canViewSiteAccessibilityDashboard">
+              <Layout><SiteComplianceEaa siteId={parseInt(params.id)} /></Layout>
+            </PermissionGuard>
+          </AuthGuard>
         )}
       </Route>
       <Route path="/sites/:id/compliance/ada">
         {(params: { id: string }) => (
-          <AuthGuard><Layout><SiteComplianceAda siteId={parseInt(params.id)} /></Layout></AuthGuard>
+          <AuthGuard>
+            <PermissionGuard permission="canViewSiteAccessibilityDashboard">
+              <Layout><SiteComplianceAda siteId={parseInt(params.id)} /></Layout>
+            </PermissionGuard>
+          </AuthGuard>
         )}
       </Route>
       <Route path="/sites/:id">
         {(params: { id: string }) => (
-          <AuthGuard><Layout><SiteDashboard siteId={parseInt(params.id)} /></Layout></AuthGuard>
+          <AuthGuard>
+            <PermissionGuard permission="canViewSiteAccessibilityDashboard">
+              <Layout><SiteDashboard siteId={parseInt(params.id)} /></Layout>
+            </PermissionGuard>
+          </AuthGuard>
         )}
       </Route>
       <Route path="/crawler/:id">
-        <AuthGuard><Layout><CrawlerDetailPage /></Layout></AuthGuard>
+        <AuthGuard>
+          <PermissionGuard permission="canViewCrawlHistory">
+            <Layout><CrawlerDetailPage /></Layout>
+          </PermissionGuard>
+        </AuthGuard>
       </Route>
       <Route path="/crawler">
-        <AuthGuard><Layout><CrawlerListPage /></Layout></AuthGuard>
+        <AuthGuard>
+          <PermissionGuard permission="canViewCrawlHistory">
+            <Layout><CrawlerListPage /></Layout>
+          </PermissionGuard>
+        </AuthGuard>
       </Route>
 
       {/* Admin-only routes */}

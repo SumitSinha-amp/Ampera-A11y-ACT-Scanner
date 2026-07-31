@@ -14,6 +14,12 @@ export interface EffectivePermissions {
   canDisableJs: boolean;
   canSmartAnalysis: boolean;
   canSwitchSite: boolean;
+  canCreateCrawl: boolean;
+  canDeleteCrawl: boolean;
+  canViewCrawlHistory: boolean;
+  canViewQualityAssurance: boolean;
+  canViewSiteAccessibilityDashboard: boolean;
+  canManageSites: boolean;
   allowedRules: string[] | null;
 }
 
@@ -29,6 +35,12 @@ const FULL_ACCESS: EffectivePermissions = {
   canDisableJs: true,
   canSmartAnalysis: true,
   canSwitchSite: true,
+  canCreateCrawl: true,
+  canDeleteCrawl: true,
+  canViewCrawlHistory: true,
+  canViewQualityAssurance: true,
+  canViewSiteAccessibilityDashboard: true,
+  canManageSites: true,
   allowedRules: null,
 };
 
@@ -236,6 +248,12 @@ export async function getEffectivePermissions(
     canDisableJs: perm?.canDisableJs ?? false,
     canSmartAnalysis: inDevGroup || (perm?.canSmartAnalysis ?? false),
     canSwitchSite: perm?.canSwitchSite ?? false,
+    canCreateCrawl: perm?.canCreateCrawl ?? true,
+    canDeleteCrawl: perm?.canDeleteCrawl ?? true,
+    canViewCrawlHistory: perm?.canViewCrawlHistory ?? true,
+    canViewQualityAssurance: perm?.canViewQualityAssurance ?? true,
+    canViewSiteAccessibilityDashboard: perm?.canViewSiteAccessibilityDashboard ?? true,
+    canManageSites: perm?.canManageSites ?? false,
     allowedRules: (perm?.allowedRules as string[] | null) ?? null,
   };
 }

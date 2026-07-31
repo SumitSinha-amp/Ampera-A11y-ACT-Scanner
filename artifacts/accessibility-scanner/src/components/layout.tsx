@@ -245,6 +245,7 @@ function SiteSelector() {
   const { sites, activeSite, setActiveSite } = useSite();
   const { user } = useAuth();
   const adminUser = isAdmin(user);
+  const canSwitchSite = user?.permissions?.canSwitchSite ?? false;
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [favorites, setFavorites] = useState<number[]>(() => {
@@ -256,6 +257,7 @@ function SiteSelector() {
     }
   });
 
+  if (!adminUser && !canSwitchSite) return null;
   if (sites.length < 2 && !adminUser) return null;
 
   const toggleFavorite = (id: number, e: React.MouseEvent) => {
@@ -639,6 +641,8 @@ function QASidebarContent({
   location: string;
   onBack: () => void;
 }) {
+  const { user } = useAuth();
+  if (!user?.permissions?.canViewQualityAssurance) return null;
   const dot = (
     <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0 ml-0.5" />
   );
@@ -957,7 +961,12 @@ function QASidebarContent({
   );
 }
 
-type Section = "accessibility" | "quality-assurance" | "seo" | "admin";
+type Section =
+  | "accessibility"
+  | "quality-assurance"
+  | "seo"
+  | "admin"
+  | "site-management";
 
 function SectionBackButton({
   collapsed,
@@ -1019,10 +1028,13 @@ function SectionHeader({
 function MainMenuContent({
   collapsed,
   adminUser,
+  canManageSites,
 }: {
   collapsed: boolean;
   adminUser: boolean;
+  canManageSites: boolean;
 }) {
+  const { user } = useAuth();
   const items = [
     {
       label: "Accessibility",
@@ -1030,12 +1042,12 @@ function MainMenuContent({
       href: "/scans",
       color: "text-blue-500",
     },
-    {
+    ...(user?.permissions?.canViewQualityAssurance ? [{
       label: "Quality Assurance",
       icon: <ClipboardCheck className="w-5 h-5 shrink-0" />,
       href: "/quality-assurance",
       color: "text-violet-500",
-    },
+    }] : []),
     //  { label: "SEO", icon: <Search className="w-5 h-5 shrink-0" />, href: "/seo", color: "text-emerald-500" },*/}
     ...(adminUser
       ? [
@@ -1043,6 +1055,16 @@ function MainMenuContent({
             label: "Admin Settings",
             icon: <ShieldCheck className="w-5 h-5 shrink-0" />,
             href: "/admin/dashboard",
+            color: "text-amber-500",
+          },
+        ]
+      : []),
+    ...(canManageSites
+      ? [
+          {
+            label: "Site Management",
+            icon: <Building2 className="w-5 h-5 shrink-0" />,
+            href: "/crawler/sites",
             color: "text-amber-500",
           },
         ]
@@ -1118,6 +1140,12 @@ function AccessibilitySidebarContent({
     <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0 ml-0.5" />
   );
   const { activeSite: dropdownSite } = useSite();
+  const { user } = useAuth();
+  const canCreateCrawl = user?.permissions?.canCreateCrawl ?? false;
+  const canManageSites = user?.permissions?.canManageSites ?? false;
+  const canViewCrawlHistory = user?.permissions?.canViewCrawlHistory ?? false;
+  const canViewSiteAccessibilityDashboard =
+    user?.permissions?.canViewSiteAccessibilityDashboard ?? false;
   // Overview uses the dropdown-selected site first, then falls back to URL-derived ID (for non-admin users)
   const overviewSiteId = dropdownSite?.id ?? effectiveSiteId;
   const siteDashboardHref =
@@ -1183,7 +1211,7 @@ function AccessibilitySidebarContent({
         icon={<Accessibility className="w-4 h-4 text-primary shrink-0" />}
         label="Accessibility"
       />
-      {siteDashboardHref !== null && (
+      {siteDashboardHref !== null && canViewSiteAccessibilityDashboard && (
         <NavItem
           href={siteDashboardHref}
           icon={<LayoutDashboard className="w-3.5 h-3.5 shrink-0" />}
@@ -1192,7 +1220,7 @@ function AccessibilitySidebarContent({
           collapsed={collapsed}
         />
       )}
-      {showSiteNav && (
+      {showSiteNav && canViewSiteAccessibilityDashboard && (
         <>
           <NavItem
             href={sitePageGroupsHref}
@@ -1309,7 +1337,7 @@ function AccessibilitySidebarContent({
           indent
         />
       </NavGroup>
-      {adminUser && (
+      {(canCreateCrawl || canViewCrawlHistory || canManageSites || adminUser) && (
         <NavGroup
           id="crawler-scan"
           icon={<Globe className="w-3.5 h-3.5 shrink-0" />}
@@ -1318,34 +1346,50 @@ function AccessibilitySidebarContent({
           collapsed={collapsed}
           defaultOpen={crawlerScanActive}
         >
-          <NavItem
-            href="/crawler/new"
-            icon={dot}
-            label="New Scan"
-            active={location === "/crawler/new"}
-            collapsed={collapsed}
-            indent
-          />
-          <NavItem
-            href="/crawler"
-            icon={dot}
-            label="Scan History"
-            active={
-              location.startsWith("/crawler") &&
-              !location.startsWith("/crawler/new") &&
-              !location.startsWith("/crawler/sites")
-            }
-            collapsed={collapsed}
-            indent
-          />
-          <NavItem
-            href="/crawler/manage"
-            icon={dot}
-            label="Manage Crawl"
-            active={location === "/crawler/manage" || location.startsWith("/crawler/sites/")}
-            collapsed={collapsed}
-            indent
-          />
+          {canCreateCrawl && (
+            <NavItem
+              href="/crawler/new"
+              icon={dot}
+              label="New Scan"
+              active={location === "/crawler/new"}
+              collapsed={collapsed}
+              indent
+            />
+          )}
+          {canViewCrawlHistory && (
+            <NavItem
+              href="/crawler"
+              icon={dot}
+              label="Scan History"
+              active={
+                location.startsWith("/crawler") &&
+                !location.startsWith("/crawler/new") &&
+                !location.startsWith("/crawler/sites")
+              }
+              collapsed={collapsed}
+              indent
+            />
+          )}
+          {canManageSites && (
+            <NavItem
+              href="/crawler/sites"
+              icon={dot}
+              label="Manage Sites"
+              active={location.startsWith("/crawler/sites")}
+              collapsed={collapsed}
+              indent
+            />
+          )}
+          {adminUser && (
+            <NavItem
+              href="/crawler/manage"
+              icon={dot}
+              label="Manage Crawl"
+              active={location === "/crawler/manage" || location.startsWith("/crawler/sites/")}
+              collapsed={collapsed}
+              indent
+            />
+          )}
         </NavGroup>
       )}
     </div>
@@ -1383,12 +1427,16 @@ function SEOSidebarContent({
 function AdminSidebarContent({
   collapsed,
   location,
+  adminUser,
   superAdminUser,
+  canManageSites,
   onBack,
 }: {
   collapsed: boolean;
   location: string;
+  adminUser: boolean;
   superAdminUser: boolean;
+  canManageSites: boolean;
   onBack: () => void;
 }) {
   const dot = (
@@ -1401,55 +1449,69 @@ function AdminSidebarContent({
       <SectionBackButton collapsed={collapsed} onBack={onBack} />
       <SectionHeader
         collapsed={collapsed}
-        icon={<ShieldCheck className="w-4 h-4 text-primary shrink-0" />}
-        label="Admin Settings"
+        icon={
+          adminUser ? (
+            <ShieldCheck className="w-4 h-4 text-primary shrink-0" />
+          ) : (
+            <Building2 className="w-4 h-4 text-primary shrink-0" />
+          )
+        }
+        label={adminUser ? "Admin Settings" : "Site Management"}
       />
-      <NavItem
-        href="/admin/dashboard"
-        icon={<ShieldCheck className="w-4 h-4 shrink-0" />}
-        label="Admin Dashboard"
-        active={location === "/admin/dashboard"}
-        collapsed={collapsed}
-      />
-      <NavItem
-        href="/crawler/sites"
-        icon={<Building2 className="w-4 h-4 shrink-0" />}
-        label="Manage Sites"
-        active={location.startsWith("/crawler/sites")}
-        collapsed={collapsed}
-      />
-      <NavItem
-        href="/admin/site-manager"
-        icon={<UsersRound className="w-4 h-4 shrink-0" />}
-        label="Site Manager"
-        active={location === "/admin/site-manager"}
-        collapsed={collapsed}
-      />
-      <NavGroup
-        id="admin-users"
-        icon={<Users className="w-4 h-4 shrink-0" />}
-        label="Users"
-        active={usersGroupActive}
-        collapsed={collapsed}
-        defaultOpen={usersGroupActive}
-      >
+      {adminUser && (
         <NavItem
-          href="/admin/users"
-          icon={dot}
-          label="User Management"
-          active={location === "/admin/users"}
+          href="/admin/dashboard"
+          icon={<ShieldCheck className="w-4 h-4 shrink-0" />}
+          label="Admin Dashboard"
+          active={location === "/admin/dashboard"}
           collapsed={collapsed}
-          indent
         />
+      )}
+      {(superAdminUser || canManageSites) && (
         <NavItem
-          href="/admin/groups"
-          icon={dot}
-          label="User Groups"
-          active={location === "/admin/groups"}
+          href="/crawler/sites"
+          icon={<Building2 className="w-4 h-4 shrink-0" />}
+          label="Manage Sites"
+          active={location.startsWith("/crawler/sites")}
           collapsed={collapsed}
-          indent
         />
-      </NavGroup>
+      )}
+      {adminUser && (
+        <NavItem
+          href="/admin/site-manager"
+          icon={<UsersRound className="w-4 h-4 shrink-0" />}
+          label="Site Manager"
+          active={location === "/admin/site-manager"}
+          collapsed={collapsed}
+        />
+      )}
+      {adminUser && (
+        <NavGroup
+          id="admin-users"
+          icon={<Users className="w-4 h-4 shrink-0" />}
+          label="Users"
+          active={usersGroupActive}
+          collapsed={collapsed}
+          defaultOpen={usersGroupActive}
+        >
+          <NavItem
+            href="/admin/users"
+            icon={dot}
+            label="User Management"
+            active={location === "/admin/users"}
+            collapsed={collapsed}
+            indent
+          />
+          <NavItem
+            href="/admin/groups"
+            icon={dot}
+            label="User Groups"
+            active={location === "/admin/groups"}
+            collapsed={collapsed}
+            indent
+          />
+        </NavGroup>
+      )}
       {superAdminUser && (
         <NavItem
           href="/admin/permissions"
@@ -1479,6 +1541,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const adminUser = isAdmin(user);
   const superAdminUser = user?.role === "super_admin";
+  const canManageSites = user?.permissions?.canManageSites ?? false;
   const isSiteCustomer = !!user && user.role === "user";
   // The contextual site nav (Dashboard/Issues/Compliance) is for site-specific
   // users — regular `user` accounts tied to their own site, and `admin`
@@ -1567,8 +1630,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const issuesActive = onSiteIssues || onSitePotentialIssues;
   const complianceActive =
     onSiteComplianceWcag || onSiteComplianceEaa || onSiteComplianceAda;
-  const adminSettingsActive =
-    location.startsWith("/admin") || location.startsWith("/crawler/sites");
+  const adminSettingsActive = location.startsWith("/admin");
+  const siteManagementActive = location.startsWith("/crawler/sites");
   const inQA = location.startsWith("/quality-assurance");
   const seoActive = location.startsWith("/seo");
 
@@ -1576,7 +1639,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
     ? "quality-assurance"
     : seoActive
       ? "seo"
-      : adminSettingsActive
+      : siteManagementActive
+        ? "site-management"
+        : adminSettingsActive
         ? "admin"
         : accessibilityActive
           ? "accessibility"
@@ -1854,7 +1919,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
               className={`flex-1 py-4 space-y-3 overflow-y-auto ${collapsed ? "px-1.5" : "px-4"} transition-[padding] duration-200`}
             >
               {sidebarSection === null && (
-                <MainMenuContent collapsed={collapsed} adminUser={adminUser} />
+                <MainMenuContent
+                  collapsed={collapsed}
+                  adminUser={adminUser}
+                  canManageSites={user?.permissions?.canManageSites ?? false}
+                />
               )}
               {sidebarSection === "accessibility" && (
                 <AccessibilitySidebarContent
@@ -1884,7 +1953,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <AdminSidebarContent
                   collapsed={collapsed}
                   location={location}
+                  adminUser={adminUser}
                   superAdminUser={superAdminUser}
+                  canManageSites={canManageSites}
+                  onBack={onBack}
+                />
+              )}
+              {sidebarSection === "site-management" && canManageSites && (
+                <AdminSidebarContent
+                  collapsed={collapsed}
+                  location={location}
+                  adminUser={false}
+                  superAdminUser={false}
+                  canManageSites
                   onBack={onBack}
                 />
               )}

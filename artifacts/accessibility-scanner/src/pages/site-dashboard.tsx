@@ -33,6 +33,7 @@ import {
   Legend,
 } from "recharts";
 import { BASE, DashboardData, ScoreHistoryPoint, ScoreGauge, useAutoActiveSite } from "@/pages/site/shared";
+import { useAuth } from "@/contexts/auth";
 
 interface Props { siteId: number }
 
@@ -91,6 +92,7 @@ function exportCsv(data: ScoreHistoryPoint[], mode: "issues" | "potential") {
 
 export default function SiteDashboard({ siteId }: Props) {
   useAutoActiveSite(siteId);
+  const { user } = useAuth();
 
   const [improveTab, setImproveTab] = useState<"issues" | "potential">("issues");
   const [historyTab, setHistoryTab] = useState<"issues" | "potential">("issues");
@@ -202,10 +204,12 @@ export default function SiteDashboard({ siteId }: Props) {
           {d?.session && (
             <div className="text-right text-xs text-muted-foreground shrink-0">
               <p>Last scan: {new Date(d.session.completedAt).toLocaleDateString()}</p>
-              <Link href={`/crawler/${d.session.crawlerId}`}
-                className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 justify-end mt-0.5">
-                View crawl session <ArrowRight className="w-3 h-3" />
-              </Link>
+              {user?.permissions.canViewCrawlHistory && (
+                <Link href={`/crawler/${d.session.crawlerId}`}
+                  className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 justify-end mt-0.5">
+                  View crawl session <ArrowRight className="w-3 h-3" />
+                </Link>
+              )}
             </div>
           )}
         </div>
@@ -219,9 +223,11 @@ export default function SiteDashboard({ siteId }: Props) {
             <p className="text-xs text-muted-foreground">
               Run a crawler scan and link it to this site to see the accessibility dashboard.
             </p>
-            <Button variant="outline" asChild>
-              <Link href="/crawler/new">Start a crawler scan</Link>
-            </Button>
+            {user?.permissions.canCreateCrawl && (
+              <Button variant="outline" asChild>
+                <Link href="/crawler/new">Start a crawler scan</Link>
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (

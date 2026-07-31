@@ -150,6 +150,7 @@ export default function SitesPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const adminUser = isAdmin(user);
+  const canManageSites = user?.permissions?.canManageSites ?? false;
   const { activeSite } = useSite();
   const [showCreate, setShowCreate] = useState(false);
   const [editSite, setEditSite] = useState<Site | null>(null);
@@ -249,10 +250,12 @@ export default function SitesPage() {
             Manage your tracked sites. Select a site when creating crawler scans.
           </p>
         </div>
-        <Button onClick={() => setShowCreate(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          New Site
-        </Button>
+        {canManageSites && (
+          <Button onClick={() => setShowCreate(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            New Site
+          </Button>
+        )}
       </div>
 
       {isLoading && <div className="text-muted-foreground text-sm">Loading sites…</div>}
@@ -262,7 +265,9 @@ export default function SitesPage() {
           <CardContent className="py-16 text-center space-y-3">
             <Globe className="w-10 h-10 mx-auto text-muted-foreground" />
             <p className="text-muted-foreground">No sites yet. Create one to associate with crawler scans.</p>
-            <Button variant="outline" onClick={() => setShowCreate(true)}>Add your first site</Button>
+            {canManageSites && (
+              <Button variant="outline" onClick={() => setShowCreate(true)}>Add your first site</Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -294,15 +299,19 @@ export default function SitesPage() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => setEditSite(site)} className="gap-2">
-                      <Pencil className="w-4 h-4" /> Edit
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => setDeleteId(site.id)}
-                      className="gap-2 text-destructive focus:text-destructive"
-                    >
-                      <Trash2 className="w-4 h-4" /> Delete
-                    </DropdownMenuItem>
+                    {canManageSites && (
+                      <>
+                        <DropdownMenuItem onClick={() => setEditSite(site)} className="gap-2">
+                          <Pencil className="w-4 h-4" /> Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => setDeleteId(site.id)}
+                          className="gap-2 text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="w-4 h-4" /> Delete
+                        </DropdownMenuItem>
+                      </>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>

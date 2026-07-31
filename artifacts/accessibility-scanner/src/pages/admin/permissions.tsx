@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Save, RotateCcw, ShieldCheck, Scan, Eye, FolderOpen } from "lucide-react";
+import { Loader2, Save, RotateCcw, ShieldCheck, Scan, Eye, FolderOpen, Globe, LayoutDashboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -22,6 +22,12 @@ interface UserPermission {
   canDisableJs: boolean;
   canSmartAnalysis: boolean;
   canSwitchSite: boolean;
+  canCreateCrawl: boolean;
+  canDeleteCrawl: boolean;
+  canViewCrawlHistory: boolean;
+  canViewQualityAssurance: boolean;
+  canViewSiteAccessibilityDashboard: boolean;
+  canManageSites: boolean;
   allowedRules: string[] | null;
 }
 
@@ -65,6 +71,19 @@ const PERM_GROUPS = [
     items: [
       { key: "canCreateProject" as const, label: "Create Projects", desc: "Add new projects" },
       { key: "canDeleteProject" as const, label: "Delete Projects", desc: "Remove projects" },
+    ],
+  },
+  {
+    id: "crawler",
+    label: "Crawler & Sites",
+    icon: Globe,
+    items: [
+      { key: "canCreateCrawl" as const, label: "Create Crawl", desc: "Start new crawler scans" },
+      { key: "canDeleteCrawl" as const, label: "Delete Crawl", desc: "Delete crawler sessions on accessible sites" },
+      { key: "canViewCrawlHistory" as const, label: "View Crawl Details & History", desc: "View crawler history, details, pages, and progress" },
+      { key: "canViewQualityAssurance" as const, label: "Quality Assurance Dashboard", desc: "View QA dashboards, submenus, and reports for accessible sites" },
+      { key: "canViewSiteAccessibilityDashboard" as const, label: "Site Accessibility Dashboard", desc: "View dashboards for accessible sites" },
+      { key: "canManageSites" as const, label: "Manage Sites", desc: "Create, edit, delete, and configure accessible sites" },
     ],
   },
 ];

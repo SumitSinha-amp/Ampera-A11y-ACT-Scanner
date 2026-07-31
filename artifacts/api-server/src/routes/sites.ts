@@ -15,7 +15,7 @@ import {
 } from "@workspace/db";
 import { eq, desc, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../middlewares/authMiddleware";
-import { getEffectiveSites, canAccessSite } from "../lib/permissions";
+import { getEffectiveSites, canAccessSite, getEffectivePermissions } from "../lib/permissions";
 import { startCrawlerJob, type CrawlerConfig } from "../lib/crawler";
 
 const router: IRouter = Router();
@@ -280,6 +280,12 @@ router.delete("/admin/sites/:id/groups/:groupId", requireAdmin, async (req: Requ
 });
 
 router.post("/sites", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const sessionUser = (req as any).session?.user;
+  const createPerms = await getEffectivePermissions(sessionUser?.id ?? 0, sessionUser?.role ?? "user");
+  if (!createPerms.canManageSites) {
+    res.status(403).json({ error: "Site management is disabled" });
+    return;
+  }
   const userId = getAuthUserId(req);
   const { name, baseUrl, description } = req.body;
 
@@ -319,6 +325,12 @@ router.get("/sites/:id", requireAuth, async (req: Request, res: Response): Promi
 });
 
 router.put("/sites/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const sessionUser = (req as any).session?.user;
+  const updatePerms = await getEffectivePermissions(sessionUser?.id ?? 0, sessionUser?.role ?? "user");
+  if (!updatePerms.canManageSites) {
+    res.status(403).json({ error: "Site management is disabled" });
+    return;
+  }
   const siteId = parseInt(req.params["id"] as string, 10);
   const session = (req as any).session?.user;
   const userId: number = session?.id ?? 0;
@@ -357,6 +369,12 @@ router.put("/sites/:id", requireAuth, async (req: Request, res: Response): Promi
 });
 
 router.delete("/sites/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const sessionUser = (req as any).session?.user;
+  const deletePerms = await getEffectivePermissions(sessionUser?.id ?? 0, sessionUser?.role ?? "user");
+  if (!deletePerms.canManageSites) {
+    res.status(403).json({ error: "Site management is disabled" });
+    return;
+  }
   const siteId = parseInt(req.params["id"] as string, 10);
   const session = (req as any).session?.user;
   const userId: number = session?.id ?? 0;
@@ -376,6 +394,11 @@ router.delete("/sites/:id", requireAuth, async (req: Request, res: Response): Pr
 
 async function resolveManagedSite(req: Request, res: Response, siteId: number) {
   const session = (req as any).session?.user;
+  const perms = await getEffectivePermissions(session?.id ?? 0, session?.role ?? "user");
+  if (!perms.canManageSites) {
+    res.status(403).json({ error: "Site management is disabled" });
+    return null;
+  }
   const [site] = await db.select().from(sitesTable).where(eq(sitesTable.id, siteId)).limit(1);
   if (!site) {
     res.status(404).json({ error: "Site not found" });
@@ -387,6 +410,58 @@ async function resolveManagedSite(req: Request, res: Response, siteId: number) {
     return null;
   }
   return site;
+}
+
+async function resolveAccessibleSite(req: Request, res: Response, siteId: number) {
+  const session = (req as any).session?.user;
+  const [site] = await db.select().from(sitesTable).where(eq(sitesTable.id, siteId)).limit(1);
+  if (!site) {
+    res.status(404).json({ error: "Site not found" });
+    return null;
+  }
+  const access = await canAccessSite(
+    session?.id ?? 0,
+    String(session?.id ?? 0),
+    session?.role ?? "user",
+    siteId,
+  );
+  if (!access) {
+    res.status(403).json({ error: "Forbidden" });
+    return null;
+  }
+  return site;
+}
+
+async function resolveCrawlHistorySite(req: Request, res: Response, siteId: number) {
+  const site = await resolveAccessibleSite(req, res, siteId);
+  if (!site) return null;
+  const sessionUser = (req as any).session?.user;
+  const perms = await getEffectivePermissions(sessionUser?.id ?? 0, sessionUser?.role ?? "user");
+  if (!perms.canViewCrawlHistory) {
+    res.status(403).json({ error: "Crawler history access is disabled" });
+    return null;
+  }
+  return site;
+}
+
+async function canViewAccessibilityDashboard(req: Request, res: Response, siteId: number): Promise<boolean> {
+  const sessionUser = (req as any).session?.user;
+  const access = await canAccessSite(
+    sessionUser?.id ?? 0,
+    String(sessionUser?.id ?? 0),
+    sessionUser?.role ?? "user",
+    siteId,
+  );
+  if (!access) {
+    res.status(403).json({ error: "Forbidden" });
+    return false;
+  }
+  const perms = await getEffectivePermissions(sessionUser?.id ?? 0, sessionUser?.role ?? "user");
+  if (!perms.canViewSiteAccessibilityDashboard) {
+    res.status(403).json({ error: "Site accessibility dashboard access is disabled" });
+    return false;
+  }
+  return true;
 }
 
 function nextScheduleDate(intervalDays: number, from = new Date()): Date {
@@ -420,7 +495,7 @@ function cleanRuleInput(body: any) {
 
 router.get("/sites/:id/overview", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const siteId = Number(req.params["id"]);
-  const site = await resolveManagedSite(req, res, siteId);
+  const site = await resolveCrawlHistorySite(req, res, siteId);
   if (!site) return;
   const client = await pool.connect();
   try {
@@ -605,8 +680,14 @@ router.put("/sites/:id/settings", requireAuth, async (req: Request, res: Respons
 
 router.post("/sites/:id/run-now", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const siteId = Number(req.params["id"]);
-  const site = await resolveManagedSite(req, res, siteId);
+  const site = await resolveAccessibleSite(req, res, siteId);
   if (!site) return;
+  const sessionUser = (req as any).session?.user;
+  const perms = await getEffectivePermissions(sessionUser?.id ?? 0, sessionUser?.role ?? "user");
+  if (!perms.canCreateCrawl) {
+    res.status(403).json({ error: "Crawl creation is disabled" });
+    return;
+  }
   const rules = await db.select().from(siteContentRulesTable)
     .where(and(eq(siteContentRulesTable.siteId, siteId), eq(siteContentRulesTable.enabled, true)))
     .orderBy(siteContentRulesTable.id);
@@ -653,9 +734,7 @@ router.post("/sites/:id/run-now", requireAuth, async (req: Request, res: Respons
 // Returns score, coverage, impact breakdown, top issues for the latest completed crawler session
 router.get("/sites/:id/dashboard", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const siteId = parseInt(req.params["id"] as string, 10);
-  const _ds = (req as any).session?.user;
-  const _dAccess = await canAccessSite(_ds?.id ?? 0, String(_ds?.id ?? 0), _ds?.role ?? "user", siteId);
-  if (!_dAccess) { res.status(403).json({ error: "Forbidden" }); return; }
+  if (!await canViewAccessibilityDashboard(req, res, siteId)) return;
   const client = await pool.connect();
   try {
     const [site] = await db.select().from(sitesTable).where(eq(sitesTable.id, siteId)).limit(1);
@@ -891,9 +970,7 @@ router.get("/sites/:id/dashboard", requireAuth, async (req: Request, res: Respon
 // Returns ordered list of {score, scanned_at} for every completed scan of this site
 router.get("/sites/:id/score-history", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const siteId = parseInt(req.params["id"] as string, 10);
-  const _ss = (req as any).session?.user;
-  const _sAccess = await canAccessSite(_ss?.id ?? 0, String(_ss?.id ?? 0), _ss?.role ?? "user", siteId);
-  if (!_sAccess) { res.status(403).json({ error: "Forbidden" }); return; }
+  if (!await canViewAccessibilityDashboard(req, res, siteId)) return;
   const client = await pool.connect();
   try {
     const result = await client.query(
@@ -925,9 +1002,7 @@ router.get("/sites/:id/score-history", requireAuth, async (req: Request, res: Re
 // Returns per page-type accessibility breakdown
 router.get("/sites/:id/page-groups", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const siteId = parseInt(req.params["id"] as string, 10);
-  const _pgs = (req as any).session?.user;
-  const _pgAccess = await canAccessSite(_pgs?.id ?? 0, String(_pgs?.id ?? 0), _pgs?.role ?? "user", siteId);
-  if (!_pgAccess) { res.status(403).json({ error: "Forbidden" }); return; }
+  if (!await canViewAccessibilityDashboard(req, res, siteId)) return;
   const client = await pool.connect();
   try {
     const sessionRes = await client.query(
@@ -995,9 +1070,7 @@ router.get("/sites/:id/page-groups", requireAuth, async (req: Request, res: Resp
 //   &page=1 &limit=50
 router.get("/sites/:id/issues", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const siteId = parseInt(req.params["id"] as string, 10);
-  const _is = (req as any).session?.user;
-  const _iAccess = await canAccessSite(_is?.id ?? 0, String(_is?.id ?? 0), _is?.role ?? "user", siteId);
-  if (!_iAccess) { res.status(403).json({ error: "Forbidden" }); return; }
+  if (!await canViewAccessibilityDashboard(req, res, siteId)) return;
   const type = (req.query["type"] as string) ?? "issues";
   const page = Math.max(1, parseInt(req.query["page"] as string || "1", 10));
   const limit = Math.min(100, parseInt(req.query["limit"] as string || "50", 10));
@@ -1091,9 +1164,7 @@ router.get("/sites/:id/issues", requireAuth, async (req: Request, res: Response)
 // serious); ?type=potential switches to moderate / minor.
 router.get("/sites/:id/pages-with-issues", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const siteId = parseInt(req.params["id"] as string, 10);
-  const _pi = (req as any).session?.user;
-  const _piAccess = await canAccessSite(_pi?.id ?? 0, String(_pi?.id ?? 0), _pi?.role ?? "user", siteId);
-  if (!_piAccess) { res.status(403).json({ error: "Forbidden" }); return; }
+  if (!await canViewAccessibilityDashboard(req, res, siteId)) return;
 
   const type = (req.query["type"] as string) === "potential" ? "potential" : "issues";
   const impacts = type === "potential" ? ["moderate", "minor"] : ["critical", "serious"];
@@ -1176,9 +1247,7 @@ router.get("/sites/:id/pages-with-issues", requireAuth, async (req: Request, res
 //   ?page=1 &limit=25 &search=<url-text> &sort=occurrences|url
 router.get("/sites/:id/issues/:ruleId", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const siteId = parseInt(req.params["id"] as string, 10);
-  const _rs = (req as any).session?.user;
-  const _rAccess = await canAccessSite(_rs?.id ?? 0, String(_rs?.id ?? 0), _rs?.role ?? "user", siteId);
-  if (!_rAccess) { res.status(403).json({ error: "Forbidden" }); return; }
+  if (!await canViewAccessibilityDashboard(req, res, siteId)) return;
   const ruleId = decodeURIComponent(req.params["ruleId"] as string);
   const page  = Math.max(1, parseInt(req.query["page"]  as string || "1",  10));
   const limit = Math.min(200, parseInt(req.query["limit"] as string || "25", 10));
@@ -1276,9 +1345,7 @@ router.get("/sites/:id/issues/:ruleId", requireAuth, async (req: Request, res: R
 // client-side — this endpoint always returns raw WCAG SC keys.
 router.get("/sites/:id/compliance", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const siteId = parseInt(req.params["id"] as string, 10);
-  const _cs = (req as any).session?.user;
-  const _cAccess = await canAccessSite(_cs?.id ?? 0, String(_cs?.id ?? 0), _cs?.role ?? "user", siteId);
-  if (!_cAccess) { res.status(403).json({ error: "Forbidden" }); return; }
+  if (!await canViewAccessibilityDashboard(req, res, siteId)) return;
 
   const client = await pool.connect();
   try {

@@ -30,6 +30,22 @@ import { parseUrlsFromCsv } from "../lib/sitemap";
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
+const DEFAULT_CRAWLER_PERMISSIONS = {
+  canCreateCrawl: true,
+  canDeleteCrawl: true,
+  canViewCrawlHistory: true,
+};
+
+async function getCrawlerPermissions(req: any) {
+  const userId = parseInt(getAuthUserId(req), 10);
+  const role = req.session?.user?.role ?? "user";
+  const permissions = await getEffectivePermissions(userId, role);
+  return {
+    ...DEFAULT_CRAWLER_PERMISSIONS,
+    ...(permissions ?? {}),
+  };
+}
+
 function getAuthUserId(req: any): string {
   return req.session?.user?.id?.toString() ?? "";
 }
@@ -52,6 +68,11 @@ function isAdminUser(req: any): boolean {
 async function resolveSession(req: any, res: Response, sessionId: number) {
   const userId = getAuthUserId(req);
   const adminUser = isAdminUser(req);
+  const perms = await getCrawlerPermissions(req);
+  if (!perms.canViewCrawlHistory) {
+    res.status(403).json({ error: "Crawler history access is disabled" });
+    return null;
+  }
 
   const [session] = await db.select().from(crawlerSessionsTable)
     .where(eq(crawlerSessionsTable.id, sessionId)).limit(1);
@@ -76,7 +97,6 @@ async function resolveSession(req: any, res: Response, sessionId: number) {
     // they may only access sessions they personally started, unless they
     // hold the canViewAllScans permission.
     if (userRole === "user") {
-      const perms = await getEffectivePermissions(userIdNum, userRole);
       if (!perms.canViewAllScans && session.userId !== userId) {
         res.status(403).json({ error: "Forbidden" });
         return null;
@@ -154,6 +174,11 @@ function validateCreateCrawler(body: any): { data: any; error?: string } {
 router.post("/crawler/sessions", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = getAuthUserId(req);
   const adminUser = isAdminUser(req);
+  const perms = await getCrawlerPermissions(req);
+  if (!perms.canCreateCrawl) {
+    res.status(403).json({ error: "Crawl creation is disabled" });
+    return;
+  }
   const validated = validateCreateCrawler(req.body);
   if (validated.error) { res.status(400).json({ error: validated.error }); return; }
 
@@ -184,6 +209,9 @@ router.post("/crawler/sessions", requireAuth, async (req: Request, res: Response
         return;
       }
     }
+  } else {
+    res.status(403).json({ error: "A crawl must be associated with an accessible site" });
+    return;
   }
 
   // Auto-generate name: site name or hostname + date
@@ -262,6 +290,11 @@ router.post("/crawler/sessions", requireAuth, async (req: Request, res: Response
 router.get("/crawler/sessions", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = getAuthUserId(req);
   const adminUser = isAdminUser(req);
+  const perms = await getCrawlerPermissions(req);
+  if (!perms.canViewCrawlHistory) {
+    res.status(403).json({ error: "Crawler history access is disabled" });
+    return;
+  }
   const page = Math.max(1, parseInt(req.query["page"] as string || "1", 10));
   const limit = Math.min(100, parseInt(req.query["limit"] as string || "20", 10));
   const offset = (page - 1) * limit;
@@ -399,6 +432,15 @@ router.delete("/crawler/sessions/:id", requireAuth, async (req: Request, res: Re
   const sessionId = parseInt(req.params["id"] as string, 10);
   const session = await resolveSession(req, res, sessionId);
   if (!session) return;
+  const perms = await getCrawlerPermissions(req);
+  if (!perms.canDeleteCrawl) {
+    res.status(403).json({ error: "Crawl deletion is disabled" });
+    return;
+  }
+  if (!isAdminUser(req) && !(session.siteId ?? (session.config as any)?.siteId)) {
+    res.status(403).json({ error: "Only crawls for accessible sites can be deleted" });
+    return;
+  }
 
   if (isCrawlerActive(sessionId)) await cancelCrawlerJob(sessionId);
   await db.delete(crawlerSessionsTable).where(eq(crawlerSessionsTable.id, sessionId));

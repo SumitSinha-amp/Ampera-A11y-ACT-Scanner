@@ -3,12 +3,82 @@ import { db, qaPagesTable, qaLinksTable, qaImagesTable, qaWordInventoryTable, sc
 import { eq, and, sql, desc, asc, or, gt, isNotNull, isNull, ilike } from "drizzle-orm";
 import { requireAuth } from "../middlewares/authMiddleware";
 import { runQALinkChecker, isQACheckerRunning } from "../lib/qaLinkChecker";
+import { canAccessSite, getEffectivePermissions, getEffectiveSites } from "../lib/permissions";
 
 const router: IRouter = Router();
 
 function scanId(req: Parameters<typeof router.get>[1] extends (req: infer R, ...a: unknown[]) => unknown ? R : never): number {
   return parseInt((req as { params: Record<string, string> }).params["id"] as string, 10);
 }
+
+async function requireQAScanAccess(req: any, res: any, next: any): Promise<void> {
+  const id = parseInt(req.params["id"] as string, 10);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid scan id" });
+    return;
+  }
+  const user = req.session?.user;
+  const perms = await getEffectivePermissions(user?.id ?? 0, user?.role ?? "user");
+  if (!perms.canViewQualityAssurance) {
+    res.status(403).json({ error: "Quality assurance access is disabled" });
+    return;
+  }
+  const [scan] = await db
+    .select({ siteId: scanSessionsTable.siteId })
+    .from(scanSessionsTable)
+    .where(eq(scanSessionsTable.id, id))
+    .limit(1);
+  if (!scan) {
+    res.status(404).json({ error: "Scan not found" });
+    return;
+  }
+  if (!scan.siteId || !await canAccessSite(
+    user?.id ?? 0,
+    String(user?.id ?? 0),
+    user?.role ?? "user",
+    scan.siteId,
+  )) {
+    res.status(403).json({ error: "You do not have access to this site's QA data" });
+    return;
+  }
+  next();
+}
+
+async function requireQASiteAccess(req: any, res: any, next: any): Promise<void> {
+  const siteId = parseInt(req.params["siteId"] as string, 10);
+  if (isNaN(siteId)) {
+    res.status(400).json({ error: "Invalid site id" });
+    return;
+  }
+  const user = req.session?.user;
+  const perms = await getEffectivePermissions(user?.id ?? 0, user?.role ?? "user");
+  if (!perms.canViewQualityAssurance) {
+    res.status(403).json({ error: "Quality assurance access is disabled" });
+    return;
+  }
+  if (!await canAccessSite(
+    user?.id ?? 0,
+    String(user?.id ?? 0),
+    user?.role ?? "user",
+    siteId,
+  )) {
+    res.status(403).json({ error: "You do not have access to this site's QA data" });
+    return;
+  }
+  next();
+}
+
+router.use("/scans/:id/qa", requireAuth, requireQAScanAccess);
+router.use("/qa/sites/:siteId", requireAuth, requireQASiteAccess);
+router.use("/qa/sites", requireAuth, async (req: any, res: any, next: any): Promise<void> => {
+  const user = req.session?.user;
+  const perms = await getEffectivePermissions(user?.id ?? 0, user?.role ?? "user");
+  if (!perms.canViewQualityAssurance) {
+    res.status(403).json({ error: "Quality assurance access is disabled" });
+    return;
+  }
+  next();
+});
 
 /** GET /api/scans/:id/qa/status — is the link checker running + summary counts */
 router.get("/scans/:id/qa/status", requireAuth, async (req, res): Promise<void> => {
@@ -495,6 +565,13 @@ router.get("/scans/:id/qa/inventory-summary", requireAuth, async (req, res): Pro
 
 /** GET /api/qa/sites — list sites that have at least one completed crawler scan */
 router.get("/qa/sites", requireAuth, async (req, res): Promise<void> => {
+  const user = req.session?.user;
+  const accessibleSites = await getEffectiveSites(
+    user?.id ?? 0,
+    String(user?.id ?? 0),
+    user?.role ?? "user",
+  );
+  const accessibleSiteIds = new Set(accessibleSites.map((site) => site.id));
   const rows = await db
     .select({
       siteId: sitesTable.id,
@@ -520,6 +597,7 @@ router.get("/qa/sites", requireAuth, async (req, res): Promise<void> => {
   const seen = new Set<number>();
   const result = [];
   for (const row of rows) {
+    if (!accessibleSiteIds.has(row.siteId)) continue;
     if (!seen.has(row.siteId)) {
       seen.add(row.siteId);
       result.push(row);

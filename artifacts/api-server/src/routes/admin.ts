@@ -350,6 +350,13 @@ router.get("/admin/permissions", requireSuperAdmin, async (_req, res): Promise<v
       canDeleteProject: true,
       canDisableJs: false,
       canSmartAnalysis: false,
+      canSwitchSite: false,
+      canCreateCrawl: true,
+      canDeleteCrawl: true,
+      canViewCrawlHistory: true,
+      canViewQualityAssurance: true,
+      canViewSiteAccessibilityDashboard: true,
+      canManageSites: false,
       allowedRules: null,
     },
   })));
@@ -360,7 +367,13 @@ router.put("/admin/permissions/:userId", requireSuperAdmin, async (req, res): Pr
   const userId = parseInt(req.params["userId"] as string, 10);
   if (isNaN(userId)) { res.status(400).json({ error: "Invalid user ID" }); return; }
 
-  const { canScan, canExport, canViewAllScans, canEditScan, canDeleteScan, canManageScan, canCreateProject, canDeleteProject, canDisableJs, canSmartAnalysis, allowedRules } = req.body ?? {};
+  const {
+    canScan, canExport, canViewAllScans, canEditScan, canDeleteScan,
+    canManageScan, canCreateProject, canDeleteProject, canDisableJs,
+    canSmartAnalysis, canSwitchSite, canCreateCrawl, canDeleteCrawl,
+    canViewCrawlHistory, canViewQualityAssurance,
+    canViewSiteAccessibilityDashboard, canManageSites, allowedRules,
+  } = req.body ?? {};
   const updatedBy = req.session!.user!.id;
 
   const bool = (v: unknown, def: boolean) => typeof v === "boolean" ? v : def;
@@ -377,6 +390,13 @@ router.put("/admin/permissions/:userId", requireSuperAdmin, async (req, res): Pr
     canDeleteProject: bool(canDeleteProject, true),
     canDisableJs: bool(canDisableJs, false),
     canSmartAnalysis: bool(canSmartAnalysis, false),
+    canSwitchSite: bool(canSwitchSite, false),
+    canCreateCrawl: bool(canCreateCrawl, true),
+    canDeleteCrawl: bool(canDeleteCrawl, true),
+    canViewCrawlHistory: bool(canViewCrawlHistory, true),
+    canViewQualityAssurance: bool(canViewQualityAssurance, true),
+    canViewSiteAccessibilityDashboard: bool(canViewSiteAccessibilityDashboard, true),
+    canManageSites: bool(canManageSites, false),
     allowedRules: Array.isArray(allowedRules) ? allowedRules : null,
     updatedAt: new Date(),
     updatedBy,
@@ -398,6 +418,13 @@ router.put("/admin/permissions/:userId", requireSuperAdmin, async (req, res): Pr
         canDeleteProject: values.canDeleteProject,
         canDisableJs: values.canDisableJs,
         canSmartAnalysis: values.canSmartAnalysis,
+        canSwitchSite: values.canSwitchSite,
+        canCreateCrawl: values.canCreateCrawl,
+        canDeleteCrawl: values.canDeleteCrawl,
+        canViewCrawlHistory: values.canViewCrawlHistory,
+        canViewQualityAssurance: values.canViewQualityAssurance,
+        canViewSiteAccessibilityDashboard: values.canViewSiteAccessibilityDashboard,
+        canManageSites: values.canManageSites,
         allowedRules: values.allowedRules,
         updatedAt: values.updatedAt,
         updatedBy: values.updatedBy,

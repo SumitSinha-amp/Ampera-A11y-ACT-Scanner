@@ -46,6 +46,12 @@ export const userPermissionsTable = pgTable("user_permissions", {
   canDisableJs: boolean("can_disable_js").notNull().default(false),
   canSmartAnalysis: boolean("can_smart_analysis").notNull().default(false),
   canSwitchSite: boolean("can_switch_site").notNull().default(false),
+  canCreateCrawl: boolean("can_create_crawl").notNull().default(true),
+  canDeleteCrawl: boolean("can_delete_crawl").notNull().default(true),
+  canViewCrawlHistory: boolean("can_view_crawl_history").notNull().default(true),
+  canViewQualityAssurance: boolean("can_view_quality_assurance").notNull().default(true),
+  canViewSiteAccessibilityDashboard: boolean("can_view_site_accessibility_dashboard").notNull().default(true),
+  canManageSites: boolean("can_manage_sites").notNull().default(false),
   allowedRules: jsonb("allowed_rules"), // null = all rules; string[] = restricted list
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   updatedBy: integer("updated_by"),
