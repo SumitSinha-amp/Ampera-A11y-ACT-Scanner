@@ -21,7 +21,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Globe, Map, Link2, Shield, Zap, RefreshCw, Upload, AlertTriangle, Building2, Users, Clock, Database, CheckCircle2, Info } from "lucide-react";
+import { Globe, Map, Link2, Shield, Zap, RefreshCw, RotateCcw, Upload, AlertTriangle, Building2, Users, Clock, Database, CheckCircle2, Info } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -56,10 +56,10 @@ const COMMON_TIMEZONES = [
 // Detect user's local timezone for default
 const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-function localDateTimeInputMin(): string {
-  const d = new Date(Date.now() + 60_000);
+function localDateInputMin(): string {
+  const d = new Date();
   const pad = (value: number) => String(value).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 type CrawlScope = "all-subdomains" | "subdomain" | "subfolder" | "exact-url";
@@ -116,7 +116,8 @@ interface FormValues {
   crawlOnly: boolean;
   skipDiscovery: boolean;
   crawlBoost: boolean;
-  scheduledStartAt: string;
+  scheduledDate: string;
+  scheduledTime: string;
 }
 
 interface Site { id: number; name: string; baseUrl: string; }
@@ -184,11 +185,12 @@ export default function CrawlerNewPage() {
       crawlOnly: false,
       skipDiscovery: false,
       crawlBoost: false,
-      scheduledStartAt: "",
+      scheduledDate: "",
+      scheduledTime: "",
     },
   });
 
-  const { watch, register, setValue, handleSubmit, formState: { errors } } = form;
+  const { watch, register, setValue, handleSubmit, resetField, formState: { errors } } = form;
   const values = watch();
   const [activeTab, setActiveTab] = useState<CrawlerTab>("basic");
   const activeTabIndex = CRAWLER_TABS.indexOf(activeTab);
@@ -261,7 +263,24 @@ export default function CrawlerNewPage() {
 
   const onSubmit = handleSubmit((data) => {
     const selectedGroup = groups.find((g) => String(g.id) === data.groupId);
-    const payload: any = {
+     let scheduledStartAt: string | undefined;
+     if (data.scheduledDate || data.scheduledTime) {
+       if (!data.scheduledDate || !data.scheduledTime) {
+         toast({
+           title: "Choose both a date and time",
+           description: "Select a date and time to schedule the crawler, or leave both fields blank to start immediately.",
+           variant: "destructive",
+         });
+         return;
+       }
+       const scheduledDate = new Date(`${data.scheduledDate}T${data.scheduledTime}`);
+       if (Number.isNaN(scheduledDate.getTime())) {
+         toast({ title: "Choose a valid date and time", variant: "destructive" });
+         return;
+       }
+       scheduledStartAt = scheduledDate.toISOString();
+     }
+     const payload: any = {
       seedUrl: data.seedUrl.trim(),
       maxPages: data.maxPages,
       maxDepth: data.maxDepth,
@@ -278,7 +297,7 @@ export default function CrawlerNewPage() {
        autoScan: data.crawlOnly ? false : data.autoScan,
        crawlOnly: data.crawlOnly,
       crawlBoost: data.crawlBoost,
-      scheduledStartAt: data.scheduledStartAt ? new Date(data.scheduledStartAt).toISOString() : undefined,
+       scheduledStartAt,
       timezone: data.timezone || undefined,
       initiatorName: user?.fullName ?? user?.username,
       initiatorRole: selectedGroup?.roleLabel ?? undefined,
@@ -301,7 +320,7 @@ export default function CrawlerNewPage() {
     if (data.skipDiscovery) {
       payload.skipDiscovery = true;
     }
-     if (data.scheduledStartAt && new Date(data.scheduledStartAt).getTime() <= Date.now()) {
+      if (scheduledStartAt && new Date(scheduledStartAt).getTime() <= Date.now()) {
        toast({ title: "Choose a future date and time", description: "The scheduled start must be later than now.", variant: "destructive" });
        return;
      }
@@ -310,7 +329,7 @@ export default function CrawlerNewPage() {
 
   return (
     <TooltipProvider delayDuration={250}>
-    <div className="max-w-3xl space-y-6">
+    <div className="w-full max-w-none space-y-6">
       <div>
         <h1 className="text-2xl font-bold">New Crawler Scan</h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -330,7 +349,7 @@ export default function CrawlerNewPage() {
           </TabsList>
 
           {/* BASIC */}
-          <TabsContent value="basic" className="space-y-4 pt-4">
+            <TabsContent value="basic" className="grid gap-4 pt-4 lg:grid-cols-2 lg:items-stretch">
             <Card>
               <CardHeader><CardTitle>Target</CardTitle></CardHeader>
               <CardContent className="space-y-4">
@@ -349,23 +368,6 @@ export default function CrawlerNewPage() {
                     The starting URL. The crawl name is auto-generated from this domain and today's date.
                   </p>
                   {errors.seedUrl && <p className="text-xs text-destructive">{errors.seedUrl.message}</p>}
-                </div>
-
-                <div className="space-y-1.5 rounded-lg border border-primary/20 bg-primary/5 p-4">
-                  <Label htmlFor="scheduledStartAt" className="flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5" />
-                    Schedule start (optional)
-                    <OptionHelp text="Leave this blank to start immediately. Otherwise, the crawl begins at the selected local time." />
-                  </Label>
-                  <Input
-                    id="scheduledStartAt"
-                    type="datetime-local"
-                    min={localDateTimeInputMin()}
-                    {...register("scheduledStartAt")}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Leave blank to start immediately. The time uses your browser’s local timezone and is stored safely on the server.
-                  </p>
                 </div>
 
                 {/* Site selector */}
@@ -441,7 +443,13 @@ export default function CrawlerNewPage() {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+               </CardContent>
+             </Card>
+
+             <Card>
+               <CardHeader><CardTitle>Coverage</CardTitle></CardHeader>
+               <CardContent className="space-y-4">
+                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <Label htmlFor="maxPages" className="flex items-center gap-1">
                       Max Pages
@@ -490,15 +498,66 @@ export default function CrawlerNewPage() {
                     aria-label="Detect broken links"
                   />
                 </div>
+
+               <div className="space-y-1.5 rounded-lg border border-primary/20 bg-primary/5 p-4">
+                 <div className="flex items-center justify-between gap-2">
+                   <Label className="flex items-center gap-1.5">
+                     <Clock className="w-3.5 h-3.5" />
+                     Schedule start (optional)
+                     <OptionHelp text="Leave this blank to start immediately. Otherwise, the crawl begins at the selected local time." />
+                   </Label>
+                   <Tooltip>
+                     <TooltipTrigger asChild>
+                       <Button
+                         type="button"
+                         variant="ghost"
+                         size="icon"
+                         className="h-7 w-7 shrink-0"
+                         onClick={() => {
+                           resetField("scheduledDate");
+                           resetField("scheduledTime");
+                         }}
+                         aria-label="Reset scheduled date and time"
+                       >
+                         <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />
+                       </Button>
+                     </TooltipTrigger>
+                     <TooltipContent>Reset date and time</TooltipContent>
+                   </Tooltip>
+                 </div>
+                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                   <div className="space-y-1.5">
+                     <Label htmlFor="scheduledDate" className="text-xs font-medium">Date</Label>
+                     <Input
+                       id="scheduledDate"
+                       type="date"
+                       min={localDateInputMin()}
+                       {...register("scheduledDate")}
+                     />
+                   </div>
+                   <div className="space-y-1.5">
+                     <Label htmlFor="scheduledTime" className="text-xs font-medium">Time</Label>
+                     <Input
+                       id="scheduledTime"
+                       type="time"
+                       step={60}
+                       {...register("scheduledTime")}
+                     />
+                   </div>
+                 </div>
+                 <p className="text-xs text-muted-foreground">
+                   Leave both blank to start immediately. The time uses your browser’s local timezone and is stored safely on the server.
+                 </p>
+               </div>
               </CardContent>
             </Card>
           </TabsContent>
 
           {/* DISCOVERY */}
-          <TabsContent value="discovery" className="space-y-4 pt-4">
+           <TabsContent value="discovery" className="grid gap-4 pt-4 lg:grid-cols-2 lg:items-stretch">
             {/* URL Cache callout — shown when a cache exists for this domain */}
             {(discoveryCache || cacheChecking) && (
-              <Card className={`border-2 ${values.skipDiscovery ? "border-amber-400 dark:border-amber-600" : "border-border"}`}>
+               <Card className={`border-2 lg:col-span-2 ${values.skipDiscovery ? "border-amber-400 dark:border-amber-600" : "border-border"}`}>
                 <CardContent className="pt-4">
                   {cacheChecking ? (
                     <p className="text-xs text-muted-foreground">Checking for saved URL cache…</p>
@@ -539,7 +598,7 @@ export default function CrawlerNewPage() {
               </Card>
             )}
 
-            <Card>
+             <Card>
               <CardHeader><CardTitle>URL Discovery</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -713,7 +772,7 @@ export default function CrawlerNewPage() {
               </CardContent>
             </Card>
 
-            <Card>
+             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2"><Upload className="w-4 h-4" />Bulk URL Import</CardTitle>
                 <CardDescription>
@@ -730,13 +789,13 @@ export default function CrawlerNewPage() {
           </TabsContent>
 
           {/* AUTH */}
-          <TabsContent value="auth" className="space-y-4 pt-4">
-            <Card>
+           <TabsContent value="auth" className="grid gap-4 pt-4 lg:grid-cols-2 lg:items-stretch">
+             <Card className="lg:col-span-2">
               <CardHeader>
                 <CardTitle>Authenticated Crawling</CardTitle>
                 <CardDescription>Log in before crawling to access protected pages.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <Label className="flex items-center gap-1">
@@ -752,13 +811,13 @@ export default function CrawlerNewPage() {
                   />
                 </div>
 
-                {values.authenticated && (
-                  <div className="space-y-3 ml-4 border-l-2 border-border pl-4">
-                    <div className="space-y-1.5">
+                 {values.authenticated && (
+                   <div className="grid gap-3 ml-4 border-l-2 border-border pl-4 lg:grid-cols-2">
+                     <div className="space-y-1.5 lg:col-span-2">
                       <Label htmlFor="authUrl">Login Page URL</Label>
                       <Input id="authUrl" type="url" placeholder="https://example.com/login" {...register("authUrl")} />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                     <div className="grid grid-cols-2 gap-3 lg:col-span-2">
                       <div className="space-y-1.5">
                         <Label htmlFor="authUsernameSelector">Username Selector</Label>
                         <Input id="authUsernameSelector" placeholder="#username" {...register("authUsernameSelector")} />
@@ -768,8 +827,8 @@ export default function CrawlerNewPage() {
                         <Input id="authPasswordSelector" placeholder="#password" {...register("authPasswordSelector")} />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
+                     <div className="grid grid-cols-2 gap-3 lg:col-span-2">
+                       <div className="space-y-1.5">
                         <Label htmlFor="authUsername">Username</Label>
                         <Input id="authUsername" {...register("authUsername")} />
                       </div>
@@ -793,11 +852,11 @@ export default function CrawlerNewPage() {
           </TabsContent>
 
           {/* PERFORMANCE */}
-          <TabsContent value="performance" className="space-y-4 pt-4">
-            <Card>
+           <TabsContent value="performance" className="grid gap-4 pt-4 lg:grid-cols-2 lg:items-stretch">
+             <Card className="lg:col-span-2">
               <CardHeader><CardTitle>Performance</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
+               <CardContent className="grid gap-4 lg:grid-cols-2">
+                 <div className="flex items-center justify-between">
                   <div>
                     <Label className="flex items-center gap-1.5">
                       <Zap className="w-3.5 h-3.5 text-yellow-500" />
@@ -817,7 +876,7 @@ export default function CrawlerNewPage() {
                   />
                 </div>
 
-                <Separator />
+                 <Separator className="lg:col-span-2" />
 
                 <div className="flex items-center justify-between">
                   <div>
@@ -834,7 +893,7 @@ export default function CrawlerNewPage() {
                   />
                 </div>
 
-                <Separator />
+                 <Separator className="lg:col-span-2" />
 
                 <div className="space-y-1.5">
                   <Label className="flex items-center gap-1">
@@ -854,7 +913,7 @@ export default function CrawlerNewPage() {
                   <p className="text-xs text-muted-foreground">Extra wait after page load before running rules (Phase 2). 0 = scan at initial stable state (recommended).</p>
                 </div>
 
-                <Separator />
+                 <Separator className="lg:col-span-2" />
 
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-2">
@@ -881,8 +940,8 @@ export default function CrawlerNewPage() {
           </TabsContent>
 
           {/* INCREMENTAL */}
-          <TabsContent value="incremental" className="space-y-4 pt-4">
-            <Card>
+           <TabsContent value="incremental" className="grid gap-4 pt-4 lg:grid-cols-2 lg:items-stretch">
+             <Card className="lg:col-span-2">
               <CardHeader>
                 <CardTitle>Incremental Re-Scan</CardTitle>
                 <CardDescription>Skip pages whose HTML content hasn't changed since the previous crawl.</CardDescription>
@@ -956,8 +1015,8 @@ export default function CrawlerNewPage() {
               </Button>
             )}
           </div>
-           <Button type="submit" disabled={createMutation.isPending} className="min-w-[160px]" aria-label={values.scheduledStartAt ? "Schedule crawler" : values.crawlOnly ? "Start crawl only" : "Start crawler"}>
-             {createMutation.isPending ? "Submitting…" : values.scheduledStartAt ? "Schedule Crawler" : values.crawlOnly ? "Start Crawl Only" : "Start Crawler"}
+           <Button type="submit" disabled={createMutation.isPending} className="min-w-[160px]" aria-label={values.scheduledDate || values.scheduledTime ? "Schedule crawler" : values.crawlOnly ? "Start crawl only" : "Start crawler"}>
+             {createMutation.isPending ? "Submitting…" : values.scheduledDate || values.scheduledTime ? "Schedule Crawler" : values.crawlOnly ? "Start Crawl Only" : "Start Crawler"}
           </Button>
         </div>
       </form>
