@@ -257,8 +257,10 @@ function SiteSelector() {
     }
   });
 
+  // Switching is an explicit capability. Keep the selector available even
+  // when a user currently has one accessible site so the control does not
+  // disappear when their site access changes.
   if (!adminUser && !canSwitchSite) return null;
-  if (sites.length < 2 && !adminUser) return null;
 
   const toggleFavorite = (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -302,6 +304,7 @@ function SiteSelector() {
         <Button
           variant="outline"
           className="h-auto py-1.5 px-3 gap-2 w-[540px] max-w-full text-left justify-start"
+          aria-label={`Switch site. Current site: ${triggerName}`}
         >
           <Globe className="w-4 h-4 shrink-0 text-muted-foreground" />
           <div className="flex-1 min-w-0">
@@ -336,6 +339,7 @@ function SiteSelector() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search for site"
+              aria-label="Search accessible sites"
               className="pl-8 h-8 text-sm"
               autoFocus
             />

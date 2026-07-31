@@ -20,7 +20,8 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
-import { Globe, Map, Link2, Shield, Zap, RefreshCw, Upload, AlertTriangle, Building2, Users, Clock, Database, CheckCircle2 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Globe, Map, Link2, Shield, Zap, RefreshCw, Upload, AlertTriangle, Building2, Users, Clock, Database, CheckCircle2, Info } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -62,6 +63,27 @@ function localDateTimeInputMin(): string {
 }
 
 type CrawlScope = "all-subdomains" | "subdomain" | "subfolder" | "exact-url";
+
+const CRAWLER_TABS = ["basic", "discovery", "auth", "performance", "incremental"] as const;
+type CrawlerTab = (typeof CRAWLER_TABS)[number];
+
+function OptionHelp({ text }: { text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground/80 transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          aria-label={`Help: ${text}`}
+          title="Show help"
+        >
+          <Info aria-hidden="true" className="h-4 w-4" strokeWidth={2.25} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs">{text}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 interface FormValues {
   seedUrl: string;
@@ -166,6 +188,8 @@ export default function CrawlerNewPage() {
 
   const { watch, register, setValue, handleSubmit, formState: { errors } } = form;
   const values = watch();
+  const [activeTab, setActiveTab] = useState<CrawlerTab>("basic");
+  const activeTabIndex = CRAWLER_TABS.indexOf(activeTab);
 
   // Discovery cache detection — check when seedUrl changes
   const [discoveryCache, setDiscoveryCache] = useState<DiscoveryCache | null>(null);
@@ -282,6 +306,7 @@ export default function CrawlerNewPage() {
   });
 
   return (
+    <TooltipProvider delayDuration={250}>
     <div className="max-w-3xl space-y-6">
       <div>
         <h1 className="text-2xl font-bold">New Crawler Scan</h1>
@@ -292,13 +317,13 @@ export default function CrawlerNewPage() {
       </div>
 
       <form onSubmit={onSubmit}>
-        <Tabs defaultValue="basic">
-          <TabsList className="grid w-full grid-cols-5">
-            <TabsTrigger value="basic" className="gap-1.5"><Globe className="w-3.5 h-3.5" />Basic</TabsTrigger>
-            <TabsTrigger value="discovery" className="gap-1.5"><Map className="w-3.5 h-3.5" />Discovery</TabsTrigger>
-            <TabsTrigger value="auth" className="gap-1.5"><Shield className="w-3.5 h-3.5" />Auth</TabsTrigger>
-            <TabsTrigger value="performance" className="gap-1.5"><Zap className="w-3.5 h-3.5" />Speed</TabsTrigger>
-            <TabsTrigger value="incremental" className="gap-1.5"><RefreshCw className="w-3.5 h-3.5" />Incremental</TabsTrigger>
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as CrawlerTab)}>
+          <TabsList aria-label="New crawler scan configuration sections" className="grid w-full grid-cols-5">
+            <TabsTrigger value="basic" className="gap-1.5" aria-label="Basic crawler settings"><Globe aria-hidden="true" className="w-3.5 h-3.5" />Basic</TabsTrigger>
+            <TabsTrigger value="discovery" className="gap-1.5" aria-label="URL discovery settings"><Map aria-hidden="true" className="w-3.5 h-3.5" />Discovery</TabsTrigger>
+            <TabsTrigger value="auth" className="gap-1.5" aria-label="Authentication settings"><Shield aria-hidden="true" className="w-3.5 h-3.5" />Auth</TabsTrigger>
+            <TabsTrigger value="performance" className="gap-1.5" aria-label="Crawler speed settings"><Zap aria-hidden="true" className="w-3.5 h-3.5" />Speed</TabsTrigger>
+            <TabsTrigger value="incremental" className="gap-1.5" aria-label="Incremental scan settings"><RefreshCw aria-hidden="true" className="w-3.5 h-3.5" />Incremental</TabsTrigger>
           </TabsList>
 
           {/* BASIC */}
@@ -307,7 +332,10 @@ export default function CrawlerNewPage() {
               <CardHeader><CardTitle>Target</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="seedUrl">Seed URL *</Label>
+                  <Label htmlFor="seedUrl" className="flex items-center gap-1">
+                    Seed URL *
+                    <OptionHelp text="The first page the crawler visits. Use the full https:// URL for the site or section you want to scan." />
+                  </Label>
                   <Input
                     id="seedUrl"
                     type="url"
@@ -324,6 +352,7 @@ export default function CrawlerNewPage() {
                   <Label htmlFor="scheduledStartAt" className="flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5" />
                     Schedule start (optional)
+                    <OptionHelp text="Leave this blank to start immediately. Otherwise, the crawl begins at the selected local time." />
                   </Label>
                   <Input
                     id="scheduledStartAt"
@@ -341,9 +370,10 @@ export default function CrawlerNewPage() {
                   <Label className="flex items-center gap-1.5">
                     <Building2 className="w-3.5 h-3.5" />
                     Site
+                    <OptionHelp text="Associate this crawl with an accessible site so it appears in that site's history and dashboards." />
                   </Label>
                   <Select value={values.siteId || "none"} onValueChange={(v) => setValue("siteId", v === "none" ? "" : v)}>
-                    <SelectTrigger>
+                    <SelectTrigger aria-label="Select a site for this crawl">
                       <SelectValue placeholder="Select a site (optional)" />
                     </SelectTrigger>
                     <SelectContent>
@@ -367,9 +397,10 @@ export default function CrawlerNewPage() {
                     <Label className="flex items-center gap-1.5">
                       <Users className="w-3.5 h-3.5" />
                       Group
+                      <OptionHelp text="Choose a group when the crawl should use that group's site access and role context." />
                     </Label>
                     <Select value={values.groupId || "none"} onValueChange={(v) => setValue("groupId", v === "none" ? "" : v)}>
-                      <SelectTrigger>
+                      <SelectTrigger aria-label="Select a permission group for this crawl">
                         <SelectValue placeholder="Select a group (optional)" />
                       </SelectTrigger>
                       <SelectContent>
@@ -391,7 +422,7 @@ export default function CrawlerNewPage() {
                     Timezone
                   </Label>
                   <Select value={values.timezone || "UTC"} onValueChange={(v) => setValue("timezone", v)}>
-                    <SelectTrigger>
+                    <SelectTrigger aria-label="Select the crawl display timezone">
                       <SelectValue placeholder="Select timezone" />
                     </SelectTrigger>
                     <SelectContent>
@@ -409,7 +440,10 @@ export default function CrawlerNewPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <Label htmlFor="maxPages">Max Pages</Label>
+                    <Label htmlFor="maxPages" className="flex items-center gap-1">
+                      Max Pages
+                      <OptionHelp text="Maximum number of URLs this crawl may discover. Higher values provide broader coverage but may take longer." />
+                    </Label>
                     <Input
                       id="maxPages"
                       type="number"
@@ -422,12 +456,16 @@ export default function CrawlerNewPage() {
                     <p className="text-xs text-muted-foreground">No upper limit — enter any value (500, 5000, 100000…)</p>
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Max Depth</Label>
+                    <Label className="flex items-center gap-1">
+                      Max Depth
+                      <OptionHelp text="Maximum number of link levels to follow from the seed URL. A depth of 0 scans only the seed page." />
+                    </Label>
                     <div className="flex items-center gap-3">
                       <Slider
                         min={0} max={20} step={1}
                         value={[values.maxDepth]}
                         onValueChange={([v]) => setValue("maxDepth", v)}
+                        aria-label="Maximum crawl depth"
                         className="flex-1"
                       />
                       <span className="text-sm font-mono w-8 text-right">{values.maxDepth}</span>
@@ -437,12 +475,16 @@ export default function CrawlerNewPage() {
 
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label>Detect Broken Links</Label>
+                    <Label className="flex items-center gap-1">
+                      Detect Broken Links
+                      <OptionHelp text="Checks discovered links for unreachable destinations after the accessibility scan." />
+                    </Label>
                     <p className="text-xs text-muted-foreground">HTTP HEAD check every discovered link (runs after Phase 2)</p>
                   </div>
                   <Switch
                     checked={values.detectBrokenLinks}
                     onCheckedChange={(v) => setValue("detectBrokenLinks", v)}
+                    aria-label="Detect broken links"
                   />
                 </div>
               </CardContent>
@@ -474,7 +516,10 @@ export default function CrawlerNewPage() {
                       </div>
                       <div className="flex items-center justify-between">
                         <div>
-                          <Label className="text-sm">Skip Phase 1 — use cached URLs</Label>
+                          <Label className="text-sm flex items-center gap-1">
+                            Skip Phase 1 — use cached URLs
+                            <OptionHelp text="Use the saved URL inventory instead of discovering links again. This is faster but will not find newly added URLs." />
+                          </Label>
                           <p className="text-xs text-muted-foreground">
                             Load the {discoveryCache.urlCount.toLocaleString()} cached URLs and go straight to accessibility scanning. Saves time on sites you crawl repeatedly.
                           </p>
@@ -482,6 +527,7 @@ export default function CrawlerNewPage() {
                         <Switch
                           checked={values.skipDiscovery}
                           onCheckedChange={(v) => setValue("skipDiscovery", v)}
+                          aria-label="Skip discovery and use cached URLs"
                         />
                       </div>
                     </div>
@@ -495,15 +541,25 @@ export default function CrawlerNewPage() {
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label>Use Sitemap</Label>
+                    <Label className="flex items-center gap-1">
+                      Use Sitemap
+                      <OptionHelp text="Read sitemap.xml or sitemap_index.xml to find URLs in addition to links discovered on pages." />
+                    </Label>
                     <p className="text-xs text-muted-foreground">Parse sitemap.xml / sitemap_index.xml for URLs</p>
                   </div>
-                  <Switch checked={values.useSitemap} onCheckedChange={(v) => setValue("useSitemap", v)} />
+                  <Switch
+                    checked={values.useSitemap}
+                    onCheckedChange={(v) => setValue("useSitemap", v)}
+                    aria-label="Use sitemap for URL discovery"
+                  />
                 </div>
 
                 {values.useSitemap && (
                   <div className="space-y-1.5 ml-4 border-l-2 border-border pl-4">
-                    <Label htmlFor="sitemapUrl">Sitemap URL</Label>
+                    <Label htmlFor="sitemapUrl" className="flex items-center gap-1">
+                      Sitemap URL
+                      <OptionHelp text="Optional custom sitemap address. Leave blank to use the site's standard sitemap location." />
+                    </Label>
                     <Input
                       id="sitemapUrl"
                       type="url"
@@ -518,21 +574,31 @@ export default function CrawlerNewPage() {
 
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label>Follow Links</Label>
+                    <Label className="flex items-center gap-1">
+                      Follow Links
+                      <OptionHelp text="When enabled, the crawler follows links found in page content within the selected crawl scope." />
+                    </Label>
                     <p className="text-xs text-muted-foreground">Discover new URLs by following hrefs on each page (Phase 1)</p>
                   </div>
-                  <Switch checked={values.followLinks} onCheckedChange={(v) => setValue("followLinks", v)} />
+                  <Switch
+                    checked={values.followLinks}
+                    onCheckedChange={(v) => setValue("followLinks", v)}
+                    aria-label="Follow links during discovery"
+                  />
                 </div>
 
                 {values.followLinks && (
                   <div className="space-y-3 ml-4 border-l-2 border-border pl-4">
                     <div>
-                      <Label className="mb-1.5 block">Crawl Scope</Label>
+                      <Label className="mb-1.5 block flex items-center gap-1">
+                        Crawl Scope
+                        <OptionHelp text="Controls which URLs are considered in scope: the exact URL, a folder, the current subdomain, or all subdomains." />
+                      </Label>
                       <Select
                         value={values.crawlScope}
                         onValueChange={(v) => setValue("crawlScope", v as CrawlScope)}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger aria-label="Select the crawl scope">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -557,12 +623,16 @@ export default function CrawlerNewPage() {
                 {/* Locale / Path Filter — toggle */}
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label>Locale / Path Filter</Label>
+                    <Label className="flex items-center gap-1">
+                      Locale / Path Filter
+                      <OptionHelp text="Restricts discovery to URLs containing the configured path or locale pattern." />
+                    </Label>
                     <p className="text-xs text-muted-foreground">Only crawl URLs whose path contains a specific string</p>
                   </div>
                   <Switch
                     checked={values.localeEnabled}
                     onCheckedChange={(v) => setValue("localeEnabled", v)}
+                    aria-label="Enable locale or path filter"
                   />
                 </div>
                 {values.localeEnabled && (
@@ -570,6 +640,7 @@ export default function CrawlerNewPage() {
                     <Input
                       id="localePattern"
                       placeholder="e.g. /us/en or /en-us"
+                      aria-label="Locale or path filter pattern"
                       {...register("localePattern")}
                     />
                     <p className="text-xs text-muted-foreground">
@@ -583,22 +654,36 @@ export default function CrawlerNewPage() {
 
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label>Respect robots.txt</Label>
+                    <Label className="flex items-center gap-1">
+                      Respect robots.txt
+                      <OptionHelp text="Skips URLs that the site's robots.txt explicitly disallows." />
+                    </Label>
                     <p className="text-xs text-muted-foreground">Skip URLs disallowed in robots.txt</p>
                   </div>
-                  <Switch checked={values.respectRobotsTxt} onCheckedChange={(v) => setValue("respectRobotsTxt", v)} />
+                  <Switch
+                    checked={values.respectRobotsTxt}
+                    onCheckedChange={(v) => setValue("respectRobotsTxt", v)}
+                    aria-label="Respect robots.txt"
+                  />
                 </div>
 
                 <Separator />
 
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label>Auto-Scan After Discovery</Label>
+                    <Label className="flex items-center gap-1">
+                      Auto-Scan After Discovery
+                      <OptionHelp text="Starts the accessibility scan automatically after URL discovery finishes. Turn this off to review the page inventory first." />
+                    </Label>
                     <p className="text-xs text-muted-foreground">
                       Automatically start Phase 2 (accessibility scan) as soon as Phase 1 (discovery) finishes
                     </p>
                   </div>
-                  <Switch checked={values.autoScan} onCheckedChange={(v) => setValue("autoScan", v)} />
+                  <Switch
+                    checked={values.autoScan}
+                    onCheckedChange={(v) => setValue("autoScan", v)}
+                    aria-label="Automatically start accessibility scan after discovery"
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -629,10 +714,17 @@ export default function CrawlerNewPage() {
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label>Enable Authentication</Label>
+                    <Label className="flex items-center gap-1">
+                      Enable Authentication
+                      <OptionHelp text="Logs into a protected site before crawling. Use this only when the login form details below are complete." />
+                    </Label>
                     <p className="text-xs text-muted-foreground">Navigate to a login page and submit credentials first</p>
                   </div>
-                  <Switch checked={values.authenticated} onCheckedChange={(v) => setValue("authenticated", v)} />
+                  <Switch
+                    checked={values.authenticated}
+                    onCheckedChange={(v) => setValue("authenticated", v)}
+                    aria-label="Enable authenticated crawling"
+                  />
                 </div>
 
                 {values.authenticated && (
@@ -685,6 +777,7 @@ export default function CrawlerNewPage() {
                     <Label className="flex items-center gap-1.5">
                       <Zap className="w-3.5 h-3.5 text-yellow-500" />
                       Crawl Boost
+                      <OptionHelp text="Captures rendered page snapshots during discovery so Phase 2 can reuse them and avoid a second browser visit." />
                       <Badge variant="outline" className="text-xs">Beta</Badge>
                     </Label>
                     <p className="text-xs text-muted-foreground mt-0.5">
@@ -692,28 +785,43 @@ export default function CrawlerNewPage() {
                       Ideal for bot-protected or slow sites.
                     </p>
                   </div>
-                  <Switch checked={values.crawlBoost} onCheckedChange={(v) => setValue("crawlBoost", v)} />
+                  <Switch
+                    checked={values.crawlBoost}
+                    onCheckedChange={(v) => setValue("crawlBoost", v)}
+                    aria-label="Enable crawl boost"
+                  />
                 </div>
 
                 <Separator />
 
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label>Block Assets</Label>
+                    <Label className="flex items-center gap-1">
+                      Block Assets
+                      <OptionHelp text="Prevents non-essential assets from loading during discovery to reduce bandwidth and speed up crawling." />
+                    </Label>
                     <p className="text-xs text-muted-foreground">Block images, fonts, media and analytics requests — 3–5× faster page loads (Phase 2)</p>
                   </div>
-                  <Switch checked={values.blockAssets} onCheckedChange={(v) => setValue("blockAssets", v)} />
+                  <Switch
+                    checked={values.blockAssets}
+                    onCheckedChange={(v) => setValue("blockAssets", v)}
+                    aria-label="Block non-essential assets"
+                  />
                 </div>
 
                 <Separator />
 
                 <div className="space-y-1.5">
-                  <Label>Scan Delay (ms)</Label>
+                  <Label className="flex items-center gap-1">
+                    Scan Delay (ms)
+                    <OptionHelp text="Extra time to wait after a page becomes stable before accessibility rules run." />
+                  </Label>
                   <div className="flex items-center gap-3">
                     <Slider
                       min={0} max={100000} step={100}
                       value={[values.scanDelayMs]}
                       onValueChange={([v]) => setValue("scanDelayMs", v)}
+                      aria-label="Scan delay in milliseconds"
                       className="flex-1"
                     />
                     <span className="text-sm font-mono w-16 text-right">{values.scanDelayMs} ms</span>
@@ -725,7 +833,10 @@ export default function CrawlerNewPage() {
 
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-2">
-                    <Label>Chrome Tab Pool Size</Label>
+                    <Label className="flex items-center gap-1">
+                      Chrome Tab Pool Size
+                      <OptionHelp text="Number of browser tabs available for scanning. Higher values can use more memory." />
+                    </Label>
                     <Badge variant="outline" className="text-xs">Config stored — parallel processing via horizontal scaling</Badge>
                   </div>
                   <div className="flex items-center gap-3">
@@ -733,6 +844,7 @@ export default function CrawlerNewPage() {
                       min={1} max={5} step={1}
                       value={[values.tabPoolSize]}
                       onValueChange={([v]) => setValue("tabPoolSize", v)}
+                      aria-label="Chrome tab pool size"
                       className="flex-1"
                     />
                     <span className="text-sm font-mono w-4 text-right">{values.tabPoolSize}</span>
@@ -762,10 +874,17 @@ export default function CrawlerNewPage() {
                 )}
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label>Enable Incremental Mode</Label>
+                    <Label className="flex items-center gap-1">
+                      Enable Incremental Mode
+                      <OptionHelp text="Compares page content with a previous completed crawl and skips pages whose content has not changed." />
+                    </Label>
                     <p className="text-xs text-muted-foreground">Compare SHA-256 content hash with a previous session (checked in Phase 2)</p>
                   </div>
-                  <Switch checked={values.incremental} onCheckedChange={(v) => setValue("incremental", v)} />
+                  <Switch
+                    checked={values.incremental}
+                    onCheckedChange={(v) => setValue("incremental", v)}
+                    aria-label="Enable incremental mode"
+                  />
                 </div>
 
                 {values.incremental && (
@@ -788,14 +907,36 @@ export default function CrawlerNewPage() {
         </Tabs>
 
         <div className="flex items-center justify-between mt-6 pt-4 border-t border-border">
-          <Button type="button" variant="outline" onClick={() => navigate("/crawler")}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={createMutation.isPending} className="min-w-[160px]">
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" onClick={() => navigate("/crawler")} aria-label="Cancel and return to crawler history">
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setActiveTab(CRAWLER_TABS[activeTabIndex - 1])}
+              disabled={activeTabIndex === 0}
+              aria-label="Go to previous crawler settings section"
+            >
+              Previous
+            </Button>
+            {activeTabIndex < CRAWLER_TABS.length - 1 && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setActiveTab(CRAWLER_TABS[activeTabIndex + 1])}
+                aria-label="Go to next crawler settings section"
+              >
+                Next
+              </Button>
+            )}
+          </div>
+          <Button type="submit" disabled={createMutation.isPending} className="min-w-[160px]" aria-label={values.scheduledStartAt ? "Schedule crawler" : "Start crawler"}>
             {createMutation.isPending ? "Submitting…" : values.scheduledStartAt ? "Schedule Crawler" : "Start Crawler"}
           </Button>
         </div>
       </form>
     </div>
+    </TooltipProvider>
   );
 }

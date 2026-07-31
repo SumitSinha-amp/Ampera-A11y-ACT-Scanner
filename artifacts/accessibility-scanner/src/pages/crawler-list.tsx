@@ -578,8 +578,13 @@ export default function CrawlerListPage() {
                         <TableCell className="py-3">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-7 w-7">
-                                <MoreHorizontal className="w-4 h-4" />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                aria-label={`Actions for crawler ${s.name || `#${s.id}`}`}
+                              >
+                                <MoreHorizontal className="w-4 h-4" aria-hidden="true" />
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">

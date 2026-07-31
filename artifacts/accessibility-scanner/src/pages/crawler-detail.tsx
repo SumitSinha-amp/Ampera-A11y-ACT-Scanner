@@ -50,7 +50,9 @@ import {
   Database,
   RefreshCw,
   Zap,
+  Download,
 } from "lucide-react";
+import { useAuth } from "@/contexts/auth";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -372,12 +374,14 @@ export default function CrawlerDetailPage() {
   const sessionId = parseInt(id as string, 10);
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [pagesPage, setPagesPage] = useState(1);
   const [pagesStatusFilter, setPagesStatusFilter] = useState("all");
   const [pagesPageTypeFilter, setPagesPageTypeFilter] = useState("all");
   const [pagesLocaleFilter, setPagesLocaleFilter] = useState("");
+  const [pagesExtensionFilter, setPagesExtensionFilter] = useState("");
   const [brokenPage, setBrokenPage] = useState(1);
   const [sseSession, setSseSession] = useState<CrawlerSession | null>(null);
   const [sseKey, setSseKey] = useState(0);
@@ -433,17 +437,19 @@ export default function CrawlerDetailPage() {
     setPagesStatusFilter("all");
     setPagesPageTypeFilter("all");
     setPagesLocaleFilter("");
+    setPagesExtensionFilter("");
     setLocaleSearch("");
     setBrokenPage(1);
   }, [sessionId]);
 
   const { data: pagesData, isLoading: pagesLoading } = useQuery({
-    queryKey: ["crawler-pages", sessionId, pagesPage, pagesStatusFilter, pagesLocaleFilter, pagesPageTypeFilter],
+    queryKey: ["crawler-pages", sessionId, pagesPage, pagesStatusFilter, pagesLocaleFilter, pagesPageTypeFilter, pagesExtensionFilter],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(pagesPage), limit: "50" });
       if (pagesStatusFilter !== "all") params.set("status", pagesStatusFilter);
       if (pagesLocaleFilter) params.set("locale", pagesLocaleFilter);
       if (pagesPageTypeFilter !== "all") params.set("pageType", pagesPageTypeFilter);
+      if (pagesExtensionFilter) params.set("extension", pagesExtensionFilter);
       const res = await fetch(`${BASE}/api/crawler/sessions/${sessionId}/pages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed");
       return res.json() as Promise<{ pages: CrawlerPage[]; total: number; page: number }>;
@@ -612,6 +618,31 @@ export default function CrawlerDetailPage() {
 
   const totalPtPages = (pageTypes ?? []).reduce((a, r) => a + r.count, 0);
   const uniquePageTypes = Array.from(new Set((pageTypes ?? []).map((r) => r.page_type)));
+  const canExport = user?.permissions?.canExport ?? false;
+
+  const exportPages = async () => {
+    const params = new URLSearchParams();
+    if (pagesStatusFilter !== "all") params.set("status", pagesStatusFilter);
+    if (pagesLocaleFilter) params.set("locale", pagesLocaleFilter);
+    if (pagesPageTypeFilter !== "all") params.set("pageType", pagesPageTypeFilter);
+    if (pagesExtensionFilter) params.set("extension", pagesExtensionFilter);
+    const response = await fetch(`${BASE}/api/crawler/sessions/${sessionId}/pages/export?${params}`, {
+      credentials: "include",
+    });
+    if (!response.ok) {
+      toast({ title: "Export failed", description: "The filtered page report could not be downloaded.", variant: "destructive" });
+      return;
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `crawler-${sessionId}-pages.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
 
   const timezone = (displaySession.config?.timezone as string) || undefined;
   const fmtDate = (d: string | null) => {
@@ -631,8 +662,8 @@ export default function CrawlerDetailPage() {
       <div className="flex items-start gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <Link href="/crawler" className="text-muted-foreground hover:text-foreground">
-              <ChevronLeft className="w-4 h-4" />
+            <Link href="/crawler" className="text-muted-foreground hover:text-foreground" aria-label="Back to crawler history">
+              <ChevronLeft className="w-4 h-4" aria-hidden="true" />
             </Link>
             <h1 className="text-xl font-bold truncate">{displaySession.name}</h1>
             <Badge className={`text-xs ${statusBadge(displaySession.status)}`}>
@@ -645,10 +676,11 @@ export default function CrawlerDetailPage() {
             )}
           </div>
           <a href={displaySession.seedUrl} target="_blank" rel="noopener noreferrer"
-            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 mt-1 w-fit">
-            <Globe className="w-3.5 h-3.5" />
+            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 mt-1 w-fit"
+            aria-label={`Open seed URL ${displaySession.seedUrl} in a new tab`}>
+            <Globe className="w-3.5 h-3.5" aria-hidden="true" />
             {displaySession.seedUrl}
-            <ExternalLink className="w-3 h-3" />
+            <ExternalLink className="w-3 h-3" aria-hidden="true" />
           </a>
           {timezone && (
             <p className="text-xs text-muted-foreground mt-0.5">Timezone: {timezone}</p>
@@ -694,20 +726,20 @@ export default function CrawlerDetailPage() {
             }}
           />
           {(isDiscovering || isScanning) && (
-            <Button variant="outline" size="sm" onClick={() => pauseMutation.mutate()} disabled={pauseMutation.isPending}>
-              <Pause className="w-4 h-4 mr-1.5" />
+            <Button aria-label="Pause crawler" variant="outline" size="sm" onClick={() => pauseMutation.mutate()} disabled={pauseMutation.isPending}>
+              <Pause className="w-4 h-4 mr-1.5" aria-hidden="true" />
               Pause
             </Button>
           )}
           {(displaySession.status === "paused" || displaySession.status === "failed") && (
-            <Button size="sm" onClick={() => resumeMutation.mutate()} disabled={resumeMutation.isPending}>
-              <Play className="w-4 h-4 mr-1.5" />
+            <Button aria-label="Resume crawler" size="sm" onClick={() => resumeMutation.mutate()} disabled={resumeMutation.isPending}>
+              <Play className="w-4 h-4 mr-1.5" aria-hidden="true" />
               Resume
             </Button>
           )}
           {(isActive || displaySession.status === "paused" || displaySession.status === "failed") && (
-            <Button variant="destructive" size="sm" onClick={() => cancelMutation.mutate()} disabled={cancelMutation.isPending}>
-              <XCircle className="w-4 h-4 mr-1.5" />
+            <Button aria-label="Cancel crawler" variant="destructive" size="sm" onClick={() => cancelMutation.mutate()} disabled={cancelMutation.isPending}>
+              <XCircle className="w-4 h-4 mr-1.5" aria-hidden="true" />
               Cancel
             </Button>
           )}
@@ -921,29 +953,29 @@ export default function CrawlerDetailPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="pages">
-        <TabsList>
-          <TabsTrigger value="pages">
+        <TabsList aria-label="Crawler detail sections">
+          <TabsTrigger value="pages" aria-label={`Pages${totalPages > 0 ? `, ${totalPages} total` : ""}`}>
             Pages
             {totalPages > 0 && <Badge variant="secondary" className="ml-1.5 text-xs">{totalPages}</Badge>}
           </TabsTrigger>
-          <TabsTrigger value="page-types">
+          <TabsTrigger value="page-types" aria-label="Page types">
             <LayoutGrid className="w-3.5 h-3.5 mr-1" />
             Page Types
             {(pageTypes ?? []).length > 0 && <Badge variant="secondary" className="ml-1.5 text-xs">{(pageTypes ?? []).length}</Badge>}
           </TabsTrigger>
-          <TabsTrigger value="broken">
+          <TabsTrigger value="broken" aria-label={`Broken links${totalBroken > 0 ? `, ${totalBroken} total` : ""}`}>
             Broken Links
             {totalBroken > 0 && <Badge variant="secondary" className="ml-1.5 text-xs">{totalBroken}</Badge>}
           </TabsTrigger>
-          <TabsTrigger value="config">Config</TabsTrigger>
+          <TabsTrigger value="config" aria-label="Crawl configuration">Config</TabsTrigger>
         </TabsList>
 
         {/* Pages Tab */}
         <TabsContent value="pages" className="space-y-3 pt-2">
           <div className="flex items-center gap-3 flex-wrap">
-            <Label className="text-xs text-muted-foreground shrink-0">Status:</Label>
+            <Label htmlFor="crawler-status-filter" className="text-xs text-muted-foreground shrink-0">Status:</Label>
             <Select value={pagesStatusFilter} onValueChange={(v) => { setPagesStatusFilter(v); setPagesPage(1); }}>
-              <SelectTrigger className="w-36 h-8 text-xs">
+              <SelectTrigger id="crawler-status-filter" aria-label="Filter pages by status" className="w-36 h-8 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -958,9 +990,9 @@ export default function CrawlerDetailPage() {
               </SelectContent>
             </Select>
 
-            <Label className="text-xs text-muted-foreground shrink-0">Page Type:</Label>
+            <Label htmlFor="crawler-page-type-filter" className="text-xs text-muted-foreground shrink-0">Page Type:</Label>
             <Select value={pagesPageTypeFilter} onValueChange={(v) => { setPagesPageTypeFilter(v); setPagesPage(1); }}>
-              <SelectTrigger className="w-40 h-8 text-xs">
+              <SelectTrigger id="crawler-page-type-filter" aria-label="Filter pages by page type" className="w-40 h-8 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -971,9 +1003,11 @@ export default function CrawlerDetailPage() {
               </SelectContent>
             </Select>
 
-            <Label className="text-xs text-muted-foreground shrink-0">Path:</Label>
+            <Label htmlFor="crawler-path-filter" className="text-xs text-muted-foreground shrink-0">Path:</Label>
             <div className="flex items-center gap-1">
               <Input
+                id="crawler-path-filter"
+                aria-label="Filter pages by URL path"
                 className="h-8 text-xs w-36"
                 placeholder="/us/en"
                 value={localeSearch}
@@ -993,6 +1027,40 @@ export default function CrawlerDetailPage() {
                 </Button>
               )}
             </div>
+            <Label htmlFor="crawler-extension-filter" className="text-xs text-muted-foreground shrink-0">URL extension:</Label>
+            <div className="flex items-center gap-1">
+              <Input
+                id="crawler-extension-filter"
+                aria-label="Filter pages by URL extension"
+                className="h-8 text-xs w-28"
+                placeholder="pdf or html"
+                value={pagesExtensionFilter}
+                onChange={(e) => { setPagesExtensionFilter(e.target.value.replace(/^\./, "").trim().toLowerCase()); setPagesPage(1); }}
+              />
+              {pagesExtensionFilter && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-xs px-2"
+                  aria-label="Clear URL extension filter"
+                  onClick={() => { setPagesExtensionFilter(""); setPagesPage(1); }}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+            {canExport && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                aria-label="Export filtered crawler pages as CSV"
+                onClick={() => void exportPages()}
+              >
+                <Download className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
+                Export CSV
+              </Button>
+            )}
           </div>
 
           {pagesLoading ? (
@@ -1064,16 +1132,16 @@ export default function CrawlerDetailPage() {
                     Page {pagesPage} of {totalPagesPages} ({totalPages} total)
                   </span>
                   <div className="flex gap-1">
-                    <Button variant="outline" size="sm" disabled={pagesPage <= 1} onClick={() => setPagesPage(1)} title="First page">
+                    <Button variant="outline" size="sm" aria-label="Go to first pages page" disabled={pagesPage <= 1} onClick={() => setPagesPage(1)} title="First page">
                       <ChevronsLeft className="w-4 h-4" />
                     </Button>
-                    <Button variant="outline" size="sm" disabled={pagesPage <= 1} onClick={() => setPagesPage((p) => p - 1)}>
+                    <Button variant="outline" size="sm" aria-label="Go to previous pages page" disabled={pagesPage <= 1} onClick={() => setPagesPage((p) => p - 1)}>
                       <ChevronLeft className="w-4 h-4" />
                     </Button>
-                    <Button variant="outline" size="sm" disabled={pagesPage >= totalPagesPages} onClick={() => setPagesPage((p) => p + 1)}>
+                    <Button variant="outline" size="sm" aria-label="Go to next pages page" disabled={pagesPage >= totalPagesPages} onClick={() => setPagesPage((p) => p + 1)}>
                       <ChevronRight className="w-4 h-4" />
                     </Button>
-                    <Button variant="outline" size="sm" disabled={pagesPage >= totalPagesPages} onClick={() => setPagesPage(totalPagesPages)} title="Last page">
+                    <Button variant="outline" size="sm" aria-label="Go to last pages page" disabled={pagesPage >= totalPagesPages} onClick={() => setPagesPage(totalPagesPages)} title="Last page">
                       <ChevronsRight className="w-4 h-4" />
                     </Button>
                   </div>
@@ -1194,16 +1262,16 @@ export default function CrawlerDetailPage() {
                     Page {brokenPage} of {totalBrokenPages} ({totalBroken} total)
                   </span>
                   <div className="flex gap-1">
-                    <Button variant="outline" size="sm" disabled={brokenPage <= 1} onClick={() => setBrokenPage(1)} title="First page">
+                    <Button variant="outline" size="sm" aria-label="Go to first broken links page" disabled={brokenPage <= 1} onClick={() => setBrokenPage(1)} title="First page">
                       <ChevronsLeft className="w-4 h-4" />
                     </Button>
-                    <Button variant="outline" size="sm" disabled={brokenPage <= 1} onClick={() => setBrokenPage((p) => p - 1)}>
+                    <Button variant="outline" size="sm" aria-label="Go to previous broken links page" disabled={brokenPage <= 1} onClick={() => setBrokenPage((p) => p - 1)}>
                       <ChevronLeft className="w-4 h-4" />
                     </Button>
-                    <Button variant="outline" size="sm" disabled={brokenPage >= totalBrokenPages} onClick={() => setBrokenPage((p) => p + 1)}>
+                    <Button variant="outline" size="sm" aria-label="Go to next broken links page" disabled={brokenPage >= totalBrokenPages} onClick={() => setBrokenPage((p) => p + 1)}>
                       <ChevronRight className="w-4 h-4" />
                     </Button>
-                    <Button variant="outline" size="sm" disabled={brokenPage >= totalBrokenPages} onClick={() => setBrokenPage(totalBrokenPages)} title="Last page">
+                    <Button variant="outline" size="sm" aria-label="Go to last broken links page" disabled={brokenPage >= totalBrokenPages} onClick={() => setBrokenPage(totalBrokenPages)} title="Last page">
                       <ChevronsRight className="w-4 h-4" />
                     </Button>
                   </div>

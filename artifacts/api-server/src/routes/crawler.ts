@@ -458,11 +458,15 @@ router.get("/crawler/sessions/:id/pages", requireAuth, async (req: Request, res:
   const statusFilter = req.query["status"] as string | undefined;
   const localeFilter = req.query["locale"] as string | undefined;
   const pageTypeFilter = req.query["pageType"] as string | undefined;
+  const extensionFilter = String(req.query["extension"] ?? "").trim().toLowerCase().replace(/^\./, "");
 
   const conditions: any[] = [eq(crawlerPagesTable.sessionId, sessionId)];
   if (statusFilter) conditions.push(eq(crawlerPagesTable.status, statusFilter));
   if (localeFilter) conditions.push(sql`${crawlerPagesTable.url} ILIKE ${"%" + localeFilter + "%"}`);
   if (pageTypeFilter) conditions.push(eq(crawlerPagesTable.pageType, pageTypeFilter));
+  if (extensionFilter) {
+    conditions.push(sql`lower(split_part(split_part(${crawlerPagesTable.url}, '?', 1), '#', 1)) LIKE ${"%" + extensionFilter}`);
+  }
   const whereClause = conditions.length === 1 ? conditions[0] : and(...conditions as [any, any, ...any[]]);
 
   const [pages, [{ total }]] = await Promise.all([
@@ -472,6 +476,63 @@ router.get("/crawler/sessions/:id/pages", requireAuth, async (req: Request, res:
   ]);
 
   res.json({ pages, total, page, limit });
+});
+
+// GET /api/crawler/sessions/:id/pages/export — export the filtered page inventory
+router.get("/crawler/sessions/:id/pages/export", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const sessionId = parseInt(req.params["id"] as string, 10);
+  const _session = await resolveSession(req, res, sessionId);
+  if (!_session) return;
+  const perms = await getCrawlerPermissions(req);
+  if (!perms.canExport) {
+    res.status(403).json({ error: "Report export is disabled" });
+    return;
+  }
+
+  const statusFilter = req.query["status"] as string | undefined;
+  const localeFilter = req.query["locale"] as string | undefined;
+  const pageTypeFilter = req.query["pageType"] as string | undefined;
+  const extensionFilter = String(req.query["extension"] ?? "").trim().toLowerCase().replace(/^\./, "");
+  const conditions: any[] = [eq(crawlerPagesTable.sessionId, sessionId)];
+  if (statusFilter) conditions.push(eq(crawlerPagesTable.status, statusFilter));
+  if (localeFilter) conditions.push(sql`${crawlerPagesTable.url} ILIKE ${"%" + localeFilter + "%"}`);
+  if (pageTypeFilter) conditions.push(eq(crawlerPagesTable.pageType, pageTypeFilter));
+  if (extensionFilter) {
+    conditions.push(sql`lower(split_part(split_part(${crawlerPagesTable.url}, '?', 1), '#', 1)) LIKE ${"%" + extensionFilter}`);
+  }
+  const whereClause = conditions.length === 1 ? conditions[0] : and(...conditions as [any, any, ...any[]]);
+  const rows = await db.select({
+    url: crawlerPagesTable.url,
+    status: crawlerPagesTable.status,
+    pageType: crawlerPagesTable.pageType,
+    depth: crawlerPagesTable.depth,
+    httpStatus: crawlerPagesTable.httpStatus,
+    issueCount: crawlerPagesTable.issueCount,
+    ruleCount: crawlerPagesTable.ruleCount,
+    errorMessage: crawlerPagesTable.errorMessage,
+    scannedAt: crawlerPagesTable.scannedAt,
+  }).from(crawlerPagesTable).where(whereClause).orderBy(asc(crawlerPagesTable.id));
+
+  const csvCell = (value: unknown) => {
+    const text = value == null ? "" : String(value);
+    return `"${text.replace(/"/g, '""')}"`;
+  };
+  const header = ["URL", "Status", "Page Type", "Depth", "HTTP Status", "Issues", "Rules", "Error", "Scanned At"];
+  const body = rows.map((row) => [
+    row.url,
+    row.status,
+    row.pageType,
+    row.depth,
+    row.httpStatus,
+    row.issueCount,
+    row.ruleCount,
+    row.errorMessage,
+    row.scannedAt,
+  ].map(csvCell).join(","));
+  const csv = [header.map(csvCell).join(","), ...body].join("\r\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="crawler-${sessionId}-pages.csv"`);
+  res.send(`\uFEFF${csv}\r\n`);
 });
 
 // GET /api/crawler/sessions/:id/page-types — page type breakdown
