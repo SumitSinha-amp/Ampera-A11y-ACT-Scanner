@@ -41,6 +41,7 @@ import {
   X,
   Home,
 } from "lucide-react";
+import { AccessibilityModeControl } from "@/components/accessibility-mode";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -70,7 +71,7 @@ import SettingsPage, {
   DEFAULT_LOGO_SIZE,
   type LogoType,
 } from "@/pages/settings";
-import { useAuth, isAdmin } from "@/contexts/auth";
+import { useAuth, isAdmin, isSuperAdmin } from "@/contexts/auth";
 import { useSite, type MySite } from "@/contexts/site";
 import {
   Popover,
@@ -244,7 +245,7 @@ function useMySites(enabled: boolean) {
 function SiteSelector() {
   const { sites, activeSite, setActiveSite } = useSite();
   const { user } = useAuth();
-  const adminUser = isAdmin(user);
+  const superAdmin = isSuperAdmin(user);
   const canSwitchSite = user?.permissions?.canSwitchSite ?? false;
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -260,7 +261,7 @@ function SiteSelector() {
   // Switching is an explicit capability. Keep the selector available even
   // when a user currently has one accessible site so the control does not
   // disappear when their site access changes.
-  if (!adminUser && !canSwitchSite) return null;
+  if (!superAdmin && !canSwitchSite) return null;
 
   const toggleFavorite = (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -355,8 +356,8 @@ function SiteSelector() {
 
         {/* Site list */}
         <ScrollArea className="max-h-[400px]">
-          {/* All sites row (admins only) */}
-          {adminUser && (
+          {/* Only Superadmin can view data across every site. */}
+          {superAdmin && (
             <button
               type="button"
               onClick={() => {
@@ -1984,7 +1985,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
             )}
           </aside>
 
-          <main className="flex-1 min-w-0 overflow-auto">
+          <a
+            href="#main-content"
+            className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-20 focus:z-[100] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:shadow-lg"
+          >
+            Skip to main content
+          </a>
+          <main id="main-content" tabIndex={-1} className="flex-1 min-w-0 overflow-auto">
             <div className="p-6 md:p-8 w-full">
               {location !== "/welcome" && (
                 <Link
@@ -2000,6 +2007,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </div>
           </main>
         </div>
+
+        <AccessibilityModeControl />
 
         <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
           <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">

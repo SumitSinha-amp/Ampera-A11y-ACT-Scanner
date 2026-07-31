@@ -292,28 +292,26 @@ export default function SitesPage() {
                     </span>
                   )}
                 </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
-                      <MoreHorizontal className="w-4 h-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {canManageSites && (
-                      <>
-                        <DropdownMenuItem onClick={() => setEditSite(site)} className="gap-2">
-                          <Pencil className="w-4 h-4" /> Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => setDeleteId(site.id)}
-                          className="gap-2 text-destructive focus:text-destructive"
-                        >
-                          <Trash2 className="w-4 h-4" /> Delete
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {canManageSites && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
+                        <MoreHorizontal className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => setEditSite(site)} className="gap-2">
+                        <Pencil className="w-4 h-4" /> Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => setDeleteId(site.id)}
+                        className="gap-2 text-destructive focus:text-destructive"
+                      >
+                        <Trash2 className="w-4 h-4" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </div>
             </CardHeader>
             <CardContent className="space-y-1.5">
@@ -341,19 +339,21 @@ export default function SitesPage() {
                 </p>
               )}
               <div className="pt-1">
-                  <div className="grid grid-cols-2 gap-2">
+                <div className={`grid ${canManageSites ? "grid-cols-2" : "grid-cols-1"} gap-2`}>
                     <Link href={`/sites/${site.id}`}>
                       <Button variant="outline" size="sm" className="w-full gap-1.5 text-xs">
                         <BarChart3 className="w-3.5 h-3.5" />
                         Dashboard
                       </Button>
                     </Link>
+                  {canManageSites && (
                     <Link href={`/crawler/sites/${site.id}/manage`}>
                       <Button variant="outline" size="sm" className="w-full gap-1.5 text-xs">
                         Manage crawl
                       </Button>
                     </Link>
-                  </div>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>

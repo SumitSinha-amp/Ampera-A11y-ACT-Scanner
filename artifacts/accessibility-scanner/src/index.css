@@ -437,6 +437,44 @@ html.glass-light .bg-muted\/40 {
   }
 }
 
+/* User-controlled accessibility mode. These classes are toggled on <html> so
+   they apply consistently to the shell and every page rendered inside it. */
+html.a11y-mode-enabled {
+  font-size: calc(100% * var(--a11y-font-scale, 1));
+}
+
+html.a11y-mode-enabled body {
+  zoom: var(--a11y-zoom, 1);
+}
+
+html.a11y-high-contrast,
+html.a11y-high-contrast body {
+  filter: contrast(1.18);
+}
+
+html.a11y-high-contrast .text-muted-foreground {
+  color: hsl(var(--foreground)) !important;
+}
+
+html.a11y-focus-highlight :focus-visible {
+  outline: 3px solid #f59e0b !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 0 5px color-mix(in srgb, #f59e0b 28%, transparent) !important;
+}
+
+html.a11y-keyboard-mode :focus-visible {
+  scroll-margin: 5rem;
+}
+
+html.a11y-reduced-motion *,
+html.a11y-reduced-motion *::before,
+html.a11y-reduced-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 0.01ms !important;
+}
+
 /**
  * Using the elevate system.
  * Automatic contrast adjustment.

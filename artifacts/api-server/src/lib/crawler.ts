@@ -255,6 +255,8 @@ export interface CrawlerConfig {
   crawlScope?: "all-subdomains" | "subdomain" | "subfolder" | "exact-url";
   /** When true, Phase 2 (accessibility scan) starts automatically once discovery finishes. */
   autoScan?: boolean;
+  /** When true, only Phase 1 URL discovery runs until a user starts Phase 2. */
+  crawlOnly?: boolean;
   blockAssets: boolean;
   tabPoolSize: number;
   scanDelayMs: number;
@@ -1192,9 +1194,10 @@ export async function startCrawlerJob(sessionId: number): Promise<void> {
       .set({ status: "discovering", startedAt: new Date() })
       .where(eq(crawlerSessionsTable.id, sessionId));
 
-    // Create linked scan_session for accessibility results
+    // Create the linked scan session up front for normal crawls. Crawl-only
+    // sessions intentionally defer this until the user starts Phase 2.
     let scanSessionId = session.scanSessionId;
-    if (!scanSessionId) {
+    if (!scanSessionId && !config.crawlOnly) {
       const [scanSession] = await db.insert(scanSessionsTable).values({
         userId: session.userId,
         name: `[Crawler] ${session.name}`,
@@ -1315,7 +1318,7 @@ export async function startCrawlerJob(sessionId: number): Promise<void> {
       .where(eq(crawlerSessionsTable.id, sessionId));
     activeCrawlers.delete(sessionId);
 
-    if (config.autoScan) {
+      if (config.autoScan && !config.crawlOnly) {
       logger.info({ sessionId }, "Phase 1 complete — auto-starting Phase 2 scan");
       await startScanPhase(sessionId);
     } else {
@@ -1501,7 +1504,7 @@ export async function resumeCrawlerJob(sessionId: number): Promise<void> {
         .set({ status: "crawled", discoveredAt: new Date() })
         .where(eq(crawlerSessionsTable.id, sessionId));
 
-      if (config.autoScan) {
+      if (config.autoScan && !config.crawlOnly) {
         logger.info({ sessionId }, "Phase 1 (resumed) complete — auto-starting Phase 2 scan");
         await startScanPhase(sessionId);
       } else {
@@ -1556,12 +1559,26 @@ export async function startScanPhase(sessionId: number): Promise<void> {
     logger.warn({ sessionId, status: session?.status }, "startScanPhase: session not in 'crawled' state");
     return;
   }
-  if (!session.scanSessionId) {
-    logger.error({ sessionId }, "startScanPhase: missing scanSessionId");
-    return;
-  }
-
   const config = session.config as CrawlerConfig;
+
+  // Crawl-only sessions defer creation of the linked accessibility scan until
+  // the user explicitly starts Phase 2 from the crawler details page.
+  let scanSessionId = session.scanSessionId;
+  if (!scanSessionId) {
+    const [scanSession] = await db.insert(scanSessionsTable).values({
+      userId: session.userId,
+      name: `[Crawler] ${session.name}`,
+      initiatorName: config.initiatorName ?? null,
+      initiatorRole: config.initiatorRole ?? null,
+      status: "running",
+      groupId: config.groupId ?? null,
+      options: { crawlerSessionId: sessionId, source: "crawler", crawlBoost: !!config.crawlBoost } as any,
+    }).returning({ id: scanSessionsTable.id });
+    scanSessionId = scanSession.id;
+    await db.update(crawlerSessionsTable)
+      .set({ scanSessionId })
+      .where(eq(crawlerSessionsTable.id, sessionId));
+  }
 
   const prevHashes = new Map<string, string>();
   if (config.incremental && config.prevSessionId) {
@@ -1594,7 +1611,7 @@ export async function startScanPhase(sessionId: number): Promise<void> {
     .where(eq(crawlerSessionsTable.id, sessionId));
 
   try {
-    await runScanPhase(sessionId, config, session.scanSessionId, prevHashes, seedDomain, seedPath, robotsRules);
+    await runScanPhase(sessionId, config, scanSessionId, prevHashes, seedDomain, seedPath, robotsRules);
   } catch (err) {
     logger.error({ sessionId, err }, "Scan phase (manual trigger) failed");
     await db.update(crawlerSessionsTable)
@@ -1819,7 +1836,7 @@ export async function resumeOrphanedCrawlerSessions(): Promise<void> {
           void resumeCrawlerJob(session.id)
             .catch((err) => logger.error({ sessionId: session.id, err }, "Startup recovery Phase 2 failed"));
 
-        } else if (session.status === "crawled") {
+        } else if (session.status === "crawled" && !(session.config as CrawlerConfig).crawlOnly) {
           // Phase 1 complete, Phase 2 never started — kick it off directly.
           logger.info({ sessionId: session.id }, "Startup recovery: starting Phase 2 from 'crawled' state");
 

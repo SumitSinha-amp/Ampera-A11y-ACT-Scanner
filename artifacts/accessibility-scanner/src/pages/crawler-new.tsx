@@ -113,6 +113,7 @@ interface FormValues {
   prevSessionId: string;
   detectBrokenLinks: boolean;
   autoScan: boolean;
+  crawlOnly: boolean;
   skipDiscovery: boolean;
   crawlBoost: boolean;
   scheduledStartAt: string;
@@ -160,7 +161,7 @@ export default function CrawlerNewPage() {
       sitemapUrl: "",
       localeEnabled: false,
       localePattern: "",
-      maxPages: 500,
+      maxPages: 2000,
       maxDepth: 5,
       respectRobotsTxt: true,
       useSitemap: true,
@@ -180,6 +181,7 @@ export default function CrawlerNewPage() {
       prevSessionId: "",
       detectBrokenLinks: true,
       autoScan: true,
+      crawlOnly: false,
       skipDiscovery: false,
       crawlBoost: false,
       scheduledStartAt: "",
@@ -273,7 +275,8 @@ export default function CrawlerNewPage() {
       authenticated: data.authenticated,
       incremental: data.incremental,
       detectBrokenLinks: data.detectBrokenLinks,
-      autoScan: data.autoScan,
+       autoScan: data.crawlOnly ? false : data.autoScan,
+       crawlOnly: data.crawlOnly,
       crawlBoost: data.crawlBoost,
       scheduledStartAt: data.scheduledStartAt ? new Date(data.scheduledStartAt).toISOString() : undefined,
       timezone: data.timezone || undefined,
@@ -449,11 +452,11 @@ export default function CrawlerNewPage() {
                       type="number"
                       min={1}
                       step={100}
-                      placeholder="e.g. 500"
+                       placeholder="e.g. 2000"
                       value={values.maxPages}
                       onChange={(e) => setValue("maxPages", Math.max(1, parseInt(e.target.value) || 1))}
                     />
-                    <p className="text-xs text-muted-foreground">No upper limit — enter any value (500, 5000, 100000…)</p>
+                     <p className="text-xs text-muted-foreground">Enter any page count (2,000, 5,000, 100,000…). Scheduled site crawls use the site setting.</p>
                   </div>
                   <div className="space-y-1.5">
                     <Label className="flex items-center gap-1">
@@ -685,6 +688,28 @@ export default function CrawlerNewPage() {
                     aria-label="Automatically start accessibility scan after discovery"
                   />
                 </div>
+
+                 <Separator />
+
+                 <div className="flex items-center justify-between rounded-lg border border-teal-200 bg-teal-50/60 p-3 dark:border-teal-900 dark:bg-teal-950/20">
+                   <div>
+                     <Label className="flex items-center gap-1">
+                       Crawl Only
+                       <OptionHelp text="Discover and save URLs without running accessibility checks. You can start the accessibility scan later from the crawl details page." />
+                     </Label>
+                     <p className="text-xs text-muted-foreground">
+                       Stop after Phase 1 and leave the crawl ready for an optional accessibility scan
+                     </p>
+                   </div>
+                   <Switch
+                     checked={values.crawlOnly}
+                     onCheckedChange={(v) => {
+                       setValue("crawlOnly", v);
+                       if (v) setValue("autoScan", false);
+                     }}
+                     aria-label="Crawl only without accessibility scanning"
+                   />
+                 </div>
               </CardContent>
             </Card>
 
@@ -931,8 +956,8 @@ export default function CrawlerNewPage() {
               </Button>
             )}
           </div>
-          <Button type="submit" disabled={createMutation.isPending} className="min-w-[160px]" aria-label={values.scheduledStartAt ? "Schedule crawler" : "Start crawler"}>
-            {createMutation.isPending ? "Submitting…" : values.scheduledStartAt ? "Schedule Crawler" : "Start Crawler"}
+           <Button type="submit" disabled={createMutation.isPending} className="min-w-[160px]" aria-label={values.scheduledStartAt ? "Schedule crawler" : values.crawlOnly ? "Start crawl only" : "Start crawler"}>
+             {createMutation.isPending ? "Submitting…" : values.scheduledStartAt ? "Schedule Crawler" : values.crawlOnly ? "Start Crawl Only" : "Start Crawler"}
           </Button>
         </div>
       </form>

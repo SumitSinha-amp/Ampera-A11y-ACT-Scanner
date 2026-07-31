@@ -134,7 +134,9 @@ function validateCreateCrawler(body: any): { data: any; error?: string } {
       seedUrl: body.seedUrl.trim(),
       seedUrls: Array.isArray(body.seedUrls) ? body.seedUrls : [],
       sitemapUrl: typeof body.sitemapUrl === "string" ? body.sitemapUrl : undefined,
-      maxPages: typeof body.maxPages === "number" ? Math.max(1, body.maxPages) : 500,
+      // Manual crawler sessions use the value entered in the form. Managed
+      // site defaults are reserved for scheduled and "Run now" crawls.
+      maxPages: typeof body.maxPages === "number" ? Math.max(1, Math.floor(body.maxPages)) : 2000,
       maxDepth: typeof body.maxDepth === "number" ? Math.min(20, Math.max(0, body.maxDepth)) : 5,
       respectRobotsTxt: body.respectRobotsTxt !== false,
       useSitemap: body.useSitemap !== false,
@@ -156,6 +158,7 @@ function validateCreateCrawler(body: any): { data: any; error?: string } {
       prevSessionId: typeof body.prevSessionId === "number" ? body.prevSessionId : undefined,
       detectBrokenLinks: body.detectBrokenLinks !== false,
       autoScan: body.autoScan === true,
+       crawlOnly: body.crawlOnly === true,
       skipDiscovery: body.skipDiscovery === true,
       siteId: typeof body.siteId === "number" ? body.siteId : undefined,
       groupId: typeof body.groupId === "number" ? body.groupId : undefined,
@@ -228,7 +231,11 @@ router.post("/crawler/sessions", requireAuth, async (req: Request, res: Response
   const config: CrawlerConfig = {
     seedUrls: [data.seedUrl, ...(data.seedUrls ?? [])].filter((u: string, i: number, a: string[]) => a.indexOf(u) === i),
     sitemapUrl: sitePolicy?.sitemapUrl ?? data.sitemapUrl,
-    maxPages: sitePolicy?.maxPages ?? data.maxPages,
+    // Do not silently replace the manual crawler form's page limit with the
+    // managed site's default. The site policy still supplies defaults for
+    // scheduled/run-now sessions, while this endpoint honors the explicit
+    // value the user submitted.
+    maxPages: data.maxPages,
     maxDepth: sitePolicy?.maxDepth ?? data.maxDepth,
     respectRobotsTxt: sitePolicy?.respectRobotsTxt ?? data.respectRobotsTxt,
     useSitemap: sitePolicy ? Boolean(sitePolicy.sitemapUrl) || data.useSitemap : data.useSitemap,
@@ -248,7 +255,8 @@ router.post("/crawler/sessions", requireAuth, async (req: Request, res: Response
     incremental: data.incremental,
     prevSessionId: data.prevSessionId,
     detectBrokenLinks: data.detectBrokenLinks,
-    autoScan: data.autoScan,
+     autoScan: data.crawlOnly ? false : data.autoScan,
+     crawlOnly: data.crawlOnly,
     skipDiscovery: data.skipDiscovery,
     crawlBoost: data.crawlBoost,
     siteId: data.siteId,
