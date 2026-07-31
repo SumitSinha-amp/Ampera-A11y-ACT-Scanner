@@ -612,11 +612,11 @@ function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
 const ACTIVE_STATUSES = ["running", "pending", "paused"];
 
 export default function ScanList() {
-  const { activeSite, activeSiteId } = useSite();
-  // Use activeSiteId (available from localStorage immediately on mount) rather than
-  // activeSite?.id so the correct siteId filter is applied on the very first render,
-  // before the sites list has finished loading from the network/cache.
-  const listParams: ListScansParams = activeSiteId !== null ? { siteId: activeSiteId } : {};
+  const { activeSite } = useSite();
+  // Fetch the complete accessible history. Older manual scans were created before
+  // site association existed, so they have a null siteId and must not disappear
+  // just because the user currently has a site selected.
+  const listParams: ListScansParams = {};
   const { data: scans, isLoading } = useListScans(listParams, {
     query: {
       queryKey: getListScansQueryKey(listParams),
@@ -658,7 +658,6 @@ export default function ScanList() {
   const [dateToFilter, setDateToFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [projectFilter, setProjectFilter] = useState<string[]>([]);
-  const [hideCrawlerScans, setHideCrawlerScans] = useState(true);
   const [editingScan, setEditingScan] = useState<{
     id: number;
     name: string | null;
@@ -755,9 +754,11 @@ export default function ScanList() {
         initiatorRole?: string | null;
         siteId?: number | null;
       };
-      if (hideCrawlerScans && scan.name?.startsWith("[Crawler]")) return false;
-      // Site filter: when an active site is selected, only show scans for that site
-      if (activeSite && s.siteId !== activeSite.id) return false;
+      // Manual Scan History intentionally excludes crawler-generated scans.
+      if (scan.name?.startsWith("[Crawler]")) return false;
+      // Keep site-specific history scoped to the selected site, but retain legacy
+      // manual scans with no siteId so old history remains visible.
+      if (activeSite && s.siteId != null && s.siteId !== activeSite.id) return false;
       const searchTarget = [
         scan.name,
         s.projectName,
@@ -788,7 +789,7 @@ export default function ScanList() {
         matchesStatus && matchesProject
       );
     });
-  }, [scans, nameFilter, initiatorFilter, dateFromFilter, dateToFilter, statusFilter, projectFilter, hideCrawlerScans, activeSite]);
+  }, [scans, nameFilter, initiatorFilter, dateFromFilter, dateToFilter, statusFilter, projectFilter, activeSite]);
 
   const hasActiveFilters =
     nameFilter || initiatorFilter || dateFromFilter || dateToFilter ||
@@ -821,7 +822,7 @@ export default function ScanList() {
   // Clear selection when visible scans change (filter change / refresh)
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [nameFilter, initiatorFilter, dateFromFilter, dateToFilter, statusFilter, projectFilter, hideCrawlerScans]);
+  }, [nameFilter, initiatorFilter, dateFromFilter, dateToFilter, statusFilter, projectFilter]);
 
   const handleDelete = (id: number) => {
     deleteScan.mutate(
@@ -964,20 +965,6 @@ export default function ScanList() {
                 />
               </div>
             </div>
-          </div>
-
-          <div className="shrink-0 space-y-1">
-            <div className="h-4" />
-            <Button
-              variant={hideCrawlerScans ? "outline" : "secondary"}
-              size="sm"
-              onClick={() => setHideCrawlerScans((v) => !v)}
-              className="h-9 text-xs gap-1.5"
-              title={hideCrawlerScans ? "Crawler-generated scans are hidden — click to show" : "Click to hide crawler-generated scans"}
-            >
-              <Globe className="w-3.5 h-3.5" />
-              {hideCrawlerScans ? "Show Crawler Scans" : "Hide Crawler Scans"}
-            </Button>
           </div>
 
           {hasActiveFilters && (

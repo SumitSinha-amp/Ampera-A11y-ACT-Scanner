@@ -178,14 +178,12 @@ router.get("/scans", requireAuth, async (req, res): Promise<void> => {
         .leftJoin(projectsTable, eq(scanSessionsTable.projectId, projectsTable.id))
         .where(siteIdFilter ? eq(scanSessionsTable.siteId, siteIdFilter) : undefined)
         .orderBy(desc(scanSessionsTable.createdAt))
-        .limit(200)
     : await db
         .select(selectCols)
         .from(scanSessionsTable)
         .leftJoin(projectsTable, eq(scanSessionsTable.projectId, projectsTable.id))
         .where(buildNonAdminWhere())
-        .orderBy(desc(scanSessionsTable.createdAt))
-        .limit(100);
+        .orderBy(desc(scanSessionsTable.createdAt));
 
   res.json(
     sessions.map((s) => ({

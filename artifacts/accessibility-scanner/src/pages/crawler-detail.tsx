@@ -598,6 +598,10 @@ export default function CrawlerDetailPage() {
 
   const pct = progressPct(displaySession);
   const discPct = discoveryPct(displaySession);
+  const isCrawlOnly = displaySession.config?.crawlOnly === true;
+  // Crawl-only sessions do not have an accessibility phase until the user
+  // explicitly starts it. scanSessionId/scanStartedAt are created at that point.
+  const phase2Started = !isCrawlOnly || Boolean(displaySession.scanSessionId || displaySession.scanStartedAt);
 
   const phase1StartRef = displaySession.startedAt ?? displaySession.createdAt;
   const phase1ElapsedMs = (isPending || isDiscovering) && phase1StartRef
@@ -672,6 +676,11 @@ export default function CrawlerDetailPage() {
             {displaySession.crawlBoost && (
               <Badge className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300 flex items-center gap-1">
                 <Zap className="w-3 h-3" /> Crawl Boost
+              </Badge>
+            )}
+            {isCrawlOnly && (
+              <Badge className="text-xs bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300">
+                Crawl Only
               </Badge>
             )}
           </div>
@@ -803,8 +812,8 @@ export default function CrawlerDetailPage() {
               );
             })()}
 
-            {/* Phase 2 */}
-            <div className="space-y-1.5">
+            {/* Phase 2 — deferred for Crawl Only until the explicit start action */}
+            {phase2Started && <div className="space-y-1.5">
               <div className="flex items-center justify-between text-sm">
                 <span className={`flex items-center gap-1.5 font-medium ${isScanning ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`}>
                   <ScanLine className="w-3.5 h-3.5" />
@@ -838,7 +847,7 @@ export default function CrawlerDetailPage() {
                 value={isScanning || displaySession.status === "completed" ? pct : 0}
                 className="h-1.5"
               />
-            </div>
+            </div>}
 
             {displaySession.status === "crawled" && (
               <div className="flex items-center gap-2 p-3 bg-teal-50 dark:bg-teal-950/30 rounded-lg border border-teal-200 dark:border-teal-800 text-sm text-teal-800 dark:text-teal-300">

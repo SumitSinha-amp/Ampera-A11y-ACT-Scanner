@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/table";
 import {
   Plus, Globe, MoreHorizontal, Trash2, Pause, Play, XCircle,
-  Eye, LinkIcon, Search, ScanLine, Clock, Timer, Building2,
+  Eye, Search, ScanLine, Clock, Timer, Building2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
@@ -63,6 +63,7 @@ interface CrawlerSession {
   completedAt: string | null;
   pausedAt: string | null;
   errorMessage: string | null;
+  config?: Record<string, unknown>;
 }
 
 interface Site { id: number; name: string; baseUrl: string; }
@@ -403,7 +404,8 @@ export default function CrawlerListPage() {
                     <TableHead>Processing time</TableHead>
                     <TableHead>Total scan time</TableHead>
                     <TableHead className="text-right">Pages crawled</TableHead>
-                    <TableHead className="text-right">Issues found</TableHead>
+                    <TableHead className="text-right">Pages scanned</TableHead>
+                    <TableHead>Mode</TableHead>
                     <TableHead className="w-10"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -413,7 +415,7 @@ export default function CrawlerListPage() {
                     const isDiscovering = s.status === "discovering";
                     const isScanning = s.status === "scanning";
                     const isPaused = s.status === "paused";
-                    const isCrawled = s.status === "crawled";
+                    const isCrawlOnly = s.config?.crawlOnly === true;
                     const pct = progressPct(s);
 
                     const qMs = queueMs(s);
@@ -530,48 +532,39 @@ export default function CrawlerListPage() {
 
                         {/* Pages crawled */}
                         <TableCell className="py-3 text-right text-sm">
-                          {isScanning || isCrawled ? (
-                            <>
-                              <span className="font-semibold">{s.totalScanned.toLocaleString()}</span>
-                              {s.totalDiscovered > 0 && (
-                                <p className="text-xs font-normal text-muted-foreground">
-                                  of {s.totalDiscovered.toLocaleString()}
-                                </p>
-                              )}
-                              {isScanning && s.totalDiscovered > 0 && (
-                                <div className="mt-1 w-full max-w-20 ml-auto">
-                                  <Progress value={pct} className="h-1" />
-                                  <p className="text-[10px] text-muted-foreground text-right mt-0.5">{pct}%</p>
-                                </div>
-                              )}
-                            </>
-                          ) : isDiscovering ? (
+                          {isDiscovering ? (
                             <>
                               <span className="font-semibold">{s.totalDiscovered.toLocaleString()}</span>
                               <p className="text-xs text-muted-foreground">found</p>
                             </>
                           ) : (
                             <>
-                              <span className="font-semibold">{s.totalScanned.toLocaleString()}</span>
-                              {s.totalDiscovered > 0 && s.totalDiscovered !== s.totalScanned && (
-                                <p className="text-xs font-normal text-muted-foreground">
-                                  of {s.totalDiscovered.toLocaleString()}
-                                </p>
-                              )}
+                              <span className="font-semibold">{s.totalDiscovered.toLocaleString()}</span>
                             </>
                           )}
                         </TableCell>
 
-                        {/* Issues found */}
+                        {/* Pages scanned */}
                         <TableCell className="py-3 text-right text-sm">
-                          {s.totalIssues > 0
-                            ? <span className="font-semibold text-orange-600 dark:text-orange-400">{s.totalIssues.toLocaleString()}</span>
-                            : <span className="text-muted-foreground">—</span>}
-                          {s.brokenLinksCount > 0 && (
-                            <p className="text-xs text-red-500 flex items-center justify-end gap-0.5 mt-0.5">
-                              <LinkIcon className="w-3 h-3" />{s.brokenLinksCount}
-                            </p>
+                          <span className="font-semibold">{s.totalScanned.toLocaleString()}</span>
+                          {isScanning && s.totalDiscovered > 0 && (
+                            <div className="mt-1 w-full max-w-20 ml-auto">
+                              <Progress value={pct} className="h-1" />
+                              <p className="text-[10px] text-muted-foreground text-right mt-0.5">{pct}%</p>
+                            </div>
                           )}
+                        </TableCell>
+
+                        {/* Crawl mode */}
+                        <TableCell className="py-3">
+                          <Badge
+                            variant={isCrawlOnly ? "default" : "outline"}
+                            className={isCrawlOnly
+                              ? "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300"
+                              : "text-muted-foreground"}
+                          >
+                            {isCrawlOnly ? "Crawl Only" : "Crawl + Scan"}
+                          </Badge>
                         </TableCell>
 
                         {/* Actions */}
