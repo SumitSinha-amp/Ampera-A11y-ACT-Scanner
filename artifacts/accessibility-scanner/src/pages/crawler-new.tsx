@@ -859,9 +859,9 @@ export default function CrawlerNewPage() {
 
           {/* PERFORMANCE */}
            <TabsContent value="performance" className="grid gap-4 pt-4 lg:grid-cols-2 lg:items-stretch">
-             <Card className="lg:col-span-2">
-              <CardHeader><CardTitle>Performance</CardTitle></CardHeader>
-               <CardContent className="grid gap-4 lg:grid-cols-2">
+             <Card>
+              <CardHeader><CardTitle>Page Loading</CardTitle></CardHeader>
+               <CardContent className="space-y-4">
                  <div className="flex items-center justify-between">
                   <div>
                     <Label className="flex items-center gap-1.5">
@@ -882,8 +882,6 @@ export default function CrawlerNewPage() {
                   />
                 </div>
 
-                 <Separator className="lg:col-span-2" />
-
                 <div className="flex items-center justify-between">
                   <div>
                     <Label className="flex items-center gap-1">
@@ -898,9 +896,12 @@ export default function CrawlerNewPage() {
                     aria-label="Block non-essential assets"
                   />
                 </div>
+              </CardContent>
+             </Card>
 
-                 <Separator className="lg:col-span-2" />
-
+             <Card>
+              <CardHeader><CardTitle>Timing &amp; Concurrency</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
                 <div className="space-y-1.5">
                   <Label className="flex items-center gap-1">
                     Scan Delay (ms)
@@ -918,8 +919,6 @@ export default function CrawlerNewPage() {
                   </div>
                   <p className="text-xs text-muted-foreground">Extra wait after page load before running rules (Phase 2). 0 = scan at initial stable state (recommended).</p>
                 </div>
-
-                 <Separator className="lg:col-span-2" />
 
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-2">
@@ -942,7 +941,7 @@ export default function CrawlerNewPage() {
                   <p className="text-xs text-muted-foreground">Number of concurrent tabs for Phase 2. Currently serialized by the shared browser mutex.</p>
                 </div>
               </CardContent>
-            </Card>
+             </Card>
           </TabsContent>
 
           {/* INCREMENTAL */}
