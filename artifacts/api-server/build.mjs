@@ -27,8 +27,10 @@ async function buildAll() {
     logLevel: "info",
     minify: process.env.NODE_ENV === "production",
     sourcemap: process.env.NODE_ENV === "production" ? "linked" : false,
-    // No external — browser bundle must be fully self-contained
-    tsconfig: path.resolve(artifactDir, "tsconfig.browser.json"),
+    // No external — browser bundle must be fully self-contained. The browser
+    // sources use only relative imports, so esbuild does not need a separate
+    // tsconfig file here. Keeping this build independent of that optional
+    // typecheck config also makes older Docker build contexts reproducible.
   });
 
   const browserBundlePath = path.join(distDir, "browser-bundle.js");
