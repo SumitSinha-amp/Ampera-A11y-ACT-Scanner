@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { access, readFile, rm } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -13,6 +13,27 @@ const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
+
+  // ── Browser bundle: runs inside Puppeteer's page context ──────────────────
+  // Compile this first so the server bundle can embed a copy. The standalone
+  // file is retained for diagnostics/backwards compatibility, but production
+  // scans no longer depend on a sibling asset surviving deployment packaging.
+  await esbuild({
+    entryPoints: [path.resolve(artifactDir, "src/lib/browser/index.ts")],
+    platform: "browser",
+    bundle: true,
+    format: "iife",
+    outfile: path.join(distDir, "browser-bundle.js"),
+    logLevel: "info",
+    minify: process.env.NODE_ENV === "production",
+    sourcemap: process.env.NODE_ENV === "production" ? "linked" : false,
+    // No external — browser bundle must be fully self-contained
+    tsconfig: path.resolve(artifactDir, "tsconfig.browser.json"),
+  });
+
+  const browserBundlePath = path.join(distDir, "browser-bundle.js");
+  await access(browserBundlePath);
+  const browserBundleContents = await readFile(browserBundlePath, "utf8");
 
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],
@@ -104,7 +125,13 @@ async function buildAll() {
       "electron",
       "xlsx",
     ],
-    sourcemap: "linked",
+    sourcemap: process.env.NODE_ENV === "production" ? "linked" : false,
+    // Embed the browser-side rule engine into the server bundle. Azure/App
+    // Service and zip deployments can omit non-entrypoint sibling assets;
+    // embedding keeps Puppeteer scans independent of that packaging behavior.
+    define: {
+      __AMPERA_BROWSER_BUNDLE__: JSON.stringify(browserBundleContents),
+    },
     plugins: [
       // pino relies on workers to handle logging, instead of externalizing it we use a plugin to handle it
       esbuildPluginPino({ transports: ["pino-pretty"] })

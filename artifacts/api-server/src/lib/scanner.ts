@@ -8,7 +8,9 @@ import os from "os";
 import { logger } from "./logger";
 
 puppeteerExtra.use(StealthPlugin());
-
+// Replaced by build.mjs in production. The source fallback keeps direct
+// development builds compatible with the standalone browser-bundle.js file.
+declare const __AMPERA_BROWSER_BUNDLE__: string;
 function getChromiumPath(): string | undefined {
   if (process.env["PUPPETEER_EXECUTABLE_PATH"]) {
     const envPath = process.env["PUPPETEER_EXECUTABLE_PATH"];
@@ -2876,11 +2878,15 @@ function getLegalCompliance(levels: string[] = []) {
 async function runACTRules(
   page: Page,
 ): Promise<{ issues: ScanIssue[]; stats: RuleCheckStat[] }> {
-  // Inject the pre-compiled browser bundle (dist/browser-bundle.js) which
-  // exposes window.__ampera = { runAllRules }.  The bundle contains all
-  // helpers and the 83+ ACT rules, compiled from src/lib/browser/index.ts.
-  const bundlePath = path.join(__dirname, "browser-bundle.js");
-  await page.addScriptTag({ path: bundlePath });
+  // Production embeds the browser rule bundle in index.mjs so Azure and zip
+  // deployments cannot lose it as a sibling asset. Keep the standalone-file
+  // path as a development/backwards-compatible fallback.
+  if (typeof __AMPERA_BROWSER_BUNDLE__ !== "undefined") {
+    await page.addScriptTag({ content: __AMPERA_BROWSER_BUNDLE__ });
+  } else {
+    const bundlePath = path.join(__dirname, "browser-bundle.js");
+    await page.addScriptTag({ path: bundlePath });
+  }
 
   const bundleResult: {
     issues: Array<{
