@@ -2898,9 +2898,9 @@ export default function ScanDetail() {
             variant="ghost"
             size="sm"
             className="mb-3 -ml-2"
-            onClick={() => setLocation("/scans")}
+            onClick={() => setLocation(isCrawlerScan ? "/crawler" : "/scans")}
           >
-            &lt; Back to Scan History
+            &lt; Back to {isCrawlerScan ? "Crawler History" : "Scan History"}
           </Button>
           {(scan as { projectName?: string | null }).projectName && (
             <div className="flex items-center gap-1.5 mb-1">

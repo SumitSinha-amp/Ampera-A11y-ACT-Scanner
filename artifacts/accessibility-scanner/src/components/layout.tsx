@@ -1779,14 +1779,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <TooltipProvider delayDuration={300}>
       <div className="min-h-screen bg-background">
         <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="h-16 px-4 md:px-6 flex items-center justify-between gap-4 overflow-hidden">
+          <div className="h-16 px-3 md:px-4 flex items-center justify-between gap-2 overflow-hidden">
             <Link href="/scans" className="shrink-0 flex items-center">
               <AppLogo />
             </Link>
-            <div className="flex-1 flex items-center justify-center px-4">
+            <div className="min-w-0 flex-1 flex items-center justify-center px-1 sm:px-2">
               <SiteSelector />
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <Link href="/tickets">
                 <Button
                   data-tour="header-support"
@@ -1797,9 +1797,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   }
                   size="sm"
                   className="gap-2"
+                  aria-label="Support"
                 >
                   <TicketCheck className="w-4 h-4" />
-                  <span className="hidden sm:inline">Support</span>
+                  <span className="hidden lg:inline">Support</span>
                 </Button>
               </Link>
               <Link href="/app-updates">
@@ -1811,9 +1812,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   variant={location === "/app-updates" ? "secondary" : "ghost"}
                   size="sm"
                   className="relative gap-2"
+                  aria-label="App Updates"
                 >
                   <Megaphone className="h-4 w-4 text-primary" />
-                  <span className="hidden sm:inline">App Updates</span>
+                  <span className="hidden lg:inline">App Updates</span>
                   <span
                     aria-label="New updates"
                     className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-fuchsia-500 shadow-[0_0_0_2px_hsl(var(--background)),0_0_10px_rgba(217,70,239,0.9)]"
@@ -1829,9 +1831,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   variant={location === "/app-walkthrough" ? "secondary" : "ghost"}
                   size="sm"
                   className="gap-2"
+                  aria-label="App Walkthrough"
                 >
                   <Map className="h-4 w-4" />
-                  <span className="hidden sm:inline">App Walkthrough</span>
+                  <span className="hidden lg:inline">App Walkthrough</span>
                 </Button>
               </Link>
               <Link href="/documentation">
@@ -1845,9 +1848,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   }
                   size="sm"
                   className="gap-2"
+                  aria-label="Documentation"
                 >
                   <BookOpen className="w-4 h-4" />
-                  Documentation
+                  <span className="hidden lg:inline">Documentation</span>
                 </Button>
               </Link>
               {/* User menu */}
