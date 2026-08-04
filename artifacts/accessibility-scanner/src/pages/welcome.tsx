@@ -74,7 +74,7 @@ export default function WelcomePage() {
             </p>
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <Badge variant="outline" className="font-mono text-xs">
-                Version 1.2.0
+                Version 1.3.0
               </Badge>
               <Link href="/app-updates">
                 <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5">
@@ -84,7 +84,38 @@ export default function WelcomePage() {
               </Link>
             </div>
           </div>
-
+{/* Latest update */}
+          <Card className="overflow-hidden border-primary/20">
+            <div className="h-1 bg-gradient-to-r from-primary via-violet-500 to-fuchsia-500" />
+            <CardContent className="flex items-start gap-4 p-5">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base font-semibold">
+                    New experimental rule: ACT-R118
+                  </h2>
+                  <Badge variant="outline" className="text-[10px]">
+                    Manual review
+                  </Badge>
+                </div>
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  “HTML images contain no text” reviews accessible images for
+                  human-language text. If text is present, check whether it is
+                  decorative, incidental, essential, or redundant with regular
+                  text on the same page. Results remain Potential Issues until
+                  a reviewer completes these checks.
+                </p>
+                <Link href="/app-updates">
+                  <Button variant="link" className="h-auto px-0 text-xs">
+                    See what&apos;s new
+                    <ArrowRight className="ml-1 h-3 w-3" />
+                  </Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
           {/* Start section */}
           <section className="space-y-4">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
