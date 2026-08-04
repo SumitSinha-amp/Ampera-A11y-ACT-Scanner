@@ -85,6 +85,7 @@ import {
   ListFilter,
   Camera,
   Zap,
+  Trash2,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
@@ -1706,7 +1707,7 @@ export default function ScanDetail() {
   }, []);
   const handleSelectOccurrence = useCallback(
     (issue: Issue, _group: Issue[], _pageUrl: string, pageId: number) => {
-      // Open the full-screen Siteimprove-style page report for this page,
+      // Open the full-screen page report for this page,
       // pre-selecting the clicked occurrence.
       setLocation(`/scans/${scanId}/pages/${pageId}/report?issue=${issue.id}`);
     },
@@ -3251,18 +3252,18 @@ export default function ScanDetail() {
                   {/* File extension filter */}
                   {pageExtensions.length > 0 && (
                     <div className="flex items-center gap-2 shrink-0">
-                    <Select value={pageExtFilter} onValueChange={setPageExtFilter}>
-                      <SelectTrigger className="h-11 w-36 shrink-0 bg-white dark:bg-white dark:text-slate-900">
-                        <SelectValue placeholder="Extension" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All types</SelectItem>
-                        {pageExtensions.map((ext) => (
-                          <SelectItem key={ext} value={ext}>{ext}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                     <Badge
+                      <Select value={pageExtFilter} onValueChange={setPageExtFilter}>
+                        <SelectTrigger className="h-11 w-36 bg-white dark:bg-white dark:text-slate-900">
+                          <SelectValue placeholder="Extension" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All types</SelectItem>
+                          {pageExtensions.map((ext) => (
+                            <SelectItem key={ext} value={ext}>{ext}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Badge
                         variant="secondary"
                         className="h-7 whitespace-nowrap px-2.5 text-xs font-medium"
                       >
@@ -3921,7 +3922,7 @@ export default function ScanDetail() {
                         )}
                       </td>
                       <td className="p-3 text-right">
-                          {p.status === "pending" ? (
+                        {p.status === "pending" ? (
                           <Button
                             type="button"
                             variant="ghost"
@@ -3941,7 +3942,7 @@ export default function ScanDetail() {
                               <Trash2 className="h-3.5 w-3.5" />
                             )}
                           </Button>
-                        ) : p.status === "failed" || p.status === "pending" ? (
+                        ) : p.status === "failed" ? (
                           <span
                             className="inline-flex items-center gap-1.5 text-amber-500"
                             title="Auto retrying"

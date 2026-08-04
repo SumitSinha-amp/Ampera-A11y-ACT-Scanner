@@ -368,6 +368,10 @@ const ALL_RULES: { id: string; label: string }[] = [
   },
   { id: "ACT-R117", label: "Image missing accessible name (WCAG 1.1.1)" },
   {
+    id: "ACT-R118",
+    label: "Image of text requires manual review (WCAG 1.4.5 / 1.4.9)",
+  },
+  {
     id: "ACT-R119",
     label: "Fixed or sticky element may obscure keyboard focus (WCAG 2.4.11)",
   },

@@ -131,8 +131,8 @@ export default function Documentation() {
           <div>
             <p className="font-medium text-foreground mb-1">Rules coverage</p>
             <p>
-              The scanner implements approximately 83 of the 117 ACT rules
-              (ACT-R1 – ACT-R117), covering WCAG 2.1 / 2.2 criteria at levels A,
+              The scanner implements approximately 83 of the current ACT rules
+              (ACT-R1 – ACT-R118), covering WCAG 2.1 / 2.2 criteria at levels A,
               AA, and AAA. All rules are validated against industry-leading
               accessibility platforms for accuracy. Each issue includes a rule
               ID, impact level, WCAG success criterion, remediation guidance,

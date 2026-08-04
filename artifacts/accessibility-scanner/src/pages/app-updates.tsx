@@ -38,11 +38,12 @@ export const updateGroups: UpdateGroup[] = [
   {
     icon: Accessibility,
     title: "Accessibility rule coverage",
-    description: "Broader, more useful checks aligned with Siteimprove, Alfa, ACT, and WCAG workflows.",
+    description: "Broader, more useful checks aligned with ACT and WCAG workflows.",
     features: [
-      "Expanded WCAG 2.1 and WCAG 2.2, ARIA, best-practice, and Alfa-style rule coverage",
+      "Expanded WCAG 2.1 and WCAG 2.2, ARIA, and best-practice rule coverage",
       "Issue versus Potential Issue outcomes are classified per occurrence instead of blanketing a whole rule",
       "Manual-review references identify criteria that need human or interactive-state verification",
+      "New experimental rule ACT-R118: “HTML images contain no text” is now available; it asks reviewers to check human-language text and the decorative, incidental, essential, and redundant exceptions",
       "Improved image alternatives, contrast, fixed font-size, touch-target, headings, landmarks, keyboard, and media checks",
       "Rule evidence includes selectors, HTML context, remediation, WCAG criteria, impact, and legal mapping",
     ],

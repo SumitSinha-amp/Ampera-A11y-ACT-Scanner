@@ -207,7 +207,7 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       "A heading element immediately followed by another heading without any content between them may indicate a structural or authoring error that confuses outline-based navigation.",
     deprecated: true,
     deprecatedReason:
-      "Deprecated by Siteimprove. Video description track checks are now covered by the composite SIA-R38 rule.",
+      "Deprecated in the current rule set. Video description track checks are now covered by the composite ACT-R38 rule.",
   },
   "ACT-R35": {
     title: "Video without audio has an accessible alternative",
@@ -220,7 +220,7 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       "Certain ARIA attributes are explicitly forbidden on specific elements or roles. Using them overrides native semantics incorrectly and may break assistive-technology behaviour.",
     deprecated: true,
     deprecatedReason:
-      "Deprecated by Siteimprove. Video description track accuracy checks are now covered by the composite SIA-R38 rule.",
+      "Deprecated in the current rule set. Video description track accuracy checks are now covered by the composite ACT-R38 rule.",
   },
   "ACT-R37": {
     title: "Is this video audio-described?",
@@ -659,6 +659,12 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
     detail:
       'Any element with role="img" must provide an accessible name via aria-label or aria-labelledby so its content or purpose is conveyed to screen reader users.',
   },
+  "ACT-R118": {
+    title: "Does this image contain human-language text?",
+    potentialTitle: "Does this image contain human-language text?",
+    detail:
+      "This experimental rule is manual-only. First ask whether the image contains visible text that expresses something in a human language. If yes, review whether the text is purely decorative, insignificant or incidental, essential to the presentation (for example, a logo), or redundant with regular text on the same page. A Potential Issue remains only when none of those exceptions applies.",
+  },
   "ACT-R119": {
     title: "Fixed or sticky element may obscure keyboard focus",
     detail:
@@ -746,6 +752,7 @@ const WCAG_RULE_METADATA: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R111": { sc: ["2.5.5"], level: ["AAA"] }, "ACT-R112": { sc: [], level: ["Best Practice"] }, "ACT-R113": { sc: ["2.5.8"], level: ["AA"] },
   "ACT-R114": { sc: ["2.4.2"], level: ["A"] }, "ACT-R115": { sc: ["2.4.6"], level: ["AA"] }, "ACT-R116": { sc: ["4.1.2"], level: ["A"] },
   "ACT-R117": { sc: ["1.1.1"], level: ["A"] }, "ACT-R119": { sc: ["2.4.11"], level: ["AA"] }, "ACT-R120": { sc: ["2.4.12"], level: ["AAA"] },
+  "ACT-R118": { sc: ["1.4.5", "1.4.9"], level: ["AA", "AAA"] },
   "ACT-R121": { sc: ["2.4.13"], level: ["AAA"] }, "ACT-R122": { sc: ["2.5.7"], level: ["AA"] }, "ACT-R124": { sc: ["3.2.6"], level: ["A"] },
   "ACT-R125": { sc: ["3.3.7"], level: ["A"] }, "ACT-R126": { sc: ["3.3.8"], level: ["AA"] }, "ACT-R127": { sc: ["3.3.9"], level: ["AAA"] },
 };

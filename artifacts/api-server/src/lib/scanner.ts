@@ -360,6 +360,7 @@ const WCAG_MAPPING: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R115": { sc: ["2.4.6"], level: ["AA"] },
   "ACT-R116": { sc: ["4.1.2"], level: ["A"] },
   "ACT-R117": { sc: ["1.1.1"], level: ["A"] },
+  "ACT-R118": { sc: ["1.4.5", "1.4.9"], level: ["AA", "AAA"] },
   // ── WCAG 2.2 new criteria ────────────────────────────────────────────────
   "ACT-R119": { sc: ["2.4.11"], level: ["AA"] },
   "ACT-R120": { sc: ["2.4.12"], level: ["AAA"] },
@@ -584,7 +585,7 @@ const RULE_DESCRIPTIONS: Record<
       "Add content between headings of the same level to provide context",
     deprecated: true,
     deprecatedReason:
-      "Deprecated by Siteimprove; video description track checks are now covered by the composite SIA-R38 rule",
+      "Deprecated in the current rule set; video description track checks are now covered by the composite ACT-R38 rule",
   },
   "ACT-R35": {
     type: "Potential Issue",
@@ -599,7 +600,7 @@ const RULE_DESCRIPTIONS: Record<
       "Remove ARIA attributes that are prohibited for the element's role per the ARIA specification",
     deprecated: true,
     deprecatedReason:
-      "Deprecated by Siteimprove; video description track accuracy checks are now covered by the composite SIA-R38 rule",
+      "Deprecated in the current rule set; video description track accuracy checks are now covered by the composite ACT-R38 rule",
   },
   "ACT-R37": {
     type: "Potential Issue",
@@ -888,7 +889,7 @@ const RULE_DESCRIPTIONS: Record<
       "Use min-height instead of height, or remove overflow:hidden on containers with text content",
     deprecated: true,
     deprecatedReason:
-      "Deprecated by Siteimprove due to excessive false positives in the detection algorithm",
+      "Deprecated due to excessive false positives in the detection algorithm",
   },
   "ACT-R84": {
     type: "Issue",
@@ -1071,6 +1072,13 @@ const RULE_DESCRIPTIONS: Record<
     type: "Issue",
     description: "Image does not have an accessible name",
     remediation: "Provide appropriate alt text or aria-label for images",
+  },
+  "ACT-R118": {
+    type: "Potential Issue",
+    description: "Does this image contain human-language text?",
+    potentialDescription: "Does this image contain human-language text?",
+    remediation:
+      "Follow the manual review sequence: ask whether the image contains visible human-language text; if it does, check whether the text is decorative, incidental, essential (such as a logo), or redundant with regular text on the same page. Provide equivalent regular text when no exception applies.",
   },
   // ── WCAG 2.2 new criteria ────────────────────────────────────────────────
   "ACT-R119": {

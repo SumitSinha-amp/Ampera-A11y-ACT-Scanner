@@ -102,6 +102,22 @@ const browserSource = browserRulePaths.map((path) => read(path)).join("\n");
     );
   });
 
+  it("keeps the image-of-text rule manual-only", () => {
+    expect(browserSource).toContain('ruleId: "ACT-R118"');
+    expect(browserSource).toContain("purely decorative");
+    expect(browserSource).toContain(
+      "Does the image contain visible text that expresses something in a human language?",
+    );
+    expect(browserSource).toContain('getEffectiveAriaRole(el) === "img"');
+    expect(browserSource).toContain("if (EMIT_MANUAL_ONLY_RULES)");
+    expect(read("artifacts/api-server/src/lib/scanner.ts")).toContain(
+      '"ACT-R118": { sc: ["1.4.5", "1.4.9"], level: ["AA", "AAA"] }',
+    );
+    expect(
+      read("artifacts/accessibility-scanner/src/lib/actRules.ts"),
+    ).toContain('"ACT-R118"');
+  });
+
   it("excludes initialized Video.js fallback text from R74", () => {
     expect(browserSource).toContain(
       'el.classList.contains("vjs-no-js") || /(^|_)no_?player/i.test(el.id) || el.closest(".video-js")',

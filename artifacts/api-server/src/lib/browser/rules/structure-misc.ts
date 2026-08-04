@@ -1,8 +1,9 @@
 import type { ScanRawResult, PushStatFn } from "../types";
 import { getAccessibleName } from "../accname";
+import { getEffectiveAriaRole } from "../aria-data";
 import { isImportantBlocked } from "../contrast";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
-import { isRendered, isVisible } from "../visibility";
+import { isIncludedInAccessibilityTree, isRendered, isVisible } from "../visibility";
 
 export function runStructureMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: boolean, pushStat: PushStatFn): void {
   // ACT-R79: <pre> element contains text outside <code>/<kbd>/<samp>
@@ -151,6 +152,35 @@ export function runStructureMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
     }
   });
 
+  // ACT-R118: HTML images contain no text (WCAG 1.4.5 / 1.4.9)
+  // Applicability follows the effective HTML image role, not the tag name:
+  // decorative images (alt="") and elements hidden from the accessibility tree
+  // are excluded. The browser cannot answer the five human-review questions,
+  // so the applicable targets remain Potential Issues rather than automatic
+  // failures.
+  const imageOfTextTargets = Array.from(document.querySelectorAll("*"))
+    .filter(
+      (el) =>
+        el instanceof HTMLElement &&
+        getEffectiveAriaRole(el) === "img" &&
+        isIncludedInAccessibilityTree(el),
+    );
+  if (EMIT_MANUAL_ONLY_RULES) {
+    imageOfTextTargets.forEach((el) => {
+      results.push({
+        ruleId: "ACT-R118",
+        type: "Potential Issue",
+        displayTitle: "Does this image contain human-language text?",
+        impact: "serious",
+        description:
+          "Manual review sequence: (1) Does the image contain visible text that expresses something in a human language? If no, the review passes. If yes, (2) is the image with text purely decorative, (3) is the text insignificant or incidental, (4) is presenting the text in the image essential, for example a logo, or (5) is the same information available as regular text on the same page? A Potential Issue remains only when the image contains human-language text and none of these exceptions applies.",
+        element: outerHtmlSnippet(el),
+        elementContext: elementContextForAI(el),
+        selector: getSelector(el),
+      });
+    });
+  }
+
   // ════════════════════════════════════════════════════════════════════════
   // WCAG 2.2 — NEW CRITERIA
   // ════════════════════════════════════════════════════════════════════════
@@ -233,6 +263,7 @@ export function runStructureMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   if (structHeadings > 0) pushStat("ACT-R115", structHeadings, "element");
   const imgRoleEls = document.querySelectorAll("[role='img']").length;
   if (imgRoleEls > 0) pushStat("ACT-R117", imgRoleEls, "element");
+  if (imageOfTextTargets.length > 0) pushStat("ACT-R118", imageOfTextTargets.length, "element");
   const fixedEls = document.querySelectorAll("[style*='position:fixed'],[style*='position: fixed']").length;
   if (fixedEls > 0) pushStat("ACT-R119", fixedEls, "element");
   pushStat("ACT-R121", 1, "page");

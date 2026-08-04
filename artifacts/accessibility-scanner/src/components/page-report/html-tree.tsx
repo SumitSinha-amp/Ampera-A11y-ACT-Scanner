@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { Loader2 } from "lucide-react";
 
-// ── Interactive HTML Tree (Siteimprove-style) ──────────────────────────────────
+// ── Interactive HTML Tree ─────────────────────────────────────────────────────
 
 /**
  * Try progressively weaker strategies to find the DOM element that matches a
