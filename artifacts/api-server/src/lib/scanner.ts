@@ -8,9 +8,11 @@ import os from "os";
 import { logger } from "./logger";
 
 puppeteerExtra.use(StealthPlugin());
+
 // Replaced by build.mjs in production. The source fallback keeps direct
 // development builds compatible with the standalone browser-bundle.js file.
 declare const __AMPERA_BROWSER_BUNDLE__: string;
+
 function getChromiumPath(): string | undefined {
   if (process.env["PUPPETEER_EXECUTABLE_PATH"]) {
     const envPath = process.env["PUPPETEER_EXECUTABLE_PATH"];
@@ -2477,15 +2479,34 @@ async function _scanPageInternal(
       await new Promise<void>((resolve) => setTimeout(resolve, scanDelayMs));
     }
 
-    // Snapshot + HTML are captured AFTER rule execution, and only for pages
-    // that actually have issues (see below) — clean pages skip the 1–3 s
-    // full-page screenshot and the heavy DB write entirely.
+    // Keep the HTML evidence at the exact DOM state used by the accessibility
+    // rules. The visual snapshot is intentionally captured later, after
+    // resources and late layout changes settle, so its highlights line up with
+    // the final rendered page.
     let screenshot: string | undefined;
     let pageHtml: string | undefined;
 
+    // Capture the rendered DOM immediately before rule execution. Do not move
+    // this after the rules or the later visual-readiness wait: pages can patch
+    // aria-labels and other accessibility attributes asynchronously, which
+    // would make the displayed HTML disagree with the state that produced an
+    // issue.
+    try {
+      pageHtml = await page.content();
+      logger.info(
+        { url, sizeKb: Math.round(pageHtml.length / 1024) },
+        "Rule-time page HTML captured",
+      );
+    } catch (htmlErr) {
+      logger.warn(
+        { url, err: htmlErr },
+        "Failed to capture rule-time page HTML — continuing without it",
+      );
+    }
+
     logger.info(
       { url },
-      "Running ACT accessibility rules on fully-rendered DOM",
+      "Running ACT accessibility rules on rule-time DOM",
     );
     await onStage?.("analyzing");
     const actResult = await runACTRules(page);
@@ -2510,57 +2531,12 @@ async function _scanPageInternal(
       issues = issues.filter((i) => ruleSet.has(i.ruleId.toUpperCase()));
     }
 
-    // Capture bounding boxes for each issue's element (for snapshot highlight overlay)
+    // Capture the final visual snapshot only when the page has issues. Clean
+    // pages skip the 1–3 s full-page screenshot and the heavy snapshot write.
     if (issues.length > 0) {
-      const bboxes = await page.evaluate(
-        (selectors: (string | null)[]) => {
-          return selectors.map((sel) => {
-            if (!sel) return null;
-            try {
-              const el = document.querySelector(sel);
-              if (!el) return null;
-              const rect = el.getBoundingClientRect();
-              if (rect.width === 0 && rect.height === 0) return null;
-              return {
-                x: Math.round(rect.left + window.scrollX),
-                y: Math.round(rect.top + window.scrollY),
-                width: Math.round(rect.width),
-                height: Math.round(rect.height),
-              };
-            } catch {
-              return null;
-            }
-          });
-        },
-        issues.map((i) => i.selector),
-      );
-
-      issues = issues.map((issue, idx) => ({
-        ...issue,
-        bboxX: bboxes[idx]?.x ?? null,
-        bboxY: bboxes[idx]?.y ?? null,
-        bboxWidth: bboxes[idx]?.width ?? null,
-        bboxHeight: bboxes[idx]?.height ?? null,
-      }));
-      logger.info(
-        { url, withBbox: bboxes.filter(Boolean).length },
-        "Bounding boxes captured",
-      );
-    }
-
-    // Capture a full-page snapshot + rendered HTML ONLY when the page has
-    // issues.  HTML is captured FIRST — it is cheap (no compositing) and
-    // must succeed even if the screenshot fails.  For very tall pages (Framer,
-    // AEM, etc.) a fullPage screenshot can crash the renderer process, which
-    // makes any subsequent page interaction (including page.content()) also
-    // fail.  Capturing HTML first avoids that data loss.  Screenshot falls
-    // back to viewport-only if fullPage crashes.
-    if (issues.length > 0) {
-      // The accessibility rules intentionally run at the stable initial-render
-      // point above. Do not move this wait before the rules: late accessibility
-      // patches must remain visible to the scanner's timing model. The visual
-      // snapshot, however, should represent a loaded page rather than a DOM
-      // captured while CSS/images/fonts are still arriving.
+      // The visual snapshot represents the final rendered layout rather than
+      // the rule-time DOM. This is deliberately after rule execution so late
+      // CSS, images, fonts, and JS layout changes are reflected in the image.
       try {
         const visualReady = await page.evaluate(async () => {
           const startedAt = Date.now();
@@ -2622,21 +2598,45 @@ async function _scanPageInternal(
         );
       }
 
-      // ── 1. HTML capture (must come before screenshot) ──────────────────
-      try {
-        pageHtml = await page.content();
-        logger.info(
-          { url, sizeKb: Math.round(pageHtml.length / 1024) },
-          "Page HTML captured",
+      // ── 1. Final-layout bounding boxes for snapshot highlights ─────────
+      if (issues.length > 0) {
+        const bboxes = await page.evaluate(
+          (selectors: (string | null)[]) => {
+            return selectors.map((sel) => {
+              if (!sel) return null;
+              try {
+                const el = document.querySelector(sel);
+                if (!el) return null;
+                const rect = el.getBoundingClientRect();
+                if (rect.width === 0 && rect.height === 0) return null;
+                return {
+                  x: Math.round(rect.left + window.scrollX),
+                  y: Math.round(rect.top + window.scrollY),
+                  width: Math.round(rect.width),
+                  height: Math.round(rect.height),
+                };
+              } catch {
+                return null;
+              }
+            });
+          },
+          issues.map((i) => i.selector),
         );
-      } catch (htmlErr) {
-        logger.warn(
-          { url, err: htmlErr },
-          "Failed to capture page HTML — continuing without it",
+
+        issues = issues.map((issue, idx) => ({
+          ...issue,
+          bboxX: bboxes[idx]?.x ?? null,
+          bboxY: bboxes[idx]?.y ?? null,
+          bboxWidth: bboxes[idx]?.width ?? null,
+          bboxHeight: bboxes[idx]?.height ?? null,
+        }));
+        logger.info(
+          { url, withBbox: bboxes.filter(Boolean).length },
+          "Final-layout bounding boxes captured",
         );
       }
 
-      // ── 2. Full-page screenshot with fallback to viewport-only ──────────
+      // ── 2. Full-page screenshot with fallback to viewport-only ─────────
       try {
         // Wrap in a timeout so a hung compositor doesn't block the slot forever
         const ssTimeout = new Promise<never>((_, reject) =>
