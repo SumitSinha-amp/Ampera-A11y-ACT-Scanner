@@ -105,7 +105,7 @@ paths:
     patch:
       operationId: updateScan
       tags: [scans]
-      summary: Update scan metadata (name, initiator)
+      summary: Update scan metadata (name, project, site, initiator)
       parameters:
         - name: id
           in: path
@@ -412,8 +412,12 @@ components:
           type: integer
         name:
           type: ["string", "null"]
+        projectId:
+          type: ["integer", "null"]
         siteId:
           type: ["integer", "null"]
+        projectName:
+          type: ["string", "null"]
         status:
           type: string
           enum: [pending, running, completed, cancelled, failed, paused]
@@ -450,6 +454,10 @@ components:
           type: integer
         name:
           type: ["string", "null"]
+        projectId:
+          type: ["integer", "null"]
+        siteId:
+          type: ["integer", "null"]
         status:
           type: string
           enum: [pending, running, completed, cancelled, failed, paused]
@@ -621,6 +629,8 @@ components:
     PageStatus:
       type: object
       properties:
+        id:
+          type: integer
         url:
           type: string
         status:
@@ -637,6 +647,7 @@ components:
         scanDurationMs:
           type: ["integer", "null"]
       required:
+        - id
         - url
         - status
         - issueCount
@@ -796,6 +807,10 @@ components:
       properties:
         name:
           type: ["string", "null"]
+        projectId:
+          type: ["integer", "null"]
+        siteId:
+          type: ["integer", "null"]
         initiatorName:
           type: ["string", "null"]
         initiatorRole:

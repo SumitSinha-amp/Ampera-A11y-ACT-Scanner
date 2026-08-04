@@ -382,7 +382,7 @@ export function useGetScan<
 }
 
 /**
- * @summary Update scan metadata (name, initiator)
+ * @summary Update scan metadata (name, project, site, initiator)
  */
 export const getUpdateScanUrl = (id: number) => {
   return `/api/scans/${id}`;
@@ -446,7 +446,7 @@ export type UpdateScanMutationBody = BodyType<UpdateScanBody>;
 export type UpdateScanMutationError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Update scan metadata (name, initiator)
+ * @summary Update scan metadata (name, project, site, initiator)
  */
 export const useUpdateScan = <
   TError = ErrorType<ErrorResponse>,

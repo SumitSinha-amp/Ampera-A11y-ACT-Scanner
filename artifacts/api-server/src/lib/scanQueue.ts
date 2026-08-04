@@ -289,6 +289,10 @@ const MAX_AUTO_RETRIES = 3; // total auto-retry attempts per URL before giving u
 const proxyFailedUrls = new Map<number, Set<string>>();
 // URLs injected mid-scan via addUrlsToRunningScan — drained by the Phase 1 loop
 const injectedUrlQueue = new Map<number, string[]>();
+// Page IDs marked for removal while they are still waiting in the live queue.
+// The worker checks this after resolving a URL row, closing the small race
+// between queue dequeue and the database delete request.
+const removedQueuedPageIds = new Map<number, Set<number>>();
 
 function getLegalText(legal?: { ada: string[]; eaa: boolean }): string {
   if (!legal) return "";
@@ -686,6 +690,7 @@ export async function startScan(
     queuedRetryUrls.delete(scanId);
     autoRetryCounters.delete(scanId);
     injectedUrlQueue.delete(scanId);
+    removedQueuedPageIds.delete(scanId);
     proxyFailedUrls.delete(scanId);
     // WAF tokens are intentionally kept alive until their TTL expires (10 min)
     // so the user can still click "Scan from Browser" on a completed scan.
@@ -755,6 +760,37 @@ export async function addUrlsToRunningScan(
   return { added: newUrls.length, skipped: urls.length - newUrls.length };
 }
 
+/**
+ * Mark a queued URL for removal and remove it from the injected queue.
+ * The database row is deleted by the route after this marker is set.
+ */
+export function removeQueuedUrl(
+  scanId: number,
+  pageId: number,
+  url: string,
+): void {
+  let removed = removedQueuedPageIds.get(scanId);
+  if (!removed) {
+    removed = new Set<number>();
+    removedQueuedPageIds.set(scanId, removed);
+  }
+  removed.add(pageId);
+
+  const injected = injectedUrlQueue.get(scanId);
+  if (injected) {
+    injectedUrlQueue.set(
+      scanId,
+      injected.filter((queuedUrl) => queuedUrl !== url),
+    );
+  }
+}
+
+export function clearQueuedUrlRemoval(scanId: number, pageId: number): void {
+  const removed = removedQueuedPageIds.get(scanId);
+  removed?.delete(pageId);
+  if (removed?.size === 0) removedQueuedPageIds.delete(scanId);
+}
+
 async function scanSinglePage(
   scanId: number,
   url: string,
@@ -800,9 +836,45 @@ async function scanSinglePage(
   }
 
   if (!pageRow) return;
+  const removed = removedQueuedPageIds.get(scanId);
+  if (removed?.has(pageRow.id)) {
+    removed.delete(pageRow.id);
+    if (removed.size === 0) removedQueuedPageIds.delete(scanId);
+    logger.info({ scanId, pageId: pageRow.id, url }, "Skipping URL removed from queue");
+    return;
+  }
   // Never re-scan a page that is already completed.  This guard applies to all
   // callers; Phase 3 also sets skipCompletedPages: true for an extra layer.
   if (pageRow.status === "completed") return;
+
+  // Atomically claim the row before doing any work. The removal endpoint only
+  // deletes rows that remain pending, so this makes "started" a real database
+  // boundary rather than relying only on the in-memory queue marker.
+  try {
+    const claimed = await db
+      .update(pageResultsTable)
+      .set({ status: "navigating" })
+      .where(
+        and(
+          eq(pageResultsTable.id, pageRow.id),
+          inArray(pageResultsTable.status, [
+            "pending",
+            "failed",
+            "requeued",
+            "not_available",
+          ]),
+        ),
+      )
+      .returning({ id: pageResultsTable.id });
+    if (claimed.length === 0) return;
+  } catch (err) {
+    logger.error(
+      { scanId, pageId: pageRow.id, url, err },
+      "DB error claiming page row — skipping URL",
+    );
+    return;
+  }
+
   const queued = queuedRetryUrls.get(scanId);
   if (queued?.has(url)) queued.delete(url);
 

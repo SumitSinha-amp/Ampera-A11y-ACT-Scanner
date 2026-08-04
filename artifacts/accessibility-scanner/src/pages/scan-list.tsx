@@ -13,6 +13,7 @@ import {
 } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/auth";
 import { useSite } from "@/contexts/site";
+import { ProjectSelector } from "@/components/project-selector";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -89,6 +90,8 @@ interface EditScanDialogProps {
   scan: {
     id: number;
     name: string | null;
+    projectId?: number | null;
+    siteId?: number | null;
     initiatorName?: string | null;
     initiatorRole?: string | null;
   };
@@ -111,6 +114,8 @@ type ScanItem = {
   createdAt: string;
   completedAt?: string | null;
   projectName?: string | null;
+  projectId?: number | null;
+  siteId?: number | null;
   initiatorName?: string | null;
   initiatorRole?: string | null;
 };
@@ -477,13 +482,25 @@ function MultiSelectFilter({
 function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
+  const { sites, isLoading: sitesLoading } = useSite();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const updateScan = useUpdateScan();
   const [name, setName] = useState(scan.name ?? "");
+  const [projectId, setProjectId] = useState<number | null>(scan.projectId ?? null);
+  const [siteId, setSiteId] = useState<number | null>(scan.siteId ?? null);
   const [initiatorName, setInitiatorName] = useState(scan.initiatorName ?? "");
   const [initiatorRole, setInitiatorRole] = useState(scan.initiatorRole ?? "");
   const [allUsers, setAllUsers] = useState<AdminUser[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    setName(scan.name ?? "");
+    setProjectId(scan.projectId ?? null);
+    setSiteId(scan.siteId ?? null);
+    setInitiatorName(scan.initiatorName ?? "");
+    setInitiatorRole(scan.initiatorRole ?? "");
+  }, [open, scan]);
 
   useEffect(() => {
     if (!isSuperAdmin || !open) return;
@@ -504,6 +521,8 @@ function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
   const handleSave = () => {
     const data: Parameters<typeof updateScan.mutate>[0]["data"] = {
       name: name.trim() || undefined,
+      projectId,
+      siteId,
       ...(isSuperAdmin ? {
         initiatorName: initiatorName.trim() || null,
         initiatorRole: initiatorRole.trim() || null,
@@ -540,6 +559,36 @@ function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
               onChange={(e) => setName(e.target.value)}
               placeholder="Enter scan name"
             />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Project</Label>
+              <ProjectSelector
+                value={projectId}
+                onChange={(nextProjectId) => setProjectId(nextProjectId)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-scan-site">Site</Label>
+              <Select
+                value={siteId === null ? "none" : String(siteId)}
+                onValueChange={(value) => setSiteId(value === "none" ? null : Number(value))}
+                disabled={sitesLoading}
+              >
+                <SelectTrigger id="edit-scan-site">
+                  <SelectValue placeholder={sitesLoading ? "Loading sites…" : "Select site…"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No site</SelectItem>
+                  {sites.map((site) => (
+                    <SelectItem key={site.id} value={String(site.id)}>
+                      {site.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {isSuperAdmin ? (
@@ -661,6 +710,8 @@ export default function ScanList() {
   const [editingScan, setEditingScan] = useState<{
     id: number;
     name: string | null;
+    projectId?: number | null;
+    siteId?: number | null;
     initiatorName?: string | null;
     initiatorRole?: string | null;
   } | null>(null);
@@ -1201,6 +1252,8 @@ export default function ScanList() {
                             setEditingScan({
                               id: scan.id,
                               name: scan.name,
+                              projectId: s.projectId,
+                              siteId: s.siteId,
                               initiatorName: s.initiatorName,
                               initiatorRole: s.initiatorRole,
                             })

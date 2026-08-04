@@ -30,7 +30,11 @@ export interface ScanSession {
   /** @nullable */
   name: string | null;
   /** @nullable */
+  projectId?: number | null;
+  /** @nullable */
   siteId?: number | null;
+  /** @nullable */
+  projectName?: string | null;
   status: ScanSessionStatus;
   totalUrls: number;
   scannedUrls: number;
@@ -149,6 +153,10 @@ export interface ScanSessionDetail {
   id: number;
   /** @nullable */
   name: string | null;
+  /** @nullable */
+  projectId?: number | null;
+  /** @nullable */
+  siteId?: number | null;
   status: ScanSessionDetailStatus;
   totalUrls: number;
   scannedUrls: number;
@@ -200,6 +208,7 @@ export const PageStatusStatus = {
 } as const;
 
 export interface PageStatus {
+  id: number;
   url: string;
   status: PageStatusStatus;
   issueCount: number;
@@ -285,6 +294,10 @@ export interface CreateScanBody {
 export interface UpdateScanBody {
   /** @nullable */
   name?: string | null;
+  /** @nullable */
+  projectId?: number | null;
+  /** @nullable */
+  siteId?: number | null;
   /** @nullable */
   initiatorName?: string | null;
   /** @nullable */

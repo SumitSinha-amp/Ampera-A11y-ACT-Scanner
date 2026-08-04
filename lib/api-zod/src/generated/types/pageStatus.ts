@@ -8,6 +8,7 @@
 import type { PageStatusStatus } from "./pageStatusStatus";
 
 export interface PageStatus {
+  id: number;
   url: string;
   status: PageStatusStatus;
   issueCount: number;

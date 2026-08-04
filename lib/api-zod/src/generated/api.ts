@@ -26,7 +26,9 @@ export const ListScansQueryParams = zod.object({
 export const ListScansResponseItem = zod.object({
   id: zod.number(),
   name: zod.string().nullable(),
+  projectId: zod.number().nullish(),
   siteId: zod.number().nullish(),
+  projectName: zod.string().nullish(),
   status: zod.enum([
     "pending",
     "running",
@@ -98,6 +100,8 @@ export const GetScanParams = zod.object({
 export const GetScanResponse = zod.object({
   id: zod.number(),
   name: zod.string().nullable(),
+  projectId: zod.number().nullish(),
+  siteId: zod.number().nullish(),
   status: zod.enum([
     "pending",
     "running",
@@ -195,7 +199,7 @@ export const GetScanResponse = zod.object({
 });
 
 /**
- * @summary Update scan metadata (name, initiator)
+ * @summary Update scan metadata (name, project, site, initiator)
  */
 export const UpdateScanParams = zod.object({
   id: zod.coerce.number(),
@@ -203,6 +207,8 @@ export const UpdateScanParams = zod.object({
 
 export const UpdateScanBody = zod.object({
   name: zod.string().nullish(),
+  projectId: zod.number().nullish(),
+  siteId: zod.number().nullish(),
   initiatorName: zod.string().nullish(),
   initiatorRole: zod.string().nullish(),
 });
@@ -240,6 +246,7 @@ export const GetScanStatusResponse = zod.object({
   pagesWithIssues: zod.number(),
   pages: zod.array(
     zod.object({
+      id: zod.number(),
       url: zod.string(),
       status: zod.enum([
         "pending",
@@ -273,7 +280,9 @@ export const CancelScanParams = zod.object({
 export const CancelScanResponse = zod.object({
   id: zod.number(),
   name: zod.string().nullable(),
+  projectId: zod.number().nullish(),
   siteId: zod.number().nullish(),
+  projectName: zod.string().nullish(),
   status: zod.enum([
     "pending",
     "running",

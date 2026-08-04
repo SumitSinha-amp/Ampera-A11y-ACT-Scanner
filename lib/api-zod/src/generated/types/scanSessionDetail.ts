@@ -13,6 +13,10 @@ export interface ScanSessionDetail {
   id: number;
   /** @nullable */
   name: string | null;
+  /** @nullable */
+  projectId?: number | null;
+  /** @nullable */
+  siteId?: number | null;
   status: ScanSessionDetailStatus;
   totalUrls: number;
   scannedUrls: number;

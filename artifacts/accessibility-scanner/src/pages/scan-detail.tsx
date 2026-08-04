@@ -1874,6 +1874,30 @@ export default function ScanDetail() {
     },
   });
 
+  const removeQueuedUrlMutation = useMutation({
+    mutationFn: async (page: { id: number; url: string }) => {
+      const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+      const res = await fetch(`${BASE}/api/scans/${scanId}/pages/${page.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Failed to remove URL" }));
+        throw new Error(err.error ?? "Failed to remove URL");
+      }
+      return res.json() as Promise<{ removed: boolean; pageId: number; url: string }>;
+    },
+    onSuccess: (data) => {
+      toast({ title: "URL removed from queue", description: data.url });
+      queryClient.invalidateQueries({ queryKey: getGetScanStatusQueryKey(scanId) });
+      queryClient.invalidateQueries({ queryKey: getGetScanQueryKey(scanId) });
+    },
+    onError: (err: Error) => {
+      toast({ title: err.message, variant: "destructive" });
+      queryClient.invalidateQueries({ queryKey: getGetScanStatusQueryKey(scanId) });
+    },
+  });
+
   function handleAddUrlsSubmit() {
     const urls = addUrlsText
       .split(/[\n,]+/)
@@ -1947,6 +1971,24 @@ export default function ScanDetail() {
       } catch { /* ignore malformed URLs */ }
     }
     return Array.from(exts).sort();
+  }, [scan?.pages]);
+
+  const pageExtensionCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: scan?.pages?.length ?? 0 };
+    for (const page of scan?.pages ?? []) {
+      try {
+        const pathname = new URL(page.url).pathname;
+        const last = pathname.split("/").pop() ?? "";
+        const dot = last.lastIndexOf(".");
+        if (dot > 0) {
+          const ext = last.slice(dot).toLowerCase();
+          counts[ext] = (counts[ext] ?? 0) + 1;
+        }
+      } catch {
+        // Ignore malformed URLs, matching the extension option logic above.
+      }
+    }
+    return counts;
   }, [scan?.pages]);
 
   const matchesPageFilter = useCallback(
@@ -3208,6 +3250,7 @@ export default function ScanDetail() {
                   })}
                   {/* File extension filter */}
                   {pageExtensions.length > 0 && (
+                    <div className="flex items-center gap-2 shrink-0">
                     <Select value={pageExtFilter} onValueChange={setPageExtFilter}>
                       <SelectTrigger className="h-11 w-36 shrink-0 bg-white dark:bg-white dark:text-slate-900">
                         <SelectValue placeholder="Extension" />
@@ -3219,6 +3262,13 @@ export default function ScanDetail() {
                         ))}
                       </SelectContent>
                     </Select>
+                     <Badge
+                        variant="secondary"
+                        className="h-7 whitespace-nowrap px-2.5 text-xs font-medium"
+                      >
+                        {(pageExtensionCounts[pageExtFilter] ?? 0).toLocaleString()} total
+                      </Badge>
+                    </div>
                   )}
                   {/* URL text filter — right side of the same row */}
                   <div className="relative ml-auto w-72 shrink-0">
@@ -3871,7 +3921,27 @@ export default function ScanDetail() {
                         )}
                       </td>
                       <td className="p-3 text-right">
-                        {p.status === "failed" || p.status === "pending" ? (
+                          {p.status === "pending" ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:bg-red-50 hover:text-red-600"
+                            title="Remove URL from queue"
+                            aria-label={`Remove ${p.url} from queue`}
+                            disabled={removeQueuedUrlMutation.isPending}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              removeQueuedUrlMutation.mutate({ id: p.id, url: p.url });
+                            }}
+                          >
+                            {removeQueuedUrlMutation.isPending ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        ) : p.status === "failed" || p.status === "pending" ? (
                           <span
                             className="inline-flex items-center gap-1.5 text-amber-500"
                             title="Auto retrying"

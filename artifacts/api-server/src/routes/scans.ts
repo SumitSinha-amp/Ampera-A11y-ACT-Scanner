@@ -30,6 +30,8 @@ import {
   isScanActive,
   queueRetryUrl,
   addUrlsToRunningScan,
+  removeQueuedUrl,
+  clearQueuedUrlRemoval,
   wafPageTokens,
   wafTokenIndex,
 } from "../lib/scanQueue";
@@ -788,6 +790,7 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
       id: scanSessionsTable.id,
       projectId: scanSessionsTable.projectId,
       projectName: projectsTable.name,
+      siteId: scanSessionsTable.siteId,
       name: scanSessionsTable.name,
       initiatorName: scanSessionsTable.initiatorName,
       initiatorRole: scanSessionsTable.initiatorRole,
@@ -994,9 +997,38 @@ router.patch("/scans/:id", async (req, res): Promise<void> => {
     return;
   }
   const isSuperAdmin = role === "super_admin";
-  const { name, initiatorName, initiatorRole } = parsed.data;
+  const { name, projectId, siteId, initiatorName, initiatorRole } = parsed.data;
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name;
+  if (projectId !== undefined) {
+    if (projectId !== null) {
+      const [project] = await db
+        .select({ id: projectsTable.id })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, projectId))
+        .limit(1);
+      if (!project) {
+        res.status(400).json({ error: "The specified project does not exist" });
+        return;
+      }
+    }
+    updates.projectId = projectId;
+  }
+  if (siteId !== undefined) {
+    if (siteId !== null) {
+      const siteAccess = await canAccessSite(
+        parseInt(userId, 10),
+        userId,
+        role,
+        siteId,
+      );
+      if (!siteAccess) {
+        res.status(403).json({ error: "You do not have access to the specified site" });
+        return;
+      }
+    }
+    updates.siteId = siteId;
+  }
   // Only super_admin can change initiator metadata
   if (isSuperAdmin) {
     if (initiatorName !== undefined) updates.initiatorName = initiatorName;
@@ -1453,6 +1485,108 @@ router.post(
 
     const result = await addUrlsToRunningScan(scanId, validUrls);
     res.json({ ...result, total: validUrls.length });
+  },
+);
+
+/**
+ * DELETE /api/scans/:id/pages/:pageId
+ * Remove one URL that is still pending in an active scan.
+ */
+router.delete(
+  "/scans/:id/pages/:pageId",
+  requireAuth,
+  async (req, res): Promise<void> => {
+    const userId = getAuthUserId(req);
+    if (!userId) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const role = req.session?.user?.role ?? "user";
+    const perms = await getEffectivePermissions(parseInt(userId, 10), role);
+    if (!perms.canManageScan) {
+      res.status(403).json({ error: "You don't have permission to modify scans" });
+      return;
+    }
+
+    const scanId = parseInt(String(req.params.id), 10);
+    const pageId = parseInt(String(req.params.pageId), 10);
+    if (!Number.isInteger(scanId) || !Number.isInteger(pageId)) {
+      res.status(400).json({ error: "Invalid scan or page ID" });
+      return;
+    }
+
+    if (!(await canAccessScan(req, scanId))) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+
+    const [session] = await db
+      .select({ status: scanSessionsTable.status })
+      .from(scanSessionsTable)
+      .where(eq(scanSessionsTable.id, scanId));
+    if (!session) {
+      res.status(404).json({ error: "Scan not found" });
+      return;
+    }
+    if (!["running", "paused", "pending"].includes(session.status)) {
+      res.status(409).json({
+        error: `Can only remove URLs from an active scan (current status: ${session.status})`,
+      });
+      return;
+    }
+
+    const [page] = await db
+      .select({ id: pageResultsTable.id, url: pageResultsTable.url, status: pageResultsTable.status })
+      .from(pageResultsTable)
+      .where(
+        and(
+          eq(pageResultsTable.id, pageId),
+          eq(pageResultsTable.scanId, scanId),
+        ),
+      );
+    if (!page) {
+      res.status(404).json({ error: "URL not found in scan" });
+      return;
+    }
+    if (page.status !== "pending") {
+      res.status(409).json({
+        error: "Only URLs still waiting in the queue can be removed",
+      });
+      return;
+    }
+
+    // Mark the queue entry before deleting its row so a worker that has just
+    // dequeued it cannot continue after the row disappears.
+    removeQueuedUrl(scanId, page.id, page.url);
+    const deleted = await db
+      .delete(pageResultsTable)
+      .where(
+        and(
+          eq(pageResultsTable.id, pageId),
+          eq(pageResultsTable.scanId, scanId),
+          eq(pageResultsTable.status, "pending"),
+        ),
+      )
+      .returning({ id: pageResultsTable.id });
+
+    if (deleted.length === 0) {
+      clearQueuedUrlRemoval(scanId, page.id);
+      res.status(409).json({
+        error: "URL started scanning before it could be removed",
+      });
+      return;
+    }
+
+    await db
+      .update(scanSessionsTable)
+      .set({
+        totalUrls: sql`GREATEST(${scanSessionsTable.totalUrls} - 1, 0)`,
+      })
+      .where(eq(scanSessionsTable.id, scanId));
+
+    logger.info({ scanId, pageId, url: page.url }, "Removed pending URL from scan queue");
+    res.json({ removed: true, pageId, url: page.url });
   },
 );
 

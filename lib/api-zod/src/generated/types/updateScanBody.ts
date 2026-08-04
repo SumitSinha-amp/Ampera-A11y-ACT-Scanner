@@ -10,6 +10,10 @@ export interface UpdateScanBody {
   /** @nullable */
   name?: string | null;
   /** @nullable */
+  projectId?: number | null;
+  /** @nullable */
+  siteId?: number | null;
+  /** @nullable */
   initiatorName?: string | null;
   /** @nullable */
   initiatorRole?: string | null;

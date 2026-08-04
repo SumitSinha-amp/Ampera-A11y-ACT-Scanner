@@ -47,6 +47,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -71,6 +72,10 @@ import SettingsPage, {
   DEFAULT_LOGO_SIZE,
   type LogoType,
 } from "@/pages/settings";
+import {
+  APP_UPDATES_VERSION,
+  AppUpdatesContent,
+} from "@/pages/app-updates";
 import { useAuth, isAdmin, isSuperAdmin } from "@/contexts/auth";
 import { useSite, type MySite } from "@/contexts/site";
 import {
@@ -1543,6 +1548,7 @@ function AdminSidebarContent({
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [updatesOpen, setUpdatesOpen] = useState(false);
   const [collapsed, toggleCollapsed] = useSidebarCollapsed();
   const { user, logout } = useAuth();
   const adminUser = isAdmin(user);
@@ -1555,6 +1561,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
     window.addEventListener(OPEN_SETTINGS_EVENT, openSettings);
     return () => window.removeEventListener(OPEN_SETTINGS_EVENT, openSettings);
   }, []);
+
+  // Show the current release once per user. Keeping the key user-scoped means
+  // a shared browser can still introduce each account to the release, while a
+  // returning user is not interrupted on every navigation or refresh.
+  useEffect(() => {
+    if (!user) return;
+    const seenKey = `app-updates-seen:${user.id}:${APP_UPDATES_VERSION}`;
+    try {
+      if (localStorage.getItem(seenKey) === "true") return;
+      localStorage.setItem(seenKey, "true");
+      setUpdatesOpen(true);
+    } catch {
+      // If storage is unavailable, still show the release notes in this
+      // authenticated session. The dialog will close normally.
+      setUpdatesOpen(true);
+    }
+  }, [user]);
   // The contextual site nav (Dashboard/Issues/Compliance) is for site-specific
   // users — regular `user` accounts tied to their own site, and `admin`
   // accounts while they're actively managing a specific site. `super_admin`
@@ -1815,7 +1838,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   data-testid="button-app-updates"
                   data-tour="header-app-updates"
                   data-tour-title="App Updates"
-                  data-tour-description="See what is new in version 1.2.0."
+                  data-tour-description={`See what is new in version ${APP_UPDATES_VERSION}.`}
                   variant={location === "/app-updates" ? "secondary" : "ghost"}
                   size="sm"
                   className="relative gap-2"
@@ -1921,12 +1944,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <div className="flex items-center gap-2 font-bold text-xs text-sidebar-foreground">
                 <Badge
                   data-tour="version-badge"
-                  data-tour-title="Version 1.2.0"
+                    data-tour-title={`Version ${APP_UPDATES_VERSION}`}
                   data-tour-description="This badge shows the current application release."
                   variant="outline"
                   className="h-6 border-primary/30 bg-primary/5 px-2 font-mono text-[10px] text-primary"
                 >
-                  v1.2.0
+                  v{APP_UPDATES_VERSION}
                 </Badge>
               </div>
             </div>
@@ -2028,6 +2051,35 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </DialogHeader>
             <div className="mt-2">
               <SettingsPage />
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={updatesOpen} onOpenChange={setUpdatesOpen}>
+          <DialogContent className="max-w-5xl w-[95vw] max-h-[90vh] overflow-y-auto">
+            <DialogHeader className="pr-8">
+              <DialogTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                What&apos;s new in version {APP_UPDATES_VERSION}
+              </DialogTitle>
+              <DialogDescription>
+                Here&apos;s what has been added recently to make scanning,
+                crawling, reporting, and daily platform work more reliable.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-2">
+              <AppUpdatesContent compact />
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-4">
+              <Button variant="outline" onClick={() => setUpdatesOpen(false)}>
+                Continue to the app
+              </Button>
+              <Link href="/app-updates" onClick={() => setUpdatesOpen(false)}>
+                <Button>
+                  View full updates
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
             </div>
           </DialogContent>
         </Dialog>

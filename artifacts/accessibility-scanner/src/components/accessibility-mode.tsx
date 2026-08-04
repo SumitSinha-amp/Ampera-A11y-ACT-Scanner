@@ -240,7 +240,7 @@ export function AccessibilityModeControl() {
               type="button"
               size="icon"
               variant="default"
-              className="h-12 w-12 rounded-full border-2 border-[#9c369a] bg-transparent text-[#9c369a] shadow-lg ring-2 ring-[#9c369a]/20 transition-transform hover:scale-105 hover:bg-transparent focus-visible:ring-4 focus-visible:ring-[#9c369a] focus-visible:ring-offset-2"
+              className="h-12 w-12 rounded-full border-2 border-[#9c369a] bg-white text-[#9c369a] shadow-lg ring-2 ring-[#9c369a]/20 transition-transform hover:scale-105 hover:bg-white focus-visible:ring-4 focus-visible:ring-[#9c369a] focus-visible:ring-offset-2"
               onClick={() => setOpen(true)}
               aria-label="Open accessibility mode settings"
               aria-pressed={preferences.enabled}
