@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useAuth, isAdmin } from "@/contexts/auth";
 import { Link } from "wouter";
+import { OPEN_SETTINGS_EVENT } from "@/components/layout";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   useCreateScan,
@@ -43,6 +44,7 @@ import {
   Shield,
   ShieldCheck,
   ExternalLink,
+  Settings,
   HelpCircle,
   Pause,
   Play,
@@ -128,9 +130,18 @@ const ALL_RULES: { id: string; label: string }[] = [
   { id: "ACT-R21", label: "Invalid ARIA role used (WCAG 4.1.2)" },
   { id: "ACT-R22", label: "Does this video have captions? (WCAG 1.2.2)" },
   { id: "ACT-R23", label: "Audio/video without transcript (WCAG 1.2.1)" },
-  { id: "ACT-R24", label: "Video element visual content has no transcript (WCAG 1.2.3)" },
-  { id: "ACT-R25", label: "Video element visual content has no audio description (WCAG 1.2.5)" },
-  { id: "ACT-R26", label: "Video without audio is a media alternative for text (WCAG 1.2.1)" },
+  {
+    id: "ACT-R24",
+    label: "Video element visual content has no transcript (WCAG 1.2.3)",
+  },
+  {
+    id: "ACT-R25",
+    label: "Video element visual content has no audio description (WCAG 1.2.5)",
+  },
+  {
+    id: "ACT-R26",
+    label: "Video without audio is a media alternative for text (WCAG 1.2.1)",
+  },
   {
     id: "ACT-R27",
     label: "Does this video have captions? (WCAG 1.2.2)",
@@ -144,48 +155,85 @@ const ALL_RULES: { id: string; label: string }[] = [
     label: "Audio content is a media alternative for text (WCAG 1.2.1)",
   },
   { id: "ACT-R30", label: "Audio content has a text alternative (WCAG 1.2.1)" },
-  { id: "ACT-R31", label: "Video with audio is a media alternative for text (WCAG 1.2.1)" },
+  {
+    id: "ACT-R31",
+    label: "Video with audio is a media alternative for text (WCAG 1.2.1)",
+  },
   { id: "ACT-R32", label: "Target size insufficient (WCAG 2.5.8)" },
   {
     id: "ACT-R33",
     label: "Media alternative may be insufficient (WCAG 1.2.x)",
   },
   { id: "ACT-R34", label: "Content missing after heading (WCAG 2.4.6)" },
-  { id: "ACT-R35", label: "Does video without audio have an accessible alternative? (WCAG 1.2.1)" },
+  {
+    id: "ACT-R35",
+    label:
+      "Does video without audio have an accessible alternative? (WCAG 1.2.1)",
+  },
   { id: "ACT-R36", label: "Unsupported ARIA usage (WCAG 4.1.2)" },
   { id: "ACT-R37", label: "Is this video audio-described? (WCAG 1.2.5)" },
-  { id: "ACT-R38", label: "Is there an alternative to the visual content in this video? (WCAG 1.2.x)" },
+  {
+    id: "ACT-R38",
+    label:
+      "Is there an alternative to the visual content in this video? (WCAG 1.2.x)",
+  },
   { id: "ACT-R39", label: "Image filename used as alt text (WCAG 1.1.1)" },
-  { id: "ACT-R40", label: "Page region without an accessible name (WCAG 1.3.1)" },
+  {
+    id: "ACT-R40",
+    label: "Page region without an accessible name (WCAG 1.3.1)",
+  },
   {
     id: "ACT-R41",
     label: "Links with same text different purpose (WCAG 2.4.4)",
   },
   { id: "ACT-R42", label: "Role not inside the required context (WCAG 4.1.2)" },
-  { id: "ACT-R43", label: "Vector image without a text alternative (WCAG 1.1.1)" },
+  {
+    id: "ACT-R43",
+    label: "Vector image without a text alternative (WCAG 1.1.1)",
+  },
   { id: "ACT-R44", label: "Page orientation is locked (WCAG 1.3.4)" },
-  { id: "ACT-R45", label: "Table headers aren't referenced correctly (WCAG 1.3.1)" },
+  {
+    id: "ACT-R45",
+    label: "Table headers aren't referenced correctly (WCAG 1.3.1)",
+  },
   {
     id: "ACT-R46",
     label: "No data cells assigned to table header (WCAG 1.3.1)",
   },
   { id: "ACT-R47", label: "Page zoom is restricted (WCAG 1.4.4)" },
-  { id: "ACT-R48", label: "<audio> or <video> that plays automatically has no audio that lasts more than 3 seconds (WCAG 1.4.2)" },
-  { id: "ACT-R49", label: "<audio> or <video> that plays automatically has a control mechanism (WCAG 1.4.2)" },
+  {
+    id: "ACT-R48",
+    label:
+      "<audio> or <video> that plays automatically has no audio that lasts more than 3 seconds (WCAG 1.4.2)",
+  },
+  {
+    id: "ACT-R49",
+    label:
+      "<audio> or <video> that plays automatically has a control mechanism (WCAG 1.4.2)",
+  },
   { id: "ACT-R50", label: "Audio cannot be stopped (WCAG 1.4.2)" },
   { id: "ACT-R51", label: "Audio control missing (WCAG 1.4.2)" },
   { id: "ACT-R52", label: "Video autoplay without controls (WCAG 1.4.2)" },
   { id: "ACT-R53", label: "Headings are structured (WCAG 1.3.1)" },
-  { id: "ACT-R54", label: "Field input error is not announced in full (WCAG 4.1.3)" },
+  {
+    id: "ACT-R54",
+    label: "Field input error is not announced in full (WCAG 4.1.3)",
+  },
   {
     id: "ACT-R55",
     label: "Sections with same name different purpose (WCAG 1.3.1)",
   },
-  { id: "ACT-R56", label: "Landmarks of same type have a unique accessible name (WCAG 1.3.1)" },
+  {
+    id: "ACT-R56",
+    label: "Landmarks of same type have a unique accessible name (WCAG 1.3.1)",
+  },
   { id: "ACT-R57", label: "Non-text contrast insufficient (WCAG 1.4.11)" },
   { id: "ACT-R59", label: "Documents have headings (WCAG 2.4.6)" },
   { id: "ACT-R60", label: "Groups have an accessible name (WCAG 1.3.1)" },
-  { id: "ACT-R61", label: "Documents start with a level 1 heading (WCAG 2.4.6)" },
+  {
+    id: "ACT-R61",
+    label: "Documents start with a level 1 heading (WCAG 2.4.6)",
+  },
   { id: "ACT-R62", label: "Links are not clearly identifiable (WCAG 1.4.1)" },
   { id: "ACT-R63", label: "Object without a text alternative (WCAG 1.1.1)" },
   { id: "ACT-R64", label: "Empty headings (WCAG 1.3.1)" },
@@ -194,50 +242,109 @@ const ALL_RULES: { id: string; label: string }[] = [
   { id: "ACT-R67", label: "Decorative image exposed (WCAG 1.1.1)" },
   { id: "ACT-R68", label: "Empty container element (WCAG 1.3.1)" },
   { id: "ACT-R69", label: "Text contrast insufficient (WCAG 1.4.3)" },
-  { id: "ACT-R70", label: "No obsolete or deprecated elements are used (Best Practice)" },
+  {
+    id: "ACT-R70",
+    label: "No obsolete or deprecated elements are used (Best Practice)",
+  },
   { id: "ACT-R71", label: "Uneven spacing in text (Best Practice)" },
-  { id: "ACT-R72", label: "Paragraphs of text are not all uppercase (Best Practice)" },
+  {
+    id: "ACT-R72",
+    label: "Paragraphs of text are not all uppercase (Best Practice)",
+  },
   { id: "ACT-R73", label: "Line height too small (WCAG 1.4.12)" },
   { id: "ACT-R74", label: "Font size fixed (WCAG 1.4.4)" },
   { id: "ACT-R75", label: "Font size too small (WCAG 1.4.4)" },
-  { id: "ACT-R76", label: "Table header cell is missing a header role (WCAG 1.3.1)" },
+  {
+    id: "ACT-R76",
+    label: "Table header cell is missing a header role (WCAG 1.3.1)",
+  },
   { id: "ACT-R77", label: "Table data missing context (WCAG 1.3.1)" },
-  { id: "ACT-R78", label: "Headings of same level have text content between them (WCAG 2.4.6)" },
-  { id: "ACT-R79", label: "Preformatted text represents either code or a figure (Best Practice)" },
+  {
+    id: "ACT-R78",
+    label: "Headings of same level have text content between them (WCAG 2.4.6)",
+  },
+  {
+    id: "ACT-R79",
+    label:
+      "Preformatted text represents either code or a figure (Best Practice)",
+  },
   { id: "ACT-R80", label: "Line height fixed (Best Practice)" },
   {
     id: "ACT-R81",
     label: "Links identical different destinations (WCAG 2.4.4)",
   },
-  { id: "ACT-R82", label: "Error message describes invalid form field value (WCAG 1.3.1)" },
-  { id: "ACT-R83", label: "Text is clipped when resized (DEPRECATED) (WCAG 1.4.4)" },
+  {
+    id: "ACT-R82",
+    label: "Error message describes invalid form field value (WCAG 1.3.1)",
+  },
+  {
+    id: "ACT-R83",
+    label: "Text is clipped when resized (DEPRECATED) (WCAG 1.4.4)",
+  },
   {
     id: "ACT-R84",
     label: "Scrollable element not keyboard accessible (WCAG 2.1.1)",
   },
-  { id: "ACT-R85", label: "Paragraphs of text are not all italics (Best Practice)" },
-  { id: "ACT-R86", label: "Elements that are marked as decorative are not exposed to assistive technologies (Best Practice)" },
+  {
+    id: "ACT-R85",
+    label: "Paragraphs of text are not all italics (Best Practice)",
+  },
+  {
+    id: "ACT-R86",
+    label:
+      "Elements that are marked as decorative are not exposed to assistive technologies (Best Practice)",
+  },
   { id: "ACT-R87", label: "Skip to main content link is missing (WCAG 2.4.1)" },
   { id: "ACT-R88", label: "Text in link has minimum contrast (WCAG 1.4.3)" },
   { id: "ACT-R89", label: "Text in link has enhanced contrast (WCAG 1.4.6)" },
-  { id: "ACT-R90", label: "Role with implied hidden content has keyboard focus (WCAG 4.1.2)" },
+  {
+    id: "ACT-R90",
+    label: "Role with implied hidden content has keyboard focus (WCAG 4.1.2)",
+  },
   { id: "ACT-R91", label: "Letter spacing is not wide enough (WCAG 1.4.12)" },
   { id: "ACT-R92", label: "Word spacing is not wide enough (WCAG 1.4.12)" },
   { id: "ACT-R93", label: "Line height is too narrow (WCAG 1.4.12)" },
   { id: "ACT-R94", label: "Menu item missing a text alternative (WCAG 4.1.2)" },
-  { id: "ACT-R95", label: "<iframe> element with interactive elements does not have a negative tabindex (WCAG 2.1.1)" },
-  { id: "ACT-R96", label: "Refreshes implemented using the <meta> element have no delay, without exception (WCAG 2.2.1)" },
-  { id: "ACT-R97", label: "Document has collapsible blocks of content (WCAG 4.1.2)" },
-  { id: "ACT-R98", label: "Document has heading at the start of its main content (WCAG 2.4.6)" },
-  { id: "ACT-R99", label: "Document has its main content inside a landmark (WCAG 1.3.1)" },
+  {
+    id: "ACT-R95",
+    label:
+      "<iframe> element with interactive elements does not have a negative tabindex (WCAG 2.1.1)",
+  },
+  {
+    id: "ACT-R96",
+    label:
+      "Refreshes implemented using the <meta> element have no delay, without exception (WCAG 2.2.1)",
+  },
+  {
+    id: "ACT-R97",
+    label: "Document has collapsible blocks of content (WCAG 4.1.2)",
+  },
+  {
+    id: "ACT-R98",
+    label: "Document has heading at the start of its main content (WCAG 2.4.6)",
+  },
+  {
+    id: "ACT-R99",
+    label: "Document has its main content inside a landmark (WCAG 1.3.1)",
+  },
   {
     id: "ACT-R100",
     label: "PDF without accessible alternative (Best Practice)",
   },
-  { id: "ACT-R101", label: "Repeated content before main content can be bypassed (WCAG 2.4.1)" },
-  { id: "ACT-R102", label: "Document either has no repeated content, or a skip link as its first focusable element (WCAG 2.4.1)" },
+  {
+    id: "ACT-R101",
+    label: "Repeated content before main content can be bypassed (WCAG 2.4.1)",
+  },
+  {
+    id: "ACT-R102",
+    label:
+      "Document either has no repeated content, or a skip link as its first focusable element (WCAG 2.4.1)",
+  },
   { id: "ACT-R103", label: "Text in widget has minimum contrast (WCAG 1.4.3)" },
-  { id: "ACT-R104", label: "Text in widget has enhanced contrast (WCAG 1.4.6)" },
+  {
+    id: "ACT-R104",
+    label: "Text in widget has enhanced contrast (WCAG 1.4.6)",
+  },
   {
     id: "ACT-R105",
     label: "Duplicate link text different destination (WCAG 2.4.4)",
@@ -246,7 +353,10 @@ const ALL_RULES: { id: string; label: string }[] = [
   { id: "ACT-R107", label: "Keyboard access issue (WCAG 2.1.1)" },
   { id: "ACT-R108", label: "ARIA misuse (WCAG 4.1.2)" },
   { id: "ACT-R109", label: "Page language mismatch (WCAG 3.1.1)" },
-  { id: "ACT-R110", label: "Role attribute has at least one valid value (WCAG 4.1.2)" },
+  {
+    id: "ACT-R110",
+    label: "Role attribute has at least one valid value (WCAG 4.1.2)",
+  },
   { id: "ACT-R111", label: "Target size too small enhanced (WCAG 2.5.5)" },
   { id: "ACT-R112", label: "Missing semantic structure (WCAG 1.3.1)" },
   { id: "ACT-R113", label: "Target size too small (WCAG 2.5.8)" },
@@ -257,14 +367,36 @@ const ALL_RULES: { id: string; label: string }[] = [
     label: "Summary element missing accessible name (WCAG 4.1.2)",
   },
   { id: "ACT-R117", label: "Image missing accessible name (WCAG 1.1.1)" },
-  { id: "ACT-R119", label: "Fixed or sticky element may obscure keyboard focus (WCAG 2.4.11)" },
-  { id: "ACT-R121", label: "Focus indicator suppressed without visible replacement (WCAG 2.4.13)" },
-  { id: "ACT-R126", label: "Accessible authentication alternative required (WCAG 3.3.8)" },
+  {
+    id: "ACT-R119",
+    label: "Fixed or sticky element may obscure keyboard focus (WCAG 2.4.11)",
+  },
+  {
+    id: "ACT-R121",
+    label:
+      "Focus indicator suppressed without visible replacement (WCAG 2.4.13)",
+  },
+  {
+    id: "ACT-R126",
+    label: "Accessible authentication alternative required (WCAG 3.3.8)",
+  },
   { id: "ACT-R120", label: "Focus not fully visible (WCAG 2.4.12)" },
-  { id: "ACT-R122", label: "Dragging interaction has no pointer alternative (WCAG 2.5.7)" },
-  { id: "ACT-R124", label: "Help mechanism not consistently located (WCAG 3.2.6)" },
-  { id: "ACT-R125", label: "User required to re-enter information (WCAG 3.3.7)" },
-  { id: "ACT-R127", label: "Authentication has no cognitive function test (WCAG 3.3.9)" },
+  {
+    id: "ACT-R122",
+    label: "Dragging interaction has no pointer alternative (WCAG 2.5.7)",
+  },
+  {
+    id: "ACT-R124",
+    label: "Help mechanism not consistently located (WCAG 3.2.6)",
+  },
+  {
+    id: "ACT-R125",
+    label: "User required to re-enter information (WCAG 3.3.7)",
+  },
+  {
+    id: "ACT-R127",
+    label: "Authentication has no cognitive function test (WCAG 3.3.9)",
+  },
 ];
 
 function RuleFilterSelector({
@@ -529,8 +661,10 @@ function InlineScanMonitor({
   // page data isn't loaded yet.
   const scannedUrls = Math.min(
     liveStatus?.pages?.length
-      ? liveStatus.pages.filter((p: { status: string }) => p.status === "completed").length
-      : (liveStatus?.scannedUrls || scan.scannedUrls || 0),
+      ? liveStatus.pages.filter(
+          (p: { status: string }) => p.status === "completed",
+        ).length
+      : liveStatus?.scannedUrls || scan.scannedUrls || 0,
     totalUrls,
   );
   const progressPercent =
@@ -948,28 +1082,36 @@ export default function Home() {
   const { activeSite, sites } = useSite();
   const adminUser = isAdmin(user);
   // Admins can override which site the scan is tagged to; other users inherit activeSite
-  const [adminSiteOverride, setAdminSiteOverride] = useState<MySite | null | undefined>(undefined);
+  const [adminSiteOverride, setAdminSiteOverride] = useState<
+    MySite | null | undefined
+  >(undefined);
   const effectiveSite = adminUser
-    ? (adminSiteOverride === undefined ? activeSite : adminSiteOverride)
+    ? adminSiteOverride === undefined
+      ? activeSite
+      : adminSiteOverride
     : activeSite;
   const [scanName, setScanName] = useState("");
   const [initiatorName] = useState(() => user?.fullName ?? "");
   const [initiatorRole, setInitiatorRole] = useState("");
   const [groupId, setGroupId] = useState<number | null>(null);
-  const [myGroups, setMyGroups] = useState<{ id: number; name: string; roleLabel: string | null }[]>([]);
+  const [myGroups, setMyGroups] = useState<
+    { id: number; name: string; roleLabel: string | null }[]
+  >([]);
 
   useEffect(() => {
     const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
     fetch(`${BASE}/api/auth/my-groups`, { credentials: "include" })
-      .then((r) => r.ok ? r.json() : [])
-      .then((groups: { id: number; name: string; roleLabel: string | null }[]) => {
-        setMyGroups(groups);
-        // Auto-select if the user belongs to exactly one group
-        if (groups.length === 1) {
-          setGroupId(groups[0].id);
-          setInitiatorRole(groups[0].name);
-        }
-      })
+      .then((r) => (r.ok ? r.json() : []))
+      .then(
+        (groups: { id: number; name: string; roleLabel: string | null }[]) => {
+          setMyGroups(groups);
+          // Auto-select if the user belongs to exactly one group
+          if (groups.length === 1) {
+            setGroupId(groups[0].id);
+            setInitiatorRole(groups[0].name);
+          }
+        },
+      )
       .catch(() => {});
   }, []);
 
@@ -1119,7 +1261,9 @@ export default function Home() {
       const fixed = sanitizeUrl(t);
       return fixed;
     });
-    const fixCount = lines.filter((l, i) => l.trim() && sanitized[i] !== l).length;
+    const fixCount = lines.filter(
+      (l, i) => l.trim() && sanitized[i] !== l,
+    ).length;
     const sanitizedText = sanitized.join("\n");
     setManualUrls(sanitizedText);
     if (fixCount > 0) setUrlFixCount(fixCount);
@@ -1302,7 +1446,8 @@ export default function Home() {
         setProxyEnabledPersisted(true);
         toast({
           title: "Proxy auto-enabled",
-          description: "Staging/internal URLs detected — scanning via your configured proxy automatically.",
+          description:
+            "Staging/internal URLs detected — scanning via your configured proxy automatically.",
         });
       } else {
         toast({
@@ -1397,9 +1542,12 @@ export default function Home() {
                 <Select
                   value={effectiveSite ? String(effectiveSite.id) : "__none__"}
                   onValueChange={(val) => {
-                    if (val === "__none__") { setAdminSiteOverride(null); return; }
+                    if (val === "__none__") {
+                      setAdminSiteOverride(null);
+                      return;
+                    }
                     const found = sites.find((s) => String(s.id) === val);
-                    setAdminSiteOverride(found as MySite ?? null);
+                    setAdminSiteOverride((found as MySite) ?? null);
                   }}
                 >
                   <SelectTrigger>
@@ -1409,12 +1557,15 @@ export default function Home() {
                   <SelectContent>
                     <SelectItem value="__none__">No site (untagged)</SelectItem>
                     {sites.map((s) => (
-                      <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        {s.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Tag this scan with a site for reporting. Defaults to the active site in the header.
+                  Tag this scan with a site for reporting. Defaults to the
+                  active site in the header.
                 </p>
               </div>
             ) : effectiveSite ? (
@@ -1422,8 +1573,12 @@ export default function Home() {
                 <Label>Site</Label>
                 <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-muted/40 text-sm">
                   <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                  <span className="font-medium truncate">{effectiveSite.name}</span>
-                  <span className="text-muted-foreground truncate text-xs">{effectiveSite.baseUrl}</span>
+                  <span className="font-medium truncate">
+                    {effectiveSite.name}
+                  </span>
+                  <span className="text-muted-foreground truncate text-xs">
+                    {effectiveSite.baseUrl}
+                  </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
                   This scan will be associated with the currently selected site.
@@ -1468,7 +1623,9 @@ export default function Home() {
                   className="bg-muted cursor-not-allowed"
                   title="Automatically set to your account"
                 />
-                <p className="text-xs text-muted-foreground">Locked to your account</p>
+                <p className="text-xs text-muted-foreground">
+                  Locked to your account
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="groupId">Group</Label>
@@ -1485,10 +1642,14 @@ export default function Home() {
                 >
                   <option value="">No group</option>
                   {myGroups.map((g) => (
-                    <option key={g.id} value={g.id}>{g.name}</option>
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
                   ))}
                 </select>
-                <p className="text-xs text-muted-foreground">Group is used as the scan role</p>
+                <p className="text-xs text-muted-foreground">
+                  Group is used as the scan role
+                </p>
               </div>
             </div>
 
@@ -1537,7 +1698,8 @@ export default function Home() {
                         <Label>URLs (one per line)</Label>
                         {urlFixCount > 0 && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-700">
-                            ✓ {urlFixCount} URL{urlFixCount !== 1 ? "s" : ""} auto-corrected
+                            ✓ {urlFixCount} URL{urlFixCount !== 1 ? "s" : ""}{" "}
+                            auto-corrected
                           </span>
                         )}
                       </div>
@@ -1794,13 +1956,20 @@ export default function Home() {
 
             {/* JS-disable toggle — shown only when user has canDisableJs permission */}
             {user?.permissions?.canDisableJs && (
-              <div className={`border rounded-lg p-4 transition-colors ${disableJavascript ? "bg-amber-50/50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800" : "bg-muted/20"}`}>
+              <div
+                className={`border rounded-lg p-4 transition-colors ${disableJavascript ? "bg-amber-50/50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800" : "bg-muted/20"}`}
+              >
                 <div className="flex items-center gap-3">
-                  <Shield className={`w-4 h-4 shrink-0 ${disableJavascript ? "text-amber-600" : "text-muted-foreground"}`} />
+                  <Shield
+                    className={`w-4 h-4 shrink-0 ${disableJavascript ? "text-amber-600" : "text-muted-foreground"}`}
+                  />
                   <div className="flex-1 min-w-0">
-                    <Label className="text-sm font-medium">Disable JavaScript</Label>
+                    <Label className="text-sm font-medium">
+                      Disable JavaScript
+                    </Label>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Scan pages with JS turned off — useful for static content audits and catching server-rendered issues.
+                      Scan pages with JS turned off — useful for static content
+                      audits and catching server-rendered issues.
                     </p>
                   </div>
                   <Switch
@@ -1812,20 +1981,31 @@ export default function Home() {
                 {disableJavascript && (
                   <div className="mt-3 pt-3 border-t border-amber-200/50 dark:border-amber-800/50 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    <span>JS disabled — dynamic content, SPAs and client-rendered pages may appear as empty or incomplete.</span>
+                    <span>
+                      JS disabled — dynamic content, SPAs and client-rendered
+                      pages may appear as empty or incomplete.
+                    </span>
                   </div>
                 )}
               </div>
             )}
 
             {/* Incremental scan toggle */}
-            <div className={`border rounded-lg p-4 transition-colors ${incremental ? "bg-teal-50/50 border-teal-200 dark:bg-teal-950/20 dark:border-teal-800" : "bg-muted/20"}`}>
+            <div
+              className={`border rounded-lg p-4 transition-colors ${incremental ? "bg-teal-50/50 border-teal-200 dark:bg-teal-950/20 dark:border-teal-800" : "bg-muted/20"}`}
+            >
               <div className="flex items-center gap-3">
-                <RefreshCw className={`w-4 h-4 shrink-0 ${incremental ? "text-teal-600" : "text-muted-foreground"}`} />
+                <RefreshCw
+                  className={`w-4 h-4 shrink-0 ${incremental ? "text-teal-600" : "text-muted-foreground"}`}
+                />
                 <div className="flex-1 min-w-0">
-                  <Label className="text-sm font-medium">Incremental scan</Label>
+                  <Label className="text-sm font-medium">
+                    Incremental scan
+                  </Label>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Skip pages whose content hasn't changed since the last completed scan — previous results are carried forward, making repeat scans much faster.
+                    Skip pages whose content hasn't changed since the last
+                    completed scan — previous results are carried forward,
+                    making repeat scans much faster.
                   </p>
                 </div>
                 <Switch
@@ -1875,12 +2055,15 @@ export default function Home() {
                     <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
                       <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                       <span>No proxy configured. </span>
-                      <Link
-                        href="/settings"
+                      <button
+                        type="button"
+                        onClick={() =>
+                          window.dispatchEvent(new Event(OPEN_SETTINGS_EVENT))
+                        }
                         className="underline underline-offset-2 inline-flex items-center gap-0.5 hover:opacity-80"
                       >
-                        Go to Settings <ExternalLink className="w-3 h-3" />
-                      </Link>
+                        Go to Settings <Settings className="w-3 h-3" />
+                      </button>
                     </div>
                   )}
                 </div>

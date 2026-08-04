@@ -83,6 +83,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { APP_WALKTHROUGH_EVENT } from "@/lib/walkthrough";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+export const OPEN_SETTINGS_EVENT = "a11y-open-settings";
 
 function AppLogo() {
   const BASE_URL = import.meta.env.BASE_URL as string;
@@ -1541,13 +1542,19 @@ function AdminSidebarContent({
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const [settingsOpen, setSettingsOpen] = useState(location === "/settings");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [collapsed, toggleCollapsed] = useSidebarCollapsed();
   const { user, logout } = useAuth();
   const adminUser = isAdmin(user);
   const superAdminUser = user?.role === "super_admin";
   const canManageSites = user?.permissions?.canManageSites ?? false;
   const isSiteCustomer = !!user && user.role === "user";
+
+  useEffect(() => {
+    const openSettings = () => setSettingsOpen(true);
+    window.addEventListener(OPEN_SETTINGS_EVENT, openSettings);
+    return () => window.removeEventListener(OPEN_SETTINGS_EVENT, openSettings);
+  }, []);
   // The contextual site nav (Dashboard/Issues/Compliance) is for site-specific
   // users — regular `user` accounts tied to their own site, and `admin`
   // accounts while they're actively managing a specific site. `super_admin`
