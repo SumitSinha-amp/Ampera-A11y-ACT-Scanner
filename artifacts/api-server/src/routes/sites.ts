@@ -146,15 +146,20 @@ router.get("/sites", requireAuth, async (req: Request, res: Response): Promise<v
 
 // GET /api/sites/my-sites — returns all sites accessible to the current user
 // Used by the global site selector to populate the dropdown.
-// super_admin/admin → all sites (role: "admin")
-// user → union of direct site_user_access + sites via group membership
+// super_admin → all sites (role: "admin")
+// everyone else → union of direct site_user_access, legacy ownership,
+// and sites granted through group membership
 router.get("/sites/my-sites", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const session = (req as any).session?.user;
   const userId: number = session?.id ?? 0;
   const userIdStr: string = String(userId);
   const role: string = session?.role ?? "user";
 
-  const sites = await getEffectiveSites(userId, userIdStr, role);
+  // The global selector is intentionally stricter than general admin
+  // operations: only Superadmin can see every site. Admins must have an
+  // explicit direct, ownership, or group-based site relationship.
+  const selectorRole = role === "super_admin" ? "super_admin" : "user";
+  const sites = await getEffectiveSites(userId, userIdStr, selectorRole);
   res.json({ sites });
 });
 
@@ -705,7 +710,7 @@ router.post("/sites/:id/run-now", requireAuth, async (req: Request, res: Respons
     autoScan: true,
     blockAssets: site.assetMode === "none",
     tabPoolSize: 1,
-    scanDelayMs: 0,
+    scanDelayMs: 10000,
     authenticated: false,
     incremental: false,
     detectBrokenLinks: true,

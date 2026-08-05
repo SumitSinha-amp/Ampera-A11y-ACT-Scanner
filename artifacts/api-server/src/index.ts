@@ -399,16 +399,16 @@ async function runStartupMigrations(): Promise<void> {
     // 21. Seed default scan_page_timeout_ms if not already set
     await client.query(`
       INSERT INTO app_settings (key, value, updated_at)
-      VALUES ('scan_page_timeout_ms', '2000', NOW())
+      VALUES ('scan_page_timeout_ms', '10000', NOW())
       ON CONFLICT (key) DO NOTHING
     `);
 
-    // 22. Migrate old navigation-timeout default (10 000 ms) to scan-delay default (2 000 ms)
-    //     Only update if the value is still exactly the old default — user-customised values are preserved.
+    // 22. Migrate the previous scan-delay default (2 000 ms) to 10 000 ms.
+    //     Only update the known default; user-customised values are preserved.
     await client.query(`
       UPDATE app_settings
-      SET value = '2000', updated_at = NOW()
-      WHERE key = 'scan_page_timeout_ms' AND value = '10000'
+      SET value = '10000', updated_at = NOW()
+      WHERE key = 'scan_page_timeout_ms' AND value = '2000'
     `);
 
     // 23. Create crawler_sessions table
@@ -552,7 +552,7 @@ async function runStartupMigrations(): Promise<void> {
         ADD COLUMN IF NOT EXISTS default_scope TEXT NOT NULL DEFAULT 'subdomain',
         ADD COLUMN IF NOT EXISTS sitemap_url TEXT,
         ADD COLUMN IF NOT EXISTS crawl_type TEXT NOT NULL DEFAULT 'javascript',
-        ADD COLUMN IF NOT EXISTS max_pages INTEGER NOT NULL DEFAULT 500,
+        ADD COLUMN IF NOT EXISTS max_pages INTEGER NOT NULL DEFAULT 2000,
         ADD COLUMN IF NOT EXISTS max_depth INTEGER NOT NULL DEFAULT 5,
         ADD COLUMN IF NOT EXISTS respect_robots_txt BOOLEAN NOT NULL DEFAULT TRUE,
         ADD COLUMN IF NOT EXISTS asset_mode TEXT NOT NULL DEFAULT 'all',

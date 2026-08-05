@@ -146,7 +146,7 @@ function validateCreateCrawler(body: any): { data: any; error?: string } {
         ? body.crawlScope : undefined,
       blockAssets: body.blockAssets !== false,
       tabPoolSize: typeof body.tabPoolSize === "number" ? Math.min(5, Math.max(1, body.tabPoolSize)) : 1,
-      scanDelayMs: typeof body.scanDelayMs === "number" ? Math.min(100000, Math.max(0, body.scanDelayMs)) : 0,
+      scanDelayMs: typeof body.scanDelayMs === "number" ? Math.min(100000, Math.max(0, body.scanDelayMs)) : 10000,
       authenticated: body.authenticated === true,
       authUrl: body.authUrl,
       authUsernameSelector: body.authUsernameSelector,

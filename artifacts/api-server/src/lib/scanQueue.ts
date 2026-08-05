@@ -273,9 +273,9 @@ async function getGlobalScanDelayMs(): Promise<number> {
       .from(appSettingsTable)
       .where(eq(appSettingsTable.key, "scan_page_timeout_ms"));
     const parsed = parseInt(row?.value ?? "", 10);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 2_000;
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 10_000;
   } catch {
-    return 2_000;
+    return 10_000;
   }
 }
 
@@ -911,7 +911,8 @@ async function scanSinglePage(
     // Puppeteer page so the scan mutex is released immediately.
     // scanDelayMs is the post-DOMContentLoaded dwell time (letting JS execute
     // before checks run).
-    const scanDelayMs = await getGlobalScanDelayMs();
+    const scanDelayMs =
+      options.scanDelayMs ?? (await getGlobalScanDelayMs());
     const NAV_TIMEOUT_MS = 30_000;
     const hardDeadline = NAV_TIMEOUT_MS * 6 + scanDelayMs + 60_000;
     const urlAbortController = new AbortController();

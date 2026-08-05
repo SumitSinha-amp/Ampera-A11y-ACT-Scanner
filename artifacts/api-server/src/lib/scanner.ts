@@ -1743,7 +1743,7 @@ async function _scanPageInternal(
 ): Promise<PageScanResult> {
   const {
     timeout = 30_000,
-    scanDelayMs = 0,
+      scanDelayMs = 10_000,
     bypassCSP = true,
     disableJavascript = false,
     onStage,
@@ -2560,7 +2560,7 @@ async function _scanPageInternal(
 
     // Phase 2 — optional additional delay on top of the stable baseline.
     //
-    // scanDelayMs = 0 (default): scan at the stable initial-render point (above).
+    // scanDelayMs = 10_000 (default): wait after the stable initial-render point.
     //   Issues patched by post-load JS (setTimeout, rAF) are still visible here —
     //   this matches Siteimprove's scan point.
     //

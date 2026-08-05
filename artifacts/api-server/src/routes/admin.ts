@@ -550,8 +550,8 @@ router.get("/scan-settings", async (_req, res): Promise<void> => {
     .from(appSettingsTable)
     .where(eq(appSettingsTable.key, "scan_page_timeout_ms"));
   // Use >= 0 so that 0 (no delay) is returned as-is, not replaced by the default.
-  const timeoutMs = row?.value != null ? parseInt(row.value, 10) : 2000;
-  res.json({ pageTimeoutMs: Number.isFinite(timeoutMs) && timeoutMs >= 0 ? timeoutMs : 2000 });
+  const timeoutMs = row?.value != null ? parseInt(row.value, 10) : 10000;
+  res.json({ pageTimeoutMs: Number.isFinite(timeoutMs) && timeoutMs >= 0 ? timeoutMs : 10000 });
 });
 
 // ── Active proxy (system-level fallback for 403-blocked pages) ─────────────────

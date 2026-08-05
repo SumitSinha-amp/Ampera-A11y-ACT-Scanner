@@ -1382,7 +1382,7 @@ export async function runScheduledCrawls(): Promise<number> {
       autoScan: true,
       blockAssets: site.assetMode === "none",
       tabPoolSize: 1,
-      scanDelayMs: 0,
+      scanDelayMs: 10000,
       authenticated: false,
       incremental: false,
       detectBrokenLinks: true,

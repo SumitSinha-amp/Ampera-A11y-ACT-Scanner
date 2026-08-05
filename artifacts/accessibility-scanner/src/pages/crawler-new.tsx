@@ -67,6 +67,16 @@ type CrawlScope = "all-subdomains" | "subdomain" | "subfolder" | "exact-url";
 const CRAWLER_TABS = ["basic", "discovery", "auth", "performance", "incremental"] as const;
 type CrawlerTab = (typeof CRAWLER_TABS)[number];
 
+const SCAN_DELAY_PRESETS = [
+  { label: "0 ms", value: 0 },
+  { label: "1 s", value: 1000 },
+  { label: "2 s", value: 2000 },
+  { label: "5 s", value: 5000 },
+  { label: "10 s", value: 10000 },
+  { label: "20 s", value: 20000 },
+  { label: "30 s", value: 30000 },
+] as const;
+
 function OptionHelp({ text }: { text: string }) {
   return (
     <Tooltip>
@@ -170,7 +180,7 @@ export default function CrawlerNewPage() {
       crawlScope: "subdomain" as CrawlScope,
       blockAssets: true,
       tabPoolSize: 1,
-      scanDelayMs: 0,
+      scanDelayMs: 10000,
       authenticated: false,
       authUrl: "",
       authUsernameSelector: "#username",
@@ -907,17 +917,47 @@ export default function CrawlerNewPage() {
                     Scan Delay (ms)
                     <OptionHelp text="Extra time to wait after a page becomes stable before accessibility rules run." />
                   </Label>
-                  <div className="flex items-center gap-3">
-                    <Slider
-                      min={0} max={100000} step={100}
-                      value={[values.scanDelayMs]}
-                      onValueChange={([v]) => setValue("scanDelayMs", v)}
-                      aria-label="Scan delay in milliseconds"
-                      className="flex-1"
-                    />
-                    <span className="text-sm font-mono w-16 text-right">{values.scanDelayMs} ms</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                     <Input
+                       type="number"
+                       min={0}
+                       max={100000}
+                       step={100}
+                       value={values.scanDelayMs}
+                       onChange={(event) => {
+                         const parsed = Number(event.target.value);
+                         setValue(
+                           "scanDelayMs",
+                           Number.isFinite(parsed)
+                             ? Math.min(100000, Math.max(0, parsed))
+                             : 0,
+                         );
+                       }}
+                       aria-label="Scan delay in milliseconds"
+                       className="w-32 font-mono"
+                     />
+                     <span className="text-sm text-muted-foreground">ms</span>
                   </div>
-                  <p className="text-xs text-muted-foreground">Extra wait after page load before running rules (Phase 2). 0 = scan at initial stable state (recommended).</p>
+                   <div className="flex flex-wrap items-center gap-1.5" aria-label="Scan delay presets">
+                     <span className="mr-1 text-xs text-muted-foreground">Quick select:</span>
+                     {SCAN_DELAY_PRESETS.map((preset) => {
+                       const selected = values.scanDelayMs === preset.value;
+                       return (
+                         <Button
+                           key={preset.value}
+                           type="button"
+                           size="sm"
+                           variant={selected ? "default" : "outline"}
+                           className="h-7 px-2.5 text-xs"
+                           aria-pressed={selected}
+                           onClick={() => setValue("scanDelayMs", preset.value)}
+                         >
+                           {preset.label}
+                         </Button>
+                       );
+                     })}
+                   </div>
+                   <p className="text-xs text-muted-foreground">Extra wait after page load before running rules (Phase 2). Default: 10,000 ms. Use the field arrows, choose a preset, or enter an exact value.</p>
                 </div>
 
                 <div className="space-y-1.5">
