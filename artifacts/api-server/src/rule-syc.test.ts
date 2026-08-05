@@ -33,6 +33,7 @@ const browserRulePaths = [
 ] as const;
 
 const browserSource = browserRulePaths.map((path) => read(path)).join("\n");
+const browserEntrySource = read("artifacts/api-server/src/lib/browser/index.ts");
   const documentationSource = read(
     "artifacts/accessibility-scanner/src/pages/documentation.tsx",
   );
@@ -116,6 +117,41 @@ const browserSource = browserRulePaths.map((path) => read(path)).join("\n");
     expect(
       read("artifacts/accessibility-scanner/src/lib/actRules.ts"),
     ).toContain('"ACT-R118"');
+  });
+
+  it("enables manual-only emission when an API scan explicitly selects ACT-R118", () => {
+    const scannerSource = read("artifacts/api-server/src/lib/scanner.ts");
+    expect(browserEntrySource).toContain(
+      "options: { emitManualOnlyRules?: boolean } = {}",
+    );
+    expect(scannerSource).toContain(
+      'options.rules?.some((rule) => rule.toUpperCase() === "ACT-R118")',
+    );
+    expect(scannerSource).toContain(
+      "runAllRules(options)",
+    );
+  });
+
+  it("does not scan a Cloudflare challenge page as a clean document", () => {
+    const scannerSource = read("artifacts/api-server/src/lib/scanner.ts");
+    expect(scannerSource).toContain('title.includes("just a moment")');
+    expect(scannerSource).toContain(
+      "bodyText.includes(\"performing security verification\")",
+    );
+    expect(scannerSource).toContain(
+      "Cloudflare Bot Protection blocked the scan",
+    );
+  });
+
+  it("hydrates blocked visual images only for issue-page snapshots", () => {
+    const scannerSource = read("artifacts/api-server/src/lib/scanner.ts");
+    expect(scannerSource).toContain("let allowVisualImages = false");
+    expect(scannerSource).toContain("allowVisualImages = true");
+    expect(scannerSource).toContain("hydrateVisualImages(page)");
+    expect(scannerSource).toContain("img.naturalWidth === 0");
+    expect(scannerSource).toContain(
+      'type === "image" && !allowVisualImages',
+    );
   });
 
   it("excludes initialized Video.js fallback text from R74", () => {

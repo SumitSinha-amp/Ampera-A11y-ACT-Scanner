@@ -21,13 +21,18 @@ import { runTextStyleRules } from "./rules/text-style";
 import { runStructureMiscRules } from "./rules/structure-misc";
 import { runKeyboardMiscRules } from "./rules/keyboard-misc";
 
-function runAllRules(): { issues: import("./types").ScanRawResult[]; stats: { ruleId: string; totalChecked: number; scope: "element" | "page" }[] } {
+function runAllRules(
+  options: { emitManualOnlyRules?: boolean } = {},
+): {
+  issues: import("./types").ScanRawResult[];
+  stats: { ruleId: string; totalChecked: number; scope: "element" | "page" }[];
+} {
   const results: import("./types").ScanRawResult[] = [];
   // Siteimprove/Alfa parity: rules Alfa classifies as "can't tell" (manual
   // review) are never auto-reported by the Siteimprove checker. Keeping the
-  // detection code but gating emission lets us re-enable them as a "manual
-  // review" tier later without rewriting the logic.
-  const EMIT_MANUAL_ONLY_RULES = false;
+  // detection code gated by default preserves that behavior. The API can
+  // explicitly enable this tier for a scan that selected a manual-only rule.
+  const EMIT_MANUAL_ONLY_RULES = options.emitManualOnlyRules === true;
 
   // Accumulate totalChecked per rule — some rules call pushStat multiple times
   // with the same ruleId (e.g. R14 checks two element sets); we add them up.

@@ -1422,6 +1422,82 @@ async function fullyRenderPage(page: Page, timeout: number): Promise<void> {
  * (the proxy itself is unreachable or doesn't support HTTPS CONNECT tunneling),
  * as opposed to a problem with the target page.
  */
+async function hydrateVisualImages(
+  page: Page,
+): Promise<{ images: number; backgrounds: number }> {
+  return page.evaluate(() => {
+    let images = 0;
+    let backgrounds = 0;
+
+    for (const img of Array.from(document.images)) {
+      const currentSrc = img.currentSrc || img.getAttribute("src") || "";
+      const srcset = img.getAttribute("srcset");
+      const dataSrc = img.getAttribute("data-src") || "";
+      const dataSrcset = img.getAttribute("data-srcset") || "";
+      const source =
+        currentSrc || img.getAttribute("src") || dataSrc || srcset || dataSrcset;
+
+      if (
+        !source ||
+        source.startsWith("data:") ||
+        (img.complete && img.naturalWidth > 0)
+      ) {
+        continue;
+      }
+
+      img.loading = "eager";
+      if (!img.getAttribute("src") && dataSrc) {
+        img.setAttribute("src", dataSrc);
+      }
+      if (!img.getAttribute("srcset") && dataSrcset) {
+        img.setAttribute("srcset", dataSrcset);
+      }
+
+      const retrySrcset = img.getAttribute("srcset") || srcset || dataSrcset;
+      const retrySrc = img.getAttribute("src") || dataSrc || currentSrc;
+      if (retrySrcset) {
+        img.removeAttribute("srcset");
+        img.setAttribute("srcset", retrySrcset);
+      }
+      if (retrySrc) {
+        img.removeAttribute("src");
+        img.setAttribute("src", retrySrc);
+      }
+      images++;
+    }
+
+    for (const source of Array.from(
+      document.querySelectorAll<HTMLSourceElement>(
+        "picture > source[srcset], picture > source[data-srcset]",
+      ),
+    )) {
+      const srcset = source.getAttribute("srcset");
+      const dataSrcset = source.getAttribute("data-srcset") || "";
+      const retrySrcset = srcset || dataSrcset;
+      if (!retrySrcset) continue;
+      source.removeAttribute("srcset");
+      source.setAttribute("srcset", retrySrcset);
+    }
+
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>("*"))) {
+      const backgroundImage = window.getComputedStyle(el).backgroundImage;
+      if (
+        !backgroundImage ||
+        backgroundImage === "none" ||
+        !backgroundImage.includes("url(")
+      ) {
+        continue;
+      }
+      el.style.backgroundImage = "none";
+      void el.offsetWidth;
+      el.style.backgroundImage = backgroundImage;
+      backgrounds++;
+    }
+
+    return { images, backgrounds };
+  });
+}
+
 function isProxyNetworkError(error: string): boolean {
   return (
     error.includes("ERR_EMPTY_RESPONSE") ||
@@ -1747,10 +1823,15 @@ async function _scanPageInternal(
     // scripts drive dynamic content & redirects; stylesheets affect computed
     // visibility used by several rules.  Analytics/tracker requests are also
     // blocked by hostname (see TRACKER_HOSTS).
+    let allowVisualImages = false;
     await page.setRequestInterception(true);
     page.on("request", (req) => {
       const type = req.resourceType();
-      if (type === "image" || type === "media" || type === "font") {
+      if (
+        (type === "image" && !allowVisualImages) ||
+        type === "media" ||
+        type === "font"
+      ) {
         req.abort().catch(() => {});
         return;
       }
@@ -2121,12 +2202,19 @@ async function _scanPageInternal(
 
         // Final check: if STILL on challenge, abort — don't scan the bot-wall
         const finalChallenge = await page.evaluate((): boolean => {
+          const title = document.title.toLowerCase();
           const bodyText = document.body?.innerText?.toLowerCase() ?? "";
           return (
+            title.includes("just a moment") ||
+            title.includes("please wait") ||
+            title.includes("checking your browser") ||
             bodyText.includes("verifying your connection") ||
             bodyText.includes("checking your browser before accessing") ||
             bodyText.includes("enable javascript and cookies") ||
-            !!document.querySelector("#challenge-form, #cf-challenge-running")
+            bodyText.includes("performing security verification") ||
+            !!document.querySelector(
+              "#challenge-form, #cf-challenge-running, .cf-browser-verification, [id^='challenge-']",
+            )
           );
         });
         if (finalChallenge) {
@@ -2517,7 +2605,10 @@ async function _scanPageInternal(
       "Running ACT accessibility rules on rule-time DOM",
     );
     await onStage?.("analyzing");
-    const actResult = await runACTRules(page);
+    const actResult = await runACTRules(
+      page,
+      options.rules?.some((rule) => rule.toUpperCase() === "ACT-R118") ?? false,
+    );
     let issues = actResult.issues;
     const ruleStats = actResult.stats;
     logger.info({ url, issueCount: issues.length }, "ACT rules completed");
@@ -2542,6 +2633,20 @@ async function _scanPageInternal(
     // Capture the final visual snapshot only when the page has issues. Clean
     // pages skip the 1–3 s full-page screenshot and the heavy snapshot write.
     if (issues.length > 0) {
+      // Keep the fast rule-scanning flow intact. Only issue pages enter this
+      // visual pass, where image requests are allowed and previously blocked
+      // image/background assets are explicitly retried.
+      allowVisualImages = true;
+      try {
+        const hydrated = await hydrateVisualImages(page);
+        logger.info({ url, hydrated }, "Visual image hydration requested");
+      } catch (hydrateErr) {
+        logger.warn(
+          { url, err: hydrateErr },
+          "Visual image hydration failed — capturing available rendered page",
+        );
+      }
+
       // The visual snapshot represents the final rendered layout rather than
       // the rule-time DOM. This is deliberately after rule execution so late
       // CSS, images, fonts, and JS layout changes are reflected in the image.
@@ -2588,7 +2693,12 @@ async function _scanPageInternal(
           const finalState = getState();
           return {
             images: finalState.images.length,
-            pendingImages: finalState.pendingImages.length,
+              pendingImages: finalState.images.filter(
+                (img) =>
+                  !img.complete ||
+                  (!!(img.currentSrc || img.getAttribute("src")) &&
+                    img.naturalWidth === 0),
+              ).length,
             stylesheets: finalState.stylesheets.length,
             pendingStylesheets: finalState.pendingStylesheets.length,
             fontsReady: document.fonts?.status === "loaded",
@@ -2885,6 +2995,7 @@ function getLegalCompliance(levels: string[] = []) {
 }
 async function runACTRules(
   page: Page,
+  emitManualOnlyRules = false,
 ): Promise<{ issues: ScanIssue[]; stats: RuleCheckStat[] }> {
   // Production embeds the browser rule bundle in index.mjs so Azure and zip
   // deployments cannot lose it as a sibling asset. Keep the standalone-file
@@ -2913,7 +3024,10 @@ async function runACTRules(
       scope: "element" | "page";
     }>;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } = await page.evaluate(() => (window as any).__ampera.runAllRules());
+  } = await page.evaluate(
+    (options) => (window as any).__ampera.runAllRules(options),
+    { emitManualOnlyRules },
+  );
 
   // ─── Map results → ScanIssue with WCAG metadata ──────────────────────────
   const issues: ScanIssue[] = [];
