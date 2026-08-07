@@ -105,7 +105,8 @@ export const LOGO_TYPE_LS_KEY = "a11y-logo-type";
 export const LOGO_IMAGE_URL_LS_KEY = "a11y-logo-image-url";
 export const LOGO_TEXT_LS_KEY = "a11y-logo-text";
 export const LOGO_SIZE_LS_KEY = "a11y-logo-size";
-export const DEFAULT_LOGO_TEXT = "A11y ACT Tool";
+export const DEFAULT_LOGO_TEXT = "Ampera A11y";
+export const DEFAULT_LOGO_SUBTITLE = "Accessibility workspace";
 export const DEFAULT_LOGO_SIZE = 36;
 export const LOGO_SIZE_MIN = 20;
 export const LOGO_SIZE_MAX = 200;
@@ -379,6 +380,7 @@ function LogoSettingsCard() {
   const [logoType, setLogoTypeState] = useState<LogoType>("image");
   const [logoImageUrl, setLogoImageUrlState] = useState<string>("");
   const [logoText, setLogoTextState] = useState<string>(DEFAULT_LOGO_TEXT);
+  const [logoSubtitle, setLogoSubtitleState] = useState<string>(DEFAULT_LOGO_SUBTITLE);
   const [logoUrlInput, setLogoUrlInput] = useState<string>("");
   const [logoTextInput, setLogoTextInput] = useState<string>(DEFAULT_LOGO_TEXT);
   const [logoSize, setLogoSizeState] = useState<number>(DEFAULT_LOGO_SIZE);
@@ -389,7 +391,7 @@ function LogoSettingsCard() {
   useEffect(() => {
     fetch(`${BASE}/api/logo`)
       .then((r) => r.json())
-      .then((data: { type: string; imageUrl: string; text: string; size: number | null; textColor?: string }) => {
+      .then((data: { type: string; imageUrl: string; text: string; subtitle?: string; size: number | null; textColor?: string }) => {
         const type: LogoType = data.type === "text" ? "text" : data.type === "image-text" ? "image-text" : "image";
         const imgUrl = data.imageUrl || `${BASE_URL}act-logo.png`;
         const text = data.text || DEFAULT_LOGO_TEXT;
@@ -399,6 +401,7 @@ function LogoSettingsCard() {
         setLogoUrlInput(data.imageUrl || "");
         setLogoTextState(text);
         setLogoTextInput(text);
+        setLogoSubtitleState(data.subtitle || DEFAULT_LOGO_SUBTITLE);
         setLogoSizeState(size);
         setLogoTextColorState(data.textColor || "#000000");
       })
@@ -408,7 +411,7 @@ function LogoSettingsCard() {
       .finally(() => setLoading(false));
   }, [BASE, BASE_URL]);
 
-  const saveLogo = async (patch: Partial<{ type: LogoType; imageUrl: string; text: string; size: number; textColor: string }>) => {
+  const saveLogo = async (patch: Partial<{ type: LogoType; imageUrl: string; text: string; subtitle: string; size: number; textColor: string }>) => {
     try {
       await fetch(`${BASE}/api/admin/logo`, {
         method: "PUT",
@@ -421,14 +424,14 @@ function LogoSettingsCard() {
     }
   };
 
-  const dispatch = (detail: { type: LogoType; imageUrl: string; text: string; size: number; textColor?: string }) => {
+  const dispatch = (detail: { type: LogoType; imageUrl: string; text: string; subtitle: string; size: number; textColor?: string }) => {
     window.dispatchEvent(new CustomEvent("a11y-logo-changed", { detail }));
   };
 
   const handleLogoTypeChange = async (t: LogoType) => {
     setLogoTypeState(t);
     await saveLogo({ type: t });
-    dispatch({ type: t, imageUrl: logoImageUrl, text: logoText, size: logoSize, textColor: logoTextColor });
+    dispatch({ type: t, imageUrl: logoImageUrl, text: logoText, subtitle: logoSubtitle, size: logoSize, textColor: logoTextColor });
     toast({ title: t === "image" ? "Logo set to image" : t === "text" ? "Logo set to text" : "Logo set to image + text" });
   };
 
@@ -438,7 +441,7 @@ function LogoSettingsCard() {
     setLogoImageUrlState(imgUrl);
     setLogoImgError(false);
     await saveLogo({ imageUrl: trimmed });
-    dispatch({ type: logoType, imageUrl: imgUrl, text: logoText, size: logoSize, textColor: logoTextColor });
+    dispatch({ type: logoType, imageUrl: imgUrl, text: logoText, subtitle: logoSubtitle, size: logoSize, textColor: logoTextColor });
     toast({ title: "Logo image updated" });
   };
 
@@ -456,7 +459,7 @@ function LogoSettingsCard() {
       setLogoUrlInput("");
       setLogoImgError(false);
       await saveLogo({ imageUrl: dataUrl });
-      dispatch({ type: logoType, imageUrl: dataUrl, text: logoText, size: logoSize, textColor: logoTextColor });
+      dispatch({ type: logoType, imageUrl: dataUrl, text: logoText, subtitle: logoSubtitle, size: logoSize, textColor: logoTextColor });
       toast({ title: "Logo image uploaded" });
     };
     reader.readAsDataURL(file);
@@ -469,7 +472,7 @@ function LogoSettingsCard() {
     setLogoUrlInput("");
     setLogoImgError(false);
     await saveLogo({ imageUrl: "" });
-    dispatch({ type: logoType, imageUrl: def, text: logoText, size: logoSize, textColor: logoTextColor });
+    dispatch({ type: logoType, imageUrl: def, text: logoText, subtitle: logoSubtitle, size: logoSize, textColor: logoTextColor });
     toast({ title: "Logo reset to default" });
   };
 
@@ -478,21 +481,29 @@ function LogoSettingsCard() {
     setLogoTextState(trimmed);
     setLogoTextInput(trimmed);
     await saveLogo({ text: trimmed });
-    dispatch({ type: logoType, imageUrl: logoImageUrl, text: trimmed, size: logoSize, textColor: logoTextColor });
+    dispatch({ type: logoType, imageUrl: logoImageUrl, text: trimmed, subtitle: logoSubtitle, size: logoSize, textColor: logoTextColor });
     toast({ title: "Logo text updated" });
+  };
+
+  const applyLogoSubtitle = async (subtitle: string) => {
+    const trimmed = subtitle.trim() || DEFAULT_LOGO_SUBTITLE;
+    setLogoSubtitleState(trimmed);
+    await saveLogo({ subtitle: trimmed });
+    dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, subtitle: trimmed, size: logoSize, textColor: logoTextColor });
+    toast({ title: "Workspace subtitle updated" });
   };
 
   const handleLogoSizeChange = async (val: number[]) => {
     const size = val[0];
     setLogoSizeState(size);
     await saveLogo({ size });
-    dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, size, textColor: logoTextColor });
+    dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, subtitle: logoSubtitle, size, textColor: logoTextColor });
   };
 
   const applyLogoTextColor = async (color: string) => {
     setLogoTextColorState(color);
     await saveLogo({ textColor: color });
-    dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, size: logoSize, textColor: color });
+    dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, subtitle: logoSubtitle, size: logoSize, textColor: color });
   };
 
   if (loading) {
@@ -510,10 +521,10 @@ function LogoSettingsCard() {
       <CardHeader>
         <div className="flex items-center gap-2">
           <ImageIcon className="w-5 h-5 text-muted-foreground" />
-          <CardTitle>Logo</CardTitle>
+              <CardTitle>Workspace branding</CardTitle>
         </div>
         <CardDescription>
-          Choose whether the header shows an image logo or a text logo.
+          Set the shared logo, workspace name, and subtitle shown to everyone.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -628,7 +639,10 @@ function LogoSettingsCard() {
                       onLoad={() => setLogoImgError(false)}
                     />
                   )}
-                  <span className="font-bold" style={{ fontSize: logoSize * 0.55, color: logoTextColor || undefined }}>{logoText}</span>
+                   <span className="flex flex-col">
+                     <span className="font-bold" style={{ fontSize: logoSize * 0.55, color: logoTextColor || undefined }}>{logoText}</span>
+                     <span className="text-xs text-muted-foreground">{logoSubtitle}</span>
+                   </span>
                 </div>
               </div>
             )}
@@ -646,13 +660,35 @@ function LogoSettingsCard() {
                   className="max-w-xs"
                 />
                 {logoText !== DEFAULT_LOGO_TEXT && (
-                  <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={async () => { setLogoTextState(DEFAULT_LOGO_TEXT); setLogoTextInput(DEFAULT_LOGO_TEXT); await saveLogo({ text: DEFAULT_LOGO_TEXT }); dispatch({ type: logoType, imageUrl: logoImageUrl, text: DEFAULT_LOGO_TEXT, size: logoSize, textColor: logoTextColor }); toast({ title: "Logo text reset to default" }); }}>
+                    <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={async () => { setLogoTextState(DEFAULT_LOGO_TEXT); setLogoTextInput(DEFAULT_LOGO_TEXT); await saveLogo({ text: DEFAULT_LOGO_TEXT }); dispatch({ type: logoType, imageUrl: logoImageUrl, text: DEFAULT_LOGO_TEXT, subtitle: logoSubtitle, size: logoSize, textColor: logoTextColor }); toast({ title: "Logo text reset to default" }); }}>
                     <RotateCcw className="w-3.5 h-3.5" />
                     Reset
                   </Button>
                 )}
               </div>
               <p className="text-xs text-muted-foreground">Press Enter or click away to apply.</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="logo-subtitle-input">Workspace subtitle</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="logo-subtitle-input"
+                  value={logoSubtitle}
+                  onChange={(e) => setLogoSubtitleState(e.target.value)}
+                  onBlur={() => applyLogoSubtitle(logoSubtitle)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { applyLogoSubtitle(logoSubtitle); (e.target as HTMLInputElement).blur(); } }}
+                  placeholder={DEFAULT_LOGO_SUBTITLE}
+                  maxLength={80}
+                  className="max-w-xs"
+                />
+                {logoSubtitle !== DEFAULT_LOGO_SUBTITLE && (
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={() => applyLogoSubtitle(DEFAULT_LOGO_SUBTITLE)}>
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Reset
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">Shown below the workspace name wherever branding is displayed.</p>
             </div>
             {logoType === "image-text" && (
               <div className="space-y-2">
@@ -736,7 +772,7 @@ function LogoSettingsCard() {
             <div className="flex items-center gap-2">
               <span className="text-sm tabular-nums text-muted-foreground w-12 text-right">{logoSize}px</span>
               {logoSize !== DEFAULT_LOGO_SIZE && (
-                <Button variant="ghost" size="sm" className="h-7 px-2 gap-1 text-muted-foreground" onClick={async () => { setLogoSizeState(DEFAULT_LOGO_SIZE); await saveLogo({ size: DEFAULT_LOGO_SIZE }); dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, size: DEFAULT_LOGO_SIZE }); }}>
+                   <Button variant="ghost" size="sm" className="h-7 px-2 gap-1 text-muted-foreground" onClick={async () => { setLogoSizeState(DEFAULT_LOGO_SIZE); await saveLogo({ size: DEFAULT_LOGO_SIZE }); dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, subtitle: logoSubtitle, size: DEFAULT_LOGO_SIZE }); }}>
                   <RotateCcw className="w-3 h-3" />
                   Reset
                 </Button>
@@ -758,7 +794,7 @@ export default function Settings() {
   const { toast } = useToast();
   const { user } = useAuth();
   const [, navigate] = useLocation();
-  const canEditLogo = isAdmin(user);
+  const canEditLogo = isSuperAdmin(user);
   const [savedProxies, setSavedProxies] = useState<string[]>([]);
   const [activeProxy, setActiveProxy] = useState<string>("");
   const [newPacUrl, setNewPacUrl] = useState("");

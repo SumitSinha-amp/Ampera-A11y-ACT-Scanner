@@ -447,7 +447,14 @@ router.put("/admin/permissions/:userId", requireSuperAdmin, async (req, res): Pr
 
 // ── Logo settings ─────────────────────────────────────────────────────────────
 
-const LOGO_KEYS = ["logo_type", "logo_image_url", "logo_text", "logo_size", "logo_text_color"] as const;
+const LOGO_KEYS = [
+  "logo_type",
+  "logo_image_url",
+  "logo_text",
+  "logo_subtitle",
+  "logo_size",
+  "logo_text_color",
+] as const;
 
 // GET /api/logo — public, no auth required; returns current logo settings for all users
 router.get("/logo", async (_req, res): Promise<void> => {
@@ -461,7 +468,8 @@ router.get("/logo", async (_req, res): Promise<void> => {
     res.json({
       type: map["logo_type"] ?? "image",
       imageUrl: map["logo_image_url"] ?? "",
-      text: map["logo_text"] ?? "",
+      text: map["logo_text"] ?? "Ampera A11y",
+      subtitle: map["logo_subtitle"] ?? "Accessibility workspace",
       size: map["logo_size"] ? parseInt(map["logo_size"], 10) : null,
       textColor: map["logo_text_color"] ?? "",
     });
@@ -470,10 +478,10 @@ router.get("/logo", async (_req, res): Promise<void> => {
   }
 });
 
-// PUT /api/admin/logo — admin/super_admin only; upserts logo settings
-router.put("/admin/logo", requireAdmin, async (req, res): Promise<void> => {
+// PUT /api/admin/logo — super_admin only; upserts shared branding settings
+router.put("/admin/logo", requireSuperAdmin, async (req, res): Promise<void> => {
   const updatedBy = req.session!.user!.id;
-  const { type, imageUrl, text, size, textColor } = req.body ?? {};
+  const { type, imageUrl, text, subtitle, size, textColor } = req.body ?? {};
   const now = new Date();
 
   const rows: { key: string; value: string; updatedAt: Date; updatedBy: number }[] = [];
@@ -485,6 +493,9 @@ router.put("/admin/logo", requireAdmin, async (req, res): Promise<void> => {
   }
   if (typeof text === "string") {
     rows.push({ key: "logo_text", value: text, updatedAt: now, updatedBy });
+  }
+  if (typeof subtitle === "string") {
+    rows.push({ key: "logo_subtitle", value: subtitle, updatedAt: now, updatedBy });
   }
   if (typeof size === "number" && Number.isFinite(size)) {
     rows.push({ key: "logo_size", value: String(size), updatedAt: now, updatedBy });

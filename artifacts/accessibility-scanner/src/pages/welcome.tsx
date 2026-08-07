@@ -12,9 +12,15 @@ import {
   Layers,
   FilePlus2,
   Route,
+  Palette,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useAuth } from "@/contexts/auth";
+import { APP_VERSION } from "@/lib/app-version";
+import { useEffect, useState } from "react";
+import { DEFAULT_LOGO_SUBTITLE, DEFAULT_LOGO_TEXT } from "@/pages/settings";
+
+const BASE = (import.meta.env.BASE_URL as string).replace(/\/$/, "");
 
 interface Scan {
   id: number;
@@ -27,6 +33,18 @@ interface Scan {
 
 export default function WelcomePage() {
   const { user } = useAuth();
+  const [brandName, setBrandName] = useState(DEFAULT_LOGO_TEXT);
+  const [brandSubtitle, setBrandSubtitle] = useState(DEFAULT_LOGO_SUBTITLE);
+
+  useEffect(() => {
+    fetch(`${BASE}/api/logo`)
+      .then((response) => response.json())
+      .then((data: { text?: string; subtitle?: string }) => {
+        setBrandName(data.text || DEFAULT_LOGO_TEXT);
+        setBrandSubtitle(data.subtitle || DEFAULT_LOGO_SUBTITLE);
+      })
+      .catch(() => {});
+  }, []);
   const listParams = {};
   const { data: allScans, isLoading } = useListScans(
     listParams,
@@ -63,19 +81,19 @@ export default function WelcomePage() {
               </div>
               <div>
                 <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-                  Ampera A11y
+                  {brandName}
                 </h1>
                 <p className="mt-0.5 text-sm font-medium text-primary">
-                  Accessibility workspace
+                  {brandSubtitle}
                 </p>
               </div>
             </div>
             <p className="max-w-2xl text-base leading-7 text-muted-foreground md:text-lg">
-              Professional accessibility and quality assurance workspace for teams who need trustworthy scanning results.
+              Professional accessibility and quality assurance workspace with trustworthy scanning results and a calmer, more personal interface.
             </p>
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <Badge variant="outline" className="font-mono text-xs">
-                Version 1.3.0
+                Version {APP_VERSION}
               </Badge>
               <Link href="/app-updates">
                 <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5">
@@ -88,36 +106,95 @@ export default function WelcomePage() {
 
           {/* Latest update */}
           <Card className="overflow-hidden border-primary/20">
-            <div className="h-1 bg-gradient-to-r from-primary via-violet-500 to-fuchsia-500" />
+            <div className="h-1 bg-gradient-to-r from-cyan-400 via-violet-500 to-fuchsia-500" />
             <CardContent className="flex items-start gap-4 p-5">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Sparkles className="h-5 w-5" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-400/10 text-cyan-600 dark:text-cyan-300">
+                <Palette className="h-5 w-5" />
               </div>
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-base font-semibold">
-                    New experimental rule: ACT-R118
+                    Themes, backgrounds, and accents
                   </h2>
                   <Badge variant="outline" className="text-[10px]">
-                    Manual review
+                    Version {APP_VERSION}
                   </Badge>
                 </div>
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                  “HTML images contain no text” reviews accessible images for
-                  human-language text. If text is present, check whether it is
-                  decorative, incidental, essential, or redundant with regular
-                  text on the same page. Results remain Potential Issues until
-                  a reviewer completes these checks.
+                  Personalize your workspace with theme options, background
+                  images, and custom accent colors that carry through the shell,
+                  navigation, panels, and controls.
                 </p>
                 <Link href="/app-updates">
-                  <Button variant="link" className="h-auto px-0 text-xs">
-                    See what&apos;s new
+                  <Button variant="link" className="h-auto px-0 text-xs text-cyan-700 dark:text-cyan-300">
+                    Explore the update
                     <ArrowRight className="ml-1 h-3 w-3" />
                   </Button>
                 </Link>
               </div>
             </CardContent>
           </Card>
+
+          {/* Workspace experience */}
+          <section className="space-y-4">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                  Make the workspace yours
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Choose the visual treatment that fits the way you work.
+                </p>
+              </div>
+              <Link href="/app-updates">
+                <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs">
+                  View release details
+                  <ArrowRight className="h-3 w-3" />
+                </Button>
+              </Link>
+            </div>
+            <div className="grid items-stretch gap-3 md:grid-cols-3">
+              <Card className="group border-border/80 transition-all hover:-translate-y-0.5 hover:border-cyan-400/40 hover:shadow-md">
+                <CardContent className="space-y-3 p-4">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-cyan-400/10 text-cyan-600 dark:text-cyan-300">
+                    <Palette className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold">Themes</h3>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Switch between available light, dark, and glass-inspired treatments.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="group border-border/80 transition-all hover:-translate-y-0.5 hover:border-violet-400/40 hover:shadow-md">
+                <CardContent className="space-y-3 p-4">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-400/10 text-violet-600 dark:text-violet-300">
+                    <Layers className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold">Backgrounds</h3>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Select a background image or keep a clean, distraction-free backdrop.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="group border-border/80 transition-all hover:-translate-y-0.5 hover:border-fuchsia-400/40 hover:shadow-md">
+                <CardContent className="space-y-3 p-4">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-fuchsia-400/10 text-fuchsia-600 dark:text-fuchsia-300">
+                    <Sparkles className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold">Accent colors</h3>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Apply a custom accent across active states, buttons, rails, and highlights.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </section>
 
           {/* Start section */}
           <section className="space-y-4">

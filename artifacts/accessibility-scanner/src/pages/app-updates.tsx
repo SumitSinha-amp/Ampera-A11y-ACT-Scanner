@@ -33,6 +33,9 @@ import {
   Workflow,
   Zap,
 } from "lucide-react";
+import { DEFAULT_LOGO_SUBTITLE, DEFAULT_LOGO_TEXT } from "@/pages/settings";
+
+const BRANDING_BASE = (import.meta.env.BASE_URL as string).replace(/\/$/, "");
 import { APP_RELEASE_MONTH, APP_VERSION } from "@/lib/app-version";
 
 export const APP_UPDATES_VERSION = APP_VERSION;
@@ -204,16 +207,16 @@ export const updateGroups: UpdateGroup[] = [
   },
   {
     icon: Palette,
-    title: "Vision glass themes and scroll surfaces",
-    description: "A more immersive glass treatment with predictable contrast and cleaner scrolling across the workspace.",
+    title: "Themes, backgrounds, and accents",
+    description: "Personalize the workspace with visual choices that carry consistently through the application.",
     category: "Platform",
     features: [
-      "Vision Pro glass themes add separate light and dark frosted pane treatments with neutral smoke-glass surfaces and soft light streaks",
-      "Dark themes keep neutral interface text, header branding, account menus, charts, and flyouts readable against glass surfaces",
-      "Light buttons, avatar discs, chart labels, axes, grid lines, and data strokes preserve the contrast needed for their intended surface",
-      "Account menus, dropdowns, dialogs, sidebar flyouts, and nested menus share the same opaque frosted material instead of revealing page content behind them",
-      "Native browser scrollbar tracks and arrows are hidden so the workspace shows only rounded, draggable thumb controls",
-      "Radix scroll areas use transparent tracks and corners with inset capsule thumbs that preserve rounded panel edges",
+      "Choose from light, dark, and glass-inspired themes to set the overall tone of the workspace",
+      "Select a background image or use a clean backdrop, with the choice applied consistently across the application shell",
+      "Custom accent colors carry through active navigation, buttons, controls, highlights, and status treatments",
+      "Theme-aware contrast keeps text, header branding, account menus, charts, dialogs, and flyouts readable on every surface",
+      "Account menus, dropdowns, dialogs, sidebar flyouts, and nested menus share the selected visual treatment instead of revealing distracting page content behind them",
+      "Scrollbar tracks and arrows stay hidden while rounded draggable thumbs preserve clean scrolling inside panels and dialogs",
       "Theme, accent, background, and scrollbar treatments remain consistent when moving between pages, dialogs, reports, and nested panels",
     ],
   },
@@ -465,19 +468,19 @@ const walkthroughSections: Array<{
   },
   {
     id: "personalize",
-    label: "Themes & accents",
+    label: "Themes, backgrounds & accents",
     eyebrow: "Make it yours",
-    title: "Themes and accents that follow you",
-    description: "Choose a theme and app accent once, then see the selected treatment carried through the shell, active states, and controls.",
+    title: "Themes, backgrounds, and accents that follow you",
+    description: "Choose a theme, background, and app accent once, then see the selected treatment carried through the shell, active states, and controls.",
     icon: Palette,
     accent: "from-amber-300 via-orange-400 to-fuchsia-500",
   },
   {
     id: "vision-glass",
-    label: "Vision glass",
-    eyebrow: "A calmer surface, everywhere",
-    title: "Frosted panes with thumb-only scrolling",
-    description: "Vision themes bring a neutral glass material to the shell, menus, dialogs, charts, and scroll surfaces without sacrificing contrast or control.",
+    label: "Backgrounds",
+    eyebrow: "Set the scene",
+    title: "Backgrounds that complement your workspace",
+    description: "Choose a background image that complements your selected theme and accent while keeping content, menus, and controls readable.",
     icon: Palette,
     accent: "from-sky-300 via-cyan-400 to-violet-500",
   },
@@ -539,12 +542,28 @@ function PreviewField({
 }
 
 function WalkthroughPreview({ id }: { id: WalkthroughId }) {
+  const [brandName, setBrandName] = useState(DEFAULT_LOGO_TEXT);
+  const [brandSubtitle, setBrandSubtitle] = useState(DEFAULT_LOGO_SUBTITLE);
+
+  useEffect(() => {
+    fetch(`${BRANDING_BASE}/api/logo`)
+      .then((response) => response.json())
+      .then((data: { text?: string; subtitle?: string }) => {
+        setBrandName(data.text || DEFAULT_LOGO_TEXT);
+        setBrandSubtitle(data.subtitle || DEFAULT_LOGO_SUBTITLE);
+      })
+      .catch(() => {});
+  }, []);
+
   if (id === "header") {
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
           <div className="h-6 w-6 rounded-md bg-gradient-to-br from-fuchsia-400 to-violet-600" />
-          <span className="text-[11px] font-semibold text-slate-200">Ampera</span>
+          <span className="flex flex-col">
+            <span className="text-[11px] font-semibold text-slate-200">{brandName}</span>
+            <span className="text-[7px] leading-tight text-slate-500">{brandSubtitle}</span>
+          </span>
           <span className="rounded border border-fuchsia-400/30 bg-fuchsia-400/10 px-1.5 py-0.5 font-mono text-[8px] text-fuchsia-300">
             v{APP_UPDATES_VERSION}
           </span>
@@ -694,17 +713,17 @@ function WalkthroughPreview({ id }: { id: WalkthroughId }) {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Appearance</p>
-            <p className="mt-1 text-base font-semibold text-white">Vision glass</p>
+            <p className="mt-1 text-base font-semibold text-white">Themes, backgrounds, and accents</p>
           </div>
-          <span className="rounded-full bg-cyan-400/15 px-2 py-1 text-[9px] font-semibold text-cyan-200">Active</span>
+          <span className="rounded-full bg-cyan-400/15 px-2 py-1 text-[9px] font-semibold text-cyan-200">Personalized</span>
         </div>
         <div className="relative overflow-hidden rounded-lg border border-white/15 bg-slate-800/80 p-3">
           <div className="pointer-events-none absolute -right-8 -top-10 h-24 w-24 rounded-full bg-cyan-300/20 blur-2xl" />
           <div className="relative rounded-md border border-white/15 bg-white/10 p-3 backdrop-blur">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[9px] uppercase tracking-[0.12em] text-cyan-200">Frosted pane</p>
-                <p className="mt-1 text-[11px] font-semibold text-white">Readable by default</p>
+            <p className="text-[9px] uppercase tracking-[0.12em] text-cyan-200">Workspace appearance</p>
+            <p className="mt-1 text-[11px] font-semibold text-white">Your visual system</p>
               </div>
               <span className="h-5 w-5 rounded-full bg-white/80 shadow-[0_0_12px_rgba(255,255,255,0.25)]" />
             </div>
@@ -715,14 +734,12 @@ function WalkthroughPreview({ id }: { id: WalkthroughId }) {
           </div>
           <div className="mt-2 flex items-center gap-2 text-[9px] text-slate-300">
             <span className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
-            Menus, charts, dialogs, and scroll areas share the same material
+            Themes, backgrounds, and accents stay coordinated across the app
           </div>
         </div>
         <div className="flex items-center justify-between rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2">
-          <span className="text-[10px] text-slate-300">Scrollbar controls</span>
-          <span className="flex h-5 w-2 items-center justify-center rounded-full bg-white/55">
-            <span className="h-3 w-1 rounded-full bg-white/80" />
-          </span>
+          <span className="text-[10px] text-slate-300">Selected accent</span>
+          <span className="h-4 w-4 rounded-full bg-cyan-300 shadow-[0_0_12px_rgba(103,232,249,0.5)]" />
         </div>
       </div>
     );
@@ -907,7 +924,10 @@ function InterfaceUpdateShowcase() {
             <div className="flex h-10 items-center justify-between border-b border-slate-800 px-3">
               <div className="flex items-center gap-2">
                 <div className="h-5 w-5 rounded-md bg-gradient-to-br from-fuchsia-400 to-violet-600" />
-                <span className="text-[10px] font-semibold text-slate-300">Ampera A11y</span>
+                <span className="flex flex-col">
+                  <span className="text-[10px] font-semibold text-slate-300">{DEFAULT_LOGO_TEXT}</span>
+                  <span className="text-[7px] leading-tight text-slate-500">{DEFAULT_LOGO_SUBTITLE}</span>
+                </span>
                 <span className="rounded border border-fuchsia-400/30 bg-fuchsia-400/10 px-1.5 py-0.5 font-mono text-[8px] text-fuchsia-300">
                   v{APP_UPDATES_VERSION}
                 </span>

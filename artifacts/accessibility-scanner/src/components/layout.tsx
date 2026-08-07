@@ -73,6 +73,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import SettingsPage, {
   DEFAULT_LOGO_TEXT,
+  DEFAULT_LOGO_SUBTITLE,
   DEFAULT_LOGO_SIZE,
   type LogoType,
   type Theme,
@@ -176,6 +177,7 @@ function AppLogo() {
   const [logoType, setLogoType] = useState<LogoType>("image");
   const [imgUrl, setImgUrl] = useState(() => `${BASE_URL}act-logo.png`);
   const [text, setText] = useState(DEFAULT_LOGO_TEXT);
+  const [subtitle, setSubtitle] = useState(DEFAULT_LOGO_SUBTITLE);
   const [size, setSize] = useState(DEFAULT_LOGO_SIZE);
   const [textColor, setTextColor] = useState("");
   const [imgError, setImgError] = useState(false);
@@ -185,6 +187,7 @@ function AppLogo() {
       type: string;
       imageUrl: string;
       text: string;
+      subtitle?: string;
       size: number | null;
       textColor?: string;
     }) => {
@@ -197,6 +200,7 @@ function AppLogo() {
       );
       setImgUrl(data.imageUrl || `${BASE_URL}act-logo.png`);
       setText(data.text || DEFAULT_LOGO_TEXT);
+      setSubtitle(data.subtitle || DEFAULT_LOGO_SUBTITLE);
       setSize(typeof data.size === "number" ? data.size : DEFAULT_LOGO_SIZE);
       setTextColor(data.textColor ?? "");
       setImgError(false);
@@ -216,11 +220,12 @@ function AppLogo() {
           type: LogoType;
           imageUrl: string;
           text: string;
+          subtitle?: string;
           size: number;
           textColor?: string;
         }>
       ).detail;
-      if (detail) applyData({ ...detail, size: detail.size });
+       if (detail) applyData({ ...detail, size: detail.size });
     };
     window.addEventListener("a11y-logo-changed", sync);
 
@@ -237,20 +242,30 @@ function AppLogo() {
 
   if (logoType === "image" && !imgError) {
     return (
-      <img
-        src={imgUrl}
-        alt={text || "App logo"}
-        style={{ height: size, maxWidth: size * 6 }}
-        className="w-auto object-contain"
-        onError={() => setImgError(true)}
-        onLoad={() => setImgError(false)}
-      />
+      <span className="flex min-w-0 max-w-full items-center gap-2">
+        <img
+          src={imgUrl}
+          alt=""
+          style={{ height: size, maxWidth: size * 3.5 }}
+          className="w-auto shrink-0 object-contain"
+          onError={() => setImgError(true)}
+          onLoad={() => setImgError(false)}
+        />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="vision-header-logo-text break-words font-bold leading-tight" style={{ fontSize: `clamp(14px, 1.4vw, ${size * 0.55}px)` }}>
+            {text}
+          </span>
+          <span className="break-words text-[10px] leading-tight text-muted-foreground">
+            {subtitle}
+          </span>
+        </span>
+      </span>
     );
   }
 
   if (logoType === "image-text") {
     return (
-      <span className="flex items-center gap-2">
+      <span className="flex min-w-0 max-w-full items-center gap-2">
         {!imgError && (
           <img
             src={imgUrl}
@@ -261,31 +276,37 @@ function AppLogo() {
             onLoad={() => setImgError(false)}
           />
         )}
-        <span
-          className="vision-header-logo-text font-bold truncate"
-          style={{
-            fontSize: size * 0.55,
-            maxWidth: size * 5,
-            color: textColor || undefined,
-          }}
-        >
-          {text}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span
+            className="vision-header-logo-text break-words font-bold leading-tight"
+            style={{
+              fontSize: `clamp(14px, 1.4vw, ${size * 0.55}px)`,
+              color: textColor || undefined,
+            }}
+          >
+            {text}
+          </span>
+          <span className="break-words text-[10px] leading-tight text-muted-foreground">
+            {subtitle}
+          </span>
         </span>
       </span>
     );
   }
 
   return (
-      <span className="flex items-center gap-2 font-bold text-foreground vision-header-logo-text">
+      <span className="flex min-w-0 max-w-full items-center gap-2 font-bold text-foreground vision-header-logo-text">
       <Activity
         className="text-primary shrink-0"
         style={{ width: size * 0.6, height: size * 0.6 }}
       />
-      <span
-        className="truncate"
-        style={{ fontSize: size * 0.55, maxWidth: size * 5 }}
-      >
-        {text}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="break-words leading-tight" style={{ fontSize: `clamp(14px, 1.4vw, ${size * 0.55}px)` }}>
+          {text}
+        </span>
+        <span className="break-words text-[10px] font-normal leading-tight text-muted-foreground">
+          {subtitle}
+        </span>
       </span>
     </span>
   );
@@ -2533,9 +2554,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <TooltipProvider delayDuration={300}>
       <div className="app-shell min-h-screen bg-background">
         <header className="sticky top-0 z-50 border-b border-border/70 bg-background/95 shadow-[0_1px_10px_rgba(15,23,42,0.04)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
-          <div className="h-14 px-3 md:px-5 flex items-center justify-between gap-2 overflow-hidden">
-            <div className="flex shrink-0 items-center gap-2">
-              <Link href="/scans" className="flex items-center">
+          <div className="min-h-14 px-3 py-1.5 md:px-5 flex items-center justify-between gap-2 overflow-visible">
+            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-visible">
+              <Link href="/scans" className="flex min-w-0 flex-1 items-center">
                 <AppLogo />
               </Link>
               <Badge
