@@ -37,13 +37,21 @@ export default function WelcomePage() {
   const [brandSubtitle, setBrandSubtitle] = useState(DEFAULT_LOGO_SUBTITLE);
 
   useEffect(() => {
-    fetch(`${BASE}/api/logo`)
+    const applyBranding = (data: { text?: string; subtitle?: string }) => {
+      if (data.text !== undefined) setBrandName(data.text || DEFAULT_LOGO_TEXT);
+      if (data.subtitle !== undefined) setBrandSubtitle(data.subtitle || DEFAULT_LOGO_SUBTITLE);
+    };
+    const loadBranding = () => fetch(`${BASE}/api/logo`)
       .then((response) => response.json())
-      .then((data: { text?: string; subtitle?: string }) => {
-        setBrandName(data.text || DEFAULT_LOGO_TEXT);
-        setBrandSubtitle(data.subtitle || DEFAULT_LOGO_SUBTITLE);
-      })
+      .then(applyBranding)
       .catch(() => {});
+    loadBranding();
+    const syncBranding = (event: Event) => {
+      const detail = (event as CustomEvent<{ text?: string; subtitle?: string }>).detail;
+      if (detail) applyBranding(detail);
+    };
+    window.addEventListener("a11y-logo-changed", syncBranding);
+    return () => window.removeEventListener("a11y-logo-changed", syncBranding);
   }, []);
   const listParams = {};
   const { data: allScans, isLoading } = useListScans(

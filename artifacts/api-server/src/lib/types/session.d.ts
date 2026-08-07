@@ -7,6 +7,7 @@ declare module "express-session" {
       username: string;
       email: string;
       fullName: string;
+      profileImageUrl?: string | null;
       role: string;
       mustResetPassword: boolean;
     };

@@ -1403,6 +1403,10 @@ export default function Home() {
       });
       return;
     }
+    const selectedProjectId = projectId;
+    if (selectedProjectId == null) {
+      return;
+    }
     if (proxyEnabled && !activeProxyPac) {
       toast({
         title: "No proxy configured",
@@ -1479,7 +1483,7 @@ export default function Home() {
           urls: parsedUrls,
           name: scanName.trim(),
            siteId: activeSite?.id ?? undefined,
-            projectId,
+            projectId: selectedProjectId,
           groupId: groupId ?? undefined,
           options: {
             maxConcurrency: 5,

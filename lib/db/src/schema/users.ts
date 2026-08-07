@@ -8,6 +8,8 @@ export const usersTable = pgTable("users", {
   username: text("username").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   fullName: text("full_name").notNull(),
+  profileImageUrl: text("profile_image_url"),
+  profileImageContentType: text("profile_image_content_type"),
   role: text("role").notNull().default("user"), // "super_admin" | "admin" | "user"
   isActive: boolean("is_active").notNull().default(true),
   mustResetPassword: boolean("must_reset_password").notNull().default(true),

@@ -8,8 +8,10 @@ import { logger } from "../lib/logger";
 import { sendInviteEmail, sendPasswordResetEmail } from "../lib/email";
 import { requireAuth } from "../middlewares/authMiddleware";
 import { getEffectivePermissions } from "../lib/permissions";
+import { ObjectStorageService } from "../lib/objectStorage";
 
 const router: IRouter = Router();
+const objectStorageService = new ObjectStorageService();
 
 // POST /api/auth/login
 router.post("/auth/login", async (req, res): Promise<void> => {
@@ -40,6 +42,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     username: user.username,
     email: user.email,
     fullName: user.fullName,
+    profileImageUrl: user.profileImageUrl,
     role: user.role,
     mustResetPassword: user.mustResetPassword,
   };
@@ -49,6 +52,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     username: user.username,
     email: user.email,
     fullName: user.fullName,
+    profileImageUrl: user.profileImageUrl,
     role: user.role,
     mustResetPassword: user.mustResetPassword,
   });
@@ -63,12 +67,117 @@ router.post("/auth/logout", (req, res): void => {
 });
 
 // GET /api/auth/me
-router.get("/auth/me", (req, res): void => {
+router.get("/auth/me", async (req, res): Promise<void> => {
   if (!req.session?.user) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  res.json(req.session.user);
+  const [user] = await db
+    .select({
+      id: usersTable.id,
+      username: usersTable.username,
+      email: usersTable.email,
+      fullName: usersTable.fullName,
+      profileImageUrl: usersTable.profileImageUrl,
+      role: usersTable.role,
+      mustResetPassword: usersTable.mustResetPassword,
+    })
+    .from(usersTable)
+    .where(eq(usersTable.id, req.session.user.id));
+  if (!user) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  req.session.user = user;
+  res.json(user);
+});
+
+router.post("/auth/profile-image/upload-url", requireAuth, async (req, res): Promise<void> => {
+  const { size, contentType } = req.body ?? {};
+  if (
+    typeof size !== "number" ||
+    !Number.isFinite(size) ||
+    size <= 0 ||
+    size > 5 * 1024 * 1024 ||
+    typeof contentType !== "string" ||
+    !["image/jpeg", "image/png", "image/webp", "image/gif"].includes(contentType)
+  ) {
+    res.status(400).json({ error: "Profile image must be a JPG, PNG, WebP, or GIF no larger than 5 MB." });
+    return;
+  }
+  try {
+    const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+    res.json({
+      uploadURL,
+      objectPath: objectStorageService.normalizeObjectEntityPath(uploadURL),
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Profile image upload URL failed");
+    res.status(500).json({ error: "Unable to prepare profile image upload." });
+  }
+});
+
+router.put("/auth/profile-image", requireAuth, async (req, res): Promise<void> => {
+  const { objectPath, contentType } = req.body ?? {};
+  if (
+    typeof objectPath !== "string" ||
+    !objectPath.startsWith("/objects/") ||
+    typeof contentType !== "string" ||
+    !["image/jpeg", "image/png", "image/webp", "image/gif"].includes(contentType)
+  ) {
+    res.status(400).json({ error: "A valid uploaded profile image is required." });
+    return;
+  }
+  try {
+    await objectStorageService.getObjectEntityFile(objectPath);
+    const userId = req.session!.user!.id;
+    const [updated] = await db.update(usersTable)
+      .set({ profileImageUrl: objectPath, profileImageContentType: contentType, updatedAt: new Date() })
+      .where(eq(usersTable.id, userId))
+      .returning({ profileImageUrl: usersTable.profileImageUrl });
+    req.session!.user!.profileImageUrl = updated?.profileImageUrl ?? null;
+    res.json({ profileImageUrl: updated?.profileImageUrl ?? null });
+  } catch (error) {
+    logger.error({ err: error }, "Profile image save failed");
+    res.status(400).json({ error: "Unable to save profile image." });
+  }
+});
+
+router.delete("/auth/profile-image", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.session!.user!.id;
+  await db.update(usersTable)
+    .set({ profileImageUrl: null, profileImageContentType: null, updatedAt: new Date() })
+    .where(eq(usersTable.id, userId));
+  req.session!.user!.profileImageUrl = null;
+  res.json({ profileImageUrl: null });
+});
+
+router.get("/storage/profile-image", requireAuth, async (req, res): Promise<void> => {
+  try {
+    const userId = req.session!.user!.id;
+    const [user] = await db.select({
+      profileImageUrl: usersTable.profileImageUrl,
+      profileImageContentType: usersTable.profileImageContentType,
+    })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId));
+    if (!user?.profileImageUrl) {
+      res.status(404).end();
+      return;
+    }
+    const file = await objectStorageService.getObjectEntityFile(user.profileImageUrl);
+    const response = await objectStorageService.downloadObject(file, 300, user.profileImageContentType ?? undefined);
+    res.status(response.status);
+    response.headers.forEach((value, key) => res.setHeader(key, value));
+    if (response.body) {
+      const { Readable } = await import("stream");
+      Readable.fromWeb(response.body as any).pipe(res);
+    } else {
+      res.end();
+    }
+  } catch {
+    res.status(404).end();
+  }
 });
 
 // GET /api/auth/my-permissions — returns effective permissions for the logged-in user

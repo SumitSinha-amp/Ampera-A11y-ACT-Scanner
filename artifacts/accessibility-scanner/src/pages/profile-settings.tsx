@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useLocation } from "wouter";
 import {
   AtSign,
@@ -10,6 +10,8 @@ import {
   Mail,
   ShieldCheck,
   UserRound,
+  Upload,
+  Trash2,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -34,6 +36,84 @@ export default function ProfileSettingsPage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [changed, setChanged] = useState(false);
+  const [imageSaving, setImageSaving] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  const profileImageSrc = user?.profileImageUrl
+    ? `${BASE}/api/storage/profile-image?v=${encodeURIComponent(user.profileImageUrl)}`
+    : null;
+
+  async function handleProfileImage(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
+      toast({ title: "Unsupported image", description: "Choose a JPG, PNG, WebP, or GIF image.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "Image is too large", description: "Profile images must be 5 MB or smaller.", variant: "destructive" });
+      return;
+    }
+    setImageSaving(true);
+    try {
+      const urlResponse = await fetch(`${BASE}/api/auth/profile-image/upload-url`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ size: file.size, contentType: file.type }),
+      });
+      const urlData = await urlResponse.json().catch(() => ({}));
+      if (!urlResponse.ok) throw new Error(urlData.error || "Unable to prepare upload.");
+
+      const uploadResponse = await fetch(urlData.uploadURL, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!uploadResponse.ok) throw new Error("Unable to upload image.");
+
+      const saveResponse = await fetch(`${BASE}/api/auth/profile-image`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ objectPath: urlData.objectPath, contentType: file.type }),
+      });
+      const saveData = await saveResponse.json().catch(() => ({}));
+      if (!saveResponse.ok) throw new Error(saveData.error || "Unable to save profile image.");
+      await refreshUser();
+      toast({ title: "Profile image updated", description: "Your new image is now shown across the app." });
+    } catch (imageError) {
+      toast({
+        title: "Profile image could not be updated",
+        description: imageError instanceof Error ? imageError.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setImageSaving(false);
+    }
+  }
+
+  async function removeProfileImage() {
+    setImageSaving(true);
+    try {
+      const response = await fetch(`${BASE}/api/auth/profile-image`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Unable to remove profile image.");
+      await refreshUser();
+      toast({ title: "Profile image removed" });
+    } catch (imageError) {
+      toast({
+        title: "Profile image could not be removed",
+        description: imageError instanceof Error ? imageError.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setImageSaving(false);
+    }
+  }
 
   async function handlePasswordChange(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -110,8 +190,17 @@ export default function ProfileSettingsPage() {
         <div className="space-y-6">
           <Card>
             <CardHeader className="flex flex-row items-center gap-4 space-y-0">
-              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-slate-700 text-xl font-semibold text-white shadow-sm">
-                {initials}
+              <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-slate-700 text-xl font-semibold text-white shadow-sm">
+                {profileImageSrc ? (
+                  <img src={profileImageSrc} alt="" className="h-full w-full rounded-full object-cover" />
+                ) : initials}
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  className="hidden"
+                  onChange={handleProfileImage}
+                />
               </div>
               <div className="min-w-0">
                 <CardTitle>{user?.fullName || user?.username || "Account"}</CardTitle>
@@ -120,6 +209,27 @@ export default function ProfileSettingsPage() {
                 </CardDescription>
               </div>
             </CardHeader>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Profile image</CardTitle>
+              <CardDescription>
+                Add a square JPG, PNG, WebP, or GIF image up to 5 MB. It appears in your account menu and profile.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-center gap-3">
+              <Button type="button" onClick={() => imageInputRef.current?.click()} disabled={imageSaving}>
+                {imageSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                {imageSaving ? "Saving image..." : profileImageSrc ? "Replace image" : "Upload image"}
+              </Button>
+              {profileImageSrc && (
+                <Button type="button" variant="outline" onClick={removeProfileImage} disabled={imageSaving}>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Remove image
+                </Button>
+              )}
+            </CardContent>
           </Card>
 
           <Card>

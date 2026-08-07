@@ -541,19 +541,34 @@ function PreviewField({
   );
 }
 
-function WalkthroughPreview({ id }: { id: WalkthroughId }) {
+function useSharedBranding() {
   const [brandName, setBrandName] = useState(DEFAULT_LOGO_TEXT);
   const [brandSubtitle, setBrandSubtitle] = useState(DEFAULT_LOGO_SUBTITLE);
 
   useEffect(() => {
-    fetch(`${BRANDING_BASE}/api/logo`)
-      .then((response) => response.json())
-      .then((data: { text?: string; subtitle?: string }) => {
-        setBrandName(data.text || DEFAULT_LOGO_TEXT);
-        setBrandSubtitle(data.subtitle || DEFAULT_LOGO_SUBTITLE);
-      })
-      .catch(() => {});
+    const applyBranding = (data: { text?: string; subtitle?: string }) => {
+      if (data.text !== undefined) setBrandName(data.text || DEFAULT_LOGO_TEXT);
+      if (data.subtitle !== undefined) setBrandSubtitle(data.subtitle || DEFAULT_LOGO_SUBTITLE);
+    };
+    const loadBranding = () =>
+      fetch(`${BRANDING_BASE}/api/logo`)
+        .then((response) => response.json())
+        .then(applyBranding)
+        .catch(() => {});
+    loadBranding();
+    const syncBranding = (event: Event) => {
+      const detail = (event as CustomEvent<{ text?: string; subtitle?: string }>).detail;
+      if (detail) applyBranding(detail);
+    };
+    window.addEventListener("a11y-logo-changed", syncBranding);
+    return () => window.removeEventListener("a11y-logo-changed", syncBranding);
   }, []);
+
+  return { brandName, brandSubtitle };
+}
+
+function WalkthroughPreview({ id }: { id: WalkthroughId }) {
+  const { brandName, brandSubtitle } = useSharedBranding();
 
   if (id === "header") {
     return (
@@ -859,6 +874,7 @@ function WalkthroughPreview({ id }: { id: WalkthroughId }) {
 
 function InterfaceUpdateShowcase() {
   const [activeId, setActiveId] = useState<WalkthroughId>("new-scan");
+  const { brandName, brandSubtitle } = useSharedBranding();
   const active = walkthroughSections.find((item) => item.id === activeId) ?? walkthroughSections[0];
   const ActiveIcon = active.icon;
   const panelId = `walkthrough-panel-${active.id}`;
@@ -925,8 +941,8 @@ function InterfaceUpdateShowcase() {
               <div className="flex items-center gap-2">
                 <div className="h-5 w-5 rounded-md bg-gradient-to-br from-fuchsia-400 to-violet-600" />
                 <span className="flex flex-col">
-                  <span className="text-[10px] font-semibold text-slate-300">{DEFAULT_LOGO_TEXT}</span>
-                  <span className="text-[7px] leading-tight text-slate-500">{DEFAULT_LOGO_SUBTITLE}</span>
+                  <span className="text-[10px] font-semibold text-slate-300">{brandName}</span>
+                  <span className="text-[7px] leading-tight text-slate-500">{brandSubtitle}</span>
                 </span>
                 <span className="rounded border border-fuchsia-400/30 bg-fuchsia-400/10 px-1.5 py-0.5 font-mono text-[8px] text-fuchsia-300">
                   v{APP_UPDATES_VERSION}

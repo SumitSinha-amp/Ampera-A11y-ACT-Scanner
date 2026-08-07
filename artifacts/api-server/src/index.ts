@@ -85,6 +85,8 @@ async function runStartupMigrations(): Promise<void> {
         username                TEXT    NOT NULL UNIQUE,
         password_hash           TEXT    NOT NULL,
         full_name               TEXT    NOT NULL,
+        profile_image_url       TEXT,
+        profile_image_content_type TEXT,
         role                    TEXT    NOT NULL DEFAULT 'user',
         is_active               BOOLEAN NOT NULL DEFAULT TRUE,
         must_reset_password     BOOLEAN NOT NULL DEFAULT TRUE,
@@ -93,6 +95,24 @@ async function runStartupMigrations(): Promise<void> {
         created_at              TIMESTAMP NOT NULL DEFAULT NOW(),
         updated_at              TIMESTAMP NOT NULL DEFAULT NOW()
       )
+    `);
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'users' AND column_name = 'profile_image_url'
+        ) THEN
+          ALTER TABLE users ADD COLUMN profile_image_url TEXT;
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'users' AND column_name = 'profile_image_content_type'
+        ) THEN
+          ALTER TABLE users ADD COLUMN profile_image_content_type TEXT;
+        END IF;
+      END
+      $$
     `);
 
     // 6. Create user_groups table

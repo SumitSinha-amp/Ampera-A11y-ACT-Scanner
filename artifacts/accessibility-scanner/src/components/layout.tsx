@@ -2555,8 +2555,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <div className="app-shell min-h-screen bg-background">
         <header className="sticky top-0 z-50 border-b border-border/70 bg-background/95 shadow-[0_1px_10px_rgba(15,23,42,0.04)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
           <div className="min-h-14 px-3 py-1.5 md:px-5 flex items-center justify-between gap-2 overflow-visible">
-            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-visible">
-              <Link href="/scans" className="flex min-w-0 flex-1 items-center">
+            <div className="flex min-w-0 max-w-[55%] shrink items-center gap-2 overflow-visible">
+              <Link href="/scans" className="flex min-w-0 items-center">
                 <AppLogo />
               </Link>
               <Badge
@@ -2679,7 +2679,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     aria-label="Open account menu"
                   >
                     <span className="vision-account-avatar relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[11px] font-semibold tracking-tight text-white shadow-sm ring-2 ring-background transition-transform group-data-[state=open]:scale-105 dark:bg-slate-100 dark:text-slate-900">
-                      {getUserInitials(user?.fullName || user?.username)}
+                      {user?.profileImageUrl ? (
+                        <img
+                          src={`${BASE}/api/storage/profile-image?v=${encodeURIComponent(user.profileImageUrl)}`}
+                          alt=""
+                          className="h-full w-full rounded-full object-cover"
+                        />
+                      ) : (
+                        getUserInitials(user?.fullName || user?.username)
+                      )}
                       <span
                         aria-hidden="true"
                         className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-background bg-emerald-500"
@@ -2696,7 +2704,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   <DropdownMenuLabel className="p-0 font-normal">
                     <div className="flex items-center gap-3 rounded-lg px-3 py-3">
                       <span className="vision-account-avatar relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white shadow-sm dark:bg-slate-100 dark:text-slate-900">
-                        {getUserInitials(user?.fullName || user?.username)}
+                        {user?.profileImageUrl ? (
+                          <img
+                            src={`${BASE}/api/storage/profile-image?v=${encodeURIComponent(user.profileImageUrl)}`}
+                            alt=""
+                            className="h-full w-full rounded-full object-cover"
+                          />
+                        ) : (
+                          getUserInitials(user?.fullName || user?.username)
+                        )}
                         <span
                           aria-hidden="true"
                           className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-popover bg-emerald-500"
