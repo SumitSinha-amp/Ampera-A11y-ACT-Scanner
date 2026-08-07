@@ -3450,3 +3450,625 @@ html.glass-vision .recharts-cartesian-axis-tick-line {
   stroke: rgb(255 255 255) !important;
   opacity: 0.72 !important;
 }
+
+/* ── Dark theme white-chrome contract ───────────────────────
+   Dark surfaces use a monochrome white foreground. Shared navigation
+   definitions still carry semantic accent classes, so normalize those
+   classes here at the final cascade point. Status/background fills remain
+   unchanged; only copy and icon chrome are affected. */
+html.dark [class*="text-primary"],
+html.dark [class*="text-blue-"],
+html.dark [class*="text-indigo-"],
+html.dark [class*="text-violet-"],
+html.dark [class*="text-purple-"],
+html.dark [class*="text-cyan-"],
+html.dark [class*="text-teal-"],
+html.dark [class*="text-sky-"],
+html.dark [class*="text-pink-"],
+html.dark [class*="text-fuchsia-"],
+html.dark [class*="text-green-"],
+html.dark [class*="text-emerald-"],
+html.dark [class*="text-yellow-"],
+html.dark [class*="text-amber-"],
+html.dark [class*="text-orange-"],
+html.glass-dark [class*="text-primary"],
+html.glass-dark [class*="text-blue-"],
+html.glass-dark [class*="text-indigo-"],
+html.glass-dark [class*="text-violet-"],
+html.glass-dark [class*="text-purple-"],
+html.glass-dark [class*="text-cyan-"],
+html.glass-dark [class*="text-teal-"],
+html.glass-dark [class*="text-sky-"],
+html.glass-dark [class*="text-pink-"],
+html.glass-dark [class*="text-fuchsia-"],
+html.glass-dark [class*="text-green-"],
+html.glass-dark [class*="text-emerald-"],
+html.glass-dark [class*="text-yellow-"],
+html.glass-dark [class*="text-amber-"],
+html.glass-dark [class*="text-orange-"],
+html.glass-vision [class*="text-primary"],
+html.glass-vision [class*="text-blue-"],
+html.glass-vision [class*="text-indigo-"],
+html.glass-vision [class*="text-violet-"],
+html.glass-vision [class*="text-purple-"],
+html.glass-vision [class*="text-cyan-"],
+html.glass-vision [class*="text-teal-"],
+html.glass-vision [class*="text-sky-"],
+html.glass-vision [class*="text-pink-"],
+html.glass-vision [class*="text-fuchsia-"],
+html.glass-vision [class*="text-green-"],
+html.glass-vision [class*="text-emerald-"],
+html.glass-vision [class*="text-yellow-"],
+html.glass-vision [class*="text-amber-"],
+html.glass-vision [class*="text-orange-"] {
+  color: rgb(255 255 255) !important;
+}
+
+/* Lucide UI icons inherit a single white chrome color in dark themes.
+   Lucide React renders the `.lucide` class; chart SVGs do not use it. */
+html.dark .lucide,
+html.glass-dark .lucide,
+html.glass-vision .lucide {
+  color: rgb(255 255 255) !important;
+  stroke: rgb(255 255 255) !important;
+}
+
+html.dark .lucide[class*="fill-"],
+html.glass-dark .lucide[class*="fill-"],
+html.glass-vision .lucide[class*="fill-"] {
+  fill: rgb(255 255 255) !important;
+}
+
+/* The header lockup is part of the dark chrome, including saved branding
+   colors and the muted subtitle rendered by AppLogo. */
+html.dark .vision-header-logo-text,
+html.dark .vision-header-logo-subtitle,
+html.glass-dark .vision-header-logo-text,
+html.glass-dark .vision-header-logo-subtitle,
+html.glass-vision .vision-header-logo-text,
+html.glass-vision .vision-header-logo-subtitle {
+  color: rgb(255 255 255) !important;
+}
+
+/* The accessibility control is a dark-theme glass orb, so its inherited
+   primary foreground must not turn the icon into dark ink. */
+html.dark .accessibility-mode-control button,
+html.glass-dark .accessibility-mode-control button,
+html.glass-vision .accessibility-mode-control button,
+html.dark .accessibility-mode-control button *,
+html.glass-dark .accessibility-mode-control button *,
+html.glass-vision .accessibility-mode-control button * {
+  color: rgb(255 255 255) !important;
+  stroke: rgb(255 255 255) !important;
+}
+
+/* Dark-theme light-surface buttons intentionally keep dark labels/icons. */
+html.dark button:is(
+  [class~="bg-white"], [class~="dark:bg-white"],
+  [class~="bg-gray-50"], [class~="bg-gray-100"], [class~="bg-gray-200"],
+  [class~="bg-slate-50"], [class~="bg-slate-100"], [class~="bg-slate-200"],
+  [class~="bg-zinc-50"], [class~="bg-zinc-100"], [class~="bg-zinc-200"]
+),
+html.glass-dark button:is(
+  [class~="bg-white"], [class~="dark:bg-white"],
+  [class~="bg-gray-50"], [class~="bg-gray-100"], [class~="bg-gray-200"],
+  [class~="bg-slate-50"], [class~="bg-slate-100"], [class~="bg-slate-200"],
+  [class~="bg-zinc-50"], [class~="bg-zinc-100"], [class~="bg-zinc-200"]
+),
+html.glass-vision button:is(
+  [class~="bg-white"], [class~="dark:bg-white"],
+  [class~="bg-gray-50"], [class~="bg-gray-100"], [class~="bg-gray-200"],
+  [class~="bg-slate-50"], [class~="bg-slate-100"], [class~="bg-slate-200"],
+  [class~="bg-zinc-50"], [class~="bg-zinc-100"], [class~="bg-zinc-200"]
+) {
+  color: rgb(15 23 42) !important;
+}
+
+html.dark button:is(
+  [class~="bg-white"], [class~="dark:bg-white"],
+  [class~="bg-gray-50"], [class~="bg-gray-100"], [class~="bg-gray-200"],
+  [class~="bg-slate-50"], [class~="bg-slate-100"], [class~="bg-slate-200"],
+  [class~="bg-zinc-50"], [class~="bg-zinc-100"], [class~="bg-zinc-200"]
+) *,
+html.glass-dark button:is(
+  [class~="bg-white"], [class~="dark:bg-white"],
+  [class~="bg-gray-50"], [class~="bg-gray-100"], [class~="bg-gray-200"],
+  [class~="bg-slate-50"], [class~="bg-slate-100"], [class~="bg-slate-200"],
+  [class~="bg-zinc-50"], [class~="bg-zinc-100"], [class~="bg-zinc-200"]
+) *,
+html.glass-vision button:is(
+  [class~="bg-white"], [class~="dark:bg-white"],
+  [class~="bg-gray-50"], [class~="bg-gray-100"], [class~="bg-gray-200"],
+  [class~="bg-slate-50"], [class~="bg-slate-100"], [class~="bg-slate-200"],
+  [class~="bg-zinc-50"], [class~="bg-zinc-100"], [class~="bg-zinc-200"]
+) * {
+  color: rgb(15 23 42) !important;
+  stroke: rgb(15 23 42) !important;
+}
+
+/* Dark themes do not carry the saved accent through primary UI chrome.
+   Keep accent choices available to light themes, but neutralize the
+   dark-theme custom-property inputs that feed rails, primary buttons,
+   rings, selected states, and inline accent badges. */
+html.dark,
+html.glass-dark,
+html.glass-vision {
+  --app-accent: 0 0% 100% !important;
+  --primary: 0 0% 100% !important;
+  --ring: 0 0% 100% !important;
+  --sidebar-primary: 0 0% 100% !important;
+  --sidebar-ring: 0 0% 100% !important;
+  --primary-foreground: 222 47% 11% !important;
+}
+
+/* Standard dark and Glass Dark use the same neutral frosted rail as Vision
+   Pro rather than the user's purple/blue saved accent. */
+html.dark .sidebar-rail,
+html.glass-dark .sidebar-rail {
+  background:
+    radial-gradient(
+      180% 30% at 50% -6%,
+      rgba(255, 255, 255, 0.30) 0%,
+      rgba(255, 255, 255, 0.08) 45%,
+      rgba(255, 255, 255, 0) 70%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.10) 0%,
+      rgba(255, 255, 255, 0.06) 100%
+    ) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  color: rgb(255 255 255) !important;
+}
+
+/* Primary-tinted shell controls become neutral frosted white in dark
+   themes. This covers header pills, selected navigation surfaces, and
+   primary-outline borders without changing semantic status fills. */
+html.dark .app-shell [class*="bg-primary"],
+html.glass-dark .app-shell [class*="bg-primary"],
+html.glass-vision .app-shell [class*="bg-primary"] {
+  background-color: rgba(255, 255, 255, 0.10) !important;
+}
+
+html.dark .app-shell [class*="border-primary"],
+html.glass-dark .app-shell [class*="border-primary"],
+html.glass-vision .app-shell [class*="border-primary"] {
+  border-color: rgba(255, 255, 255, 0.22) !important;
+}
+
+html.dark .app-shell [class*="ring-primary"],
+html.glass-dark .app-shell [class*="ring-primary"],
+html.glass-vision .app-shell [class*="ring-primary"] {
+  --tw-ring-color: rgb(255 255 255) !important;
+}
+
+/* Glass Dark had an older purple-tinted material recipe. Keep its depth and
+   translucency, but remove the hue so dark themes share neutral chrome. */
+html.glass-dark .bg-card {
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+html.glass-dark .bg-sidebar {
+  border-right-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+html.glass-dark .bg-popover {
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+/* ── Light glass readability + transparent sidebar contract ─────────────
+   Light glass panes already provide the material behind the navigation.
+   Do not stack a second opaque sidebar fill on top of that material. Use
+   stronger ink for muted navigation/supporting copy so it remains readable
+   over the bright room and pane highlights. */
+html.glass-light,
+html.glass-vision-light {
+  --foreground: 220 35% 12%;
+  --card-foreground: 220 35% 12%;
+  --sidebar-foreground: 220 35% 12%;
+  --popover-foreground: 220 35% 12%;
+  --secondary-foreground: 220 35% 12%;
+  --accent-foreground: 220 35% 12%;
+  --sidebar-accent-foreground: 220 35% 12%;
+  --muted-foreground: 215 25% 30%;
+}
+
+html.glass-light .bg-sidebar,
+html.glass-light .sidebar-shell,
+html.glass-light .sidebar-panel,
+html.glass-vision-light .bg-sidebar,
+html.glass-vision-light .sidebar-shell,
+html.glass-vision-light .sidebar-panel {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.glass-light .sidebar-panel,
+html.glass-vision-light .sidebar-panel {
+  border-color: color-mix(
+    in srgb,
+    hsl(var(--sidebar-border)) 52%,
+    transparent
+  ) !important;
+}
+
+html.glass-light .sidebar-panel-header,
+html.glass-light .sidebar-nav-item,
+html.glass-light .sidebar-search-result,
+html.glass-vision-light .sidebar-panel-header,
+html.glass-vision-light .sidebar-nav-item,
+html.glass-vision-light .sidebar-search-result {
+  color: hsl(var(--sidebar-foreground)) !important;
+}
+
+html.glass-light .sidebar-section-label,
+html.glass-light .sidebar-panel-icon-button,
+html.glass-light .sidebar-search-wrap > svg,
+html.glass-light .sidebar-search-input::placeholder,
+html.glass-vision-light .sidebar-section-label,
+html.glass-vision-light .sidebar-panel-icon-button,
+html.glass-vision-light .sidebar-search-wrap > svg,
+html.glass-vision-light .sidebar-search-input::placeholder {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+/* Light glass rails also adapt to the room/pane behind them. Do not paint
+   the navigation column cyan or lavender, and do not use white chrome on a
+   transparent light surface. */
+html.glass-light .sidebar-rail,
+html.glass-vision-light .sidebar-rail {
+  background: transparent !important;
+  border-right-color: color-mix(
+    in srgb,
+    hsl(var(--sidebar-border)) 58%,
+    transparent
+  ) !important;
+  box-shadow: none !important;
+  color: hsl(var(--sidebar-foreground)) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.glass-light .sidebar-rail > .sidebar-rail-toggle,
+html.glass-light .sidebar-rail .sidebar-rail-menu > a,
+html.glass-light .sidebar-rail .sidebar-rail-menu > a .sidebar-rail-icon,
+html.glass-light .sidebar-rail .sidebar-rail-menu > a .sidebar-rail-icon svg,
+html.glass-light .sidebar-rail .sidebar-rail-icon,
+html.glass-light .sidebar-rail .sidebar-rail-icon *,
+html.glass-vision-light .sidebar-rail > .sidebar-rail-toggle,
+html.glass-vision-light .sidebar-rail .sidebar-rail-menu > a,
+html.glass-vision-light .sidebar-rail .sidebar-rail-menu > a .sidebar-rail-icon,
+html.glass-vision-light .sidebar-rail .sidebar-rail-menu > a .sidebar-rail-icon svg,
+html.glass-vision-light .sidebar-rail .sidebar-rail-icon,
+html.glass-vision-light .sidebar-rail .sidebar-rail-icon * {
+  color: hsl(var(--sidebar-foreground)) !important;
+}
+
+html.glass-light .sidebar-rail-toggle,
+html.glass-vision-light .sidebar-rail-toggle {
+  background: hsl(var(--sidebar-accent) / 0.72) !important;
+  border-color: hsl(var(--sidebar-border) / 0.72) !important;
+}
+
+html.glass-light .sidebar-rail-item:hover,
+html.glass-light .sidebar-rail-item[data-sidebar-active="true"],
+html.glass-vision-light .sidebar-rail-item:hover,
+html.glass-vision-light .sidebar-rail-item[data-sidebar-active="true"] {
+  background: hsl(var(--sidebar-accent) / 0.72) !important;
+  color: hsl(var(--sidebar-foreground)) !important;
+  box-shadow: inset 0 0 0 1px hsl(var(--sidebar-border) / 0.58) !important;
+}
+
+/* Keep light-glass copy anchored to readable theme ink. This also protects
+   against older hard-coded gray utility classes used by shell components. */
+html.glass-light [class*="text-muted-foreground"],
+html.glass-vision-light [class*="text-muted-foreground"] {
+  color: hsl(var(--muted-foreground)) !important;
+  opacity: 1 !important;
+}
+
+html.glass-light [class*="text-gray-"],
+html.glass-light [class*="text-slate-"],
+html.glass-light [class*="text-zinc-"],
+html.glass-light [class*="text-neutral-"],
+html.glass-light [class*="text-stone-"],
+html.glass-vision-light [class*="text-gray-"],
+html.glass-vision-light [class*="text-slate-"],
+html.glass-vision-light [class*="text-zinc-"],
+html.glass-vision-light [class*="text-neutral-"],
+html.glass-vision-light [class*="text-stone-"] {
+  color: rgb(51 65 85) !important;
+}
+
+html.glass-light .vision-header-logo-text,
+html.glass-vision-light .vision-header-logo-text {
+  color: hsl(var(--foreground)) !important;
+}
+
+html.glass-light .vision-header-logo-subtitle,
+html.glass-vision-light .vision-header-logo-subtitle {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+html.glass-light .vision-header-version,
+html.glass-vision-light .vision-header-version {
+  color: hsl(var(--foreground)) !important;
+  border-color: hsl(var(--border) / 0.72) !important;
+  background: rgba(255, 255, 255, 0.28) !important;
+}
+
+/* Final light-glass readability contract.
+   The room image is intentionally visible through these themes, but shell
+   copy and controls must remain independently readable above it. Keep this
+   block last so it wins over inherited accent/utility colors and over the
+   older bright-glass border recipes above. */
+html.glass-light,
+html.glass-vision-light {
+  --foreground: 220 40% 11%;
+  --card-foreground: 220 40% 11%;
+  --popover-foreground: 220 40% 11%;
+  --secondary-foreground: 220 40% 11%;
+  --accent-foreground: 220 40% 11%;
+  --muted-foreground: 215 30% 25%;
+  --border: 215 22% 46%;
+  --input: 215 22% 46%;
+  --ring: 205 75% 30%;
+}
+
+/* Main shell content, titles, breadcrumbs, table copy, and supporting copy. */
+html.glass-light #main-content,
+html.glass-vision-light #main-content {
+  color: hsl(var(--foreground)) !important;
+}
+
+html.glass-light #main-content h1,
+html.glass-light #main-content h2,
+html.glass-light #main-content h3,
+html.glass-light #main-content h4,
+html.glass-light #main-content h5,
+html.glass-light #main-content h6,
+html.glass-vision-light #main-content h1,
+html.glass-vision-light #main-content h2,
+html.glass-vision-light #main-content h3,
+html.glass-vision-light #main-content h4,
+html.glass-vision-light #main-content h5,
+html.glass-vision-light #main-content h6 {
+  color: hsl(var(--foreground)) !important;
+  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.28);
+}
+
+html.glass-light #main-content a:not([class*="text-"]),
+html.glass-light #main-content .text-primary,
+html.glass-vision-light #main-content a:not([class*="text-"]),
+html.glass-vision-light #main-content .text-primary {
+  color: hsl(205 75% 26%) !important;
+}
+
+html.glass-light #main-content .text-muted-foreground,
+html.glass-light #main-content [class*="text-muted-foreground"],
+html.glass-vision-light #main-content .text-muted-foreground,
+html.glass-vision-light #main-content [class*="text-muted-foreground"] {
+  color: hsl(var(--muted-foreground)) !important;
+  opacity: 1 !important;
+}
+
+/* Lucide icons use currentColor; make both the icon element and its strokes
+   explicit. Recharts SVG is intentionally excluded so chart colors remain
+   unchanged. */
+html.glass-light #main-content .lucide,
+html.glass-light #main-content .lucide *,
+html.glass-vision-light #main-content .lucide,
+html.glass-vision-light #main-content .lucide * {
+  stroke: currentColor !important;
+  opacity: 1 !important;
+}
+
+html.glass-light #main-content .text-muted-foreground .lucide,
+html.glass-light #main-content .text-muted-foreground .lucide *,
+html.glass-vision-light #main-content .text-muted-foreground .lucide,
+html.glass-vision-light #main-content .text-muted-foreground .lucide * {
+  stroke: currentColor !important;
+}
+
+/* Back-to-home breadcrumb and header/site-selector icons. */
+html.glass-light .app-shell > header .lucide,
+html.glass-light .app-shell > header .lucide *,
+html.glass-vision-light .app-shell > header .lucide,
+html.glass-vision-light .app-shell > header .lucide *,
+html.glass-light > body .sidebar-panel .lucide,
+html.glass-light > body .sidebar-panel .lucide *,
+html.glass-vision-light > body .sidebar-panel .lucide,
+html.glass-vision-light > body .sidebar-panel .lucide * {
+  stroke: currentColor !important;
+  opacity: 1 !important;
+}
+
+html.glass-light #main-content > div > a[href="/welcome"],
+html.glass-vision-light #main-content > div > a[href="/welcome"] {
+  color: hsl(var(--muted-foreground)) !important;
+  opacity: 1 !important;
+}
+
+html.glass-light #main-content > div > a[href="/welcome"]:hover,
+html.glass-vision-light #main-content > div > a[href="/welcome"]:hover {
+  color: hsl(var(--foreground)) !important;
+}
+
+/* Inputs/search bars need a distinct surface and a dark placeholder/icon. */
+html.glass-light input,
+html.glass-light textarea,
+html.glass-light select,
+html.glass-vision-light input,
+html.glass-vision-light textarea,
+html.glass-vision-light select {
+  color: hsl(var(--foreground)) !important;
+  caret-color: hsl(var(--foreground)) !important;
+  background-color: rgba(255, 255, 255, 0.62) !important;
+  border-color: hsl(var(--border) / 0.46) !important;
+  opacity: 1 !important;
+}
+
+html.glass-light input::placeholder,
+html.glass-light textarea::placeholder,
+html.glass-vision-light input::placeholder,
+html.glass-vision-light textarea::placeholder {
+  color: hsl(var(--muted-foreground)) !important;
+  opacity: 0.92 !important;
+}
+
+html.glass-light input:focus,
+html.glass-light textarea:focus,
+html.glass-light select:focus,
+html.glass-vision-light input:focus,
+html.glass-vision-light textarea:focus,
+html.glass-vision-light select:focus {
+  border-color: hsl(var(--ring)) !important;
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.22) !important;
+}
+
+html.glass-light .sidebar-search-wrap,
+html.glass-vision-light .sidebar-search-wrap {
+  color: hsl(var(--foreground)) !important;
+  background: rgba(255, 255, 255, 0.48) !important;
+  border-color: hsl(var(--border) / 0.46) !important;
+}
+
+html.glass-light .sidebar-search-wrap .lucide,
+html.glass-light .sidebar-search-wrap .lucide *,
+html.glass-vision-light .sidebar-search-wrap .lucide,
+html.glass-vision-light .sidebar-search-wrap .lucide * {
+  color: hsl(var(--muted-foreground)) !important;
+  stroke: currentColor !important;
+}
+
+/* Glass borders are separators, not bright outlines. */
+html.glass-light .app-shell > header,
+html.glass-light main#main-content,
+html.glass-light .bg-card,
+html.glass-light .sidebar-panel,
+html.glass-light [role="dialog"],
+html.glass-vision-light .app-shell > header,
+html.glass-vision-light main#main-content,
+html.glass-vision-light .bg-card,
+html.glass-vision-light .sidebar-panel,
+html.glass-vision-light [role="dialog"] {
+  border-color: hsl(var(--border) / 0.08) !important;
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.10) inset,
+    0 12px 32px rgba(40, 70, 90, 0.10) !important;
+}
+
+html.glass-light .border-border,
+html.glass-vision-light .border-border,
+html.glass-light .border-b,
+html.glass-light .border-t,
+html.glass-vision-light .border-b,
+html.glass-vision-light .border-t {
+  border-color: hsl(var(--border) / 0.12) !important;
+}
+
+/* The page pane needs enough neutral material for the room image to remain
+   visible without competing with its foreground. The sidebar stays
+   transparent by design; only the main window gets this readability wash. */
+html.glass-light main#main-content,
+html.glass-vision-light main#main-content {
+  background:
+    radial-gradient(
+      120% 70% at 8% -10%,
+      rgba(255, 255, 255, 0.62) 0%,
+      rgba(255, 255, 255, 0.30) 34%,
+      rgba(255, 255, 255, 0.06) 68%
+    ),
+    linear-gradient(
+      160deg,
+      rgba(255, 255, 255, 0.30) 0%,
+      rgba(235, 244, 249, 0.22) 100%
+    ) !important;
+  backdrop-filter: blur(30px) saturate(125%);
+  -webkit-backdrop-filter: blur(30px) saturate(125%);
+}
+
+/* Restore the icon stroke at the shell level too. Some controls sit outside
+   #main-content (header, rail, and the sidebar panel), so restricting the
+   rule to page content leaves their currentColor strokes washed out. */
+html.glass-light .app-shell .lucide,
+html.glass-light .app-shell .lucide *,
+html.glass-vision-light .app-shell .lucide,
+html.glass-vision-light .app-shell .lucide * {
+  stroke: currentColor !important;
+  opacity: 1 !important;
+}
+
+html.glass-light .app-shell .text-muted-foreground .lucide,
+html.glass-light .app-shell .text-muted-foreground .lucide *,
+html.glass-vision-light .app-shell .text-muted-foreground .lucide,
+html.glass-vision-light .app-shell .text-muted-foreground .lucide * {
+  stroke: currentColor !important;
+}
+
+/* Header/site selector controls need a visible outline and readable label
+   while retaining their transparent glass fill. */
+html.glass-light .app-shell > header button,
+html.glass-light .app-shell > header [role="button"],
+html.glass-vision-light .app-shell > header button,
+html.glass-vision-light .app-shell > header [role="button"] {
+  color: hsl(var(--foreground)) !important;
+  border-color: hsl(var(--border) / 0.22) !important;
+}
+
+html.glass-light .app-shell > header button:hover,
+html.glass-light .app-shell > header [role="button"]:hover,
+html.glass-vision-light .app-shell > header button:hover,
+html.glass-vision-light .app-shell > header [role="button"]:hover {
+  background: rgba(255, 255, 255, 0.34) !important;
+}
+
+html.glass-light .app-shell .sidebar-search-wrap.is-open,
+html.glass-vision-light .app-shell .sidebar-search-wrap.is-open {
+  height: 36px !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  background: rgba(255, 255, 255, 0.58) !important;
+  border-color: hsl(var(--border) / 0.28) !important;
+  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.08) !important;
+}
+
+html.glass-light .sidebar-search-input,
+html.glass-vision-light .sidebar-search-input {
+  color: hsl(var(--foreground)) !important;
+  opacity: 1 !important;
+}
+
+html.glass-light .sidebar-search-input::placeholder,
+html.glass-vision-light .sidebar-search-input::placeholder {
+  color: hsl(var(--muted-foreground)) !important;
+  opacity: 0.92 !important;
+}
+
+/* Site selector favicon fallback: keep the globe inside its 36px icon tile
+   and hide it once the site's favicon has loaded. */
+.site-selector-icon {
+  position: relative !important;
+  isolation: isolate;
+}
+
+.site-selector-icon > img {
+  position: relative;
+  z-index: 1;
+}
+
+.site-selector-fallback-icon {
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: auto !important;
+  z-index: 0;
+  margin: 0 !important;
+  transform: translate(-50%, -50%) !important;
+}
+
+.site-selector-icon.has-favicon > .site-selector-fallback-icon {
+  display: none !important;
+}

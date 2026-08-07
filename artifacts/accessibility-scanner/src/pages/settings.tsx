@@ -282,6 +282,22 @@ export function applyAccentColor(accent: AccentColor | string) {
     foreground = selected.foreground;
     datasetKey = accent as string;
   }
+
+  // Dark themes intentionally use monochrome white chrome. The accent is
+  // still persisted and restored for light themes, but it must not feed the
+  // rail, primary controls, selected states, or focus rings in dark themes.
+  const savedTheme = getSavedTheme();
+  const darkChrome =
+    savedTheme === "dark" ||
+    savedTheme === "glass-dark" ||
+    savedTheme === "glass-vision" ||
+    (savedTheme === "system" &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches);
+  if (darkChrome) {
+    value = "0 0% 100%";
+    foreground = "222 47% 11%";
+  }
+
   const root = document.documentElement;
   root.style.setProperty("--app-accent", value);
   root.style.setProperty("--primary", value);
@@ -318,6 +334,11 @@ export function applyTheme(theme: Theme) {
   document.documentElement.classList.toggle("glass-light", theme === "glass-light");
   document.documentElement.classList.toggle("glass-vision", theme === "glass-vision");
   document.documentElement.classList.toggle("glass-vision-light", theme === "glass-vision-light");
+
+  // Reapply the persisted accent after the theme classes change. This keeps
+  // dark themes neutral and restores the user's accent when switching back
+  // to a light theme.
+  applyAccentColor(getSavedAccentColor());
 }
 
 /* ── App background image ─────────────────────────────────── */

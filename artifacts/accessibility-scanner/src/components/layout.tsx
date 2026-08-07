@@ -255,7 +255,7 @@ function AppLogo() {
           <span className="vision-header-logo-text break-words font-bold leading-tight" style={{ fontSize: `clamp(14px, 1.4vw, ${size * 0.55}px)` }}>
             {text}
           </span>
-          <span className="break-words text-[10px] leading-tight text-muted-foreground">
+          <span className="vision-header-logo-subtitle break-words text-[10px] leading-tight text-muted-foreground">
             {subtitle}
           </span>
         </span>
@@ -286,7 +286,7 @@ function AppLogo() {
           >
             {text}
           </span>
-          <span className="break-words text-[10px] leading-tight text-muted-foreground">
+          <span className="vision-header-logo-subtitle break-words text-[10px] leading-tight text-muted-foreground">
             {subtitle}
           </span>
         </span>
@@ -304,7 +304,7 @@ function AppLogo() {
         <span className="break-words leading-tight" style={{ fontSize: `clamp(14px, 1.4vw, ${size * 0.55}px)` }}>
           {text}
         </span>
-        <span className="break-words text-[10px] font-normal leading-tight text-muted-foreground">
+        <span className="vision-header-logo-subtitle break-words text-[10px] font-normal leading-tight text-muted-foreground">
           {subtitle}
         </span>
       </span>
@@ -495,10 +495,10 @@ function SiteSelector() {
             <button
               type="button"
               onClick={() => selectSite(null)}
-              className={`w-[calc(100%-16px)] mx-2 my-1 flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-accent text-left transition-colors ${!activeSite ? "bg-primary/5" : ""}`}
+              className={`site-selector-row w-[calc(100%-16px)] mx-2 my-1 flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-accent text-left transition-colors ${!activeSite ? "bg-primary/5" : ""}`}
             >
               <span className="w-4 shrink-0" />
-              <div className="w-9 h-9 rounded border bg-muted/60 flex items-center justify-center shrink-0">
+              <div className="relative w-9 h-9 rounded border bg-muted/60 flex items-center justify-center shrink-0">
                 <Globe className="w-4 h-4 text-muted-foreground" />
               </div>
               <div className="flex-1 min-w-0">
@@ -521,11 +521,10 @@ function SiteSelector() {
             const isActive = activeSite?.id === site.id;
             const isFav = favorites.includes(site.id);
             return (
-              <button
-                type="button"
+              <div
                 key={site.id}
                 onClick={() => selectSite(site)}
-                className={`w-[calc(100%-16px)] mx-2 my-1 flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-accent text-left transition-colors ${isActive ? "bg-primary/5" : ""}`}
+                className={`site-selector-row w-[calc(100%-16px)] mx-2 my-1 flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-accent text-left transition-colors ${isActive ? "bg-primary/5" : ""}`}
               >
                 {/* Favorite */}
                 <button
@@ -541,18 +540,28 @@ function SiteSelector() {
                   />
                 </button>
 
-                {/* Site icon placeholder */}
-                <div className="w-9 h-9 rounded border bg-muted/60 flex items-center justify-center shrink-0 overflow-hidden">
+                {/* Site icon placeholder. Keep the fallback in the same
+                    row-relative box and remove it when the favicon loads so
+                    it cannot drift into the next scrolled row. */}
+                <div className="site-selector-icon relative w-9 h-9 rounded border bg-muted/60 flex items-center justify-center shrink-0 overflow-hidden">
                   <img
                     src={`${site.baseUrl}/favicon.ico`}
                     alt=""
                     className="w-5 h-5 object-contain"
+                    onLoad={(e) => {
+                      const icon = e.currentTarget.parentElement;
+                      icon?.classList.add("has-favicon");
+                    }}
                     onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).style.display =
-                        "none";
+                      const image = e.currentTarget as HTMLImageElement;
+                      image.style.display = "none";
+                      image.parentElement?.classList.remove("has-favicon");
                     }}
                   />
-                  <Globe className="w-4 h-4 text-muted-foreground absolute" />
+                  <Globe
+                    aria-hidden="true"
+                    className="site-selector-fallback-icon pointer-events-none absolute inset-0 m-auto w-4 h-4 text-muted-foreground"
+                  />
                 </div>
 
                 {/* Name + URL */}
@@ -588,7 +597,7 @@ function SiteSelector() {
                 <span className="w-4 shrink-0 flex justify-center">
                   {isActive && <Check className="w-4 h-4 text-primary" />}
                 </span>
-              </button>
+              </div>
             );
           })}
 
