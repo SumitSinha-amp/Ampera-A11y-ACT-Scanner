@@ -20,6 +20,7 @@ export interface EffectivePermissions {
   canViewQualityAssurance: boolean;
   canViewSiteAccessibilityDashboard: boolean;
   canManageSites: boolean;
+  canManageSiteTargetScore: boolean;
   allowedRules: string[] | null;
 }
 
@@ -41,6 +42,7 @@ const FULL_ACCESS: EffectivePermissions = {
   canViewQualityAssurance: true,
   canViewSiteAccessibilityDashboard: true,
   canManageSites: true,
+  canManageSiteTargetScore: true,
   allowedRules: null,
 };
 
@@ -235,6 +237,15 @@ export async function getEffectivePermissions(
     db.select().from(userPermissionsTable).where(eq(userPermissionsTable.userId, userId)),
     isInDeveloperGroup(userId),
   ]);
+  const [targetScoreGroup] = await db
+    .select({ enabled: userGroupsTable.canManageSiteTargetScore })
+    .from(userGroupMembersTable)
+    .innerJoin(userGroupsTable, eq(userGroupMembersTable.groupId, userGroupsTable.id))
+    .where(and(
+      eq(userGroupMembersTable.userId, userId),
+      eq(userGroupsTable.canManageSiteTargetScore, true),
+    ))
+    .limit(1);
 
   return {
     canScan: perm?.canScan ?? true,
@@ -254,6 +265,7 @@ export async function getEffectivePermissions(
     canViewQualityAssurance: perm?.canViewQualityAssurance ?? true,
     canViewSiteAccessibilityDashboard: perm?.canViewSiteAccessibilityDashboard ?? true,
     canManageSites: perm?.canManageSites ?? false,
+    canManageSiteTargetScore: Boolean(perm?.canManageSiteTargetScore || targetScoreGroup?.enabled),
     allowedRules: (perm?.allowedRules as string[] | null) ?? null,
   };
 }

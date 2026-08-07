@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import multer from "multer";
 import {
   db,
@@ -7,6 +7,7 @@ import {
   pageResultsTable,
   accessibilityIssuesTable,
   projectsTable,
+  projectSitesTable,
   appSettingsTable,
   sitesTable,
 } from "@workspace/db";
@@ -39,6 +40,7 @@ import { fetchSitemapUrls, parseUrlsFromCsv } from "../lib/sitemap";
 import { logger } from "../lib/logger";
 import { requireAuth } from "../middlewares/authMiddleware";
 import { getEffectivePermissions, canAccessSite, getEffectiveSites } from "../lib/permissions";
+import { isUrlLikeScanName, SCAN_NAME_URL_ERROR } from "../lib/scan-name";
 
 const router: IRouter = Router();
 const upload = multer({
@@ -187,10 +189,22 @@ router.get("/scans", requireAuth, async (req, res): Promise<void> => {
         .where(buildNonAdminWhere())
         .orderBy(desc(scanSessionsTable.createdAt));
 
+  const pageIssueCounts = await db
+    .select({
+      scanId: pageResultsTable.scanId,
+      pagesWithIssues: sql<number>`count(*) filter (where ${pageResultsTable.issueCount} > 0)`,
+    })
+    .from(pageResultsTable)
+    .groupBy(pageResultsTable.scanId);
+  const pagesWithIssuesByScan = new Map(
+    pageIssueCounts.map((row) => [row.scanId, Number(row.pagesWithIssues ?? 0)]),
+  );
+
   res.json(
     sessions.map((s) => ({
       ...s,
       projectName: s.projectName ?? null,
+      pagesWithIssues: pagesWithIssuesByScan.get(s.id) ?? 0,
       createdAt: s.createdAt.toISOString(),
       completedAt: s.completedAt?.toISOString() ?? null,
     })),
@@ -221,6 +235,16 @@ router.post("/scans", requireAuth, async (req, res): Promise<void> => {
     initiatorRole,
   } = parsed.data;
 
+  if (name && isUrlLikeScanName(name)) {
+    res.status(400).json({ error: SCAN_NAME_URL_ERROR });
+    return;
+  }
+
+  if (projectId == null) {
+    res.status(400).json({ error: "A project is required when creating a scan" });
+    return;
+  }
+
   // Validate siteId: verify existence then enforce access for non-admins
   if (siteId != null) {
     const [siteRow] = await db
@@ -241,6 +265,25 @@ router.post("/scans", requireAuth, async (req, res): Promise<void> => {
         res.status(403).json({ error: "You do not have access to the specified site" });
         return;
       }
+    }
+  }
+
+  if (projectId != null) {
+    if (siteId == null) {
+      res.status(400).json({ error: "A site is required when selecting a project" });
+      return;
+    }
+    const [projectSite] = await db
+      .select({ projectId: projectSitesTable.projectId })
+      .from(projectSitesTable)
+      .where(and(
+        eq(projectSitesTable.projectId, projectId),
+        eq(projectSitesTable.siteId, siteId),
+      ))
+      .limit(1);
+    if (!projectSite) {
+      res.status(400).json({ error: "The selected project is not associated with this site" });
+      return;
     }
   }
 
@@ -998,7 +1041,43 @@ router.patch("/scans/:id", async (req, res): Promise<void> => {
   }
   const isSuperAdmin = role === "super_admin";
   const { name, projectId, siteId, initiatorName, initiatorRole } = parsed.data;
+  if (name && isUrlLikeScanName(name)) {
+    res.status(400).json({ error: SCAN_NAME_URL_ERROR });
+    return;
+  }
   const updates: Record<string, unknown> = {};
+  const [existingScan] = await db
+    .select({
+      projectId: scanSessionsTable.projectId,
+      siteId: scanSessionsTable.siteId,
+    })
+    .from(scanSessionsTable)
+    .where(eq(scanSessionsTable.id, params.data.id))
+    .limit(1);
+  if (!existingScan) {
+    res.status(404).json({ error: "Scan not found" });
+    return;
+  }
+  const targetProjectId = projectId !== undefined ? projectId : existingScan.projectId;
+  const targetSiteId = siteId !== undefined ? siteId : existingScan.siteId;
+  if (targetProjectId != null && targetSiteId == null) {
+    res.status(400).json({ error: "A site is required when selecting a project" });
+    return;
+  }
+  if (targetProjectId != null && targetSiteId != null) {
+    const [projectSite] = await db
+      .select({ projectId: projectSitesTable.projectId })
+      .from(projectSitesTable)
+      .where(and(
+        eq(projectSitesTable.projectId, targetProjectId),
+        eq(projectSitesTable.siteId, targetSiteId),
+      ))
+      .limit(1);
+    if (!projectSite) {
+      res.status(400).json({ error: "The selected project is not associated with this site" });
+      return;
+    }
+  }
   if (name !== undefined) updates.name = name;
   if (projectId !== undefined) {
     if (projectId !== null) {
@@ -1928,6 +2007,10 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
   // Compute retry name (strip old suffix, append "(retry N)")
   const customName =
     typeof req.body?.name === "string" ? req.body.name.trim() : null;
+  if (customName && isUrlLikeScanName(customName)) {
+    res.status(400).json({ error: SCAN_NAME_URL_ERROR });
+    return;
+  }
   let retryName: string | null = null;
   if (customName) {
     retryName = customName;
@@ -1937,7 +2020,9 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
       .trim();
     const m = original.name.match(/\(retry\s+(\d+)\)/i);
     const n = m ? parseInt(m[1]) + 1 : 1;
-    retryName = `${base} (retry ${n})`;
+    retryName = isUrlLikeScanName(base)
+      ? `Scan #${originalId} (retry ${n})`
+      : `${base} (retry ${n})`;
   }
 
   // Deduplicate: keep only the best-status row per URL.
@@ -2305,7 +2390,7 @@ router.get(
     if (format === "csv") {
       const escape = (v: string) => `"${String(v ?? "").replace(/"/g, '""')}"`;
       const header = [
-        "Scan Name",
+        "Scan Title",
         "Selected Rules",
         "Page URL",
         "Rule ID",
@@ -2353,7 +2438,7 @@ router.get(
     if (format === "excel") {
       const XLSX = await import("xlsx");
       const sheetData = rows.map((r) => ({
-        "Scan Name": r.scanName,
+        "Scan Title": r.scanName,
         "Selected Rules": r.selectedRules,
         "Page URL": r.url,
         "Rule ID": r.ruleId,

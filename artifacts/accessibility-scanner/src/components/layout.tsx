@@ -10,11 +10,13 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronsRight,
   ArrowRight,
   ClipboardCheck,
   ExternalLink,
   FileCheck2,
   FileText,
+  FolderOpen,
   GitCompare,
   Globe,
   History,
@@ -28,7 +30,6 @@ import {
   Sparkles,
   Star,
   TicketCheck,
-  User,
   Users,
   UsersRound,
   XCircle,
@@ -38,6 +39,9 @@ import {
   SpellCheck,
   Map,
   Megaphone,
+  Menu,
+  Palette,
+  UserRound,
   X,
   Home,
 } from "lucide-react";
@@ -65,12 +69,19 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import SettingsPage, {
   DEFAULT_LOGO_TEXT,
   DEFAULT_LOGO_SIZE,
   type LogoType,
+  type Theme,
+  applyAccentColor,
+  getSavedAccentColor,
+  getSavedTheme,
+  applyTheme,
+  THEME_LS_KEY,
+  THEME_CHANGED_EVENT,
 } from "@/pages/settings";
 import {
   APP_UPDATES_VERSION,
@@ -89,6 +100,75 @@ import { APP_WALKTHROUGH_EVENT } from "@/lib/walkthrough";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 export const OPEN_SETTINGS_EVENT = "a11y-open-settings";
+
+const THEME_OPTIONS: { value: Theme; label: string }[] = [
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "system", label: "System" },
+  { value: "glass-dark", label: "Glass Dark" },
+  { value: "glass-light", label: "Glass Light" },
+  { value: "glass-vision", label: "Vision Pro" },
+  { value: "glass-vision-light", label: "Vision Pro Light" },
+];
+
+function HeaderThemeSwitcher() {
+  const [currentTheme, setCurrentTheme] = useState<Theme>(() => getSavedTheme());
+
+  useEffect(() => {
+    const onThemeChanged = () => setCurrentTheme(getSavedTheme());
+    window.addEventListener(THEME_CHANGED_EVENT, onThemeChanged);
+    return () => window.removeEventListener(THEME_CHANGED_EVENT, onThemeChanged);
+  }, []);
+
+  const selectTheme = (value: Theme) => {
+    setCurrentTheme(value);
+    try {
+      localStorage.setItem(THEME_LS_KEY, value);
+    } catch {
+      /* ignore */
+    }
+    applyTheme(value);
+    window.dispatchEvent(new CustomEvent(THEME_CHANGED_EVENT, { detail: { theme: value } }));
+  };
+
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              data-testid="button-header-theme"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Switch theme"
+            >
+              <Palette className="w-4 h-4" />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="bg-slate-950 text-white shadow-lg">
+          Theme
+        </TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuLabel>Theme</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {THEME_OPTIONS.map((opt) => (
+          <DropdownMenuItem
+            key={opt.value}
+            data-testid={`menu-theme-${opt.value}`}
+            onClick={() => selectTheme(opt.value)}
+            className="flex items-center justify-between"
+          >
+            <span>{opt.label}</span>
+            {currentTheme === opt.value && <Check className="h-4 w-4 text-primary" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 function AppLogo() {
   const BASE_URL = import.meta.env.BASE_URL as string;
@@ -182,7 +262,7 @@ function AppLogo() {
           />
         )}
         <span
-          className="font-bold truncate"
+          className="vision-header-logo-text font-bold truncate"
           style={{
             fontSize: size * 0.55,
             maxWidth: size * 5,
@@ -196,7 +276,7 @@ function AppLogo() {
   }
 
   return (
-    <span className="flex items-center gap-2 font-bold text-foreground">
+      <span className="flex items-center gap-2 font-bold text-foreground vision-header-logo-text">
       <Activity
         className="text-primary shrink-0"
         style={{ width: size * 0.6, height: size * 0.6 }}
@@ -209,6 +289,16 @@ function AppLogo() {
       </span>
     </span>
   );
+}
+
+function getUserInitials(name?: string) {
+  const parts = (name ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "U";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
 }
 
 function useSidebarCollapsed() {
@@ -253,6 +343,7 @@ function SiteSelector() {
   const { user } = useAuth();
   const superAdmin = isSuperAdmin(user);
   const canSwitchSite = user?.permissions?.canSwitchSite ?? false;
+  const [location, navigate] = useLocation();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [favorites, setFavorites] = useState<number[]>(() => {
@@ -298,6 +389,22 @@ function SiteSelector() {
 
   const triggerName = activeSite ? activeSite.name : "All sites";
   const triggerUrl = activeSite?.baseUrl ?? "";
+
+  const selectSite = (site: MySite | null) => {
+    setActiveSite(site);
+    setOpen(false);
+    setSearch("");
+
+    // Site dashboards derive their data from the route. Move the route with
+    // the header selection so the dashboard does not immediately re-activate
+    // the site encoded in the old URL.
+    if (site) {
+      const siteRoute = location.match(/^\/sites\/\d+(\/.*)?$/);
+      if (siteRoute) {
+        navigate(`/sites/${site.id}${siteRoute[1] ?? ""}`);
+      }
+    }
+  };
 
   return (
     <Popover
@@ -361,16 +468,13 @@ function SiteSelector() {
         </div>
 
         {/* Site list */}
-        <ScrollArea className="max-h-[400px]">
+        <ScrollArea className="h-[400px] max-h-[calc(100vh-220px)] py-1">
           {/* Only Superadmin can view data across every site. */}
           {superAdmin && (
             <button
               type="button"
-              onClick={() => {
-                setActiveSite(null);
-                setOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-accent text-left transition-colors border-b ${!activeSite ? "bg-primary/5" : ""}`}
+              onClick={() => selectSite(null)}
+              className={`w-[calc(100%-16px)] mx-2 my-1 flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-accent text-left transition-colors ${!activeSite ? "bg-primary/5" : ""}`}
             >
               <span className="w-4 shrink-0" />
               <div className="w-9 h-9 rounded border bg-muted/60 flex items-center justify-center shrink-0">
@@ -399,12 +503,8 @@ function SiteSelector() {
               <button
                 type="button"
                 key={site.id}
-                onClick={() => {
-                  setActiveSite(site);
-                  setOpen(false);
-                  setSearch("");
-                }}
-                className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-accent text-left transition-colors border-b last:border-b-0 ${isActive ? "bg-primary/5" : ""}`}
+                onClick={() => selectSite(site)}
+                className={`w-[calc(100%-16px)] mx-2 my-1 flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-accent text-left transition-colors ${isActive ? "bg-primary/5" : ""}`}
               >
                 {/* Favorite */}
                 <button
@@ -509,11 +609,12 @@ function NavItem({
   const btn = (
     <Button
       variant={active ? "secondary" : "ghost"}
-      className={`w-full transition-all duration-200 ${
+      className={`sidebar-nav-item w-full transition-all duration-200 ${
         collapsed
           ? "justify-center px-0"
           : `justify-start gap-2 ${indent ? "pl-8 h-8 text-[13px]" : ""}`
       }`}
+      data-sidebar-active={active ? "true" : "false"}
       asChild
       data-tour={tourKey}
       data-tour-title={label}
@@ -595,8 +696,9 @@ function NavGroup({
         <TooltipTrigger asChild>
           <Button
             variant={active ? "secondary" : "ghost"}
-            className="w-full justify-center px-0"
+            className="sidebar-nav-item w-full justify-center px-0"
             asChild
+            data-sidebar-active={active ? "true" : "false"}
             data-tour={`menu-${id}`}
             data-tour-title={label}
             data-tour-description={`Open the ${label} navigation menu.`}
@@ -616,7 +718,7 @@ function NavGroup({
       <Button
         variant="ghost"
         onClick={toggle}
-        className="w-full justify-start gap-2 font-semibold text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground"
+          className="sidebar-nav-item w-full justify-start gap-2 font-semibold text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground"
         aria-expanded={open}
         aria-controls={contentId}
         data-tour={`menu-${id}`}
@@ -1036,28 +1138,450 @@ function SectionHeader({
   );
 }
 
+type MainMenuItem = {
+  label: string;
+  icon: React.ReactNode;
+  href: string;
+  color: string;
+  section?: Section;
+  isMenuOnly?: boolean;
+  createItems?: {
+    label: string;
+    href: string;
+    description?: string;
+    icon?: React.ReactNode;
+    keywords?: string[];
+  }[];
+  flyoutSections: {
+    label?: string;
+    items: {
+      label: string;
+      href: string;
+      icon?: React.ReactNode;
+      badge?: string;
+      children?: {
+        label: string;
+        href: string;
+        icon?: React.ReactNode;
+        badge?: string;
+      }[];
+    }[];
+  }[];
+};
+
+function CollapsedMainMenuItem({
+  item,
+  active,
+  dataTour,
+  showFlyout,
+  flyoutActive,
+  onActivate,
+  onDeactivate,
+}: {
+  item: MainMenuItem;
+  active: boolean;
+  dataTour: string;
+  showFlyout: boolean;
+  flyoutActive: boolean;
+  onActivate: () => void;
+  onDeactivate: () => void;
+}) {
+  const [flyoutMounted, setFlyoutMounted] = useState(false);
+  const [flyoutOpen, setFlyoutOpen] = useState(false);
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const [createQuery, setCreateQuery] = useState("");
+  const [submenuOpen, setSubmenuOpen] = useState<string | null>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unmountTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuKey = item.label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const flyoutId = `sidebar-flyout-${menuKey}`;
+  useEffect(() => {
+    if (flyoutActive) return;
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    if (unmountTimer.current) clearTimeout(unmountTimer.current);
+    setFlyoutOpen(false);
+    setFlyoutMounted(false);
+    setCreateMenuOpen(false);
+    setCreateQuery("");
+    setSubmenuOpen(null);
+  }, [flyoutActive]);
+
+  const openFlyout = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    if (unmountTimer.current) clearTimeout(unmountTimer.current);
+    if (!showFlyout) return;
+
+    onActivate();
+    setFlyoutMounted(true);
+    requestAnimationFrame(() => setFlyoutOpen(true));
+  };
+  const scheduleClose = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => {
+      setFlyoutOpen(false);
+      onDeactivate();
+      unmountTimer.current = setTimeout(() => setFlyoutMounted(false), 150);
+    }, 160);
+  };
+  const closeFlyoutImmediately = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    if (unmountTimer.current) clearTimeout(unmountTimer.current);
+    setFlyoutOpen(false);
+    setFlyoutMounted(false);
+    setCreateMenuOpen(false);
+    setCreateQuery("");
+    setSubmenuOpen(null);
+    onDeactivate();
+  };
+
+  const matchingCreateItems = (item.createItems ?? []).filter((createItem) => {
+    const query = createQuery.trim().toLowerCase();
+    if (!query) return true;
+    return [createItem.label, createItem.description, ...(createItem.keywords ?? [])]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(query);
+  });
+
+  return (
+    <div
+      className="sidebar-rail-menu relative"
+      onMouseEnter={openFlyout}
+      onMouseLeave={scheduleClose}
+      onFocus={openFlyout}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          scheduleClose();
+        }
+      }}
+    >
+      <Button
+        variant="ghost"
+        className="sidebar-rail-item w-full justify-center px-0"
+        asChild={!item.isMenuOnly}
+        data-sidebar-active={active ? "true" : "false"}
+        data-tour={dataTour}
+        data-tour-title={item.label}
+        data-tour-description={`Open the ${item.label} area of the application.`}
+        aria-label={`Open ${item.label} menu`}
+        aria-haspopup="menu"
+        aria-expanded={showFlyout && flyoutActive && flyoutOpen}
+        aria-controls={flyoutId}
+        ref={triggerRef}
+        onClick={
+          item.isMenuOnly
+            ? (event) => {
+                event.preventDefault();
+                if (flyoutActive && flyoutOpen) {
+                  closeFlyoutImmediately();
+                } else {
+                  openFlyout();
+                }
+              }
+            : undefined
+        }
+      >
+        {item.isMenuOnly ? (
+          <span className={`sidebar-rail-icon ${item.color}`}>{item.icon}</span>
+        ) : (
+          <Link href={item.href}>
+            <span className={`sidebar-rail-icon ${item.color}`}>{item.icon}</span>
+          </Link>
+        )}
+      </Button>
+      {showFlyout && flyoutActive && flyoutMounted && (
+        <div
+          className={`sidebar-flyout ${item.isMenuOnly ? "sidebar-flyout-main-menu" : ""} ${flyoutOpen ? "is-open" : "is-closing"}`}
+          id={flyoutId}
+          role="menu"
+          aria-label={`${item.label} menu`}
+          onMouseEnter={openFlyout}
+          onMouseLeave={scheduleClose}
+          onFocus={openFlyout}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              closeFlyoutImmediately();
+              triggerRef.current?.focus();
+            }
+          }}
+        >
+          <div className="sidebar-flyout-header">
+            <div className="sidebar-flyout-heading">
+              <span className="sidebar-flyout-heading-icon">{item.icon}</span>
+              <span>{item.label}</span>
+            </div>
+            {item.createItems && item.createItems.length > 0 && (
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  className="sidebar-flyout-create"
+                  aria-haspopup="menu"
+                  aria-expanded={createMenuOpen}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setCreateMenuOpen((open) => !open);
+                    setCreateQuery("");
+                  }}
+                >
+                  <Plus className="h-4 w-4" />
+                  Create
+                </button>
+                {createMenuOpen && (
+                  <div
+                    className="sidebar-flyout-create-menu"
+                    role="menu"
+                    aria-label="Create"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className="sidebar-flyout-create-search">
+                      <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <Input
+                        autoFocus
+                        value={createQuery}
+                        onChange={(event) => setCreateQuery(event.target.value)}
+                        placeholder="Choose an action"
+                        aria-label="Search create actions"
+                      />
+                    </div>
+                    <div className="sidebar-flyout-create-label">Create</div>
+                    {matchingCreateItems.length > 0 ? (
+                      matchingCreateItems.map((createItem) => (
+                        <Link
+                          key={createItem.href}
+                          href={createItem.href}
+                          role="menuitem"
+                          className="sidebar-flyout-create-item"
+                          onClick={closeFlyoutImmediately}
+                        >
+                          <span className="sidebar-flyout-create-item-icon">
+                            {createItem.icon ?? <Plus className="h-4 w-4" />}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate">{createItem.label}</span>
+                            {createItem.description && (
+                              <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                                {createItem.description}
+                              </span>
+                            )}
+                          </span>
+                        </Link>
+                      ))
+                    ) : (
+                      <div className="px-4 py-4 text-sm text-muted-foreground">
+                        No actions found
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="sidebar-flyout-body">
+            {item.flyoutSections.map((section, sectionIndex) => (
+              <div
+                key={`${item.label}-section-${section.label ?? sectionIndex}`}
+                className="sidebar-flyout-section"
+              >
+                {section.label && (
+                  <div className="sidebar-flyout-section-label">{section.label}</div>
+                )}
+                {section.items.map((subItem) => {
+                  const hasChildren = Boolean(subItem.children?.length);
+                  if (!hasChildren) {
+                    return (
+                      <Link
+                        key={`${item.label}-${subItem.href}`}
+                        href={subItem.href}
+                        role="menuitem"
+                        className="sidebar-flyout-item"
+                        onClick={closeFlyoutImmediately}
+                      >
+                        <span className="sidebar-flyout-item-leading">
+                          {subItem.icon ?? <Activity className="h-4 w-4" />}
+                          <span>{subItem.label}</span>
+                          {subItem.badge && (
+                            <span className="sidebar-flyout-badge">{subItem.badge}</span>
+                          )}
+                        </span>
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+                      </Link>
+                    );
+                  }
+
+                  const nestedOpen = submenuOpen === subItem.label;
+                  const submenuId = `${menuKey}-${subItem.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-submenu`;
+                  return (
+                    <div
+                      key={`${item.label}-${subItem.label}`}
+                      className="sidebar-flyout-nested"
+                      onMouseEnter={item.isMenuOnly ? undefined : () => setSubmenuOpen(subItem.label)}
+                      onMouseLeave={item.isMenuOnly ? undefined : () => setSubmenuOpen(null)}
+                      onFocus={item.isMenuOnly ? undefined : () => setSubmenuOpen(subItem.label)}
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="sidebar-flyout-item w-full"
+                        aria-haspopup="menu"
+                        aria-expanded={nestedOpen}
+                        aria-controls={submenuId}
+                        aria-label={`${subItem.label} submenu`}
+                        onClick={() => setSubmenuOpen((current) => current === subItem.label ? null : subItem.label)}
+                      >
+                        <span className="sidebar-flyout-item-leading">
+                          {subItem.icon ?? <Activity className="h-4 w-4" />}
+                          <span>{subItem.label}</span>
+                        </span>
+                        {nestedOpen ? (
+                          <ChevronDown
+                            className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <ChevronRight
+                            className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50"
+                            aria-hidden="true"
+                          />
+                        )}
+                      </button>
+                      {nestedOpen && (
+                        <div
+                          className={`sidebar-flyout-nested-menu ${item.isMenuOnly ? "is-inline" : ""}`}
+                          id={submenuId}
+                          role="menu"
+                          aria-label={`${subItem.label} submenu`}
+                          hidden={!nestedOpen}
+                        >
+                          {subItem.children!.map((child) => (
+                            <Link
+                              key={`${subItem.label}-${child.href}`}
+                              href={child.href}
+                              role="menuitem"
+                              className="sidebar-flyout-item"
+                              onClick={closeFlyoutImmediately}
+                            >
+                              <span className="sidebar-flyout-item-leading">
+                                {child.icon ?? <Activity className="h-4 w-4" />}
+                                <span>{child.label}</span>
+                                {child.badge && (
+                                  <span className="sidebar-flyout-badge">{child.badge}</span>
+                                )}
+                              </span>
+                              <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+                            </Link>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {sectionIndex < item.flyoutSections.length - 1 && (
+                  <div className="sidebar-flyout-divider" />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MainMenuContent({
   collapsed,
   adminUser,
   canManageSites,
+  location,
+  showFlyouts = collapsed,
+  onSelectSection,
 }: {
   collapsed: boolean;
   adminUser: boolean;
   canManageSites: boolean;
+  location: string;
+  showFlyouts?: boolean;
+  onSelectSection?: (section: Section) => void;
 }) {
   const { user } = useAuth();
-  const items = [
+  const { activeSite } = useSite();
+  const canManageProjects =
+    user != null &&
+    (user.permissions?.canCreateProject !== false ||
+      user.permissions?.canDeleteProject !== false);
+  const canViewCrawlHistory = user?.permissions?.canViewCrawlHistory ?? false;
+  const urlSiteId = location.match(/^\/sites\/(\d+)/)?.[1];
+  const accessibilityOverviewHref = activeSite?.id
+    ? `/sites/${activeSite.id}`
+    : urlSiteId
+      ? `/sites/${urlSiteId}`
+      : "/crawler/sites";
+  const [activeFlyout, setActiveFlyout] = useState<string | null>(null);
+  const activeFlyoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mainItems: MainMenuItem[] = [
     {
       label: "Accessibility",
       icon: <Accessibility className="w-5 h-5 shrink-0" />,
       href: "/scans",
       color: "text-blue-500",
+      section: "accessibility",
+      flyoutSections: [
+        {
+          items: [
+            { label: "Overview", href: accessibilityOverviewHref, icon: <LayoutDashboard className="h-4 w-4" /> },
+            { label: "Activity", href: "/activity", icon: <Activity className="h-4 w-4" /> },
+          ],
+        },
+        {
+          label: "Manual scanning",
+          items: [
+            { label: "New Scan", href: "/new", icon: <Plus className="h-4 w-4" /> },
+            { label: "Scan History", href: "/scans", icon: <History className="h-4 w-4" /> },
+            { label: "Compare Scans", href: "/compare", icon: <GitCompare className="h-4 w-4" /> },
+          ],
+        },
+        {
+          label: "Crawler scanning",
+          items: [
+            ...(user?.permissions?.canCreateCrawl
+              ? [{ label: "New crawler scan", href: "/crawler/new", icon: <Plus className="h-4 w-4" /> }]
+              : []),
+            ...(user?.permissions?.canViewCrawlHistory
+              ? [{ label: "Crawler Scan History", href: "/crawler", icon: <Globe className="h-4 w-4" /> }]
+              : []),
+            ...(canManageSites
+              ? [{ label: "Manage Sites", href: "/crawler/sites", icon: <Building2 className="h-4 w-4" /> }]
+              : []),
+          ],
+        },
+      ],
     },
     ...(user?.permissions?.canViewQualityAssurance ? [{
       label: "Quality Assurance",
       icon: <ClipboardCheck className="w-5 h-5 shrink-0" />,
       href: "/quality-assurance",
       color: "text-violet-500",
+      section: "quality-assurance" as Section,
+      flyoutSections: [
+        {
+          items: [
+            { label: "Overview", href: "/quality-assurance", icon: <ClipboardCheck className="h-4 w-4" /> },
+            { label: "Priority Pages", href: "/quality-assurance/priority-pages", icon: <Star className="h-4 w-4" /> },
+            { label: "Check History", href: "/quality-assurance/check-history", icon: <History className="h-4 w-4" /> },
+            { label: "Single Page Check", href: "/quality-assurance/single-page-check", icon: <Search className="h-4 w-4" /> },
+          ],
+        },
+        {
+          label: "Inventory",
+          items: [
+            { label: "Content Inventory", href: "/quality-assurance/inventory", icon: <Layers className="h-4 w-4" /> },
+            { label: "Broken Links", href: "/quality-assurance/links/broken", icon: <Link2 className="h-4 w-4" /> },
+          ],
+        },
+      ],
     }] : []),
     //  { label: "SEO", icon: <Search className="w-5 h-5 shrink-0" />, href: "/seo", color: "text-emerald-500" },*/}
     ...(adminUser
@@ -1067,61 +1591,208 @@ function MainMenuContent({
             icon: <ShieldCheck className="w-5 h-5 shrink-0" />,
             href: "/admin/dashboard",
             color: "text-amber-500",
+            section: "admin" as Section,
+            flyoutSections: [
+              {
+                items: [
+                  { label: "Dashboard", href: "/admin/dashboard", icon: <LayoutDashboard className="h-4 w-4" /> },
+                  { label: "Users", href: "/admin/users", icon: <Users className="h-4 w-4" /> },
+                  { label: "Groups", href: "/admin/groups", icon: <UsersRound className="h-4 w-4" /> },
+                  { label: "Settings", href: "/admin/settings", icon: <Settings className="h-4 w-4" /> },
+                ],
+              },
+              {
+                label: "Access control",
+                items: [
+                  { label: "Permissions", href: "/admin/permissions", icon: <ShieldCheck className="h-4 w-4" /> },
+                  { label: "Site manager", href: "/admin/site-manager", icon: <Building2 className="h-4 w-4" /> },
+                ],
+              },
+            ],
           },
         ]
       : []),
-    ...(canManageSites
+    ...(canManageSites || canManageProjects
       ? [
           {
             label: "Site Management",
             icon: <Building2 className="w-5 h-5 shrink-0" />,
-            href: "/crawler/sites",
+            href: canManageSites ? "/crawler/sites" : "/projects",
             color: "text-amber-500",
+            section: "site-management" as Section,
+            flyoutSections: [
+              {
+                items: [
+                  ...(canManageSites
+                    ? [{ label: "Manage Sites", href: "/crawler/sites", icon: <Building2 className="h-4 w-4" /> }]
+                    : []),
+                  ...(canManageProjects
+                    ? [{ label: "Manage Projects", href: "/projects", icon: <FolderOpen className="h-4 w-4" /> }]
+                    : []),
+                  ...(canManageSites
+                    ? [{ label: "Manage Crawl", href: "/crawler/manage", icon: <Globe className="h-4 w-4" /> }]
+                    : []),
+                  ...(canViewCrawlHistory
+                    ? [{ label: "Crawler Scan History", href: "/crawler", icon: <History className="h-4 w-4" /> }]
+                    : []),
+                ],
+              },
+            ],
           },
         ]
       : []),
   ];
+  const homeItem: MainMenuItem = {
+    label: "Main menu",
+    icon: <Menu className="w-5 h-5 shrink-0" />,
+    href: "/welcome",
+    color: "text-slate-500",
+    isMenuOnly: true,
+    createItems: [
+      {
+        label: "New manual scan",
+        href: "/new",
+        description: "Run an accessibility scan",
+        icon: <Accessibility className="h-4 w-4" />,
+        keywords: ["new scan", "manual scan", "accessibility"],
+      },
+      ...(user?.permissions?.canCreateCrawl
+        ? [{
+            label: "New crawler scan",
+            href: "/crawler/new",
+            description: "Discover and scan a site",
+            icon: <Globe className="h-4 w-4" />,
+            keywords: ["new crawler", "crawler scan", "scan site"],
+          }]
+        : []),
+      ...(canManageSites
+        ? [{
+            label: "New site",
+            href: "/crawler/sites?create=1",
+            description: "Add a site for crawler scans",
+            icon: <Building2 className="h-4 w-4" />,
+            keywords: ["new site", "add site", "crawler"],
+          }]
+        : []),
+      ...(adminUser
+        ? [
+            {
+              label: "New user",
+              href: "/admin/users?create=1",
+              description: "Add a user account",
+              icon: <UserRound className="h-4 w-4" />,
+              keywords: ["new user", "add user", "invite user"],
+            },
+            {
+              label: "New group",
+              href: "/admin/groups?create=1",
+              description: "Create a user group",
+              icon: <UsersRound className="h-4 w-4" />,
+              keywords: ["new group", "add group", "user group"],
+            },
+          ]
+        : []),
+      {
+        label: "New support ticket",
+        href: "/tickets?create=1",
+        description: "Ask for help from support",
+        icon: <TicketCheck className="h-4 w-4" />,
+        keywords: ["new support ticket", "new ticket", "support", "help"],
+      },
+    ],
+    flyoutSections: [
+      {
+        items: mainItems.map((item) => ({
+          label: item.label,
+          href: item.href,
+          icon: item.icon,
+          children: item.flyoutSections.flatMap((section) => section.items),
+        })),
+      },
+    ],
+  };
+  const items = [homeItem, ...mainItems];
+
+  const activateFlyout = (label: string) => {
+    if (activeFlyoutTimer.current) clearTimeout(activeFlyoutTimer.current);
+    setActiveFlyout(label);
+  };
+
+  const deactivateFlyout = (label: string) => {
+    if (activeFlyoutTimer.current) clearTimeout(activeFlyoutTimer.current);
+    activeFlyoutTimer.current = setTimeout(() => {
+      setActiveFlyout((current) => (current === label ? null : current));
+    }, 160);
+  };
 
   if (collapsed) {
     return (
-      <div className="space-y-1">
-        {items.map((item) => (
-          <Tooltip key={item.label}>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                className="w-full justify-center px-0"
-                asChild
-                data-tour={`main-${item.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                data-tour-title={item.label}
-                data-tour-description={`Open the ${item.label} area of the application.`}
-              >
-                <Link href={item.href}>
-                  <span className={item.color}>{item.icon}</span>
-                </Link>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{item.label}</TooltipContent>
-          </Tooltip>
-        ))}
+      <div className="space-y-1.5">
+        {items.map((item) => {
+            const active =
+              item.isMenuOnly
+                ? false
+              : item.href === "/scans"
+              ? location.startsWith("/scans") ||
+                location === "/new" ||
+                location.startsWith("/compare") ||
+                location.startsWith("/crawler") ||
+                location.startsWith("/sites/")
+              : item.href === "/quality-assurance"
+                ? location.startsWith("/quality-assurance")
+              : item.href === "/admin/dashboard"
+                  ? location.startsWith("/admin")
+                  : item.href === "/crawler/sites"
+                    ? location.startsWith("/crawler/sites") || location === "/projects"
+                    : false;
+          return (
+            <CollapsedMainMenuItem
+              key={item.label}
+              item={item}
+              active={active}
+              dataTour={`main-${item.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+              showFlyout={showFlyouts}
+              flyoutActive={activeFlyout === item.label}
+              onActivate={() => activateFlyout(item.label)}
+              onDeactivate={() => deactivateFlyout(item.label)}
+            />
+          );
+        })}
       </div>
     );
   }
 
   return (
     <div className="space-y-0.5">
-      <p className="px-2 pb-2 text-xs text-muted-foreground">Main menu</p>
-      {items.map((item) => (
+      {mainItems.map((item) => (
         <Button
           key={item.label}
           variant="ghost"
-          className="w-full justify-start gap-3 h-11 px-3 text-sm font-medium rounded-lg"
+          className="sidebar-nav-item w-full justify-start gap-3 h-10 px-3 text-sm font-medium rounded-lg"
           asChild
+          data-sidebar-active={
+            item.href === "/scans"
+              ? (location.startsWith("/scans") ||
+                  location === "/new" ||
+                  location.startsWith("/compare") ||
+                  location.startsWith("/crawler") ||
+                  location.startsWith("/sites/")) ? "true" : "false"
+              : item.href === "/admin/dashboard"
+                ? location.startsWith("/admin") ? "true" : "false"
+                : item.href === "/crawler/sites"
+                  ? location.startsWith("/crawler/sites") || location === "/projects" ? "true" : "false"
+                  : "false"
+          }
           data-tour={`main-${item.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
           data-tour-title={item.label}
           data-tour-description={`Open the ${item.label} area of the application.`}
         >
-          <Link href={item.href}>
+          <Link
+            href={item.href}
+            onClick={() => {
+              if (!collapsed && item.section) onSelectSection?.(item.section);
+            }}
+          >
             <span className={item.color}>{item.icon}</span>
             <span className="flex-1 text-left">{item.label}</span>
             <ChevronRight className="w-4 h-4 text-muted-foreground/50 shrink-0" />
@@ -1154,6 +1825,10 @@ function AccessibilitySidebarContent({
   const { user } = useAuth();
   const canCreateCrawl = user?.permissions?.canCreateCrawl ?? false;
   const canManageSites = user?.permissions?.canManageSites ?? false;
+  const canManageProjects =
+    user != null &&
+    (user.permissions?.canCreateProject !== false ||
+      user.permissions?.canDeleteProject !== false);
   const canViewCrawlHistory = user?.permissions?.canViewCrawlHistory ?? false;
   const canViewSiteAccessibilityDashboard =
     user?.permissions?.canViewSiteAccessibilityDashboard ?? false;
@@ -1300,6 +1975,15 @@ function AccessibilitySidebarContent({
           </NavGroup>
         </>
       )}
+      {canManageProjects && (
+        <NavItem
+          href="/projects"
+          icon={<FolderOpen className="w-3.5 h-3.5 shrink-0" />}
+          label="Manage Projects"
+          active={location === "/projects"}
+          collapsed={collapsed}
+        />
+      )}
       <NavItem
         href="/activity"
         icon={<Activity className="w-3.5 h-3.5 shrink-0" />}
@@ -1371,7 +2055,7 @@ function AccessibilitySidebarContent({
             <NavItem
               href="/crawler"
               icon={dot}
-              label="Scan History"
+              label="Crawler Scan History"
               active={
                 location.startsWith("/crawler") &&
                 !location.startsWith("/crawler/new") &&
@@ -1441,6 +2125,7 @@ function AdminSidebarContent({
   adminUser,
   superAdminUser,
   canManageSites,
+  canManageProjects = false,
   onBack,
 }: {
   collapsed: boolean;
@@ -1448,6 +2133,7 @@ function AdminSidebarContent({
   adminUser: boolean;
   superAdminUser: boolean;
   canManageSites: boolean;
+  canManageProjects?: boolean;
   onBack: () => void;
 }) {
   const dot = (
@@ -1484,6 +2170,15 @@ function AdminSidebarContent({
           icon={<Building2 className="w-4 h-4 shrink-0" />}
           label="Manage Sites"
           active={location.startsWith("/crawler/sites")}
+          collapsed={collapsed}
+        />
+      )}
+      {canManageProjects && (
+        <NavItem
+          href="/projects"
+          icon={<FolderOpen className="w-4 h-4 shrink-0" />}
+          label="Manage Projects"
+          active={location === "/projects"}
           collapsed={collapsed}
         />
       )}
@@ -1546,15 +2241,24 @@ function AdminSidebarContent({
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [updatesOpen, setUpdatesOpen] = useState(false);
+  const [sidebarSearch, setSidebarSearch] = useState("");
   const [collapsed, toggleCollapsed] = useSidebarCollapsed();
   const { user, logout } = useAuth();
   const adminUser = isAdmin(user);
   const superAdminUser = user?.role === "super_admin";
   const canManageSites = user?.permissions?.canManageSites ?? false;
+  const canManageProjects =
+    user != null &&
+    (user.permissions?.canCreateProject !== false ||
+      user.permissions?.canDeleteProject !== false);
   const isSiteCustomer = !!user && user.role === "user";
+
+  useEffect(() => {
+    applyAccentColor(getSavedAccentColor());
+  }, []);
 
   useEffect(() => {
     const openSettings = () => setSettingsOpen(true);
@@ -1674,7 +2378,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     ? "quality-assurance"
     : seoActive
       ? "seo"
-      : siteManagementActive
+    : siteManagementActive || location === "/projects"
         ? "site-management"
         : adminSettingsActive
         ? "admin"
@@ -1695,6 +2399,42 @@ export function Layout({ children }: { children: React.ReactNode }) {
   }, [urlSection]);
 
   const onBack = () => setSidebarSection(null);
+
+  const sidebarSearchItems = [
+    { label: "Accessibility", href: "/scans" },
+    { label: "Activity", href: "/activity" },
+    { label: "New Scan", href: "/new" },
+    { label: "Scan History", href: "/scans" },
+    { label: "Compare Scans", href: "/compare" },
+    { label: "Crawler Scan History", href: "/crawler" },
+    ...(user?.permissions?.canViewQualityAssurance
+      ? [
+          { label: "Quality Assurance", href: "/quality-assurance" },
+          { label: "Priority Pages", href: "/quality-assurance/priority-pages" },
+          { label: "Check History", href: "/quality-assurance/check-history" },
+        ]
+      : []),
+    ...(adminUser
+      ? [
+          { label: "Admin Dashboard", href: "/admin/dashboard" },
+          { label: "Users", href: "/admin/users" },
+          { label: "Groups", href: "/admin/groups" },
+          { label: "Admin Settings", href: "/admin/settings" },
+        ]
+      : []),
+    ...(canManageSites
+      ? [{ label: "Manage Sites", href: "/crawler/sites" }]
+      : []),
+    ...(user?.permissions?.canCreateProject || user?.permissions?.canDeleteProject
+      ? [{ label: "Manage Projects", href: "/projects" }]
+      : []),
+  ];
+  const normalizedSidebarSearch = sidebarSearch.trim().toLowerCase();
+  const filteredSidebarSearchItems = normalizedSidebarSearch
+    ? sidebarSearchItems.filter((item) =>
+        item.label.toLowerCase().includes(normalizedSidebarSearch),
+      )
+    : [];
 
   const closeWalkthrough = () => {
     setTourStep(null);
@@ -1789,103 +2529,123 @@ export function Layout({ children }: { children: React.ReactNode }) {
         })()
       : undefined;
 
-  const toggleBtn = (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="h-7 w-7 rounded-full border border-border bg-background shadow-sm hover:bg-muted"
-      onClick={toggleCollapsed}
-      aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-    >
-      {collapsed ? (
-        <ChevronRight className="w-3.5 h-3.5" />
-      ) : (
-        <ChevronLeft className="w-3.5 h-3.5" />
-      )}
-    </Button>
-  );
-
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="min-h-screen bg-background">
-        <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="h-16 px-3 md:px-4 flex items-center justify-between gap-2 overflow-hidden">
-            <Link href="/scans" className="shrink-0 flex items-center">
-              <AppLogo />
-            </Link>
+      <div className="app-shell min-h-screen bg-background">
+        <header className="sticky top-0 z-50 border-b border-border/70 bg-background/95 shadow-[0_1px_10px_rgba(15,23,42,0.04)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
+          <div className="h-14 px-3 md:px-5 flex items-center justify-between gap-2 overflow-hidden">
+            <div className="flex shrink-0 items-center gap-2">
+              <Link href="/scans" className="flex items-center">
+                <AppLogo />
+              </Link>
+              <Badge
+                data-tour="version-badge"
+                data-tour-title={`Version ${APP_UPDATES_VERSION}`}
+                data-tour-description="This badge shows the current application release."
+                variant="outline"
+                className="vision-header-version h-6 border-primary/30 bg-primary/5 px-2 font-mono text-[10px] text-primary"
+              >
+                v{APP_UPDATES_VERSION}
+              </Badge>
+            </div>
             <div className="min-w-0 flex-1 flex items-center justify-center px-1 sm:px-2">
               <SiteSelector />
             </div>
-            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-              <Link href="/tickets">
-                <Button
-                  data-tour="header-support"
-                  data-tour-title="Support"
-                  data-tour-description="Open support tickets and request help from your team."
-                  variant={
-                    location.startsWith("/tickets") ? "secondary" : "ghost"
-                  }
-                  size="sm"
-                  className="gap-2"
-                  aria-label="Support"
-                >
-                  <TicketCheck className="w-4 h-4" />
-                  <span className="hidden lg:inline">Support</span>
-                </Button>
-              </Link>
-              <Link href="/app-updates">
-                <Button
-                  data-testid="button-app-updates"
-                  data-tour="header-app-updates"
-                  data-tour-title="App Updates"
-                  data-tour-description={`See what is new in version ${APP_UPDATES_VERSION}.`}
-                  variant={location === "/app-updates" ? "secondary" : "ghost"}
-                  size="sm"
-                  className="relative gap-2"
-                  aria-label="App Updates"
-                >
-                  <Megaphone className="h-4 w-4 text-primary" />
-                  <span className="hidden lg:inline">App Updates</span>
-                  <span
-                    aria-label="New updates"
-                    className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-fuchsia-500 shadow-[0_0_0_2px_hsl(var(--background)),0_0_10px_rgba(217,70,239,0.9)]"
-                  />
-                </Button>
-              </Link>
-              <Link href="/app-walkthrough">
-                <Button
-                  data-testid="button-app-walkthrough"
-                  data-tour="header-app-walkthrough"
-                  data-tour-title="App Walkthrough"
-                  data-tour-description="Start a guided tour of the platform navigation."
-                  variant={location === "/app-walkthrough" ? "secondary" : "ghost"}
-                  size="sm"
-                  className="gap-2"
-                  aria-label="App Walkthrough"
-                >
-                  <Map className="h-4 w-4" />
-                  <span className="hidden lg:inline">App Walkthrough</span>
-                </Button>
-              </Link>
-              <Link href="/documentation">
-                <Button
-                  data-testid="button-documentation"
-                  data-tour="header-documentation"
-                  data-tour-title="Documentation"
-                  data-tour-description="Read scanning guidance, rule descriptions, and WCAG references."
-                  variant={
-                    location === "/documentation" ? "secondary" : "ghost"
-                  }
-                  size="sm"
-                  className="gap-2"
-                  aria-label="Documentation"
-                >
-                  <BookOpen className="w-4 h-4" />
-                  <span className="hidden lg:inline">Documentation</span>
-                </Button>
-              </Link>
+            <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
+              <HeaderThemeSwitcher />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link href="/tickets">
+                    <Button
+                      data-tour="header-support"
+                      data-tour-title="Support"
+                      data-tour-description="Open support tickets and request help from your team."
+                      variant={
+                        location.startsWith("/tickets") ? "secondary" : "ghost"
+                      }
+                      size="icon"
+                      className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                      aria-label="Support"
+                    >
+                      <TicketCheck className="w-4 h-4" />
+                    </Button>
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="bg-slate-950 text-white shadow-lg">
+                  Support
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link href="/app-updates">
+                    <Button
+                      data-testid="button-app-updates"
+                      data-tour="header-app-updates"
+                      data-tour-title="App Updates"
+                      data-tour-description={`See what is new in version ${APP_UPDATES_VERSION}.`}
+                      variant={location === "/app-updates" ? "secondary" : "ghost"}
+                      size="icon"
+                      className="relative h-8 w-8 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                      aria-label="App Updates"
+                    >
+                      <Megaphone className="h-4 w-4 text-primary" />
+                      <span
+                        aria-label="New updates"
+                        className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-fuchsia-500 shadow-[0_0_0_2px_hsl(var(--background)),0_0_10px_rgba(217,70,239,0.9)]"
+                      />
+                    </Button>
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="bg-slate-950 text-white shadow-lg">
+                  App updates
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link href="/app-walkthrough">
+                    <Button
+                      data-testid="button-app-walkthrough"
+                      data-tour="header-app-walkthrough"
+                      data-tour-title="App Walkthrough"
+                      data-tour-description="Start a guided tour of the platform navigation."
+                      variant={location === "/app-walkthrough" ? "secondary" : "ghost"}
+                      size="icon"
+                      className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                      aria-label="App Walkthrough"
+                    >
+                      <Map className="h-4 w-4" />
+                    </Button>
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="bg-slate-950 text-white shadow-lg">
+                  App walkthrough
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link href="/documentation">
+                    <Button
+                      data-testid="button-documentation"
+                      data-tour="header-documentation"
+                      data-tour-title="Documentation"
+                      data-tour-description="Read scanning guidance, rule descriptions, and WCAG references."
+                      variant={
+                        location === "/documentation" ? "secondary" : "ghost"
+                      }
+                      size="icon"
+                      className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                      aria-label="Documentation"
+                    >
+                      <BookOpen className="w-4 h-4" />
+                    </Button>
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="bg-slate-950 text-white shadow-lg">
+                  Documentation
+                </TooltipContent>
+              </Tooltip>
               {/* User menu */}
-              <DropdownMenu>
+              <DropdownMenu modal={false}>
                 <DropdownMenuTrigger asChild>
                   <Button
                     data-tour="header-account"
@@ -1893,34 +2653,74 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     data-tour-description="Access account settings and sign out."
                     variant="ghost"
                     size="icon"
-                    className="shrink-0"
+                    title="Account menu"
+                  className="group relative ml-1 flex h-9 w-12 items-center justify-center gap-0.5 rounded-full p-0 hover:bg-muted vision-account-trigger"
                     aria-label="Open account menu"
                   >
-                    <User className="w-4 h-4" />
+                    <span className="vision-account-avatar relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[11px] font-semibold tracking-tight text-white shadow-sm ring-2 ring-background transition-transform group-data-[state=open]:scale-105 dark:bg-slate-100 dark:text-slate-900">
+                      {getUserInitials(user?.fullName || user?.username)}
+                      <span
+                        aria-hidden="true"
+                        className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-background bg-emerald-500"
+                      />
+                    </span>
+                    <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel className="font-normal">
-                    <div className="flex items-center gap-2">
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                        <User className="h-4 w-4" />
+                <DropdownMenuContent
+                  align="end"
+                  sideOffset={8}
+                  className="vision-account-menu relative max-h-[calc(100vh-4.5rem)] w-[340px] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-xl border-border/80 bg-popover/95 p-1.5 shadow-xl backdrop-blur before:absolute before:right-8 before:top-[-5px] before:h-2.5 before:w-2.5 before:rotate-45 before:border-l before:border-t before:border-border/80 before:bg-popover"
+                >
+                  <DropdownMenuLabel className="p-0 font-normal">
+                    <div className="flex items-center gap-3 rounded-lg px-3 py-3">
+                      <span className="vision-account-avatar relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white shadow-sm dark:bg-slate-100 dark:text-slate-900">
+                        {getUserInitials(user?.fullName || user?.username)}
+                        <span
+                          aria-hidden="true"
+                          className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-popover bg-emerald-500"
+                        />
                       </span>
-                      <p className="min-w-0 truncate text-sm font-semibold text-foreground">
-                        {user?.fullName || user?.username}
-                      </p>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-foreground">
+                          {user?.fullName || user?.username || "Account"}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          Online
+                        </span>
+                      </span>
                     </div>
                   </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
-                    <Settings className="w-4 h-4 mr-2" />
+                  <DropdownMenuSeparator className="my-1.5" />
+                  <DropdownMenuItem
+                    asChild
+                    className="h-10 rounded-lg px-3 text-[14px] hover:bg-muted/70 hover:text-foreground focus:bg-muted/70 focus:text-foreground"
+                  >
+                    <Link href="/profile-settings">
+                      <UserRound className="h-4 w-4 text-muted-foreground" />
+                      Profile settings
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setSettingsOpen(true)}
+                    className="h-10 rounded-lg px-3 text-[14px] hover:bg-muted/70 hover:text-foreground focus:bg-muted/70 focus:text-foreground"
+                  >
+                    <Settings className="h-4 w-4 text-muted-foreground" />
                     Settings
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
+                    onClick={() => setSettingsOpen(true)}
+                    className="h-10 rounded-lg px-3 text-[14px] hover:bg-muted/70 hover:text-foreground focus:bg-muted/70 focus:text-foreground"
+                  >
+                    <Palette className="h-4 w-4 text-muted-foreground" />
+                    Themes
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="my-1.5" />
+                  <DropdownMenuItem
+                    className="h-10 rounded-lg px-3 text-[14px] text-destructive hover:bg-destructive/10 hover:text-destructive focus:bg-destructive/10 focus:text-destructive"
                     onClick={() => logout()}
                   >
-                    <LogOut className="w-4 h-4 mr-2" />
+                    <LogOut className="h-4 w-4" />
                     Sign Out
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -1929,94 +2729,188 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <div className="flex min-h-[calc(100vh-4rem)]">
+         <div className="flex h-[calc(100dvh-3.5rem)] min-h-0">
           {/* Sidebar */}
-          <aside
-            className={`hidden md:flex border-r border-border bg-sidebar shrink-0 flex-col relative transition-[width] duration-200 ease-in-out ${
-              collapsed ? "w-[56px]" : "w-64"
-            }`}
-          >
-            <div className="absolute -right-3.5 top-5 z-10">{toggleBtn}</div>
+           <aside
+             className={`sidebar-shell hidden md:flex ${
+               collapsed ? "sidebar-shell-collapsed" : "sidebar-shell-expanded"
+             }`}
+           >
+             <div className="sidebar-rail flex flex-col items-center gap-3 py-3">
+               {collapsed && (
+                 <Tooltip>
+                   <TooltipTrigger asChild>
+                     <Button
+                       variant="ghost"
+                       size="icon"
+                       className="sidebar-rail-toggle"
+                       onClick={toggleCollapsed}
+                       aria-label="Open sidebar"
+                     >
+                       <ChevronsRight className="h-5 w-5" />
+                     </Button>
+                   </TooltipTrigger>
+                   <TooltipContent side="right">Open sidebar</TooltipContent>
+                 </Tooltip>
+               )}
+               <div className="h-px w-7 bg-white/25" />
+               <MainMenuContent
+                 collapsed
+                  showFlyouts={collapsed}
+                 location={location}
+                 adminUser={adminUser}
+                 canManageSites={user?.permissions?.canManageSites ?? false}
+               />
+             </div>
 
-            <div
-              className={`p-4 pb-2 overflow-hidden whitespace-nowrap ${collapsed ? "opacity-0 pointer-events-none" : "opacity-100"} transition-opacity duration-150`}
-            >
-              <div className="flex items-center gap-2 font-bold text-xs text-sidebar-foreground">
-                <Badge
-                  data-tour="version-badge"
-                    data-tour-title={`Version ${APP_UPDATES_VERSION}`}
-                  data-tour-description="This badge shows the current application release."
-                  variant="outline"
-                  className="h-6 border-primary/30 bg-primary/5 px-2 font-mono text-[10px] text-primary"
-                >
-                  v{APP_UPDATES_VERSION}
-                </Badge>
-              </div>
-            </div>
-
-            <nav
-              className={`flex-1 py-4 space-y-3 overflow-y-auto ${collapsed ? "px-1.5" : "px-4"} transition-[padding] duration-200`}
-            >
-              {sidebarSection === null && (
-                <MainMenuContent
-                  collapsed={collapsed}
-                  adminUser={adminUser}
-                  canManageSites={user?.permissions?.canManageSites ?? false}
-                />
-              )}
-              {sidebarSection === "accessibility" && (
-                <AccessibilitySidebarContent
-                  collapsed={collapsed}
-                  location={location}
-                  adminUser={adminUser}
-                  showSiteNav={showSiteNav}
-                  effectiveSiteId={effectiveSiteId}
-                  onBack={onBack}
-                />
-              )}
-              {sidebarSection === "quality-assurance" && (
-                <QASidebarContent
-                  collapsed={collapsed}
-                  location={location}
-                  onBack={onBack}
-                />
-              )}
-              {sidebarSection === "seo" && (
-                <SEOSidebarContent
-                  collapsed={collapsed}
-                  location={location}
-                  onBack={onBack}
-                />
-              )}
-              {sidebarSection === "admin" && adminUser && (
-                <AdminSidebarContent
-                  collapsed={collapsed}
-                  location={location}
-                  adminUser={adminUser}
-                  superAdminUser={superAdminUser}
-                  canManageSites={canManageSites}
-                  onBack={onBack}
-                />
-              )}
-              {sidebarSection === "site-management" && canManageSites && (
-                <AdminSidebarContent
-                  collapsed={collapsed}
-                  location={location}
-                  adminUser={false}
-                  superAdminUser={false}
-                  canManageSites
-                  onBack={onBack}
-                />
-              )}
-            </nav>
-
-            {!collapsed && (
-              <div className="px-4 pb-4 mt-auto space-y-1">
-                <div className="text-xs text-sidebar-foreground/50 px-2 pt-2">
-                  Professional accessibility auditing tool.
+             <div
+               className={
+                 collapsed
+                   ? "sidebar-panel sidebar-panel-collapsed"
+                   : "sidebar-panel sidebar-panel-expanded"
+               }
+             >
+              <div
+                 className={`sidebar-panel-header overflow-hidden whitespace-nowrap ${
+                   collapsed ? "hidden" : ""
+                 }`}
+              >
+                  <div className="flex min-w-0 items-center gap-2">
+                     <p className="text-sm font-normal text-muted-foreground">Main menu</p>
+                   <div className="ml-auto flex items-center gap-1">
+                     <Button
+                       variant="ghost"
+                       size="icon"
+                       className="sidebar-panel-icon-button"
+                       onClick={() => setSidebarSearch((value) => (value ? "" : " "))}
+                       aria-label="Search your sidebar"
+                     >
+                       <Search className="h-4 w-4" />
+                     </Button>
+                     <Button
+                       variant="ghost"
+                       size="icon"
+                       className="sidebar-panel-icon-button"
+                       onClick={toggleCollapsed}
+                       aria-label="Close sidebar"
+                     >
+                       <ChevronLeft className="h-4 w-4" />
+                     </Button>
+                   </div>
                 </div>
+                 <div
+                   className={`sidebar-search-wrap ${
+                     sidebarSearch || normalizedSidebarSearch ? "is-open" : ""
+                   }`}
+                 >
+                   <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                   <input
+                     value={sidebarSearch.trim()}
+                     onChange={(event) => setSidebarSearch(event.target.value)}
+                     placeholder="Search sidebar..."
+                     aria-label="Search your sidebar"
+                     className="sidebar-search-input"
+                   />
+                   {sidebarSearch.trim() && (
+                     <button
+                       type="button"
+                       className="sidebar-search-clear"
+                       onClick={() => setSidebarSearch("")}
+                       aria-label="Clear sidebar search"
+                     >
+                       <X className="h-3.5 w-3.5" />
+                     </button>
+                   )}
+                 </div>
               </div>
-            )}
+
+              <nav
+                className={`app-scrollbar flex-1 py-4 space-y-3 overflow-y-auto ${collapsed ? "px-1.5" : "px-4"} transition-[padding] duration-200`}
+              >
+                 {normalizedSidebarSearch ? (
+                   <div className="sidebar-search-results space-y-1">
+                     {filteredSidebarSearchItems.length > 0 ? (
+                       filteredSidebarSearchItems.map((item) => (
+                         <Link
+                           key={`${item.label}-${item.href}`}
+                           href={item.href}
+                           className="sidebar-search-result"
+                           onClick={() => setSidebarSearch("")}
+                         >
+                           <Search className="h-3.5 w-3.5 shrink-0 text-primary" />
+                           <span className="truncate">{item.label}</span>
+                         </Link>
+                       ))
+                     ) : (
+                       <p className="px-2 py-4 text-sm text-muted-foreground">
+                         No sidebar items found.
+                       </p>
+                     )}
+                   </div>
+                 ) : sidebarSection === null ? (
+                  <MainMenuContent
+                    collapsed={collapsed}
+                    location={location}
+                    adminUser={adminUser}
+                    canManageSites={user?.permissions?.canManageSites ?? false}
+                     onSelectSection={setSidebarSection}
+                  />
+                 ) : null}
+                {sidebarSection === "accessibility" && (
+                  <AccessibilitySidebarContent
+                    collapsed={collapsed}
+                    location={location}
+                    adminUser={adminUser}
+                    showSiteNav={showSiteNav}
+                    effectiveSiteId={effectiveSiteId}
+                    onBack={onBack}
+                  />
+                )}
+                {sidebarSection === "quality-assurance" && (
+                  <QASidebarContent
+                    collapsed={collapsed}
+                    location={location}
+                    onBack={onBack}
+                  />
+                )}
+                {sidebarSection === "seo" && (
+                  <SEOSidebarContent
+                    collapsed={collapsed}
+                    location={location}
+                    onBack={onBack}
+                  />
+                )}
+                {sidebarSection === "admin" && adminUser && (
+                  <AdminSidebarContent
+                    collapsed={collapsed}
+                    location={location}
+                    adminUser={adminUser}
+                    superAdminUser={superAdminUser}
+                    canManageSites={canManageSites}
+                    onBack={onBack}
+                  />
+                )}
+                {sidebarSection === "site-management" && (canManageSites || canManageProjects) && (
+                  <AdminSidebarContent
+                    collapsed={collapsed}
+                    location={location}
+                    adminUser={false}
+                    superAdminUser={false}
+                    canManageSites={canManageSites}
+                    canManageProjects={canManageProjects}
+                    onBack={onBack}
+                  />
+                )}
+              </nav>
+
+              {!collapsed && (
+                <div className="px-4 pb-4 mt-auto space-y-1">
+                  <div className="sidebar-section-label px-2 pt-2">
+                    Professional accessibility auditing tool.
+                  </div>
+                </div>
+              )}
+            </div>
           </aside>
 
           <a
@@ -2025,8 +2919,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
           >
             Skip to main content
           </a>
-          <main id="main-content" tabIndex={-1} className="flex-1 min-w-0 overflow-auto">
-            <div className="p-6 md:p-8 w-full">
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className={`flex-1 min-w-0 ${
+              location === "/welcome"
+                ? "flex flex-col overflow-hidden"
+                : "overflow-auto app-scrollbar"
+            }`}
+          >
+            <div
+              className={`w-full p-6 md:p-8 ${
+                location === "/welcome" ? "h-full min-h-0" : ""
+              }`}
+            >
               {location !== "/welcome" && (
                 <Link
                   href="/welcome"

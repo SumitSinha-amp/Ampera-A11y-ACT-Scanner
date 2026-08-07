@@ -8,7 +8,9 @@ import {
   getGetScanStatusQueryKey,
   getGetScanReportQueryKey,
   getListScansQueryKey,
+  getListProjectsQueryKey,
   getGetScanQueryKey,
+  useListProjects,
   type ListScansParams,
 } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/auth";
@@ -17,6 +19,7 @@ import { ProjectSelector } from "@/components/project-selector";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -49,6 +52,8 @@ import {
   Activity,
 } from "lucide-react";
 import { getStatusBadge } from "@/lib/status-badge";
+import { isUrlLikeScanName, SCAN_NAME_URL_ERROR } from "@/lib/scan-name";
+import { FieldMessage } from "@/components/ui/field-message";
 import { formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
@@ -91,6 +96,7 @@ interface EditScanDialogProps {
     id: number;
     name: string | null;
     projectId?: number | null;
+    projectName?: string | null;
     siteId?: number | null;
     initiatorName?: string | null;
     initiatorRole?: string | null;
@@ -100,6 +106,7 @@ interface EditScanDialogProps {
 }
 
 const BASE_URL = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+const ALL_RULES_FILTER = "__all_rules__";
 
 type AdminUser = { id: number; fullName: string; username: string; groups: { id: number; name: string }[] };
 
@@ -116,20 +123,38 @@ type ScanItem = {
   projectName?: string | null;
   projectId?: number | null;
   siteId?: number | null;
+  options?: { rules?: unknown } | null;
+  pagesWithIssues?: number;
   initiatorName?: string | null;
   initiatorRole?: string | null;
 };
+
+function getScanRuleIds(scan: { options?: unknown | null }): string[] {
+  if (!scan.options || typeof scan.options !== "object") return [];
+  const rules = (scan.options as { rules?: unknown }).rules;
+  if (!Array.isArray(rules)) return [];
+  return Array.from(
+    new Set(
+      rules
+        .filter((rule): rule is string => typeof rule === "string" && rule.trim().length > 0)
+        .map((rule) => {
+          const normalized = rule.trim().toUpperCase();
+          return normalized.startsWith("SIA-")
+            ? `ACT-${normalized.slice("SIA-".length)}`
+            : normalized;
+        }),
+    ),
+  );
+}
 
 function formatElapsed(scan: { createdAt: string; completedAt?: string | null; status: string }) {
   const start = new Date(scan.createdAt).getTime();
   const end = scan.completedAt ? new Date(scan.completedAt).getTime() : Date.now();
   const diff = Math.max(0, end - start);
-  const mins = Math.round(diff / 60000);
-  if (mins < 1) return "< 1 min";
-  if (mins < 60) return `${mins} min`;
+  const mins = Math.floor(diff / 60000);
   const hrs = Math.floor(mins / 60);
   const rem = mins % 60;
-  return `${hrs}h ${rem}m`;
+  return `${hrs}h ${String(rem).padStart(2, "0")}m`;
 }
 
 function formatEta(scan: { createdAt: string; scannedUrls: number; totalUrls: number; status: string }) {
@@ -447,7 +472,7 @@ function MultiSelectFilter({
         <p className="text-xs font-semibold text-muted-foreground px-2 py-1.5 uppercase tracking-wide">
           {label}
         </p>
-        <div className="space-y-0.5">
+        <div className={`space-y-0.5 ${label === "Rules" ? "max-h-64 overflow-y-auto pr-1" : ""}`}>
           {options.map((opt) => (
             <label
               key={opt.value}
@@ -492,6 +517,7 @@ function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
   const [initiatorName, setInitiatorName] = useState(scan.initiatorName ?? "");
   const [initiatorRole, setInitiatorRole] = useState(scan.initiatorRole ?? "");
   const [allUsers, setAllUsers] = useState<AdminUser[]>([]);
+  const [nameError, setNameError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -500,6 +526,7 @@ function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
     setSiteId(scan.siteId ?? null);
     setInitiatorName(scan.initiatorName ?? "");
     setInitiatorRole(scan.initiatorRole ?? "");
+    setNameError(null);
   }, [open, scan]);
 
   useEffect(() => {
@@ -519,6 +546,11 @@ function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
   };
 
   const handleSave = () => {
+    if (isUrlLikeScanName(name)) {
+      setNameError(SCAN_NAME_URL_ERROR);
+      return;
+    }
+    setNameError(null);
     const data: Parameters<typeof updateScan.mutate>[0]["data"] = {
       name: name.trim() || undefined,
       projectId,
@@ -552,13 +584,24 @@ function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
-            <Label htmlFor="edit-scan-name">Scan Name</Label>
+            <Label htmlFor="edit-scan-name">Scan Title</Label>
             <Input
               id="edit-scan-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Enter scan name"
+              onChange={(e) => {
+                const value = e.target.value;
+                setName(value);
+                setNameError(isUrlLikeScanName(value) ? SCAN_NAME_URL_ERROR : null);
+              }}
+              placeholder="Enter scan title"
+              aria-invalid={Boolean(nameError)}
+              aria-describedby={nameError ? "edit-scan-name-error" : undefined}
             />
+            {nameError && (
+              <FieldMessage id="edit-scan-name-error" tone="error">
+                {nameError}
+              </FieldMessage>
+            )}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -567,13 +610,18 @@ function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
               <ProjectSelector
                 value={projectId}
                 onChange={(nextProjectId) => setProjectId(nextProjectId)}
+                siteId={siteId}
+                legacyProjectName={scan.projectName}
               />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-scan-site">Site</Label>
               <Select
                 value={siteId === null ? "none" : String(siteId)}
-                onValueChange={(value) => setSiteId(value === "none" ? null : Number(value))}
+                 onValueChange={(value) => {
+                   setSiteId(value === "none" ? null : Number(value));
+                   setProjectId(null);
+                 }}
                 disabled={sitesLoading}
               >
                 <SelectTrigger id="edit-scan-site">
@@ -706,7 +754,8 @@ export default function ScanList() {
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
-  const [projectFilter, setProjectFilter] = useState<string[]>([]);
+  const [rulesFilter, setRulesFilter] = useState<string[]>([]);
+  const [projectFilter, setProjectFilter] = useState<number | null>(null);
   const [editingScan, setEditingScan] = useState<{
     id: number;
     name: string | null;
@@ -715,6 +764,17 @@ export default function ScanList() {
     initiatorName?: string | null;
     initiatorRole?: string | null;
   } | null>(null);
+
+  const projectFilterParams = activeSite ? { siteId: activeSite.id } : undefined;
+  const { data: siteProjects = [], isLoading: isLoadingProjects } = useListProjects(
+    projectFilterParams,
+    {
+      query: {
+        queryKey: getListProjectsQueryKey(projectFilterParams),
+        enabled: activeSite != null,
+      },
+    },
+  );
 
   const pauseScan = useMutation({
     mutationFn: async (scanId: number) => {
@@ -788,13 +848,17 @@ export default function ScanList() {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
   }, []);
 
-  const projectOptions = useMemo(() => {
-    const names = new Set<string>();
+  const ruleOptions = useMemo(() => {
+    const ruleIds = new Set<string>();
     for (const scan of scans ?? []) {
-      const s = scan as typeof scan & { projectName?: string | null };
-      if (s.projectName) names.add(s.projectName);
+      for (const ruleId of getScanRuleIds(scan as ScanItem)) {
+        ruleIds.add(ruleId);
+      }
     }
-    return Array.from(names).sort().map((n) => ({ value: n, label: n }));
+    return [
+      { value: ALL_RULES_FILTER, label: "All rules" },
+      ...Array.from(ruleIds).sort().map((ruleId) => ({ value: ruleId, label: ruleId })),
+    ];
   }, [scans]);
 
   const filteredScans = useMemo(() => {
@@ -832,19 +896,63 @@ export default function ScanList() {
       const matchesDateTo = !dateToFilter || createdDate <= dateToFilter;
       const matchesStatus =
         statusFilter.length === 0 || statusFilter.includes(scan.status);
+      const scanRuleIds = getScanRuleIds(scan as ScanItem);
+      const matchesRules =
+        rulesFilter.length === 0 ||
+        rulesFilter.some((ruleId) =>
+          ruleId === ALL_RULES_FILTER
+            ? scanRuleIds.length === 0
+            : scanRuleIds.includes(ruleId),
+        );
       const matchesProject =
-        projectFilter.length === 0 ||
-        (s.projectName ? projectFilter.includes(s.projectName) : false);
+        projectFilter == null || s.projectId === projectFilter;
       return (
         matchesName && matchesInitiator && matchesDateFrom && matchesDateTo &&
-        matchesStatus && matchesProject
+        matchesStatus && matchesRules && matchesProject
       );
     });
-  }, [scans, nameFilter, initiatorFilter, dateFromFilter, dateToFilter, statusFilter, projectFilter, activeSite]);
+  }, [
+    scans,
+    nameFilter,
+    initiatorFilter,
+    dateFromFilter,
+    dateToFilter,
+    statusFilter,
+    rulesFilter,
+    projectFilter,
+    activeSite,
+  ]);
+
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(25);
+  const totalHistoryPages = Math.max(1, Math.ceil(filteredScans.length / historyPageSize));
+  const visibleHistoryPage = Math.min(historyPage, totalHistoryPages);
+  const visibleScans = filteredScans.slice(
+    (visibleHistoryPage - 1) * historyPageSize,
+    visibleHistoryPage * historyPageSize,
+  );
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [
+    nameFilter,
+    initiatorFilter,
+    dateFromFilter,
+    dateToFilter,
+    statusFilter,
+    rulesFilter,
+    projectFilter,
+    activeSite?.id,
+    historyPageSize,
+  ]);
+
+  useEffect(() => {
+    if (historyPage > totalHistoryPages) setHistoryPage(totalHistoryPages);
+  }, [historyPage, totalHistoryPages]);
 
   const hasActiveFilters =
     nameFilter || initiatorFilter || dateFromFilter || dateToFilter ||
-    statusFilter.length > 0 || projectFilter.length > 0;
+    statusFilter.length > 0 || rulesFilter.length > 0 || projectFilter != null;
 
   const selectableIds = useMemo(
     () => filteredScans.filter((s) => s.status === "cancelled" || s.status === "failed").map((s) => s.id),
@@ -873,7 +981,19 @@ export default function ScanList() {
   // Clear selection when visible scans change (filter change / refresh)
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [nameFilter, initiatorFilter, dateFromFilter, dateToFilter, statusFilter, projectFilter]);
+  }, [
+    nameFilter,
+    initiatorFilter,
+    dateFromFilter,
+    dateToFilter,
+    statusFilter,
+    rulesFilter,
+    projectFilter,
+  ]);
+
+  useEffect(() => {
+    setProjectFilter(null);
+  }, [activeSite?.id]);
 
   const handleDelete = (id: number) => {
     deleteScan.mutate(
@@ -929,13 +1049,13 @@ export default function ScanList() {
       <div className="p-3 border rounded-lg bg-card">
         <div className="flex items-end gap-2 w-full">
           <div className="flex-1 min-w-0 space-y-1">
-            <Label className="text-xs text-muted-foreground">Scan Name</Label>
+            <Label className="text-xs text-muted-foreground">Scan Title</Label>
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
               <Input
                 value={nameFilter}
                 onChange={(e) => setNameFilter(e.target.value)}
-                placeholder="Filter by scan name…"
+                placeholder="Filter by scan title…"
                 className="pl-8 h-9 text-sm"
               />
             </div>
@@ -964,14 +1084,51 @@ export default function ScanList() {
             />
           </div>
 
-          {projectOptions.length > 0 && (
+          <div className="shrink-0 space-y-1">
+            <Label htmlFor="history-project-filter" className="text-xs text-muted-foreground">
+              Project
+            </Label>
+            <Select
+              value={projectFilter == null ? "all" : String(projectFilter)}
+              onValueChange={(value) => setProjectFilter(value === "all" ? null : Number(value))}
+              disabled={!activeSite || isLoadingProjects}
+            >
+              <SelectTrigger id="history-project-filter" className="h-10 min-w-[150px] font-normal">
+                <SelectValue
+                  placeholder={
+                    !activeSite
+                      ? "Select a site"
+                      : isLoadingProjects
+                        ? "Loading projects…"
+                        : "All projects"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All projects</SelectItem>
+                {siteProjects.length > 0 ? (
+                  siteProjects.map((project) => (
+                    <SelectItem key={project.id} value={String(project.id)}>
+                      {project.name}
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectItem value="no-projects" disabled>
+                    No projects under this site
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {ruleOptions.length > 0 && (
             <div className="shrink-0 space-y-1">
-              <Label className="text-xs text-muted-foreground">Project</Label>
+              <Label className="text-xs text-muted-foreground">Rules</Label>
               <MultiSelectFilter
-                label="Project"
-                options={projectOptions}
-                selected={projectFilter}
-                onChange={setProjectFilter}
+                label="Rules"
+                options={ruleOptions}
+                selected={rulesFilter}
+                onChange={setRulesFilter}
               />
             </div>
           )}
@@ -1030,7 +1187,8 @@ export default function ScanList() {
                   setDateFromFilter("");
                   setDateToFilter("");
                   setStatusFilter([]);
-                  setProjectFilter([]);
+                   setRulesFilter([]);
+                   setProjectFilter(null);
                 }}
                 className="h-9 text-muted-foreground"
               >
@@ -1089,11 +1247,12 @@ export default function ScanList() {
                   title={selectableIds.length === 0 ? "No cancelled/failed scans to select" : "Select all cancelled/failed scans"}
                 />
               </TableHead>
-              <TableHead>Project / Scan Name</TableHead>
+              <TableHead>Project / Scan Title</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Progress</TableHead>
-              <TableHead>ETA / Elapsed</TableHead>
-              <TableHead>Issues (Critical)</TableHead>
+              <TableHead>Total scan time</TableHead>
+              <TableHead>Scan rules</TableHead>
+              <TableHead>Pages with issues</TableHead>
               <TableHead>Date</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -1102,7 +1261,7 @@ export default function ScanList() {
             {filteredScans.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={9}
                   className="text-center py-12 text-muted-foreground"
                 >
                   No scans found.{" "}
@@ -1112,12 +1271,15 @@ export default function ScanList() {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredScans.map((scan) => {
+              visibleScans.map((scan) => {
                 const s = scan as typeof scan & {
                   projectName?: string | null;
                   initiatorName?: string | null;
                   initiatorRole?: string | null;
+                  options?: unknown | null;
+                  pagesWithIssues?: number;
                 };
+                const historyScan = scan as typeof scan & ScanItem;
                 const isRunning = scan.status === "running";
                 const isPaused = (scan.status as string) === "paused";
                 const isSelectable = scan.status === "cancelled" || scan.status === "failed";
@@ -1135,7 +1297,7 @@ export default function ScanList() {
                         <span className="w-4 h-4 block" />
                       )}
                     </TableCell>
-                    <TableCell className="font-medium">
+                    <TableCell className="font-medium min-w-0 max-w-[42rem]">
                       {s.projectName && (
                         <div className="flex items-center gap-1 mb-0.5">
                           <FolderOpen className="w-3 h-3 text-muted-foreground shrink-0" />
@@ -1145,7 +1307,7 @@ export default function ScanList() {
                         </div>
                       )}
                       <span
-                        className="inline-block cursor-pointer"
+                        className="block min-w-0"
                         onMouseEnter={(e) => handleScanNameEnter(s as ScanItem, e)}
                         onMouseLeave={handleScanNameLeave}
                         onTouchStart={(e) => {
@@ -1158,7 +1320,8 @@ export default function ScanList() {
                       >
                         <Link
                           href={`/scans/${scan.id}`}
-                          className="hover:underline text-primary"
+                          className="block max-w-full line-clamp-2 break-words [overflow-wrap:anywhere] hover:underline text-primary"
+                          title={scan.name || `Scan #${scan.id}`}
                         >
                           {scan.name || `Scan #${scan.id}`}
                         </Link>
@@ -1179,26 +1342,47 @@ export default function ScanList() {
                       {scan.scannedUrls} / {scan.totalUrls} URLs
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      <div className="flex flex-col">
-                        <span>{formatEta(scan)}</span>
-                        <span>
-                          {scan.completedAt
-                            ? `Time taken ${formatElapsed(scan)}`
-                            : `Elapsed ${formatElapsed(scan)}`}
-                        </span>
-                      </div>
+                      <span>{formatElapsed(scan)}</span>
                     </TableCell>
                     <TableCell>
-                      {scan.totalIssues > 0 ? (
-                        <span className="font-mono">
-                          {scan.totalIssues}{" "}
-                          <span className="text-chart-1 font-bold">
-                            ({scan.criticalIssues})
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
+                      <span
+                        className="text-sm"
+                        title={getScanRuleIds(historyScan).join(", ") || "This scan ran all rules"}
+                      >
+                        {getScanRuleIds(historyScan).length === 0 ? (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] leading-4 px-1.5 py-0 font-normal whitespace-nowrap border-transparent shadow-sm"
+                            style={{
+                              backgroundColor: "hsl(var(--app-accent))",
+                              color: "hsl(var(--primary-foreground))",
+                            }}
+                          >
+                            All rules
+                          </Badge>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {getScanRuleIds(historyScan).map((ruleId) => (
+                              <Badge
+                                key={ruleId}
+                                variant="outline"
+                                className="text-[10px] leading-4 px-1.5 py-0 font-mono font-normal whitespace-nowrap border-transparent shadow-sm"
+                                style={{
+                                  backgroundColor: "hsl(var(--app-accent))",
+                                  color: "hsl(var(--primary-foreground))",
+                                }}
+                              >
+                                {ruleId}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-mono">
+                        {(historyScan.pagesWithIssues ?? 0).toLocaleString()}
+                      </span>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatDate(scan.createdAt)}
@@ -1300,6 +1484,56 @@ export default function ScanList() {
             )}
           </TableBody>
         </Table>
+        {filteredScans.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3">
+            <p className="text-xs text-muted-foreground">
+              Showing {((visibleHistoryPage - 1) * historyPageSize) + 1}–{Math.min(visibleHistoryPage * historyPageSize, filteredScans.length)} of {filteredScans.length} scans
+            </p>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground whitespace-nowrap">Show pages</span>
+                <Select
+                  value={String(historyPageSize)}
+                  onValueChange={(value) => setHistoryPageSize(Number(value))}
+                >
+                  <SelectTrigger className="h-8 w-[78px] text-xs" aria-label="Show pages">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[10, 25, 50, 100].map((size) => (
+                      <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}
+                  disabled={visibleHistoryPage === 1}
+                  aria-label="Previous manual history page"
+                >
+                  <ChevronDown className="h-4 w-4 rotate-90" />
+                </Button>
+                <span className="min-w-[72px] text-center text-xs text-muted-foreground">
+                  Page {visibleHistoryPage} of {totalHistoryPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setHistoryPage((page) => Math.min(totalHistoryPages, page + 1))}
+                  disabled={visibleHistoryPage === totalHistoryPages}
+                  aria-label="Next manual history page"
+                >
+                  <ChevronDown className="h-4 w-4 -rotate-90" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <AnimatePresence>

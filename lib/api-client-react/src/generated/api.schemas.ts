@@ -13,6 +13,35 @@ export interface ErrorResponse {
   error: string;
 }
 
+export interface ProjectSite {
+  id: number;
+  name: string;
+}
+
+export interface Project {
+  id: number;
+  name: string;
+  createdAt: string;
+  sites: ProjectSite[];
+}
+
+export interface CreateProjectBody {
+  /** @maxLength 200 */
+  name: string;
+  /** @minimum 1 */
+  siteId: number;
+}
+
+export interface ProjectSiteBody {
+  /** @minimum 1 */
+  siteId: number;
+}
+
+/**
+ * @nullable
+ */
+export type ScanSessionOptions = { [key: string]: unknown } | null;
+
 export type ScanSessionStatus =
   (typeof ScanSessionStatus)[keyof typeof ScanSessionStatus];
 
@@ -35,12 +64,15 @@ export interface ScanSession {
   siteId?: number | null;
   /** @nullable */
   projectName?: string | null;
+  /** @nullable */
+  options?: ScanSessionOptions;
   status: ScanSessionStatus;
   totalUrls: number;
   scannedUrls: number;
   failedUrls: number;
   totalIssues: number;
   criticalIssues: number;
+  pagesWithIssues?: number;
   createdAt: string;
   /** @nullable */
   completedAt: string | null;
@@ -273,15 +305,18 @@ export interface ScanReport {
 
 export interface CreateScanBody {
   urls: string[];
-  /** @nullable */
+  /**
+   * Descriptive scan title; URL values are rejected.
+   * @nullable
+   */
   name?: string | null;
   /**
    * @minimum 1
    * @nullable
    */
   siteId?: number | null;
-  /** @nullable */
-  projectId?: number | null;
+  /** @minimum 1 */
+  projectId: number;
   /** @nullable */
   groupId?: number | null;
   /** @nullable */
@@ -292,7 +327,10 @@ export interface CreateScanBody {
 }
 
 export interface UpdateScanBody {
-  /** @nullable */
+  /**
+   * Descriptive scan title; URL values are rejected.
+   * @nullable
+   */
   name?: string | null;
   /** @nullable */
   projectId?: number | null;
@@ -382,6 +420,14 @@ export interface GrantSiteUserBody {
 export interface GrantSiteGroupBody {
   groupId: number;
 }
+
+export type ListProjectsParams = {
+  /**
+   * @minimum 1
+   */
+  siteId?: number;
+  includeUnassociated?: boolean;
+};
 
 export type ListScansParams = {
   siteId?: number;

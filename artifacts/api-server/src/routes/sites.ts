@@ -971,6 +971,43 @@ router.get("/sites/:id/dashboard", requireAuth, async (req: Request, res: Respon
   }
 });
 
+// PUT /api/sites/:id/target-score
+// Target score editing is intentionally separate from site configuration access.
+// Users and group members with the explicit permission can update an accessible site.
+router.put("/sites/:id/target-score", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const siteId = parseInt(req.params["id"] as string, 10);
+  const sessionUser = (req as any).session?.user;
+  const access = await canAccessSite(
+    sessionUser?.id ?? 0,
+    String(sessionUser?.id ?? 0),
+    sessionUser?.role ?? "user",
+    siteId,
+  );
+  if (!access) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const perms = await getEffectivePermissions(sessionUser?.id ?? 0, sessionUser?.role ?? "user");
+  if (!perms.canManageSiteTargetScore) {
+    res.status(403).json({ error: "Target score editing is disabled" });
+    return;
+  }
+
+  const raw = req.body?.targetScore;
+  const targetScore = raw === null || raw === "" || raw === undefined
+    ? null
+    : typeof raw === "number" ? raw : Number(raw);
+  if (targetScore !== null && (!Number.isFinite(targetScore) || targetScore < 0 || targetScore > 100)) {
+    res.status(400).json({ error: "targetScore must be between 0 and 100, or null" });
+    return;
+  }
+
+  const [updated] = await db.update(sitesTable)
+    .set({ targetScore: targetScore === null ? null : Math.round(targetScore), updatedAt: new Date() })
+    .where(eq(sitesTable.id, siteId))
+    .returning({ id: sitesTable.id, targetScore: sitesTable.targetScore });
+  if (!updated) { res.status(404).json({ error: "Site not found" }); return; }
+  res.json(updated);
+});
+
 // GET /api/sites/:id/score-history
 // Returns ordered list of {score, scanned_at} for every completed scan of this site
 router.get("/sites/:id/score-history", requireAuth, async (req: Request, res: Response): Promise<void> => {

@@ -20,7 +20,12 @@ import {
   Download,
   XCircle,
   CheckCircle,
+  Target,
+  Pencil,
+  Save,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   LineChart,
   Line,
@@ -98,6 +103,10 @@ export default function SiteDashboard({ siteId }: Props) {
   const [historyTab, setHistoryTab] = useState<"issues" | "potential">("issues");
   const [historyMetric, setHistoryMetric] = useState<"count" | "occurrences">("count");
   const [dateRange, setDateRange] = useState(6);
+  const [metricView, setMetricView] = useState<"score" | "severity" | "level">("score");
+  const [targetDialogOpen, setTargetDialogOpen] = useState(false);
+  const [targetDraft, setTargetDraft] = useState("");
+  const [targetSaving, setTargetSaving] = useState(false);
 
   const dashQ = useQuery<DashboardData>({
     queryKey: ["site-dashboard", siteId],
@@ -167,6 +176,8 @@ export default function SiteDashboard({ siteId }: Props) {
 
   const history = filteredHistory;
   const scoreColor = (d?.score ?? 100) >= 80 ? "#22c55e" : (d?.score ?? 100) >= 65 ? "#eab308" : "#ef4444";
+  const targetScore = d?.site?.targetScore ?? null;
+  const canManageTargetScore = user?.permissions.canManageSiteTargetScore ?? false;
 
   const chartData = history.map((p) => ({
     score: +p.score.toFixed(1),
@@ -179,6 +190,37 @@ export default function SiteDashboard({ siteId }: Props) {
     level_aa_potential: p.level_aa_potential ?? 0,
     pages: p.total_scanned ?? 0,
   }));
+
+  const severityTotal = impactOrder.reduce((sum, impact) => sum + (impactMap[impact]?.occurrences ?? 0), 0);
+  const levelRows = (d?.levelScores ?? []).filter((row) => row.level !== "Best Practice");
+  const levelTotal = levelRows.reduce((sum, row) => sum + row.occurrences, 0);
+
+  async function saveTargetScore() {
+    const trimmed = targetDraft.trim();
+    const value = trimmed === "" ? null : Number(trimmed);
+    if (value !== null && (!Number.isFinite(value) || value < 0 || value > 100)) return;
+    setTargetSaving(true);
+    try {
+      const response = await fetch(`${BASE}/api/sites/${siteId}/target-score`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetScore: value }),
+      });
+      if (!response.ok) throw new Error("Failed to save target score");
+      const updated = await response.json();
+      if (d?.site) d.site.targetScore = updated.targetScore;
+      setTargetDialogOpen(false);
+      await dashQ.refetch();
+    } finally {
+      setTargetSaving(false);
+    }
+  }
+
+  function openTargetEditor() {
+    setTargetDraft(targetScore === null ? "" : String(targetScore));
+    setTargetDialogOpen(true);
+  }
 
   return (
     <div className="space-y-6">
@@ -232,147 +274,170 @@ export default function SiteDashboard({ siteId }: Props) {
         </Card>
       ) : (
         <>
-          {/* ── Row 1: Unified stat card + Score history ── */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-stretch">
-            {/* Unified top card: Score + Impact Breakdown + Conformance Scores */}
-            <Card className="overflow-hidden">
-              <CardContent className="p-0 h-full">
-                <div className="grid grid-cols-[auto_1fr_1fr] divide-x h-full">
+          {/* ── Siteimprove-style metric cards and switchable detail view ── */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h2 className="text-lg font-semibold">Accessibility overview</h2>
+                <p className="text-xs text-muted-foreground">Choose a metric to see its breakdown for the latest scan.</p>
+              </div>
+              {targetScore !== null && d.score !== null && (
+                <span className={`text-xs font-medium ${d.score >= targetScore ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}`}>
+                  {d.score >= targetScore ? "Target reached" : `${(targetScore - d.score).toFixed(1)} points to target`}
+                </span>
+              )}
+            </div>
 
-                  {/* Col 1: Score gauge */}
-                  <div className="flex flex-col items-center justify-center gap-2 p-5 w-44 shrink-0">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-center">
-                      Accessibility Score
-                    </p>
-                    {d.score !== null ? (
-                      <>
-                        <ScoreGauge score={d.score} />
-                        {d.scoreDelta !== null && (
-                          <div className={`flex items-center gap-1 text-xs font-semibold ${
-                            d.scoreDelta > 0 ? "text-green-600 dark:text-green-400"
-                            : d.scoreDelta < 0 ? "text-red-500"
-                            : "text-muted-foreground"
-                          }`}>
-                            {d.scoreDelta > 0
-                              ? <TrendingUp className="w-3 h-3" />
-                              : d.scoreDelta < 0
-                              ? <TrendingDown className="w-3 h-3" />
-                              : <Minus className="w-3 h-3" />}
-                            <span>{d.scoreDelta > 0 ? "+" : ""}{d.scoreDelta} vs last scan</span>
-                          </div>
-                        )}
-                        <p className="text-[10px] text-muted-foreground text-center leading-tight">
-                          {d.score >= 80
-                            ? "Good — keep fixing issues to reach 90+"
-                            : d.score >= 65
-                            ? "Fair — significant issues need attention"
-                            : "Poor — critical accessibility barriers present"}
-                        </p>
-                      </>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">N/A</p>
-                    )}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {([
+                { id: "score" as const, label: "Site Accessibility Score", value: d.score === null ? "—" : d.score.toFixed(1), detail: targetScore === null ? "No target set" : `Target: ${targetScore}`, icon: <Target className="w-4 h-4" />, color: scoreColor },
+                { id: "severity" as const, label: "Issues found by severity", value: severityTotal.toLocaleString(), detail: `${impactOrder.filter((impact) => (impactMap[impact]?.occurrences ?? 0) > 0).length} severity levels`, icon: <AlertTriangle className="w-4 h-4" />, color: "#f97316" },
+                { id: "level" as const, label: "Issues found by violation level", value: levelTotal.toLocaleString(), detail: `${levelRows.length} WCAG levels`, icon: <BarChart3 className="w-4 h-4" />, color: "#3b82f6" },
+              ]).map((metric) => (
+                <button
+                  key={metric.id}
+                  type="button"
+                  onClick={() => setMetricView(metric.id)}
+                  className={`text-left rounded-lg border bg-card p-4 transition-all hover:border-primary/50 ${
+                    metricView === metric.id ? "border-primary ring-1 ring-primary/20 shadow-sm" : "border-border"
+                  }`}
+                  aria-pressed={metricView === metric.id}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-xs font-semibold text-muted-foreground">{metric.label}</span>
+                    <span style={{ color: metric.color }}>{metric.icon}</span>
                   </div>
+                  <div className="mt-3 text-2xl font-bold tabular-nums">{metric.value}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{metric.detail}</div>
+                </button>
+              ))}
+            </div>
 
-                  {/* Col 2: Impact Breakdown (compact) */}
-                  <div className="p-4 flex flex-col justify-center">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                      Impact Breakdown
-                    </p>
-                    <div className="space-y-2.5">
-                      {impactOrder.map((impact) => {
-                        const row = impactMap[impact];
-                        const count = row?.occurrences ?? 0;
-                        const pct = Math.round((count / maxImpact) * 100);
-                        return (
-                          <div key={impact}>
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className={`w-2 h-2 rounded-full shrink-0 ${impactColors[impact]}`} />
-                                <span className="text-xs font-medium capitalize">{impact}</span>
-                              </div>
-                              <span className="text-xs font-semibold tabular-nums text-foreground">
-                                {count.toLocaleString()}
-                              </span>
-                            </div>
-                            <div className="h-1 rounded-full bg-muted overflow-hidden">
-                              <div className={`h-full rounded-full ${impactBarColors[impact]}`} style={{ width: `${pct}%` }} />
-                            </div>
-                          </div>
-                        );
-                      })}
+            <Card>
+              <CardContent className="p-5">
+                {metricView === "score" && (
+                  <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr_auto] items-center gap-6">
+                    <div className="flex justify-center"><ScoreGauge score={d.score ?? 0} /></div>
+                    <div>
+                      <h3 className="font-semibold">Site Accessibility Score</h3>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Overall accessibility performance calculated from the latest completed scan.
+                      </p>
+                      {d.scoreDelta !== null && (
+                        <div className={`flex items-center gap-1 text-sm font-semibold mt-3 ${
+                          d.scoreDelta > 0 ? "text-green-600 dark:text-green-400"
+                          : d.scoreDelta < 0 ? "text-red-500" : "text-muted-foreground"
+                        }`}>
+                          {d.scoreDelta > 0 ? <TrendingUp className="w-4 h-4" /> : d.scoreDelta < 0 ? <TrendingDown className="w-4 h-4" /> : <Minus className="w-4 h-4" />}
+                          {d.scoreDelta > 0 ? "+" : ""}{d.scoreDelta} vs last scan
+                        </div>
+                      )}
                     </div>
-                  </div>
-
-                  {/* Col 3: Conformance Level Scores (compact) */}
-                  <div className="p-4 flex flex-col justify-center">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                      Conformance Scores
-                    </p>
-                    <div className="space-y-2">
-                      {(d.levelScores ?? []).map((ls) => {
-                        const meta = LEVEL_META[ls.level] ?? { label: ls.level, badgeCls: "bg-muted text-foreground", ringColor: "#94a3b8", textCls: "text-muted-foreground" };
-                        return (
-                          <div key={ls.level} className="flex items-center gap-2">
-                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap shrink-0 ${meta.badgeCls}`}>
-                              {meta.label}
-                            </span>
-                            <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                              <div className="h-full rounded-full transition-all duration-700"
-                                style={{ width: `${ls.score}%`, backgroundColor: meta.ringColor }} />
-                            </div>
-                            <span className={`text-sm font-bold tabular-nums ${meta.textCls} w-8 text-right shrink-0`}>
-                              {ls.score.toFixed(0)}
-                            </span>
-                          </div>
-                        );
-                      })}
-                      {(d.levelScores ?? []).length === 0 && (
-                        <p className="text-xs text-muted-foreground">No conformance data</p>
+                    <div className="rounded-lg bg-muted/40 p-4 min-w-48">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground"><Target className="w-4 h-4" /> Site target score</div>
+                      <div className="mt-2 text-2xl font-bold">{targetScore === null ? "Not set" : targetScore}</div>
+                      <p className="text-xs text-muted-foreground mt-1">{targetScore === null ? "Set a target to track progress." : "Target is shared across this site's dashboard."}</p>
+                      {canManageTargetScore && (
+                        <Button variant="outline" size="sm" className="mt-3 h-8 gap-1" onClick={openTargetEditor}>
+                          <Pencil className="w-3 h-3" /> {targetScore === null ? "Set target" : "Edit target"}
+                        </Button>
                       )}
                     </div>
                   </div>
+                )}
 
-                </div>
+                {metricView === "severity" && (
+                  <div>
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <div><h3 className="font-semibold">Issues found by severity</h3><p className="text-sm text-muted-foreground mt-1">Occurrences grouped by impact level.</p></div>
+                      <span className="text-2xl font-bold tabular-nums">{severityTotal.toLocaleString()}</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      {impactOrder.map((impact) => {
+                        const count = impactMap[impact]?.occurrences ?? 0;
+                        return <div key={impact} className="rounded-lg border p-3">
+                          <div className="flex items-center gap-2 text-sm capitalize"><span className={`w-2.5 h-2.5 rounded-full ${impactColors[impact]}`} />{impact}</div>
+                          <div className="mt-2 text-xl font-bold tabular-nums">{count.toLocaleString()}</div>
+                          <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden"><div className={`h-full rounded-full ${impactBarColors[impact]}`} style={{ width: `${Math.round((count / Math.max(severityTotal, 1)) * 100)}%` }} /></div>
+                        </div>;
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {metricView === "level" && (
+                  <div>
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <div><h3 className="font-semibold">Score by level</h3><p className="text-sm text-muted-foreground mt-1">Accessibility score and issue coverage grouped by WCAG conformance level.</p></div>
+                      <span className="text-2xl font-bold tabular-nums">{levelTotal.toLocaleString()}</span>
+                    </div>
+                    <div className="flex flex-nowrap gap-3 overflow-x-auto pb-1">
+                      {levelRows.map((ls) => {
+                        const meta = LEVEL_META[ls.level] ?? { label: ls.level, badgeCls: "bg-muted text-foreground", ringColor: "#94a3b8", textCls: "text-muted-foreground" };
+                        return (
+                          <div key={ls.level} className="min-w-[250px] flex-1 rounded-lg border bg-card p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <span className={`text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${meta.badgeCls}`}>{meta.label}</span>
+                              <div className="text-right">
+                                <div className="text-2xl font-bold tabular-nums" style={{ color: meta.ringColor }}>
+                                  {ls.score.toFixed(1)}
+                                </div>
+                                <div className="text-[11px] text-muted-foreground">out of 100</div>
+                              </div>
+                            </div>
+                            <div className="mt-4 h-2 rounded-full bg-muted overflow-hidden" aria-label={`${meta.label} score ${ls.score.toFixed(1)} out of 100`}>
+                              <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(0, Math.min(100, ls.score))}%`, backgroundColor: meta.ringColor }} />
+                            </div>
+                            <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                              <div>
+                                <div className="font-semibold tabular-nums">{ls.occurrences.toLocaleString()}</div>
+                                <div className="text-muted-foreground">occurrences</div>
+                              </div>
+                              <div>
+                                <div className="font-semibold tabular-nums">{ls.pagesAffected.toLocaleString()}</div>
+                                <div className="text-muted-foreground">pages</div>
+                              </div>
+                              <div>
+                                <div className="font-semibold tabular-nums">{ls.distinctRules.toLocaleString()}</div>
+                                <div className="text-muted-foreground">rules</div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
-
-            {/* Score history chart */}
-            {chartData.length >= 2 ? (
-              <Card className="h-full">
-                <CardHeader className="pb-1">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                      Score History
-                    </CardTitle>
-                    <span className="text-xs text-muted-foreground">{chartData.length} scan{chartData.length !== 1 ? "s" : ""}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">Accessibility score trend across all completed crawl sessions</p>
-                </CardHeader>
-                <CardContent className="pt-2 pb-4">
-                  <ResponsiveContainer width="100%" height={160}>
-                    <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-muted/20" />
-                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: "currentColor", opacity: 0.5 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                      <YAxis domain={[Math.max(0, Math.floor(Math.min(...chartData.map(p => p.score)) / 10) * 10 - 5), 100]} tick={{ fontSize: 10, fill: "currentColor", opacity: 0.5 }} tickLine={false} axisLine={false} width={32} />
-                      <ChartTooltip
-                        contentStyle={{ fontSize: 12, borderRadius: 6, border: "1px solid hsl(var(--border))", background: "hsl(var(--card))", color: "hsl(var(--foreground))" }}
-                        formatter={(val: number) => [`${val.toFixed(1)} / 100`, "Score"]}
-                      />
-                      <ReferenceLine y={80} stroke="#22c55e" strokeDasharray="4 3" strokeOpacity={0.5} label={{ value: "Good", position: "right", fontSize: 9, fill: "#22c55e", opacity: 0.7 }} />
-                      <Line type="monotone" dataKey="score" stroke={scoreColor} strokeWidth={2}
-                        dot={{ r: 3, fill: scoreColor, strokeWidth: 0 }}
-                        activeDot={{ r: 5, fill: scoreColor }} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            ) : (
-              <Card className="flex items-center justify-center h-full min-h-[180px]">
-                <p className="text-sm text-muted-foreground">Run more scans to see score history</p>
-              </Card>
-            )}
           </div>
+
+          {/* ── Score history chart ── */}
+          {chartData.length >= 2 ? (
+            <Card>
+              <CardHeader className="pb-1">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Score History</CardTitle>
+                  <span className="text-xs text-muted-foreground">{chartData.length} scan{chartData.length !== 1 ? "s" : ""}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">Accessibility score trend across all completed crawl sessions</p>
+              </CardHeader>
+              <CardContent className="pt-2 pb-4">
+                <ResponsiveContainer width="100%" height={160}>
+                  <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-muted/20" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: "currentColor", opacity: 0.5 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                    <YAxis domain={[Math.max(0, Math.floor(Math.min(...chartData.map(p => p.score)) / 10) * 10 - 5), 100]} tick={{ fontSize: 10, fill: "currentColor", opacity: 0.5 }} tickLine={false} axisLine={false} width={32} />
+                    <ChartTooltip contentStyle={{ fontSize: 12, borderRadius: 6, border: "1px solid hsl(var(--border))", background: "hsl(var(--card))", color: "hsl(var(--foreground))" }} formatter={(val: number) => [`${val.toFixed(1)} / 100`, "Score"]} />
+                    <ReferenceLine y={targetScore ?? 80} stroke={targetScore === null ? "#22c55e" : "#f97316"} strokeDasharray="4 3" strokeOpacity={0.5} label={{ value: targetScore === null ? "Good" : "Target", position: "right", fontSize: 9, fill: targetScore === null ? "#22c55e" : "#f97316", opacity: 0.7 }} />
+                    <Line type="monotone" dataKey="score" stroke={scoreColor} strokeWidth={2} dot={{ r: 3, fill: scoreColor, strokeWidth: 0 }} activeDot={{ r: 5, fill: scoreColor }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="flex items-center justify-center min-h-[180px]"><p className="text-sm text-muted-foreground">Run more scans to see score history</p></Card>
+          )}
 
           {/* ── Improve your score ── */}
           <div className="space-y-3">
@@ -603,6 +668,43 @@ export default function SiteDashboard({ siteId }: Props) {
           </div>
         </>
       )}
+
+      <Dialog open={targetDialogOpen} onOpenChange={setTargetDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{targetScore === null ? "Set site target score" : "Edit site target score"}</DialogTitle>
+            <DialogDescription>
+              Choose a score from 0 to 100. Leave it blank to remove the target.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label htmlFor="site-target-score" className="text-sm font-medium">Target score</label>
+            <Input
+              id="site-target-score"
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              placeholder="e.g. 90"
+              value={targetDraft}
+              onChange={(event) => setTargetDraft(event.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setTargetDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={targetSaving || (targetDraft.trim() !== "" && (!Number.isFinite(Number(targetDraft)) || Number(targetDraft) < 0 || Number(targetDraft) > 100))}
+              onClick={() => void saveTargetScore()}
+              className="gap-1"
+            >
+              {targetSaving ? <span className="animate-pulse">Saving…</span> : <><Save className="w-3.5 h-3.5" /> Save target</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -58,6 +58,13 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 interface CrawlerSession {
   id: number;
+  userId: string | null;
+  triggeredBy?: {
+    id: number;
+    fullName: string;
+    username: string;
+    role: string;
+  } | null;
   name: string;
   seedUrl: string;
   status: string;
@@ -694,6 +701,16 @@ export default function CrawlerDetailPage() {
           {timezone && (
             <p className="text-xs text-muted-foreground mt-0.5">Timezone: {timezone}</p>
           )}
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Triggered by:{" "}
+            <span className="font-medium text-foreground">
+              {displaySession.triggeredBy?.fullName ??
+                (displaySession.userId ? `User #${displaySession.userId}` : "Unknown user")}
+            </span>
+            {displaySession.triggeredBy?.username && (
+              <span> (@{displaySession.triggeredBy.username})</span>
+            )}
+          </p>
           {displaySession.scheduledStartAt && displaySession.status === "pending" && (
             <p className="text-xs text-primary mt-1">
               Scheduled to start: {fmtDate(displaySession.scheduledStartAt)}

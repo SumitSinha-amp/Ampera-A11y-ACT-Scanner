@@ -12,9 +12,9 @@ import {
   Layers,
   FilePlus2,
   Route,
-  PersonStanding,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { useAuth } from "@/contexts/auth";
 
 interface Scan {
   id: number;
@@ -26,6 +26,7 @@ interface Scan {
 }
 
 export default function WelcomePage() {
+  const { user } = useAuth();
   const listParams = {};
   const { data: allScans, isLoading } = useListScans(
     listParams,
@@ -40,20 +41,20 @@ export default function WelcomePage() {
   const recentScans = ((allScans as Scan[] | undefined) || []).slice(0, 3);
 
   return (
-    <div className="min-h-[100dvh] flex flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       {/* Compact header tab */}
       <div className="border-b bg-card/50">
         <div className="flex items-center gap-2 px-6 py-2.5">
           <div className="flex items-center gap-2 px-3 py-1 rounded-md bg-primary/10 border border-primary/20">
-           <PersonStanding className="w-3.5 h-3.5 text-primary" />
-            <span className="text-lg font-medium text-foreground">Welcome</span>
+            <Sparkles className="w-3.5 h-3.5 text-primary" />
+            <span className="text-sm font-medium text-foreground">Welcome</span>
           </div>
         </div>
       </div>
 
       {/* Main content */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl space-y-10 px-6 py-10 md:py-12">
+      <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto">
+        <div className="w-full space-y-10 px-6 py-10 md:px-8 md:py-12">
           {/* Header */}
           <div className="space-y-3">
             <div className="flex items-center gap-3">
@@ -62,7 +63,7 @@ export default function WelcomePage() {
               </div>
               <div>
                 <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-                  Ampera Accessibility Compliance Platform(ACT)
+                  Ampera A11y
                 </h1>
                 <p className="mt-0.5 text-sm font-medium text-primary">
                   Accessibility workspace
@@ -70,7 +71,7 @@ export default function WelcomePage() {
               </div>
             </div>
             <p className="max-w-2xl text-base leading-7 text-muted-foreground md:text-lg">
-              Professional accessibility and quality assurance workspace for enterprise.
+              Professional accessibility and quality assurance workspace for teams who need trustworthy scanning results.
             </p>
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <Badge variant="outline" className="font-mono text-xs">
@@ -84,7 +85,8 @@ export default function WelcomePage() {
               </Link>
             </div>
           </div>
-{/* Latest update */}
+
+          {/* Latest update */}
           <Card className="overflow-hidden border-primary/20">
             <div className="h-1 bg-gradient-to-r from-primary via-violet-500 to-fuchsia-500" />
             <CardContent className="flex items-start gap-4 p-5">
@@ -116,6 +118,7 @@ export default function WelcomePage() {
               </div>
             </CardContent>
           </Card>
+
           {/* Start section */}
           <section className="space-y-4">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
@@ -138,21 +141,23 @@ export default function WelcomePage() {
                 </Card>
               </Link>
 
-              <Link href="/crawler/new" data-testid="link-start-crawler-scan">
-                <Card className="group h-full min-h-[132px] cursor-pointer border-border/80 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-muted/30 hover:shadow-md">
-                  <CardContent className="flex h-full items-start gap-4 p-5">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
-                      <Route className="h-5 w-5" />
-                    </div>
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <h3 className="text-base font-semibold">Start a crawler scan</h3>
-                      <p className="text-sm leading-relaxed text-muted-foreground">
-                        Scan entire sites with sitemap, URL list, or crawl-based workflows
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
+              {user?.permissions.canCreateCrawl && (
+                <Link href="/crawler/new" data-testid="link-start-crawler-scan">
+                  <Card className="group h-full min-h-[132px] cursor-pointer border-border/80 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-muted/30 hover:shadow-md">
+                    <CardContent className="flex h-full items-start gap-4 p-5">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+                        <Route className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <h3 className="text-base font-semibold">Start a crawler scan</h3>
+                        <p className="text-sm leading-relaxed text-muted-foreground">
+                          Scan entire sites with sitemap, URL list, or crawl-based workflows
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              )}
             </div>
           </section>
 

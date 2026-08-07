@@ -30,6 +30,7 @@ export const db = drizzle(pool, { schema });
 
 export {
   projectsTable,
+  projectSitesTable,
   scanSessionsTable,
   pageResultsTable,
   accessibilityIssuesTable,

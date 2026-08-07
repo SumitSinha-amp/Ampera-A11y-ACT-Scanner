@@ -26,6 +26,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -35,7 +42,7 @@ import {
 } from "@/components/ui/table";
 import {
   Plus, Globe, MoreHorizontal, Trash2, Pause, Play, XCircle,
-  Eye, Search, ScanLine, Clock, Timer, Building2,
+  Eye, Search, ScanLine, Clock, Timer, Building2, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
@@ -45,6 +52,13 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 interface CrawlerSession {
   id: number;
+  userId: string | null;
+  triggeredBy?: {
+    id: number;
+    fullName: string;
+    username: string;
+    role: string;
+  } | null;
   name: string;
   seedUrl: string;
   siteId: number | null;
@@ -247,6 +261,8 @@ export default function CrawlerListPage() {
   const canDeleteCrawl = user?.permissions?.canDeleteCrawl ?? false;
 
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(25);
 
   const { data, isLoading } = useQuery({
     queryKey: ["crawler-sessions", selectedSiteId],
@@ -261,8 +277,22 @@ export default function CrawlerListPage() {
   });
 
   const sessions = data?.sessions ?? [];
+  const totalHistoryPages = Math.max(1, Math.ceil(sessions.length / historyPageSize));
+  const visibleHistoryPage = Math.min(historyPage, totalHistoryPages);
+  const visibleSessions = sessions.slice(
+    (visibleHistoryPage - 1) * historyPageSize,
+    visibleHistoryPage * historyPageSize,
+  );
   const hasActive = sessions.some((s) => isActiveStatus(s.status) && s.status !== "paused" && s.status !== "crawled");
   const now = useNow(hasActive);
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [selectedSiteId, historyPageSize]);
+
+  useEffect(() => {
+    if (historyPage > totalHistoryPages) setHistoryPage(totalHistoryPages);
+  }, [historyPage, totalHistoryPages]);
 
   const completedSessions = useMemo(
     () => sessions.filter((s) => s.status === "completed" || s.status === "failed" || s.status === "cancelled"),
@@ -399,6 +429,7 @@ export default function CrawlerListPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-36">Scan date</TableHead>
+                    <TableHead>Triggered by</TableHead>
                     <TableHead>Queue time</TableHead>
                     <TableHead>Crawl time</TableHead>
                     <TableHead>Processing time</TableHead>
@@ -410,7 +441,7 @@ export default function CrawlerListPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sessions.map((s) => {
+                  {visibleSessions.map((s) => {
                     const active = isActiveStatus(s.status);
                     const isDiscovering = s.status === "discovering";
                     const isScanning = s.status === "scanning";
@@ -453,6 +484,22 @@ export default function CrawlerListPage() {
                                 <ScanLine className="w-2.5 h-2.5" />Ph2
                               </span>
                             </div>
+                          )}
+                        </TableCell>
+
+                        {/* Triggered by */}
+                        <TableCell className="py-3 text-sm">
+                          {s.triggeredBy ? (
+                            <>
+                              <p className="font-medium">{s.triggeredBy.fullName}</p>
+                              {s.triggeredBy.username && (
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  @{s.triggeredBy.username}
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">Unknown user</span>
                           )}
                         </TableCell>
 
@@ -621,6 +668,56 @@ export default function CrawlerListPage() {
                   })}
                 </TableBody>
               </Table>
+              {sessions.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3">
+                  <p className="text-xs text-muted-foreground">
+                    Showing {((visibleHistoryPage - 1) * historyPageSize) + 1}–{Math.min(visibleHistoryPage * historyPageSize, sessions.length)} of {sessions.length} scans
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">Show pages</span>
+                      <Select
+                        value={String(historyPageSize)}
+                        onValueChange={(value) => setHistoryPageSize(Number(value))}
+                      >
+                        <SelectTrigger className="h-8 w-[78px] text-xs" aria-label="Show pages">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[10, 25, 50, 100].map((size) => (
+                            <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}
+                        disabled={visibleHistoryPage === 1}
+                        aria-label="Previous crawler history page"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <span className="min-w-[72px] text-center text-xs text-muted-foreground">
+                        Page {visibleHistoryPage} of {totalHistoryPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => setHistoryPage((page) => Math.min(totalHistoryPages, page + 1))}
+                        disabled={visibleHistoryPage === totalHistoryPages}
+                        aria-label="Next crawler history page"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

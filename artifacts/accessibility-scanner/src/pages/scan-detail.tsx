@@ -101,6 +101,8 @@ import {
 import { getStatusBadge } from "@/lib/status-badge";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { isUrlLikeScanName, SCAN_NAME_URL_ERROR } from "@/lib/scan-name";
+import { FieldMessage } from "@/components/ui/field-message";
 import { Copy } from "lucide-react";
 import { isElementViewerEnabled } from "@/pages/settings";
 import { FixSuggestionPanel } from "@/components/fix-suggestion-panel";
@@ -1140,7 +1142,12 @@ function UrlCell({ url }: { url: string }) {
   const { toast } = useToast();
   return (
     <div className="flex items-center gap-2 min-w-0">
-      <span className="min-w-0 break-all whitespace-normal">{url}</span>
+      <span
+        className="min-w-0 flex-1 break-words [overflow-wrap:anywhere] whitespace-normal"
+        title={url}
+      >
+        {url}
+      </span>
       <button
         type="button"
         className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -1457,7 +1464,7 @@ export default function ScanDetail() {
     const summarySheet = XLSX.utils.aoa_to_sheet([
       ["Smart Analysis Report"],
       [],
-      ["Scan Name", scanLabel],
+              ["Scan Title", scanLabel],
       ["Generated", now],
       ["Total Issues", freshData.totalIssues],
       ["Unique Components / Elements", freshData.totalComponents],
@@ -1642,6 +1649,7 @@ export default function ScanDetail() {
   const isSuperAdmin = authUser?.role === "super_admin";
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState("");
+  const [editNameError, setEditNameError] = useState<string | null>(null);
   const [editInitiatorName, setEditInitiatorName] = useState("");
   const [editInitiatorRole, setEditInitiatorRole] = useState("");
   const [editAllUsers, setEditAllUsers] = useState<{ id: number; fullName: string; username: string; groups: { id: number; name: string }[] }[]>([]);
@@ -1650,6 +1658,7 @@ export default function ScanDetail() {
 
   const openEditDialog = () => {
     setEditName(scan?.name ?? "");
+    setEditNameError(null);
     setEditInitiatorName((scan as { initiatorName?: string | null } | undefined)?.initiatorName ?? "");
     setEditInitiatorRole((scan as { initiatorRole?: string | null } | undefined)?.initiatorRole ?? "");
     setEditOpen(true);
@@ -1670,6 +1679,11 @@ export default function ScanDetail() {
 
   const handleSaveEdit = () => {
     if (!scan) return;
+    if (isUrlLikeScanName(editName)) {
+      setEditNameError(SCAN_NAME_URL_ERROR);
+      return;
+    }
+    setEditNameError(null);
     const data: Parameters<typeof updateScanMutation.mutate>[0]["data"] = {
       name: editName.trim() || undefined,
       ...(isSuperAdmin ? {
@@ -2805,13 +2819,26 @@ export default function ScanDetail() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label htmlFor="detail-edit-name">Scan Name</Label>
+              <Label htmlFor="detail-edit-name">Scan Title</Label>
               <Input
                 id="detail-edit-name"
                 value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                placeholder="Enter scan name"
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setEditName(value);
+                  setEditNameError(isUrlLikeScanName(value) ? SCAN_NAME_URL_ERROR : null);
+                }}
+                placeholder="Enter scan title"
+                aria-invalid={Boolean(editNameError)}
+                aria-describedby={
+                  editNameError ? "detail-edit-name-error" : undefined
+                }
               />
+              {editNameError && (
+                <FieldMessage id="detail-edit-name-error" tone="error">
+                  {editNameError}
+                </FieldMessage>
+              )}
             </div>
 
             {isSuperAdmin ? (
@@ -2873,7 +2900,10 @@ export default function ScanDetail() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveEdit} disabled={updateScanMutation.isPending}>
+            <Button
+              onClick={handleSaveEdit}
+              disabled={updateScanMutation.isPending || isUrlLikeScanName(editName)}
+            >
               {updateScanMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
               Save
             </Button>
@@ -2936,7 +2966,7 @@ export default function ScanDetail() {
       })()}
 
       <div className="flex justify-between items-start">
-        <div>
+        <div className="min-w-0 flex-1">
           <Button
             variant="ghost"
             size="sm"
@@ -2955,8 +2985,11 @@ export default function ScanDetail() {
               </span>
             </div>
           )}
-          <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-3xl font-bold tracking-tight">
+          <div className="flex min-w-0 items-center gap-3 mb-2">
+            <h1
+              className="min-w-0 flex-1 max-w-full line-clamp-2 break-words [overflow-wrap:anywhere] text-3xl font-bold tracking-tight"
+              title={scan.name || `Scan #${scan.id}`}
+            >
               {scan.name || `Scan #${scan.id}`}
             </h1>
             <Button
@@ -3106,7 +3139,10 @@ export default function ScanDetail() {
           <CardHeader>
             <CardTitle>Scan Progress</CardTitle>
             {liveStatus?.currentUrl && (
-              <CardDescription className="font-mono break-all">
+              <CardDescription
+                className="min-w-0 max-w-full font-mono break-words [overflow-wrap:anywhere]"
+                title={liveStatus.currentUrl}
+              >
                 Currently scanning: {liveStatus.currentUrl}
               </CardDescription>
             )}

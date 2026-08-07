@@ -16,6 +16,7 @@ import AppWalkthrough from "@/pages/app-walkthrough";
 import LoginPage from "@/pages/login";
 import ResetPasswordPage from "@/pages/reset-password";
 import ChangePasswordPage from "@/pages/change-password";
+import ProfileSettingsPage from "@/pages/profile-settings";
 import AdminUsersPage from "@/pages/admin/users";
 import AdminGroupsPage from "@/pages/admin/groups";
 import AdminDashboardPage from "@/pages/admin/dashboard";
@@ -64,6 +65,7 @@ import QAWordInventoryPage from "@/pages/qa-word-inventory";
 import { AuthProvider, useAuth } from "@/contexts/auth";
 import { SiteProvider } from "@/contexts/site";
 import AdminSiteManagerPage from "@/pages/admin/site-manager";
+import ManageProjectsPage from "@/pages/manage-projects";
 import { AppStatusProvider, useAppStatus } from "@/contexts/app-status";
 import MaintenancePage from "@/pages/maintenance";
 import WelcomePage from "@/pages/welcome";
@@ -122,11 +124,21 @@ function PermissionGuard({
     | "canViewCrawlHistory"
     | "canViewQualityAssurance"
     | "canViewSiteAccessibilityDashboard"
-    | "canManageSites";
+    | "canManageSites"
+    | "canManageSiteTargetScore";
   children: React.ReactNode;
 }) {
   const { user } = useAuth();
   if (!user?.permissions?.[permission]) {
+    return <Redirect to="/welcome" />;
+  }
+  return <>{children}</>;
+}
+
+function ProjectManagementGuard({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const permissions = user?.permissions;
+  if (!permissions?.canCreateProject && !permissions?.canDeleteProject) {
     return <Redirect to="/welcome" />;
   }
   return <>{children}</>;
@@ -167,6 +179,11 @@ function Router() {
           <ChangePasswordPage />
         </AuthGuard>
       </Route>
+      <Route path="/profile-settings">
+        <AuthGuard>
+          <Layout><ProfileSettingsPage /></Layout>
+        </AuthGuard>
+      </Route>
 
       {/* Protected app routes */}
       <Route path="/">
@@ -177,6 +194,13 @@ function Router() {
       </Route>
       <Route path="/new">
         <AuthGuard><Layout><Home /></Layout></AuthGuard>
+      </Route>
+      <Route path="/projects">
+        <AuthGuard>
+          <ProjectManagementGuard>
+            <Layout><ManageProjectsPage /></Layout>
+          </ProjectManagementGuard>
+        </AuthGuard>
       </Route>
       <Route path="/scans/:scanId/pages/:pageId/report">
         <AuthGuard><PageReport /></AuthGuard>
@@ -470,6 +494,187 @@ function useKeepAlive() {
   }, []);
 }
 
+type OverlayScrollbarEntry = {
+  element: HTMLElement;
+  thumb: HTMLDivElement;
+  orientation: "vertical" | "horizontal";
+  onScroll: () => void;
+  onPointerDown: (event: PointerEvent) => void;
+};
+
+function AppOverlayScrollbars() {
+  useEffect(() => {
+    const entries = new Map<string, OverlayScrollbarEntry>();
+    let scanTimer: number | undefined;
+    let frame: number | undefined;
+
+    const isRadixViewport = (element: HTMLElement) =>
+      Boolean(element.closest("[data-radix-scroll-area-viewport]"));
+
+    const canScroll = (element: HTMLElement, orientation: "vertical" | "horizontal") => {
+      const style = getComputedStyle(element);
+      const overflow = orientation === "vertical" ? style.overflowY : style.overflowX;
+      if (!["auto", "scroll", "overlay"].includes(overflow)) return false;
+      return orientation === "vertical"
+        ? element.scrollHeight > element.clientHeight + 1
+        : element.scrollWidth > element.clientWidth + 1;
+    };
+
+    const createThumb = (
+      element: HTMLElement,
+      orientation: "vertical" | "horizontal",
+      key: string,
+    ) => {
+      const thumb = document.createElement("div");
+      thumb.className = "app-overlay-scrollbar-thumb";
+      thumb.dataset.orientation = orientation;
+      thumb.dataset.scrollbarKey = key;
+      thumb.setAttribute("aria-hidden", "true");
+      document.body.appendChild(thumb);
+
+      const onScroll = () => scheduleUpdate();
+      const onPointerDown = (event: PointerEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const startPointer = orientation === "vertical" ? event.clientY : event.clientX;
+        const startScroll = orientation === "vertical" ? element.scrollTop : element.scrollLeft;
+        const viewport = orientation === "vertical" ? element.clientHeight : element.clientWidth;
+        const content = orientation === "vertical" ? element.scrollHeight : element.scrollWidth;
+        const thumbSize = Math.max(28, (viewport * viewport) / content);
+        const travel = Math.max(1, viewport - thumbSize - 6);
+        const scrollRange = Math.max(1, content - viewport);
+
+        const onPointerMove = (moveEvent: PointerEvent) => {
+          const pointer = orientation === "vertical" ? moveEvent.clientY : moveEvent.clientX;
+          const nextScroll = startScroll + ((pointer - startPointer) / travel) * scrollRange;
+          if (orientation === "vertical") {
+            element.scrollTop = nextScroll;
+          } else {
+            element.scrollLeft = nextScroll;
+          }
+          scheduleUpdate();
+        };
+        const onPointerUp = () => {
+          window.removeEventListener("pointermove", onPointerMove);
+          window.removeEventListener("pointerup", onPointerUp);
+        };
+
+        window.addEventListener("pointermove", onPointerMove);
+        window.addEventListener("pointerup", onPointerUp, { once: true });
+      };
+
+      thumb.addEventListener("pointerdown", onPointerDown);
+      element.addEventListener("scroll", onScroll, { passive: true });
+      entries.set(key, { element, thumb, orientation, onScroll, onPointerDown });
+    };
+
+    const removeEntry = (key: string) => {
+      const entry = entries.get(key);
+      if (!entry) return;
+      entry.element.removeEventListener("scroll", entry.onScroll);
+      entry.thumb.removeEventListener("pointerdown", entry.onPointerDown);
+      entry.thumb.remove();
+      entries.delete(key);
+    };
+
+    const scan = () => {
+      const candidates: HTMLElement[] = [];
+      if (document.scrollingElement instanceof HTMLElement) {
+        candidates.push(document.scrollingElement);
+      }
+      document.querySelectorAll<HTMLElement>("*").forEach((element) => {
+        if (!isRadixViewport(element) && !element.matches("[data-app-overlay-scrollbar-thumb]")) {
+          candidates.push(element);
+        }
+      });
+
+      const activeKeys = new Set<string>();
+      candidates.forEach((element) => {
+        (["vertical", "horizontal"] as const).forEach((orientation) => {
+          const key = `${orientation}:${element === document.scrollingElement ? "document" : element.dataset.scrollbarId || ""}`;
+          if (element !== document.scrollingElement && !element.dataset.scrollbarId) {
+            element.dataset.scrollbarId = `scroll-${Math.random().toString(36).slice(2)}`;
+          }
+          const resolvedKey =
+            element === document.scrollingElement
+              ? key
+              : `${orientation}:${element.dataset.scrollbarId}`;
+          if (canScroll(element, orientation)) {
+            activeKeys.add(resolvedKey);
+            if (!entries.has(resolvedKey)) createThumb(element, orientation, resolvedKey);
+          }
+        });
+      });
+
+      Array.from(entries.keys()).forEach((key) => {
+        if (!activeKeys.has(key)) removeEntry(key);
+      });
+      scheduleUpdate();
+    };
+
+    const update = () => {
+      frame = undefined;
+      entries.forEach(({ element, thumb, orientation }) => {
+        const isDocument = element === document.scrollingElement;
+        const rect = isDocument
+          ? { top: 0, left: 0, right: window.innerWidth, bottom: window.innerHeight }
+          : element.getBoundingClientRect();
+        const viewport = orientation === "vertical" ? element.clientHeight : element.clientWidth;
+        const content = orientation === "vertical" ? element.scrollHeight : element.scrollWidth;
+        const scroll = orientation === "vertical" ? element.scrollTop : element.scrollLeft;
+        const thumbSize = Math.max(28, (viewport * viewport) / content);
+        const trackSize = Math.max(0, viewport - thumbSize - 6);
+        const scrollRange = Math.max(1, content - viewport);
+        const offset = (scroll / scrollRange) * trackSize;
+
+        if (orientation === "vertical") {
+          thumb.style.top = `${Math.max(rect.top + 3, rect.top + 3 + offset)}px`;
+          thumb.style.left = `${rect.right - 10}px`;
+          thumb.style.height = `${Math.min(viewport - 6, thumbSize)}px`;
+          thumb.style.width = "6px";
+        } else {
+          thumb.style.left = `${Math.max(rect.left + 3, rect.left + 3 + offset)}px`;
+          thumb.style.top = `${rect.bottom - 10}px`;
+          thumb.style.width = `${Math.min(viewport - 6, thumbSize)}px`;
+          thumb.style.height = "6px";
+        }
+      });
+    };
+
+    const scheduleUpdate = () => {
+      if (frame === undefined) frame = window.requestAnimationFrame(update);
+    };
+
+    const scheduleScan = () => {
+      if (scanTimer !== undefined) window.clearTimeout(scanTimer);
+      scanTimer = window.setTimeout(scan, 80);
+    };
+
+    const observer = new MutationObserver(scheduleScan);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
+    window.addEventListener("resize", scheduleScan);
+    window.addEventListener("scroll", scheduleUpdate, true);
+    scan();
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", scheduleScan);
+      window.removeEventListener("scroll", scheduleUpdate, true);
+      if (scanTimer !== undefined) window.clearTimeout(scanTimer);
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
+      Array.from(entries.keys()).forEach(removeEntry);
+    };
+  }, []);
+
+  return null;
+}
+
 function App() {
   useKeepAlive();
   return (
@@ -480,6 +685,7 @@ function App() {
             <AuthProvider>
               <SiteProvider>
                 <TooltipProvider>
+                  <AppOverlayScrollbars />
                   <Router />
                   <Toaster />
                 </TooltipProvider>

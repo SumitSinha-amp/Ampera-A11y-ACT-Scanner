@@ -36,7 +36,7 @@ export function useQASites() {
 }
 
 export function useQASelectedSite(sites: QASiteEntry[]) {
-  const { activeSite } = useSite();
+  const { activeSite, setActiveSite } = useSite();
   const globalSiteId = activeSite?.id ?? null;
 
   const [selectedSiteId, setSelectedSiteId] = useState<number | null>(() => {
@@ -53,22 +53,51 @@ export function useQASelectedSite(sites: QASiteEntry[]) {
   // Auto-select first when no valid selection exists
   useEffect(() => {
     if (!sites.length) return;
+    if (globalSiteId != null) {
+      // The sync effect below handles a matching QA site. If the active
+      // header site has no QA data, preserve that selection as an empty state
+      // instead of silently switching to a different site's report.
+      if (sites.some((s) => s.siteId === globalSiteId)) return;
+      setSelectedSiteId(null);
+      try { sessionStorage.removeItem("qa-selected-site"); } catch {}
+      return;
+    }
     if (selectedSiteId !== null && sites.some((s) => s.siteId === selectedSiteId)) return;
     const first = sites[0].siteId;
     setSelectedSiteId(first);
     try { sessionStorage.setItem("qa-selected-site", String(first)); } catch {}
   }, [sites, selectedSiteId]);
 
-  // Sync with global header selector when activeSite changes
+  // Sync with the global header selector when activeSite changes. A selected
+  // site without QA data should show the empty state rather than leaving the
+  // previous site's report on screen.
   useEffect(() => {
-    if (globalSiteId != null && sites.some((s) => s.siteId === globalSiteId)) {
-      setSelectedSiteId(globalSiteId);
-      try { sessionStorage.setItem("qa-selected-site", String(globalSiteId)); } catch {}
-    }
+    if (globalSiteId == null || sites.length === 0) return;
+    const globalSiteIsAvailable = sites.some((s) => s.siteId === globalSiteId);
+    setSelectedSiteId(globalSiteIsAvailable ? globalSiteId : null);
+    try {
+      if (globalSiteIsAvailable) {
+        sessionStorage.setItem("qa-selected-site", String(globalSiteId));
+      } else {
+        sessionStorage.removeItem("qa-selected-site");
+      }
+    } catch {}
   }, [globalSiteId, sites]);
 
   const setSite = (id: number) => {
     setSelectedSiteId(id);
+    const matchingSite = sites.find((site) => site.siteId === id);
+    if (matchingSite) {
+      const contextSite = {
+        id: matchingSite.siteId,
+        name: matchingSite.siteName,
+        baseUrl: matchingSite.siteUrl,
+        description: null,
+        role: "",
+        pageCount: matchingSite.pageCount,
+      };
+      setActiveSite(contextSite);
+    }
     try { sessionStorage.setItem("qa-selected-site", String(id)); } catch {}
   };
 

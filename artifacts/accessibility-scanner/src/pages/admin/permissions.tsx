@@ -28,6 +28,7 @@ interface UserPermission {
   canViewQualityAssurance: boolean;
   canViewSiteAccessibilityDashboard: boolean;
   canManageSites: boolean;
+  canManageSiteTargetScore: boolean;
   allowedRules: string[] | null;
 }
 
@@ -83,6 +84,7 @@ const PERM_GROUPS = [
       { key: "canViewCrawlHistory" as const, label: "View Crawl Details & History", desc: "View crawler history, details, pages, and progress" },
       { key: "canViewQualityAssurance" as const, label: "Quality Assurance Dashboard", desc: "View QA dashboards, submenus, and reports for accessible sites" },
       { key: "canViewSiteAccessibilityDashboard" as const, label: "Site Accessibility Dashboard", desc: "View dashboards for accessible sites" },
+      { key: "canManageSiteTargetScore" as const, label: "Manage Site Target Score", desc: "Set, edit, or clear the accessibility target score for accessible sites" },
       { key: "canManageSites" as const, label: "Manage Sites", desc: "Create, edit, delete, and configure accessible sites" },
     ],
   },

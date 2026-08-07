@@ -22,6 +22,7 @@ export const userGroupsTable = pgTable("user_groups", {
   name: text("name").notNull().unique(),
   description: text("description"),
   roleLabel: text("role_label"), // auto-fills "Role" on scan form when this group is selected
+  canManageSiteTargetScore: boolean("can_manage_site_target_score").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -52,6 +53,7 @@ export const userPermissionsTable = pgTable("user_permissions", {
   canViewQualityAssurance: boolean("can_view_quality_assurance").notNull().default(true),
   canViewSiteAccessibilityDashboard: boolean("can_view_site_accessibility_dashboard").notNull().default(true),
   canManageSites: boolean("can_manage_sites").notNull().default(false),
+  canManageSiteTargetScore: boolean("can_manage_site_target_score").notNull().default(false),
   allowedRules: jsonb("allowed_rules"), // null = all rules; string[] = restricted list
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   updatedBy: integer("updated_by"),

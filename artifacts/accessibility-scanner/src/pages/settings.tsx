@@ -34,6 +34,7 @@ import {
   Loader2,
   Sparkles,
   Gem,
+  Palette,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth, isAdmin, isSuperAdmin } from "@/contexts/auth";
@@ -52,6 +53,20 @@ export function isElementViewerEnabled(): boolean {
 
 export const PROXY_LS_KEY = "a11y-scanner-proxy-pacs";
 export const ACTIVE_PROXY_KEY = "a11y-scanner-active-proxy";
+export const ACTIVE_PROXY_CHANGED_EVENT = "a11y-active-proxy-changed";
+
+export function setActiveProxyValue(url: string): void {
+  if (url) {
+    localStorage.setItem(ACTIVE_PROXY_KEY, url);
+  } else {
+    localStorage.removeItem(ACTIVE_PROXY_KEY);
+  }
+  window.dispatchEvent(
+    new CustomEvent(ACTIVE_PROXY_CHANGED_EVENT, {
+      detail: { proxyUrl: url },
+    }),
+  );
+}
 
 export const URL_LIMIT_LS_KEY = "a11y-url-limit-enabled";
 export const URL_LIMIT_VALUE_LS_KEY = "a11y-url-limit-value";
@@ -130,14 +145,159 @@ export function getLogoSize(): number {
 }
 
 export const THEME_LS_KEY = "a11y-theme";
-export type Theme = "light" | "dark" | "system" | "glass-dark" | "glass-light";
+export type Theme = "light" | "dark" | "system" | "glass-dark" | "glass-light" | "glass-vision" | "glass-vision-light";
+
+export const ACCENT_LS_KEY = "a11y-accent";
+export type AccentColor =
+  | "black"
+  | "purple"
+  | "blue"
+  | "pink"
+  | "violet"
+  | "indigo"
+  | "orange"
+  | "teal"
+  | "bronze"
+  | "mint";
+
+export const ACCENT_COLORS: Record<
+  AccentColor,
+  { label: string; value: string; foreground: string; swatch: string }
+> = {
+  black: {
+    label: "Black",
+    value: "220 12% 19%",
+    foreground: "0 0% 100%",
+    swatch: "#30343b",
+  },
+  purple: {
+    label: "Purple",
+    value: "249 80% 67%",
+    foreground: "0 0% 100%",
+    swatch: "#7b68ee",
+  },
+  blue: {
+    label: "Blue",
+    value: "202 80% 45%",
+    foreground: "0 0% 100%",
+    swatch: "#168bd4",
+  },
+  pink: {
+    label: "Pink",
+    value: "335 75% 61%",
+    foreground: "0 0% 100%",
+    swatch: "#e84d91",
+  },
+  violet: {
+    label: "Violet",
+    value: "287 58% 57%",
+    foreground: "0 0% 100%",
+    swatch: "#ae53d1",
+  },
+  indigo: {
+    label: "Indigo",
+    value: "227 75% 64%",
+    foreground: "0 0% 100%",
+    swatch: "#5d7be8",
+  },
+  orange: {
+    label: "Orange",
+    value: "25 87% 49%",
+    foreground: "0 0% 100%",
+    swatch: "#e86e10",
+  },
+  teal: {
+    label: "Teal",
+    value: "181 70% 36%",
+    foreground: "0 0% 100%",
+    swatch: "#1b9b9d",
+  },
+  bronze: {
+    label: "Bronze",
+    value: "17 15% 59%",
+    foreground: "0 0% 100%",
+    swatch: "#a58f88",
+  },
+  mint: {
+    label: "Mint",
+    value: "157 49% 47%",
+    foreground: "0 0% 100%",
+    swatch: "#3db489",
+  },
+};
+
+/** Saved accent: a preset key, or a custom hex string like "#3fb27f". */
+export function getSavedAccentColor(): AccentColor | string {
+  try {
+    const value = localStorage.getItem(ACCENT_LS_KEY);
+    if (value && (value in ACCENT_COLORS || /^#[0-9a-fA-F]{6}$/.test(value))) {
+      return value;
+    }
+  } catch {
+    /* ignore */
+  }
+    return "violet";
+}
+
+export function hexToHslString(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  let h = 0;
+  let s = 0;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+  }
+  return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+}
+
+function hexLuminance(hex: string): number {
+  const c = [1, 3, 5].map((i) => {
+    const v = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+
+export function applyAccentColor(accent: AccentColor | string) {
+  let value: string;
+  let foreground: string;
+  let datasetKey: string;
+  if (typeof accent === "string" && accent.startsWith("#")) {
+    value = hexToHslString(accent);
+    foreground = hexLuminance(accent) > 0.45 ? "222 10% 8%" : "0 0% 100%";
+    datasetKey = "custom";
+  } else {
+    const selected =
+      ACCENT_COLORS[accent as AccentColor] ?? ACCENT_COLORS.indigo;
+    value = selected.value;
+    foreground = selected.foreground;
+    datasetKey = accent as string;
+  }
+  const root = document.documentElement;
+  root.style.setProperty("--app-accent", value);
+  root.style.setProperty("--primary", value);
+  root.style.setProperty("--ring", value);
+  root.style.setProperty("--sidebar-primary", value);
+  root.style.setProperty("--sidebar-ring", value);
+  root.style.setProperty("--primary-foreground", foreground);
+  root.dataset.accent = datasetKey;
+}
 
 export function getSavedTheme(): Theme {
   try {
     const v = localStorage.getItem(THEME_LS_KEY);
     if (
       v === "light" || v === "dark" || v === "system" ||
-      v === "glass-dark" || v === "glass-light"
+      v === "glass-dark" || v === "glass-light" || v === "glass-vision" ||
+      v === "glass-vision-light"
     ) return v;
   } catch {
     /* ignore */
@@ -150,10 +310,53 @@ export function applyTheme(theme: Theme) {
   const useDark =
     theme === "dark" ||
     theme === "glass-dark" ||
+    theme === "glass-vision" ||
     (theme === "system" && prefersDark);
   document.documentElement.classList.toggle("dark", useDark);
   document.documentElement.classList.toggle("glass-dark", theme === "glass-dark");
   document.documentElement.classList.toggle("glass-light", theme === "glass-light");
+  document.documentElement.classList.toggle("glass-vision", theme === "glass-vision");
+  document.documentElement.classList.toggle("glass-vision-light", theme === "glass-vision-light");
+}
+
+/* ── App background image ─────────────────────────────────── */
+export const BG_LS_KEY = "a11y-bg-image";
+
+export interface BackgroundPreset {
+  id: string;
+  label: string;
+  url: string;
+}
+
+const BG_BASE = `${import.meta.env.BASE_URL}backgrounds`;
+
+export const BACKGROUND_PRESETS: BackgroundPreset[] = [
+  { id: "teal-room", label: "Teal Room", url: `${BG_BASE}/bg-teal-room.png` },
+  { id: "aurora-night", label: "Aurora Night", url: `${BG_BASE}/bg-aurora-night.png` },
+  { id: "sunset-haze", label: "Sunset Haze", url: `${BG_BASE}/bg-sunset-haze.png` },
+  { id: "misty-forest", label: "Misty Forest", url: `${BG_BASE}/bg-misty-forest.png` },
+  { id: "bright-clouds", label: "Bright Clouds", url: `${BG_BASE}/bg-bright-clouds.png` },
+];
+
+export function getSavedBackgroundImage(): string {
+  try {
+    return localStorage.getItem(BG_LS_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export const THEME_CHANGED_EVENT = "a11y-theme-changed";
+
+export function applyBackgroundImage(url: string) {
+  const root = document.documentElement;
+  if (url) {
+    root.style.setProperty("--app-bg-image", `url("${url}")`);
+    root.dataset.bgImage = "on";
+  } else {
+    root.style.removeProperty("--app-bg-image");
+    delete root.dataset.bgImage;
+  }
 }
 
 export function loadSavedProxies(): string[] {
@@ -563,6 +766,8 @@ export default function Settings() {
   const [elementViewerEnabled, setElementViewerEnabledState] =
     useState<boolean>(false);
   const [theme, setThemeState] = useState<Theme>("system");
+  const [accent, setAccentState] = useState<AccentColor | string>("indigo");
+  const [bgImage, setBgImage] = useState<string>("");
   const [urlLimitEnabled, setUrlLimitEnabledState] = useState(false);
   const [urlLimitValue, setUrlLimitValueState] = useState(DEFAULT_URL_LIMIT);
   const [urlLimitInput, setUrlLimitInput] = useState(String(DEFAULT_URL_LIMIT));
@@ -599,10 +804,22 @@ export default function Settings() {
   }, [toast, navigate]);
 
   useEffect(() => {
+    const onThemeChanged = () => setThemeState(getSavedTheme());
+    window.addEventListener(THEME_CHANGED_EVENT, onThemeChanged);
+    return () => window.removeEventListener(THEME_CHANGED_EVENT, onThemeChanged);
+  }, []);
+
+  useEffect(() => {
     setSavedProxies(loadSavedProxies());
     setActiveProxy(getActiveProxy());
     setElementViewerEnabledState(isElementViewerEnabled());
     setThemeState(getSavedTheme());
+    const savedAccent = getSavedAccentColor();
+    setAccentState(savedAccent);
+    applyAccentColor(savedAccent);
+    const savedBg = getSavedBackgroundImage();
+    setBgImage(savedBg);
+    applyBackgroundImage(savedBg);
     setUrlLimitEnabledState(isUrlLimitEnabled());
     const saved = getUrlLimitValue();
     setUrlLimitValueState(saved);
@@ -621,14 +838,58 @@ export default function Settings() {
     setThemeState(t);
     localStorage.setItem(THEME_LS_KEY, t);
     applyTheme(t);
+    window.dispatchEvent(new CustomEvent(THEME_CHANGED_EVENT, { detail: { theme: t } }));
     const labels: Record<Theme, string> = {
       light: "Light",
       dark: "Dark",
       system: "System default",
       "glass-dark": "Glass Dark",
       "glass-light": "Glass Light",
+      "glass-vision": "Vision Pro",
+      "glass-vision-light": "Vision Pro Light",
     };
     toast({ title: `Theme set to ${labels[t]}` });
+  };
+
+  const handleAccentChange = (value: AccentColor | string) => {
+    setAccentState(value);
+    localStorage.setItem(ACCENT_LS_KEY, value);
+    applyAccentColor(value);
+    const label = value.startsWith("#")
+      ? `Custom (${value})`
+      : ACCENT_COLORS[value as AccentColor]?.label ?? value;
+    toast({ title: `${label} accent applied` });
+  };
+
+  const handleBackgroundChange = (url: string) => {
+    try {
+      if (url) localStorage.setItem(BG_LS_KEY, url);
+      else localStorage.removeItem(BG_LS_KEY);
+    } catch {
+      toast({
+        title: "Could not save background",
+        description: "The image is too large to store. Try a smaller file.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setBgImage(url);
+    applyBackgroundImage(url);
+    toast({ title: url ? "Background applied" : "Background removed" });
+  };
+
+  const handleBackgroundUpload = (file: File) => {
+    if (file.size > 1.5 * 1024 * 1024) {
+      toast({
+        title: "Image too large",
+        description: "Please choose an image under 1.5 MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => handleBackgroundChange(String(reader.result));
+    reader.readAsDataURL(file);
   };
 
   const syncProxyToServer = async (pacUrl: string) => {
@@ -650,7 +911,7 @@ export default function Settings() {
     localStorage.setItem(PROXY_LS_KEY, JSON.stringify(updated));
     setSavedProxies(updated);
     if (!activeProxy) {
-      localStorage.setItem(ACTIVE_PROXY_KEY, url);
+      setActiveProxyValue(url);
       setActiveProxy(url);
       void syncProxyToServer(url);
     }
@@ -659,14 +920,14 @@ export default function Settings() {
   };
 
   const selectProxy = (url: string) => {
-    localStorage.setItem(ACTIVE_PROXY_KEY, url);
+    setActiveProxyValue(url);
     setActiveProxy(url);
     void syncProxyToServer(url);
     toast({ title: "Active proxy updated" });
   };
 
   const clearActiveProxy = () => {
-    localStorage.removeItem(ACTIVE_PROXY_KEY);
+    setActiveProxyValue("");
     setActiveProxy("");
     void syncProxyToServer("");
     toast({ title: "Active proxy cleared" });
@@ -677,8 +938,9 @@ export default function Settings() {
     localStorage.setItem(PROXY_LS_KEY, JSON.stringify(remaining));
     setSavedProxies(remaining);
     if (activeProxy === url) {
-      localStorage.removeItem(ACTIVE_PROXY_KEY);
+      setActiveProxyValue("");
       setActiveProxy("");
+      void syncProxyToServer("");
     }
     toast({ title: "PAC URL removed" });
   };
@@ -775,7 +1037,7 @@ export default function Settings() {
                   <Sparkles className="w-3.5 h-3.5" />
                   Glass themes
                 </p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-3">
                   {(
                     [
                       {
@@ -792,13 +1054,27 @@ export default function Settings() {
                         desc: "Frosted crystal",
                         gradient: "from-violet-100 via-fuchsia-100 to-sky-100",
                       },
+                      {
+                        value: "glass-vision" as Theme,
+                        label: "Vision Pro",
+                        icon: Gem,
+                        desc: "Spatial computing",
+                        gradient: "from-slate-900 via-teal-950 to-cyan-950",
+                      },
+                      {
+                        value: "glass-vision-light" as Theme,
+                        label: "Vision Pro Light",
+                        icon: Sparkles,
+                        desc: "Bright spatial glass",
+                        gradient: "from-sky-100 via-cyan-50 to-slate-200",
+                      },
                     ]
                   ).map(({ value, label, icon: Icon, desc, gradient }) => (
                     <button
                       key={value}
                       type="button"
                       onClick={() => handleThemeChange(value)}
-                      className={`relative flex items-center gap-3 p-4 rounded-lg border-2 transition-all overflow-hidden text-left ${
+                      className={`relative flex flex-col items-start gap-2 p-3.5 rounded-lg border-2 transition-all overflow-hidden text-left ${
                         theme === value
                           ? "border-primary text-primary"
                           : "border-border hover:border-primary/40 text-muted-foreground"
@@ -817,6 +1093,166 @@ export default function Settings() {
                       )}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              <div className="space-y-3 border-t pt-4">
+                <div className="flex items-start gap-2">
+                  <Palette className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-semibold">Accent colour</p>
+                    <p className="text-xs text-muted-foreground">
+                      Set the navigation rail, active states, buttons, and focus colour.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {(Object.keys(ACCENT_COLORS) as AccentColor[]).map((value) => {
+                    const option = ACCENT_COLORS[value];
+                    const selected = accent === value;
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        data-testid={`button-accent-${value}`}
+                        aria-pressed={selected}
+                        aria-label={`${option.label} accent`}
+                        onClick={() => handleAccentChange(value)}
+                        className={`group flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition-all ${
+                          selected
+                            ? "border-primary bg-primary/8 ring-2 ring-primary/20"
+                            : "border-border hover:border-primary/50 hover:bg-muted/50"
+                        }`}
+                      >
+                        <span
+                          className="h-7 w-7 shrink-0 rounded-md shadow-sm ring-2 ring-background"
+                          style={{ backgroundColor: option.swatch }}
+                        />
+                        <span className={`text-xs font-medium ${selected ? "text-primary" : "text-muted-foreground"}`}>
+                          {option.label}
+                        </span>
+                        {selected && (
+                          <CheckCircle2 className="ml-auto h-4 w-4 shrink-0 text-primary" />
+                        )}
+                      </button>
+                    );
+                  })}
+                  <label
+                    data-testid="button-accent-custom"
+                    className={`group flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition-all ${
+                      accent.startsWith("#")
+                        ? "border-primary bg-primary/8 ring-2 ring-primary/20"
+                        : "border-border hover:border-primary/50 hover:bg-muted/50"
+                    }`}
+                  >
+                    <span className="relative h-7 w-7 shrink-0 overflow-hidden rounded-md shadow-sm ring-2 ring-background">
+                      <span
+                        className="absolute inset-0"
+                        style={{
+                          background: accent.startsWith("#")
+                            ? accent
+                            : "conic-gradient(from 0deg, #f44, #fa0, #ff4, #4f4, #4ff, #44f, #f4f, #f44)",
+                        }}
+                      />
+                      <input
+                        type="color"
+                        aria-label="Pick a custom accent colour"
+                        value={accent.startsWith("#") ? accent : "#3b82f6"}
+                        onChange={(e) => handleAccentChange(e.target.value)}
+                        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                      />
+                    </span>
+                    <span className={`text-xs font-medium ${accent.startsWith("#") ? "text-primary" : "text-muted-foreground"}`}>
+                      {accent.startsWith("#") ? `Custom ${accent}` : "Custom…"}
+                    </span>
+                    {accent.startsWith("#") && (
+                      <CheckCircle2 className="ml-auto h-4 w-4 shrink-0 text-primary" />
+                    )}
+                  </label>
+                </div>
+              </div>
+
+              {/* ── App background image ── */}
+              <div className="space-y-3 border-t pt-4">
+                <div className="flex items-start gap-2">
+                  <ImageIcon className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-semibold">Background image</p>
+                    <p className="text-xs text-muted-foreground">
+                      Shown behind the glass themes. Pick a preset or upload your own (under 1.5 MB).
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <button
+                    type="button"
+                    data-testid="button-bg-none"
+                    aria-pressed={!bgImage}
+                    onClick={() => handleBackgroundChange("")}
+                    className={`relative flex h-20 items-center justify-center rounded-xl border text-xs font-medium transition-all ${
+                      !bgImage
+                        ? "border-primary ring-2 ring-primary/20 text-primary"
+                        : "border-border text-muted-foreground hover:border-primary/50"
+                    }`}
+                  >
+                    None (theme default)
+                  </button>
+                  {BACKGROUND_PRESETS.map((preset) => {
+                    const selected = bgImage === preset.url;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        data-testid={`button-bg-${preset.id}`}
+                        aria-pressed={selected}
+                        aria-label={`${preset.label} background`}
+                        onClick={() => handleBackgroundChange(preset.url)}
+                        className={`relative h-20 overflow-hidden rounded-xl border transition-all ${
+                          selected
+                            ? "border-primary ring-2 ring-primary/20"
+                            : "border-border hover:border-primary/50"
+                        }`}
+                      >
+                        <img
+                          src={preset.url}
+                          alt={preset.label}
+                          className="absolute inset-0 h-full w-full object-cover"
+                          loading="lazy"
+                        />
+                        <span className="absolute inset-x-0 bottom-0 bg-black/45 px-2 py-1 text-left text-[11px] font-medium text-white">
+                          {preset.label}
+                        </span>
+                        {selected && (
+                          <CheckCircle2 className="absolute right-1.5 top-1.5 h-4 w-4 text-white drop-shadow" />
+                        )}
+                      </button>
+                    );
+                  })}
+                  <label
+                    data-testid="button-bg-upload"
+                    className={`relative flex h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed text-xs font-medium transition-all ${
+                      bgImage.startsWith("data:")
+                        ? "border-primary ring-2 ring-primary/20 text-primary"
+                        : "border-border text-muted-foreground hover:border-primary/50"
+                    }`}
+                  >
+                    {bgImage.startsWith("data:") ? (
+                      <img src={bgImage} alt="Custom background" className="absolute inset-0 h-full w-full rounded-xl object-cover opacity-80" />
+                    ) : null}
+                    <span className="relative z-10 rounded bg-background/70 px-1.5 py-0.5">
+                      {bgImage.startsWith("data:") ? "Custom image" : "Upload image…"}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleBackgroundUpload(f);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
                 </div>
               </div>
             </CardContent>

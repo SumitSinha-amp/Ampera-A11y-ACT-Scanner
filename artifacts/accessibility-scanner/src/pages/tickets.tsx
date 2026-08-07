@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLocation } from "wouter";
 import { Loader2, Plus, ChevronRight, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,6 +65,7 @@ function PriorityBadge({ priority }: { priority: string }) {
 }
 
 export default function TicketsPage() {
+  const [location, navigate] = useLocation();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
@@ -88,6 +90,15 @@ export default function TicketsPage() {
   }
 
   useEffect(() => { loadTickets(); }, []);
+
+  useEffect(() => {
+    const query = location.split("?")[1] ?? "";
+    if (new URLSearchParams(query).get("create") === "1") {
+      setCreateOpen(true);
+      setCError("");
+      navigate("/tickets", { replace: true });
+    }
+  }, [location, navigate]);
 
   async function openTicket(ticket: Ticket) {
     setDetailLoading(true);

@@ -258,11 +258,16 @@ router.get("/admin/groups", requireAdmin, async (_req, res): Promise<void> => {
 });
 
 router.post("/admin/groups", requireAdmin, async (req, res): Promise<void> => {
-  const { name, description, roleLabel } = req.body ?? {};
+  const { name, description, roleLabel, canManageSiteTargetScore } = req.body ?? {};
   if (!name) { res.status(400).json({ error: "Group name is required" }); return; }
 
   try {
-    const [group] = await db.insert(userGroupsTable).values({ name, description: description || null, roleLabel: roleLabel || null }).returning();
+    const [group] = await db.insert(userGroupsTable).values({
+      name,
+      description: description || null,
+      roleLabel: roleLabel || null,
+      canManageSiteTargetScore: typeof canManageSiteTargetScore === "boolean" ? canManageSiteTargetScore : false,
+    }).returning();
     res.status(201).json({ ...group, createdAt: group.createdAt.toISOString(), members: [] });
   } catch (err: any) {
     if (err?.code === "23505") { res.status(409).json({ error: "A group with that name already exists" }); return; }
@@ -274,11 +279,12 @@ router.put("/admin/groups/:id", requireAdmin, async (req, res): Promise<void> =>
   const id = parseInt(req.params["id"] as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid group ID" }); return; }
 
-  const { name, description, roleLabel } = req.body ?? {};
+  const { name, description, roleLabel, canManageSiteTargetScore } = req.body ?? {};
   const updates: Partial<typeof userGroupsTable.$inferInsert> = {};
   if (name) updates.name = name;
   if (description !== undefined) updates.description = description;
   if (roleLabel !== undefined) updates.roleLabel = roleLabel || null;
+  if (typeof canManageSiteTargetScore === "boolean") updates.canManageSiteTargetScore = canManageSiteTargetScore;
 
   const [updated] = await db.update(userGroupsTable).set(updates).where(eq(userGroupsTable.id, id)).returning();
   if (!updated) { res.status(404).json({ error: "Group not found" }); return; }
@@ -357,6 +363,7 @@ router.get("/admin/permissions", requireSuperAdmin, async (_req, res): Promise<v
       canViewQualityAssurance: true,
       canViewSiteAccessibilityDashboard: true,
       canManageSites: false,
+      canManageSiteTargetScore: false,
       allowedRules: null,
     },
   })));
@@ -372,7 +379,7 @@ router.put("/admin/permissions/:userId", requireSuperAdmin, async (req, res): Pr
     canManageScan, canCreateProject, canDeleteProject, canDisableJs,
     canSmartAnalysis, canSwitchSite, canCreateCrawl, canDeleteCrawl,
     canViewCrawlHistory, canViewQualityAssurance,
-    canViewSiteAccessibilityDashboard, canManageSites, allowedRules,
+    canViewSiteAccessibilityDashboard, canManageSites, canManageSiteTargetScore, allowedRules,
   } = req.body ?? {};
   const updatedBy = req.session!.user!.id;
 
@@ -397,6 +404,7 @@ router.put("/admin/permissions/:userId", requireSuperAdmin, async (req, res): Pr
     canViewQualityAssurance: bool(canViewQualityAssurance, true),
     canViewSiteAccessibilityDashboard: bool(canViewSiteAccessibilityDashboard, true),
     canManageSites: bool(canManageSites, false),
+    canManageSiteTargetScore: bool(canManageSiteTargetScore, false),
     allowedRules: Array.isArray(allowedRules) ? allowedRules : null,
     updatedAt: new Date(),
     updatedBy,
@@ -425,6 +433,7 @@ router.put("/admin/permissions/:userId", requireSuperAdmin, async (req, res): Pr
         canViewQualityAssurance: values.canViewQualityAssurance,
         canViewSiteAccessibilityDashboard: values.canViewSiteAccessibilityDashboard,
         canManageSites: values.canManageSites,
+        canManageSiteTargetScore: values.canManageSiteTargetScore,
         allowedRules: values.allowedRules,
         updatedAt: values.updatedAt,
         updatedBy: values.updatedBy,

@@ -14,7 +14,180 @@ tags:
     description: Accessibility scan operations
   - name: sites
     description: Site management and access control
+  - name: projects
+    description: Project and site association management
 paths:
+  /projects:
+    get:
+      operationId: listProjects
+      tags: [projects]
+      summary: List projects
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: includeUnassociated
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Projects visible to the authenticated user
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+        "400":
+          description: Invalid site ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Site access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createProject
+      tags: [projects]
+      summary: Create a project under a site
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectBody"
+      responses:
+        "201":
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          description: Invalid project data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /projects/{id}:
+    get:
+      operationId: getProject
+      tags: [projects]
+      summary: Get a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteProject
+      tags: [projects]
+      summary: Delete a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Project deleted
+        "403":
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /projects/{id}/sites:
+    post:
+      operationId: associateProjectSite
+      tags: [projects]
+      summary: Associate an existing project with a site
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectSiteBody"
+      responses:
+        "204":
+          description: Association created
+        "400":
+          description: Invalid project or site ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /projects/{id}/sites/{siteId}:
+    delete:
+      operationId: removeProjectSiteAssociation
+      tags: [projects]
+      summary: Remove a project/site association
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: siteId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Association removed
+        "409":
+          description: Existing scans use the association
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /healthz:
     get:
       operationId: healthCheck
@@ -405,6 +578,58 @@ components:
       required:
         - error
 
+    ProjectSite:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+      required:
+        - id
+        - name
+
+    Project:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        createdAt:
+          type: string
+        sites:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectSite"
+      required:
+        - id
+        - name
+        - createdAt
+        - sites
+
+    CreateProjectBody:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        siteId:
+          type: integer
+          minimum: 1
+      required:
+        - name
+        - siteId
+
+    ProjectSiteBody:
+      type: object
+      properties:
+        siteId:
+          type: integer
+          minimum: 1
+      required:
+        - siteId
+
     ScanSession:
       type: object
       properties:
@@ -418,6 +643,9 @@ components:
           type: ["integer", "null"]
         projectName:
           type: ["string", "null"]
+        options:
+          type: ["object", "null"]
+          additionalProperties: true
         status:
           type: string
           enum: [pending, running, completed, cancelled, failed, paused]
@@ -430,6 +658,8 @@ components:
         totalIssues:
           type: integer
         criticalIssues:
+          type: integer
+        pagesWithIssues:
           type: integer
         createdAt:
           type: string
@@ -760,11 +990,13 @@ components:
             type: string
         name:
           type: ["string", "null"]
+          description: Descriptive scan title; URL values are rejected.
         siteId:
           type: ["integer", "null"]
           minimum: 1
         projectId:
-          type: ["integer", "null"]
+          type: integer
+          minimum: 1
         groupId:
           type: ["integer", "null"]
         initiatorName:
@@ -775,6 +1007,7 @@ components:
           $ref: "#/components/schemas/ScanOptions"
       required:
         - urls
+        - projectId
 
     ScanOptions:
       type: object
@@ -807,6 +1040,7 @@ components:
       properties:
         name:
           type: ["string", "null"]
+          description: Descriptive scan title; URL values are rejected.
         projectId:
           type: ["integer", "null"]
         siteId:

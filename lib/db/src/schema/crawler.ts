@@ -11,7 +11,7 @@ export const sitesTable = pgTable("sites", {
   defaultScope: text("default_scope").notNull().default("subdomain"),
   sitemapUrl: text("sitemap_url"),
   crawlType: text("crawl_type").notNull().default("javascript"),
-  maxPages: integer("max_pages").notNull().default(500),
+  maxPages: integer("max_pages").notNull().default(2000),
   maxDepth: integer("max_depth").notNull().default(5),
   respectRobotsTxt: boolean("respect_robots_txt").notNull().default(true),
   assetMode: text("asset_mode").notNull().default("all"),
@@ -21,6 +21,7 @@ export const sitesTable = pgTable("sites", {
   nextCrawlAt: timestamp("next_crawl_at"),
   lastCompletedAt: timestamp("last_completed_at"),
   lifecycleStatus: text("lifecycle_status").notNull().default("idle"),
+  targetScore: integer("target_score"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

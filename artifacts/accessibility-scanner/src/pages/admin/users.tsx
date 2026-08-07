@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLocation } from "wouter";
 import {
   Loader2, Plus, Pencil, Trash2, Copy, CheckCheck, Shield, ShieldOff, Mail, KeyRound,
 } from "lucide-react";
@@ -86,6 +87,7 @@ function GroupMultiSelect({
 }
 
 export default function AdminUsersPage() {
+  const [location, navigate] = useLocation();
   const [users, setUsers] = useState<AppUser[]>([]);
   const [allGroups, setAllGroups] = useState<UserGroup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -133,6 +135,16 @@ export default function AdminUsersPage() {
   }
 
   useEffect(() => { loadAll(); }, []);
+
+  useEffect(() => {
+    const query = location.split("?")[1] ?? "";
+    if (new URLSearchParams(query).get("create") === "1") {
+      setCreateOpen(true);
+      setCError("");
+      setCGroupIds([]);
+      navigate("/admin/users", { replace: true });
+    }
+  }, [location, navigate]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();

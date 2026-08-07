@@ -19,6 +19,7 @@ export interface UserPermissions {
   canViewQualityAssurance: boolean;
   canViewSiteAccessibilityDashboard: boolean;
   canManageSites: boolean;
+  canManageSiteTargetScore: boolean;
 }
 
 const DEFAULT_PERMISSIONS: UserPermissions = {
@@ -39,6 +40,7 @@ const DEFAULT_PERMISSIONS: UserPermissions = {
   canViewQualityAssurance: true,
   canViewSiteAccessibilityDashboard: true,
   canManageSites: false,
+  canManageSiteTargetScore: false,
 };
 
 export interface AuthUser {

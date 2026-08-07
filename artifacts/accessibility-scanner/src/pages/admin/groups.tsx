@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Loader2, Plus, Pencil, Trash2, UserPlus, UserMinus } from "lucide-react";
+import { useLocation } from "wouter";
+import { Loader2, Plus, Pencil, Trash2, UserPlus, UserMinus, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,10 +14,11 @@ import { useToast } from "@/hooks/use-toast";
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
 interface GroupMember { id: number; fullName: string; username: string }
-interface UserGroup { id: number; name: string; description: string | null; roleLabel: string | null; createdAt: string; members: GroupMember[] }
+interface UserGroup { id: number; name: string; description: string | null; roleLabel: string | null; canManageSiteTargetScore: boolean; createdAt: string; members: GroupMember[] }
 interface AppUser { id: number; fullName: string; username: string }
 
 export default function AdminGroupsPage() {
+  const [location, navigate] = useLocation();
   const [groups, setGroups] = useState<UserGroup[]>([]);
   const [allUsers, setAllUsers] = useState<AppUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,6 +30,7 @@ export default function AdminGroupsPage() {
   const [cName, setCName] = useState("");
   const [cDesc, setCDesc] = useState("");
   const [cRoleLabel, setCRoleLabel] = useState("");
+  const [cTargetScorePermission, setCTargetScorePermission] = useState(false);
   const [cError, setCError] = useState("");
   const [cLoading, setCLoading] = useState(false);
   const { toast } = useToast();
@@ -47,6 +50,19 @@ export default function AdminGroupsPage() {
 
   useEffect(() => { loadAll(); }, []);
 
+  useEffect(() => {
+    const query = location.split("?")[1] ?? "";
+    if (new URLSearchParams(query).get("create") === "1") {
+      setCreateOpen(true);
+      setCName("");
+      setCDesc("");
+      setCRoleLabel("");
+      setCTargetScorePermission(false);
+      setCError("");
+      navigate("/admin/groups", { replace: true });
+    }
+  }, [location, navigate]);
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setCError("");
@@ -56,12 +72,12 @@ export default function AdminGroupsPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: cName, description: cDesc || null, roleLabel: cRoleLabel || null }),
+        body: JSON.stringify({ name: cName, description: cDesc || null, roleLabel: cRoleLabel || null, canManageSiteTargetScore: cTargetScorePermission }),
       });
       const data = await res.json();
       if (!res.ok) { setCError(data.error || "Failed"); return; }
       setCreateOpen(false);
-      setCName(""); setCDesc(""); setCRoleLabel("");
+       setCName(""); setCDesc(""); setCRoleLabel(""); setCTargetScorePermission(false);
       loadAll();
       toast({ title: "Group created" });
     } catch { setCError("Network error"); }
@@ -76,7 +92,7 @@ export default function AdminGroupsPage() {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: cName, description: cDesc || null, roleLabel: cRoleLabel || null }),
+        body: JSON.stringify({ name: cName, description: cDesc || null, roleLabel: cRoleLabel || null, canManageSiteTargetScore: cTargetScorePermission }),
       });
       setEditGroup(null);
       loadAll();
@@ -89,6 +105,7 @@ export default function AdminGroupsPage() {
     setCName(g.name);
     setCDesc(g.description || "");
     setCRoleLabel(g.roleLabel || "");
+    setCTargetScorePermission(g.canManageSiteTargetScore);
     setCError("");
   }
 
@@ -135,7 +152,7 @@ export default function AdminGroupsPage() {
           <h1 className="text-2xl font-bold">User Groups</h1>
           <p className="text-sm text-muted-foreground mt-1">{groups.length} group{groups.length !== 1 ? "s" : ""}</p>
         </div>
-        <Button onClick={() => { setCreateOpen(true); setCName(""); setCDesc(""); setCRoleLabel(""); setCError(""); }} className="gap-2">
+         <Button onClick={() => { setCreateOpen(true); setCName(""); setCDesc(""); setCRoleLabel(""); setCTargetScorePermission(false); setCError(""); }} className="gap-2">
           <Plus className="w-4 h-4" /> Create Group
         </Button>
       </div>
@@ -151,6 +168,11 @@ export default function AdminGroupsPage() {
                     <span className="inline-block mt-0.5 mr-1.5 text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">{g.roleLabel}</span>
                   )}
                   {g.description && <p className="text-xs text-muted-foreground mt-0.5">{g.description}</p>}
+                  {g.canManageSiteTargetScore && (
+                    <span className="inline-flex items-center gap-1 mt-2 text-[10px] font-medium text-primary">
+                      <Target className="w-3 h-3" /> Can manage target scores
+                    </span>
+                  )}
                 </div>
                 <div className="flex gap-1">
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setAddMemberGroup(g); setSelectedUserId(""); }}>
@@ -197,6 +219,10 @@ export default function AdminGroupsPage() {
             <div className="space-y-2"><Label>Name</Label><Input value={cName} onChange={e => setCName(e.target.value)} placeholder="e.g. QA Team" required /></div>
             <div className="space-y-2"><Label>Role Label <span className="text-muted-foreground font-normal">(optional)</span></Label><Input value={cRoleLabel} onChange={e => setCRoleLabel(e.target.value)} placeholder="e.g. QA Engineer" /></div>
             <div className="space-y-2"><Label>Description <span className="text-muted-foreground font-normal">(optional)</span></Label><Input value={cDesc} onChange={e => setCDesc(e.target.value)} placeholder="Brief description" /></div>
+            <label className="flex items-start gap-3 rounded-md border p-3 cursor-pointer">
+              <input type="checkbox" checked={cTargetScorePermission} onChange={e => setCTargetScorePermission(e.target.checked)} className="mt-0.5 accent-primary" />
+              <span><span className="text-sm font-medium">Manage site target scores</span><span className="block text-xs text-muted-foreground mt-0.5">Members can set targets for sites they can access.</span></span>
+            </label>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={cLoading}>{cLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create"}</Button>
@@ -213,6 +239,10 @@ export default function AdminGroupsPage() {
             <div className="space-y-2"><Label>Name</Label><Input value={cName} onChange={e => setCName(e.target.value)} required /></div>
             <div className="space-y-2"><Label>Role Label <span className="text-muted-foreground font-normal">(optional)</span></Label><Input value={cRoleLabel} onChange={e => setCRoleLabel(e.target.value)} placeholder="e.g. QA Engineer" /></div>
             <div className="space-y-2"><Label>Description <span className="text-muted-foreground font-normal">(optional)</span></Label><Input value={cDesc} onChange={e => setCDesc(e.target.value)} /></div>
+            <label className="flex items-start gap-3 rounded-md border p-3 cursor-pointer">
+              <input type="checkbox" checked={cTargetScorePermission} onChange={e => setCTargetScorePermission(e.target.checked)} className="mt-0.5 accent-primary" />
+              <span><span className="text-sm font-medium">Manage site target scores</span><span className="block text-xs text-muted-foreground mt-0.5">Members can set targets for sites they can access.</span></span>
+            </label>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditGroup(null)}>Cancel</Button>
               <Button type="submit">Save</Button>

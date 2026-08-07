@@ -9,15 +9,18 @@ import type { ScanOptions } from "./scanOptions";
 
 export interface CreateScanBody {
   urls: string[];
-  /** @nullable */
+  /**
+   * Descriptive scan title; URL values are rejected.
+   * @nullable
+   */
   name?: string | null;
   /**
    * @minimum 1
    * @nullable
    */
   siteId?: number | null;
-  /** @nullable */
-  projectId?: number | null;
+  /** @minimum 1 */
+  projectId: number;
   /** @nullable */
   groupId?: number | null;
   /** @nullable */

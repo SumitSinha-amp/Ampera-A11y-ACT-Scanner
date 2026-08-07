@@ -43,6 +43,7 @@ vi.mock("@workspace/db", () => ({
   pageResultsTable: { scanId: "pageResultsTable.scanId" },
   accessibilityIssuesTable: {},
   projectsTable: {},
+  projectSitesTable: { projectId: "projectSitesTable.projectId", siteId: "projectSitesTable.siteId" },
   appSettingsTable: {},
   sitesTable: { id: "sitesTable.id" },
 }));
@@ -173,7 +174,7 @@ describe("POST /api/scans — siteId guard", () => {
     const app = await createTestApp(REGULAR_USER);
     const res = await request(app)
       .post("/api/scans")
-      .send({ urls: ["https://example.com"], siteId: 99999 });
+      .send({ urls: ["https://example.com"], siteId: 99999, projectId: 7 });
 
     expect(res.status).toBe(400);
     expect(res.body).toMatchObject({
@@ -188,7 +189,7 @@ describe("POST /api/scans — siteId guard", () => {
     const app = await createTestApp(REGULAR_USER);
     const res = await request(app)
       .post("/api/scans")
-      .send({ urls: ["https://example.com"], siteId: 42 });
+      .send({ urls: ["https://example.com"], siteId: 42, projectId: 7 });
 
     expect(res.status).toBe(403);
     expect(res.body).toMatchObject({
@@ -203,7 +204,7 @@ describe("POST /api/scans — siteId guard", () => {
     const app = await createTestApp(REGULAR_USER);
     const res = await request(app)
       .post("/api/scans")
-      .send({ urls: ["https://example.com"], siteId: 42 });
+      .send({ urls: ["https://example.com"], siteId: 42, projectId: 7 });
 
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({ id: 999, siteId: 42 });
@@ -216,7 +217,7 @@ describe("POST /api/scans — siteId guard", () => {
     const app = await createTestApp(adminUser);
     const res = await request(app)
       .post("/api/scans")
-      .send({ urls: ["https://example.com"], siteId: 42 });
+      .send({ urls: ["https://example.com"], siteId: 42, projectId: 7 });
 
     // Admin bypasses canAccessSite — should never have been called
     expect(mockCanAccessSite).not.toHaveBeenCalled();

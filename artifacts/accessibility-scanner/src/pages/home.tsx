@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { useAuth, isAdmin } from "@/contexts/auth";
+import { useAuth } from "@/contexts/auth";
 import { Link } from "wouter";
 import { OPEN_SETTINGS_EVENT } from "@/components/layout";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -56,21 +56,17 @@ import { Switch } from "@/components/ui/switch";
 import {
   getActiveProxy,
   ACTIVE_PROXY_KEY,
+  ACTIVE_PROXY_CHANGED_EVENT,
   isUrlLimitEnabled,
   getUrlLimitValue,
 } from "@/pages/settings";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getStatusBadge } from "@/lib/status-badge";
-import { useSite, type MySite } from "@/contexts/site";
-import { Building2 } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { isUrlLikeScanName, SCAN_NAME_URL_ERROR } from "@/lib/scan-name";
+import { FieldMessage } from "@/components/ui/field-message";
+import { useSite } from "@/contexts/site";
+import { ProjectSelector } from "@/components/project-selector";
 import {
   Accordion,
   AccordionContent,
@@ -1083,24 +1079,21 @@ function InlineScanMonitor({
 export default function Home() {
   const { toast } = useToast();
   const { user } = useAuth();
-  const { activeSite, sites } = useSite();
-  const adminUser = isAdmin(user);
-  // Admins can override which site the scan is tagged to; other users inherit activeSite
-  const [adminSiteOverride, setAdminSiteOverride] = useState<
-    MySite | null | undefined
-  >(undefined);
-  const effectiveSite = adminUser
-    ? adminSiteOverride === undefined
-      ? activeSite
-      : adminSiteOverride
-    : activeSite;
+  const { activeSite } = useSite();
   const [scanName, setScanName] = useState("");
+  const [projectId, setProjectId] = useState<number | null>(null);
+  const [projectError, setProjectError] = useState<string | null>(null);
   const [initiatorName] = useState(() => user?.fullName ?? "");
   const [initiatorRole, setInitiatorRole] = useState("");
   const [groupId, setGroupId] = useState<number | null>(null);
   const [myGroups, setMyGroups] = useState<
     { id: number; name: string; roleLabel: string | null }[]
   >([]);
+
+  useEffect(() => {
+    setProjectId(null);
+    setProjectError(null);
+  }, [activeSite?.id]);
 
   useEffect(() => {
     const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
@@ -1119,7 +1112,7 @@ export default function Home() {
       .catch(() => {});
   }, []);
 
-  const [scanNameError, setScanNameError] = useState(false);
+  const [scanNameError, setScanNameError] = useState<string | null>(null);
   const [selectedRules, setSelectedRules] = useState<string[]>([]);
   const [activeScanId, setActiveScanId] = useState<number | null>(null);
 
@@ -1190,14 +1183,19 @@ export default function Home() {
     const onStorage = (e: StorageEvent) => {
       if (e.key === ACTIVE_PROXY_KEY) setActiveProxyPac(e.newValue || "");
     };
+    const onActiveProxyChanged = () => {
+      setActiveProxyPac(getActiveProxy());
+    };
     const onLimitChanged = () => {
       setUrlLimitOn(isUrlLimitEnabled());
       setUrlLimit(getUrlLimitValue());
     };
     window.addEventListener("storage", onStorage);
+    window.addEventListener(ACTIVE_PROXY_CHANGED_EVENT, onActiveProxyChanged);
     window.addEventListener("a11y-url-limit-changed", onLimitChanged);
     return () => {
       window.removeEventListener("storage", onStorage);
+      window.removeEventListener(ACTIVE_PROXY_CHANGED_EVENT, onActiveProxyChanged);
       window.removeEventListener("a11y-url-limit-changed", onLimitChanged);
     };
   }, []);
@@ -1372,15 +1370,26 @@ export default function Home() {
   const startScan = () => {
     let valid = true;
 
+    if (projectId == null) {
+      setProjectError("Project is required.");
+      valid = false;
+    }
+
     if (!scanName.trim()) {
-      setScanNameError(true);
+      setScanNameError("Scan title is required.");
+      valid = false;
+    } else if (isUrlLikeScanName(scanName)) {
+      setScanNameError(SCAN_NAME_URL_ERROR);
       valid = false;
     }
 
     if (!valid) {
       toast({
         title: "Required fields missing",
-        description: "Please enter a scan name.",
+        description:
+          projectId == null
+            ? "Please select a project before starting the scan."
+            : scanNameError ?? "Please enter a scan title.",
         variant: "destructive",
       });
       return;
@@ -1469,7 +1478,8 @@ export default function Home() {
         data: {
           urls: parsedUrls,
           name: scanName.trim(),
-          siteId: effectiveSite?.id ?? undefined,
+           siteId: activeSite?.id ?? undefined,
+            projectId,
           groupId: groupId ?? undefined,
           options: {
             maxConcurrency: 5,
@@ -1504,7 +1514,9 @@ export default function Home() {
     setManualUrls("");
     setParsedUrls([]);
     setScanName("");
-    setScanNameError(false);
+    setScanNameError(null);
+    setProjectId(null);
+    setProjectError(null);
     setSelectedRules([]);
     // Re-apply auto-select if user is in exactly one group
     if (myGroups.length === 1) {
@@ -1536,84 +1548,64 @@ export default function Home() {
           <CardHeader>
             <CardTitle>Scan Configuration</CardTitle>
             <CardDescription>
-              Set a name and provide the URLs to be audited.
+              Set a title and provide the URLs to be audited.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {adminUser ? (
+            <div className="grid gap-4 md:grid-cols-2 md:items-start">
               <div className="space-y-2">
-                <Label>Site (optional)</Label>
-                <Select
-                  value={effectiveSite ? String(effectiveSite.id) : "__none__"}
-                  onValueChange={(val) => {
-                    if (val === "__none__") {
-                      setAdminSiteOverride(null);
-                      return;
-                    }
-                    const found = sites.find((s) => String(s.id) === val);
-                    setAdminSiteOverride((found as MySite) ?? null);
+                <Label>
+                  Project <span className="text-destructive">*</span>
+                </Label>
+                <ProjectSelector
+                  value={projectId}
+                  onChange={(nextProjectId) => {
+                    setProjectId(nextProjectId);
+                    setProjectError(nextProjectId == null ? "Project is required." : null);
                   }}
-                >
-                  <SelectTrigger>
-                    <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0 mr-1" />
-                    <SelectValue placeholder="No site (untagged)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">No site (untagged)</SelectItem>
-                    {sites.map((s) => (
-                      <SelectItem key={s.id} value={String(s.id)}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Tag this scan with a site for reporting. Defaults to the
-                  active site in the header.
-                </p>
+                  siteId={activeSite?.id ?? null}
+                  required
+                  error={Boolean(projectError)}
+                />
+                {projectError && (
+                  <FieldMessage tone="error">{projectError}</FieldMessage>
+                )}
+                <FieldMessage tone="info">
+                  {activeSite
+                    ? "Select an existing project or add a new one under this site."
+                    : "Select a site first, then select or add a project under it."}
+                </FieldMessage>
               </div>
-            ) : effectiveSite ? (
               <div className="space-y-2">
-                <Label>Site</Label>
-                <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-muted/40 text-sm">
-                  <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                  <span className="font-medium truncate">
-                    {effectiveSite.name}
-                  </span>
-                  <span className="text-muted-foreground truncate text-xs">
-                    {effectiveSite.baseUrl}
-                  </span>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  This scan will be associated with the currently selected site.
-                  Switch sites using the selector in the header.
-                </p>
+                <Label htmlFor="scanName">
+                  Scan Title <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="scanName"
+                  placeholder="e.g., Marketing Site Audit Q3"
+                  value={scanName}
+                  onChange={(e) => {
+                    setScanName(e.target.value);
+                    if (e.target.value.trim() && !isUrlLikeScanName(e.target.value)) {
+                      setScanNameError(null);
+                    } else if (isUrlLikeScanName(e.target.value)) {
+                      setScanNameError(SCAN_NAME_URL_ERROR);
+                    }
+                  }}
+                  className={
+                    scanNameError
+                      ? "border-destructive ring-1 ring-destructive"
+                      : ""
+                  }
+                  aria-invalid={Boolean(scanNameError)}
+                  aria-describedby={scanNameError ? "manual-scan-name-error" : undefined}
+                />
+                {scanNameError && (
+                  <FieldMessage id="manual-scan-name-error" tone="error">
+                    {scanNameError}
+                  </FieldMessage>
+                )}
               </div>
-            ) : null}
-
-            <div className="space-y-2">
-              <Label htmlFor="scanName">
-                Scan Name <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="scanName"
-                placeholder="e.g., Marketing Site Audit Q3"
-                value={scanName}
-                onChange={(e) => {
-                  setScanName(e.target.value);
-                  if (e.target.value.trim()) setScanNameError(false);
-                }}
-                className={
-                  scanNameError
-                    ? "border-destructive ring-1 ring-destructive"
-                    : ""
-                }
-              />
-              {scanNameError && (
-                <p className="text-xs text-destructive">
-                  Scan name is required.
-                </p>
-              )}
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -1627,9 +1619,9 @@ export default function Home() {
                   className="bg-muted cursor-not-allowed"
                   title="Automatically set to your account"
                 />
-                <p className="text-xs text-muted-foreground">
+                <FieldMessage tone="info">
                   Locked to your account
-                </p>
+                </FieldMessage>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="groupId">Group</Label>

@@ -234,6 +234,23 @@ async function runStartupMigrations(): Promise<void> {
       $$
     `);
 
+    // 13c. Per-site accessibility target score and permission.
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sites' AND column_name = 'target_score') THEN
+          ALTER TABLE sites ADD COLUMN target_score INTEGER;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_permissions' AND column_name = 'can_manage_site_target_score') THEN
+          ALTER TABLE user_permissions ADD COLUMN can_manage_site_target_score BOOLEAN NOT NULL DEFAULT FALSE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_groups' AND column_name = 'can_manage_site_target_score') THEN
+          ALTER TABLE user_groups ADD COLUMN can_manage_site_target_score BOOLEAN NOT NULL DEFAULT FALSE;
+        END IF;
+      END
+      $$
+    `);
+
     // 14. Assign orphaned scans (NULL user_id) to superadmin
     await client.query(`
       UPDATE scan_sessions
@@ -887,7 +904,30 @@ async function runStartupMigrations(): Promise<void> {
         )
     `);
 
-    // 42. rule_page_stats — per-rule element/page check counts for true CRr scoring
+    // 42. Associate projects with sites. A join table is used because legacy
+    // projects may have scans belonging to more than one site.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS project_sites (
+        id         SERIAL PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        site_id    INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        UNIQUE(project_id, site_id)
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS project_sites_project_idx ON project_sites(project_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS project_sites_site_idx ON project_sites(site_id)`);
+    // Link every legacy project/site pair represented by an existing scan.
+    await client.query(`
+      INSERT INTO project_sites (project_id, site_id)
+      SELECT DISTINCT ss.project_id, ss.site_id
+      FROM scan_sessions ss
+      WHERE ss.project_id IS NOT NULL
+        AND ss.site_id IS NOT NULL
+      ON CONFLICT (project_id, site_id) DO NOTHING
+    `);
+
+    // 43. rule_page_stats — per-rule element/page check counts for true CRr scoring
     await client.query(`
       CREATE TABLE IF NOT EXISTS rule_page_stats (
         id              SERIAL  PRIMARY KEY,

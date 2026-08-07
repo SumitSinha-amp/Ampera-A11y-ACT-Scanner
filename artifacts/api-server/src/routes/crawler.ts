@@ -7,8 +7,9 @@ import {
   brokenLinksTable,
   sitesTable,
   siteContentRulesTable,
+  usersTable,
 } from "@workspace/db";
-import { eq, and, desc, sql, asc } from "drizzle-orm";
+import { eq, and, desc, sql, asc, inArray } from "drizzle-orm";
 import { requireAuth } from "../middlewares/authMiddleware";
 import { canAccessSite, getEffectivePermissions } from "../lib/permissions";
 import { logger } from "../lib/logger";
@@ -35,6 +36,62 @@ const DEFAULT_CRAWLER_PERMISSIONS = {
   canDeleteCrawl: true,
   canViewCrawlHistory: true,
 };
+
+type TriggeredBy = {
+  id: number;
+  fullName: string;
+  username: string;
+  role: string;
+};
+
+async function getTriggeredByUsers(userIds: Array<string | null | undefined>) {
+  const ids = Array.from(
+    new Set(
+      userIds
+        .map((userId) => Number(userId))
+        .filter((userId) => Number.isInteger(userId) && userId > 0),
+    ),
+  );
+  if (ids.length === 0) return new Map<number, TriggeredBy>();
+
+  let users: TriggeredBy[] = [];
+  try {
+    const result = await db
+      .select({
+        id: usersTable.id,
+        fullName: usersTable.fullName,
+        username: usersTable.username,
+        role: usersTable.role,
+      })
+      .from(usersTable)
+      .where(inArray(usersTable.id, ids));
+    users = Array.isArray(result) ? result : [];
+  } catch {
+    // Creator details are supplementary; a missing/deleted user must not
+    // prevent a crawl history or detail response from loading.
+    users = [];
+  }
+
+  return new Map(users.map((user) => [user.id, user]));
+}
+
+function withTriggeredBy<T extends { userId: string | null }>(
+  session: T,
+  users: Map<number, TriggeredBy>,
+) {
+  const userId = Number(session.userId);
+  const triggeredBy =
+    users.get(userId) ??
+    (session.userId
+      ? {
+          id: userId,
+          fullName: `User #${session.userId}`,
+          username: "",
+          role: "",
+        }
+      : null);
+  return { ...session, triggeredBy };
+}
 
 async function getCrawlerPermissions(req: any) {
   const userId = parseInt(getAuthUserId(req), 10);
@@ -291,7 +348,8 @@ router.post("/crawler/sessions", requireAuth, async (req: Request, res: Response
     );
   }
 
-  res.status(201).json(session);
+  const triggeredByUsers = await getTriggeredByUsers([session.userId]);
+  res.status(201).json(withTriggeredBy(session, triggeredByUsers));
 });
 
 // GET /api/crawler/sessions — list sessions (supports ?siteId=&status=&limit=)
@@ -333,11 +391,17 @@ router.get("/crawler/sessions", requireAuth, async (req: Request, res: Response)
     .where(where)
     .orderBy(desc(crawlerSessionsTable.createdAt))
     .limit(limit).offset(offset);
+  const triggeredByUsers = await getTriggeredByUsers(sessions.map((session) => session.userId));
 
   const [{ total }] = await db.select({ total: sql<number>`count(*)::int` })
     .from(crawlerSessionsTable).where(where);
 
-  res.json({ sessions, total, page, limit });
+  res.json({
+    sessions: sessions.map((session) => withTriggeredBy(session, triggeredByUsers)),
+    total,
+    page,
+    limit,
+  });
 });
 
 // GET /api/crawler/sessions/:id — get session details
@@ -348,6 +412,7 @@ router.get("/crawler/sessions/:id", requireAuth, async (req: Request, res: Respo
 
   const safeConfig = { ...(session.config as any) };
   delete safeConfig.authPassword;
+  const triggeredByUsers = await getTriggeredByUsers([session.userId]);
 
   let pagesWithIssues = 0;
   let confirmedBrokenLinks = 0;
@@ -375,7 +440,7 @@ router.get("/crawler/sessions/:id", requireAuth, async (req: Request, res: Respo
   }
 
   res.json({
-    ...session,
+    ...withTriggeredBy(session, triggeredByUsers),
     brokenLinksCount: confirmedBrokenLinks,
     config: safeConfig,
     pagesWithIssues,
@@ -658,6 +723,7 @@ router.get("/crawler/sessions/:id/progress", requireAuth, async (req: Request, r
 
     const safeConfig = { ...(session.config as any) };
     delete safeConfig.authPassword;
+    const triggeredByUsers = await getTriggeredByUsers([session.userId]);
 
     const [pending] = await db.select({ cnt: sql<number>`count(*)::int` })
       .from(crawlerPagesTable)
@@ -676,7 +742,7 @@ router.get("/crawler/sessions/:id/progress", requireAuth, async (req: Request, r
       .where(and(eq(crawlerPagesTable.sessionId, sessionId), eq(crawlerPagesTable.status, "discovered")));
 
     send({
-      ...session,
+      ...withTriggeredBy(session, triggeredByUsers),
       config: safeConfig,
       crawlBoost: !!(session.config as any)?.crawlBoost,
       pendingPages: pending?.cnt ?? 0,

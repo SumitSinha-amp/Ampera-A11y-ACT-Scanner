@@ -233,7 +233,7 @@ export function AccessibilityModeControl() {
         </div>
       )}
 
-      <div className="fixed bottom-4 left-4 z-[70]">
+      <div className="accessibility-mode-control fixed bottom-4 left-4 z-[70]">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

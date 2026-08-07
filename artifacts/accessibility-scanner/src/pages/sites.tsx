@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Globe, MoreHorizontal, Pencil, Trash2, ExternalLink, BarChart3, User, CheckCircle2 } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useAuth, isAdmin } from "@/contexts/auth";
 import { useSite } from "@/contexts/site";
 
@@ -152,9 +152,18 @@ export default function SitesPage() {
   const adminUser = isAdmin(user);
   const canManageSites = user?.permissions?.canManageSites ?? false;
   const { activeSite } = useSite();
+  const [location, navigate] = useLocation();
   const [showCreate, setShowCreate] = useState(false);
   const [editSite, setEditSite] = useState<Site | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+
+  useEffect(() => {
+    const query = location.split("?")[1] ?? "";
+    if (new URLSearchParams(query).get("create") === "1" && canManageSites) {
+      setShowCreate(true);
+      navigate("/crawler/sites", { replace: true });
+    }
+  }, [location, canManageSites, navigate]);
 
   const { data, isLoading } = useQuery({
     queryKey: ["sites"],

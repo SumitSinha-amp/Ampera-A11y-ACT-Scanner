@@ -49,6 +49,7 @@ export interface Site {
   name: string;
   baseUrl: string;
   description: string | null;
+  targetScore?: number | null;
 }
 
 export interface SessionInfo {

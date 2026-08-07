@@ -8,6 +8,83 @@
 import * as zod from "zod";
 
 /**
+ * @summary List projects
+ */
+
+export const ListProjectsQueryParams = zod.object({
+  siteId: zod.coerce.number().min(1).optional(),
+  includeUnassociated: zod.coerce.boolean().optional(),
+});
+
+export const ListProjectsResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  createdAt: zod.string(),
+  sites: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+    }),
+  ),
+});
+export const ListProjectsResponse = zod.array(ListProjectsResponseItem);
+
+/**
+ * @summary Create a project under a site
+ */
+export const createProjectBodyNameMax = 200;
+
+export const CreateProjectBody = zod.object({
+  name: zod.string().max(createProjectBodyNameMax),
+  siteId: zod.number().min(1),
+});
+
+/**
+ * @summary Get a project
+ */
+export const GetProjectParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetProjectResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  createdAt: zod.string(),
+  sites: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+    }),
+  ),
+});
+
+/**
+ * @summary Delete a project
+ */
+export const DeleteProjectParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
+ * @summary Associate an existing project with a site
+ */
+export const AssociateProjectSiteParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const AssociateProjectSiteBody = zod.object({
+  siteId: zod.number().min(1),
+});
+
+/**
+ * @summary Remove a project/site association
+ */
+export const RemoveProjectSiteAssociationParams = zod.object({
+  id: zod.coerce.number(),
+  siteId: zod.coerce.number(),
+});
+
+/**
  * Returns server health status
  * @summary Health check
  */
@@ -29,6 +106,7 @@ export const ListScansResponseItem = zod.object({
   projectId: zod.number().nullish(),
   siteId: zod.number().nullish(),
   projectName: zod.string().nullish(),
+  options: zod.record(zod.string(), zod.unknown()).nullish(),
   status: zod.enum([
     "pending",
     "running",
@@ -42,6 +120,7 @@ export const ListScansResponseItem = zod.object({
   failedUrls: zod.number(),
   totalIssues: zod.number(),
   criticalIssues: zod.number(),
+  pagesWithIssues: zod.number().optional(),
   createdAt: zod.string(),
   completedAt: zod.string().nullable(),
 });
@@ -54,9 +133,12 @@ export const ListScansResponse = zod.array(ListScansResponseItem);
 
 export const CreateScanBody = zod.object({
   urls: zod.array(zod.string()),
-  name: zod.string().nullish(),
+  name: zod
+    .string()
+    .nullish()
+    .describe("Descriptive scan title; URL values are rejected."),
   siteId: zod.number().min(1).nullish(),
-  projectId: zod.number().nullish(),
+  projectId: zod.number().min(1),
   groupId: zod.number().nullish(),
   initiatorName: zod.string().nullish(),
   initiatorRole: zod.string().nullish(),
@@ -206,7 +288,10 @@ export const UpdateScanParams = zod.object({
 });
 
 export const UpdateScanBody = zod.object({
-  name: zod.string().nullish(),
+  name: zod
+    .string()
+    .nullish()
+    .describe("Descriptive scan title; URL values are rejected."),
   projectId: zod.number().nullish(),
   siteId: zod.number().nullish(),
   initiatorName: zod.string().nullish(),
@@ -283,6 +368,7 @@ export const CancelScanResponse = zod.object({
   projectId: zod.number().nullish(),
   siteId: zod.number().nullish(),
   projectName: zod.string().nullish(),
+  options: zod.record(zod.string(), zod.unknown()).nullish(),
   status: zod.enum([
     "pending",
     "running",
@@ -296,6 +382,7 @@ export const CancelScanResponse = zod.object({
   failedUrls: zod.number(),
   totalIssues: zod.number(),
   criticalIssues: zod.number(),
+  pagesWithIssues: zod.number().optional(),
   createdAt: zod.string(),
   completedAt: zod.string().nullable(),
 });

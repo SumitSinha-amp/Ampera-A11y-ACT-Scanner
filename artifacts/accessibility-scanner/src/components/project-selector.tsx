@@ -25,24 +25,27 @@ export interface Project {
   id: number;
   name: string;
   createdAt: string;
+  sites?: { id: number; name: string }[];
 }
 
 function getBase() {
   return (import.meta.env.BASE_URL ?? "").replace(/\/$/, "");
 }
 
-async function fetchProjects(): Promise<Project[]> {
-  const res = await fetch(`${getBase()}/api/projects`, { credentials: "include" });
+async function fetchProjects(siteId: number | null): Promise<Project[]> {
+  if (siteId == null) return [];
+  const res = await fetch(`${getBase()}/api/projects?siteId=${siteId}`, { credentials: "include" });
   if (!res.ok) throw new Error("Failed to fetch projects");
   return res.json();
 }
 
-async function createProject(name: string): Promise<Project> {
+async function createProject(name: string, siteId: number | null): Promise<Project> {
+  if (siteId == null) throw new Error("A site must be selected first");
   const res = await fetch(`${getBase()}/api/projects`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, siteId }),
   });
   if (!res.ok) throw new Error("Failed to create project");
   return res.json();
@@ -53,6 +56,8 @@ interface ProjectSelectorProps {
   onChange: (projectId: number | null, projectName: string | null) => void;
   required?: boolean;
   error?: boolean;
+  siteId?: number | null;
+  legacyProjectName?: string | null;
 }
 
 export function ProjectSelector({
@@ -60,6 +65,8 @@ export function ProjectSelector({
   onChange,
   required,
   error,
+  siteId = null,
+  legacyProjectName = null,
 }: ProjectSelectorProps) {
   const { user } = useAuth();
   const canCreate = user?.permissions.canCreateProject !== false;
@@ -71,16 +78,20 @@ export function ProjectSelector({
   const newProjectInputRef = useRef<HTMLInputElement>(null);
 
   const { data: projects = [], isLoading } = useQuery<Project[]>({
-    queryKey: ["projects"],
-    queryFn: fetchProjects,
+    queryKey: ["projects", siteId],
+    queryFn: () => fetchProjects(siteId),
+    enabled: siteId != null,
   });
 
   const selectedProject = projects.find((p) => p.id === value) ?? null;
+  const selectedProjectLabel =
+    selectedProject?.name ??
+    (value != null && legacyProjectName ? `${legacyProjectName} (legacy association)` : null);
 
   const createMutation = useMutation({
-    mutationFn: (name: string) => createProject(name),
+    mutationFn: (name: string) => createProject(name, siteId),
     onSuccess: (project) => {
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: ["projects", siteId] });
       onChange(project.id, project.name);
       setNewProjectName("");
       setShowCreate(false);
@@ -116,11 +127,13 @@ export function ProjectSelector({
             !selectedProject && "text-muted-foreground",
             error && "border-destructive ring-1 ring-destructive",
           )}
+          disabled={siteId == null}
+          title={siteId == null ? "Select a site first" : undefined}
         >
           <span className="flex items-center gap-2 min-w-0">
             <FolderOpen className="w-4 h-4 shrink-0 text-muted-foreground" />
             <span className="truncate">
-              {selectedProject ? selectedProject.name : "Select project…"}
+                {selectedProjectLabel ?? "Select project…"}
             </span>
           </span>
           {isLoading ? (
@@ -132,10 +145,12 @@ export function ProjectSelector({
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
         <Command>
-          <CommandInput placeholder="Search projects…" />
+            <CommandInput placeholder={siteId == null ? "Select a site first" : "Search projects…"} />
           <CommandList>
             <CommandEmpty>
-              <span className="text-sm text-muted-foreground">No projects found.</span>
+                <span className="text-sm text-muted-foreground">
+                  {siteId == null ? "Select a site first." : "No projects found under this site."}
+                </span>
             </CommandEmpty>
             {projects.length > 0 && (
               <CommandGroup heading="Projects">
