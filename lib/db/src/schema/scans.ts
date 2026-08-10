@@ -1,4 +1,5 @@
 import { pgTable, text, serial, integer, timestamp, jsonb, real, index, boolean, uniqueIndex } from "drizzle-orm/pg-core";
+import { sitesTable } from "./crawler";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -7,6 +8,17 @@ export const projectsTable = pgTable("projects", {
   name: text("name").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+export const projectSitesTable = pgTable("project_sites", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projectsTable.id, { onDelete: "cascade" }),
+  siteId: integer("site_id").notNull().references(() => sitesTable.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("project_sites_project_site_unique").on(t.projectId, t.siteId),
+  index("project_sites_project_idx").on(t.projectId),
+  index("project_sites_site_idx").on(t.siteId),
+]);
 
 export const scanSessionsTable = pgTable("scan_sessions", {
   id: serial("id").primaryKey(),
