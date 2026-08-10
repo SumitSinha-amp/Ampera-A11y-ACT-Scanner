@@ -89,7 +89,9 @@ RUN pnpm --filter @workspace/api-server build
 # runtime. Keep it beside index.mjs and fail the image build if packaging ever
 # drops it.
 RUN test -s artifacts/api-server/dist/index.mjs && \
-    test -s artifacts/api-server/dist/browser-bundle.js
+    test -s artifacts/api-server/dist/browser-bundle.js && \
+    ! grep -q "projectSitesTable3" artifacts/api-server/dist/index.mjs && \
+    grep -q "projects-route-v2" artifacts/api-server/dist/index.mjs
 
 RUN BASE_PATH=/ pnpm --filter @workspace/accessibility-scanner build
 RUN mkdir -p artifacts/api-server/dist/public && \

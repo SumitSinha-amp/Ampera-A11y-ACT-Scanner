@@ -10,6 +10,72 @@ globalThis.require = createRequire(import.meta.url);
 
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 
+function containsExecutableIdentifier(source, identifier) {
+  let state = "code";
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    const nextCharacter = source[index + 1];
+
+    if (state === "line-comment") {
+      if (character === "\n") state = "code";
+      continue;
+    }
+    if (state === "block-comment") {
+      if (character === "*" && nextCharacter === "/") {
+        state = "code";
+        index += 1;
+      }
+      continue;
+    }
+    if (state === "single-quote" || state === "double-quote" || state === "template") {
+      if (character === "\\") {
+        index += 1;
+      } else if (
+        (state === "single-quote" && character === "'") ||
+        (state === "double-quote" && character === '"') ||
+        (state === "template" && character === "`")
+      ) {
+        state = "code";
+      }
+      continue;
+    }
+
+    if (character === "/" && nextCharacter === "/") {
+      state = "line-comment";
+      index += 1;
+      continue;
+    }
+    if (character === "/" && nextCharacter === "*") {
+      state = "block-comment";
+      index += 1;
+      continue;
+    }
+    if (character === "'") {
+      state = "single-quote";
+      continue;
+    }
+    if (character === '"') {
+      state = "double-quote";
+      continue;
+    }
+    if (character === "`") {
+      state = "template";
+      continue;
+    }
+
+    if (
+      source.startsWith(identifier, index) &&
+      !/[A-Za-z0-9_$]/.test(source[index - 1] ?? "") &&
+      !/[A-Za-z0-9_$]/.test(source[index + identifier.length] ?? "")
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
@@ -157,9 +223,10 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
   //   ReferenceError: projectSitesTable3 is not defined
   const serverBundlePath = path.join(distDir, "index.mjs");
   const serverBundleContents = await readFile(serverBundlePath, "utf8");
-  if (serverBundleContents.includes("projectSitesTable3")) {
+  const staleProjectSitesSymbol = ["project", "Sites", "Table3"].join("");
+  if (containsExecutableIdentifier(serverBundleContents, staleProjectSitesSymbol)) {
     throw new Error(
-      "Invalid API bundle: unresolved projectSitesTable3 reference found. " +
+      "Invalid API bundle: unresolved stale project-sites reference found. " +
       "Clean the API dist directory and rebuild before deploying.",
     );
   }
