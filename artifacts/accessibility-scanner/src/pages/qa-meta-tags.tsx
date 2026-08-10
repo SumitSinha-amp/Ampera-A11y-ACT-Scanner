@@ -12,8 +12,18 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Download, ExternalLink, Loader2, Search, Tag } from "lucide-react";
-import { useQASites, useQASelectedSite, QASiteSelector, QA_BASE } from "@/pages/qa-shared";
+import { Download, ExternalLink, Loader2, Tag } from "lucide-react";
+import {
+  useQASites,
+  useQASelectedSite,
+  QASiteSelector,
+  QA_BASE,
+  QAListToolbar,
+  QAPagination,
+  QA_TABLE_CLASS,
+  QA_TABLE_SHELL_CLASS,
+  QA_URL_CLASS,
+} from "@/pages/qa-shared";
 import { exportCSV, truncate } from "@/pages/scan-qa";
 
 interface QAPage {
@@ -42,9 +52,8 @@ function qualityBadge(value: string | null, minLen: number, maxLen: number) {
 
 function MetaTagsContent({ scanId }: { scanId: number }) {
   const [page, setPage] = useState(1);
-  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const limit = 50;
+  const [limit, setLimit] = useState(50);
 
   const { data, isLoading } = useQuery({
     queryKey: ["qa-pages", scanId, page, search],
@@ -62,8 +71,6 @@ function MetaTagsContent({ scanId }: { scanId: number }) {
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
   const pages = Math.ceil(total / limit);
-
-  const handleSearch = () => { setSearch(searchInput); setPage(1); };
 
   const missingTitle = rows.filter((r) => !r.title).length;
   const missingDesc = rows.filter((r) => !r.metaDescription).length;
@@ -119,34 +126,21 @@ function MetaTagsContent({ scanId }: { scanId: number }) {
         </div>
       )}
 
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="w-4 h-4 absolute left-3 top-2.5 text-muted-foreground" />
-          <Input
-            className="pl-9"
-            placeholder="Search URL or title…"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
-          />
-        </div>
-        <Button variant="outline" size="sm" onClick={handleSearch}>
-          <Search className="w-4 h-4" />
-        </Button>
-        <div className="flex-1 text-right">
-          <Button variant="outline" size="sm" onClick={() => exportCSV(exportData, `meta-tags-scan-${scanId}.csv`)}>
-            <Download className="w-4 h-4 mr-2" />
-            Export CSV
-          </Button>
-        </div>
-      </div>
+      <QAListToolbar
+        search={search}
+        onSearch={(value) => { setSearch(value); setPage(1); }}
+        searchPlaceholder="Search URL or title…"
+        limit={limit}
+        onLimitChange={(value) => { setLimit(value); setPage(1); }}
+        onExport={() => exportCSV(exportData, `meta-tags-scan-${scanId}.csv`)}
+      />
 
       <p className="text-sm text-muted-foreground">
         {total.toLocaleString()} page{total !== 1 ? "s" : ""}
       </p>
 
-      <div className="border rounded-lg overflow-x-auto">
-        <Table>
+      <div className={QA_TABLE_SHELL_CLASS}>
+        <Table className={QA_TABLE_CLASS}>
           <TableHeader>
             <TableRow>
               <TableHead>Page</TableHead>
@@ -164,7 +158,7 @@ function MetaTagsContent({ scanId }: { scanId: number }) {
                     href={row.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-primary hover:underline text-sm font-mono flex items-center gap-1 max-w-xs truncate"
+                    className={`${QA_URL_CLASS} max-w-xs truncate`}
                   >
                     {truncate(row.url, 60)}
                     <ExternalLink className="w-3 h-3 flex-shrink-0" />
@@ -200,13 +194,7 @@ function MetaTagsContent({ scanId }: { scanId: number }) {
         </Table>
       </div>
 
-      {pages > 1 && (
-        <div className="flex justify-center gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Prev</Button>
-          <span className="text-sm text-muted-foreground py-2">Page {page} / {pages}</span>
-          <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>Next</Button>
-        </div>
-      )}
+      {pages > 1 && <QAPagination page={page} total={total} limit={limit} onPageChange={setPage} />}
     </div>
   );
 }

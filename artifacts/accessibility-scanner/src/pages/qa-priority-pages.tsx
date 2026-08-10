@@ -12,7 +12,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Download, ExternalLink, Loader2, Star } from "lucide-react";
-import { useQASites, useQASelectedSite, QASiteSelector, QA_BASE } from "@/pages/qa-shared";
+import {
+  useQASites,
+  useQASelectedSite,
+  QASiteSelector,
+  QA_BASE,
+  QAListToolbar,
+  QAPagination,
+  QA_TABLE_CLASS,
+  QA_TABLE_SHELL_CLASS,
+  QA_URL_CLASS,
+} from "@/pages/qa-shared";
 import { exportCSV, truncate, httpStatusBadge } from "@/pages/scan-qa";
 
 interface QAPage {
@@ -29,12 +39,14 @@ interface QAPage {
 
 function PriorityPagesContent({ scanId }: { scanId: number }) {
   const [page, setPage] = useState(1);
-  const limit = 50;
+  const [limit, setLimit] = useState(50);
+  const [search, setSearch] = useState("");
 
   const { data, isLoading } = useQuery({
-    queryKey: ["qa-priority-pages", scanId, page],
+    queryKey: ["qa-priority-pages", scanId, page, limit, search],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (search) params.set("search", search);
       const r = await fetch(`${QA_BASE}/api/scans/${scanId}/qa/priority-pages?${params}`, {
         credentials: "include",
       });
@@ -81,22 +93,20 @@ function PriorityPagesContent({ scanId }: { scanId: number }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {total.toLocaleString()} page{total !== 1 ? "s" : ""}, ranked by inlinks
-        </p>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => exportCSV(exportData, `priority-pages-scan-${scanId}.csv`)}
-        >
-          <Download className="w-4 h-4 mr-2" />
-          Export CSV
-        </Button>
-      </div>
+      <QAListToolbar
+        search={search}
+        onSearch={(value) => { setSearch(value); setPage(1); }}
+        searchPlaceholder="Search URL or title…"
+        limit={limit}
+        onLimitChange={(value) => { setLimit(value); setPage(1); }}
+        onExport={() => exportCSV(exportData, `priority-pages-scan-${scanId}.csv`)}
+      />
+      <p className="text-sm text-muted-foreground">
+        {total.toLocaleString()} page{total !== 1 ? "s" : ""}, ranked by inlinks
+      </p>
 
-      <div className="border rounded-lg overflow-x-auto">
-        <Table>
+      <div className={QA_TABLE_SHELL_CLASS}>
+        <Table className={QA_TABLE_CLASS}>
           <TableHeader>
             <TableRow>
               <TableHead className="w-8">#</TableHead>
@@ -118,7 +128,7 @@ function PriorityPagesContent({ scanId }: { scanId: number }) {
                       href={row.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-primary hover:underline text-sm font-mono flex items-center gap-1"
+                      className={QA_URL_CLASS}
                     >
                       {truncate(row.url, 70)}
                       <ExternalLink className="w-3 h-3 flex-shrink-0" />
@@ -153,17 +163,7 @@ function PriorityPagesContent({ scanId }: { scanId: number }) {
         </Table>
       </div>
 
-      {pages > 1 && (
-        <div className="flex justify-center gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            Prev
-          </Button>
-          <span className="text-sm text-muted-foreground py-2">Page {page} / {pages}</span>
-          <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
-            Next
-          </Button>
-        </div>
-      )}
+      {pages > 1 && <QAPagination page={page} total={total} limit={limit} onPageChange={setPage} />}
     </div>
   );
 }

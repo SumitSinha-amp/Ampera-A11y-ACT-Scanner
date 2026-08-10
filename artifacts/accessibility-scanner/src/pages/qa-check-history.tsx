@@ -12,7 +12,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ExternalLink, Globe, Loader2, XCircle } from "lucide-react";
-import { useQASites, useQASelectedSite, QASiteSelector, QA_BASE } from "@/pages/qa-shared";
+import {
+  useQASites,
+  useQASelectedSite,
+  QASiteSelector,
+  QA_BASE,
+  QA_TABLE_CLASS,
+  QA_TABLE_SHELL_CLASS,
+} from "@/pages/qa-shared";
 
 interface CrawlHistoryRow {
   crawlerSessionId: number;
@@ -98,8 +105,8 @@ export default function QACheckHistoryPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="border rounded-lg overflow-hidden">
-          <Table>
+        <div className={QA_TABLE_SHELL_CLASS}>
+          <Table className={QA_TABLE_CLASS}>
             <TableHeader>
               <TableRow>
                 <TableHead>Crawl date</TableHead>

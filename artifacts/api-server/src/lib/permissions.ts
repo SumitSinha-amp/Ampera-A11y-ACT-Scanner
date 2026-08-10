@@ -237,6 +237,32 @@ export async function getEffectivePermissions(
     db.select().from(userPermissionsTable).where(eq(userPermissionsTable.userId, userId)),
     isInDeveloperGroup(userId),
   ]);
+  const groupPermissions = await db
+    .select({
+      canScan: userGroupsTable.canScan,
+      canExport: userGroupsTable.canExport,
+      canViewAllScans: userGroupsTable.canViewAllScans,
+      canEditScan: userGroupsTable.canEditScan,
+      canDeleteScan: userGroupsTable.canDeleteScan,
+      canManageScan: userGroupsTable.canManageScan,
+      canCreateProject: userGroupsTable.canCreateProject,
+      canDeleteProject: userGroupsTable.canDeleteProject,
+      canDisableJs: userGroupsTable.canDisableJs,
+      canSmartAnalysis: userGroupsTable.canSmartAnalysis,
+      canSwitchSite: userGroupsTable.canSwitchSite,
+      canCreateCrawl: userGroupsTable.canCreateCrawl,
+      canDeleteCrawl: userGroupsTable.canDeleteCrawl,
+      canViewCrawlHistory: userGroupsTable.canViewCrawlHistory,
+      canViewQualityAssurance: userGroupsTable.canViewQualityAssurance,
+      canViewSiteAccessibilityDashboard: userGroupsTable.canViewSiteAccessibilityDashboard,
+      canManageSites: userGroupsTable.canManageSites,
+      canManageSiteTargetScore: userGroupsTable.canManageSiteTargetScore,
+    })
+    .from(userGroupMembersTable)
+    .innerJoin(userGroupsTable, eq(userGroupMembersTable.groupId, userGroupsTable.id))
+    .where(eq(userGroupMembersTable.userId, userId));
+  const groupGrants = (key: keyof typeof groupPermissions[number]) =>
+    groupPermissions.some((group) => group[key] === true);
   const [targetScoreGroup] = await db
     .select({ enabled: userGroupsTable.canManageSiteTargetScore })
     .from(userGroupMembersTable)
@@ -248,24 +274,24 @@ export async function getEffectivePermissions(
     .limit(1);
 
   return {
-    canScan: perm?.canScan ?? true,
-    canExport: perm?.canExport ?? true,
-    canViewAllScans: perm?.canViewAllScans ?? false,
-    canEditScan: perm?.canEditScan ?? true,
-    canDeleteScan: perm?.canDeleteScan ?? true,
-    canManageScan: perm?.canManageScan ?? true,
-    canCreateProject: perm?.canCreateProject ?? true,
-    canDeleteProject: perm?.canDeleteProject ?? true,
-    canDisableJs: perm?.canDisableJs ?? false,
-    canSmartAnalysis: inDevGroup || (perm?.canSmartAnalysis ?? false),
-    canSwitchSite: perm?.canSwitchSite ?? false,
-    canCreateCrawl: perm?.canCreateCrawl ?? true,
-    canDeleteCrawl: perm?.canDeleteCrawl ?? true,
-    canViewCrawlHistory: perm?.canViewCrawlHistory ?? true,
-    canViewQualityAssurance: perm?.canViewQualityAssurance ?? true,
-    canViewSiteAccessibilityDashboard: perm?.canViewSiteAccessibilityDashboard ?? true,
-    canManageSites: perm?.canManageSites ?? false,
-    canManageSiteTargetScore: Boolean(perm?.canManageSiteTargetScore || targetScoreGroup?.enabled),
+    canScan: Boolean(perm?.canScan ?? true) || groupGrants("canScan"),
+    canExport: Boolean(perm?.canExport ?? true) || groupGrants("canExport"),
+    canViewAllScans: Boolean(perm?.canViewAllScans ?? false) || groupGrants("canViewAllScans"),
+    canEditScan: Boolean(perm?.canEditScan ?? true) || groupGrants("canEditScan"),
+    canDeleteScan: Boolean(perm?.canDeleteScan ?? true) || groupGrants("canDeleteScan"),
+    canManageScan: Boolean(perm?.canManageScan ?? true) || groupGrants("canManageScan"),
+    canCreateProject: Boolean(perm?.canCreateProject ?? true) || groupGrants("canCreateProject"),
+    canDeleteProject: Boolean(perm?.canDeleteProject ?? true) || groupGrants("canDeleteProject"),
+    canDisableJs: Boolean(perm?.canDisableJs ?? false) || groupGrants("canDisableJs"),
+    canSmartAnalysis: inDevGroup || Boolean(perm?.canSmartAnalysis ?? false) || groupGrants("canSmartAnalysis"),
+    canSwitchSite: Boolean(perm?.canSwitchSite ?? false) || groupGrants("canSwitchSite"),
+    canCreateCrawl: Boolean(perm?.canCreateCrawl ?? true) || groupGrants("canCreateCrawl"),
+    canDeleteCrawl: Boolean(perm?.canDeleteCrawl ?? true) || groupGrants("canDeleteCrawl"),
+    canViewCrawlHistory: Boolean(perm?.canViewCrawlHistory ?? true) || groupGrants("canViewCrawlHistory"),
+    canViewQualityAssurance: Boolean(perm?.canViewQualityAssurance ?? true) || groupGrants("canViewQualityAssurance"),
+    canViewSiteAccessibilityDashboard: Boolean(perm?.canViewSiteAccessibilityDashboard ?? true) || groupGrants("canViewSiteAccessibilityDashboard"),
+    canManageSites: Boolean(perm?.canManageSites ?? false) || groupGrants("canManageSites"),
+    canManageSiteTargetScore: Boolean(perm?.canManageSiteTargetScore || targetScoreGroup?.enabled || groupGrants("canManageSiteTargetScore")),
     allowedRules: (perm?.allowedRules as string[] | null) ?? null,
   };
 }

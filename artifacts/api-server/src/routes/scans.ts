@@ -282,8 +282,21 @@ router.post("/scans", requireAuth, async (req, res): Promise<void> => {
       ))
       .limit(1);
     if (!projectSite) {
-      res.status(400).json({ error: "The selected project is not associated with this site" });
-      return;
+      const [legacyProjectSite] = await db
+        .select({ projectId: scanSessionsTable.projectId })
+        .from(scanSessionsTable)
+        .where(and(
+          eq(scanSessionsTable.projectId, projectId),
+          eq(scanSessionsTable.siteId, siteId),
+        ))
+        .limit(1);
+      if (legacyProjectSite) {
+        // A legacy scan proves the project/site relationship. The association
+        // table is backfilled by the schema migration when available.
+      } else {
+        res.status(400).json({ error: "The selected project is not associated with this site" });
+        return;
+      }
     }
   }
 

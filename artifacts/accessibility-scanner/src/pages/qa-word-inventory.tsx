@@ -4,8 +4,14 @@ import { useQASites, useQASelectedSite, QASiteSelector, QA_BASE } from "@/pages/
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Loader2, XCircle, BookOpen, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { Loader2, XCircle, BookOpen } from "lucide-react";
 import { useDebounce } from "@/hooks/use-debounce";
+import {
+  QAListToolbar,
+  QAPagination,
+  QA_TABLE_CLASS,
+  QA_TABLE_SHELL_CLASS,
+} from "@/pages/qa-shared";
 
 interface WordRow {
   word: string;
@@ -24,7 +30,7 @@ function WordInventoryContent({ scanId }: { scanId: number }) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, 300);
-  const limit = 100;
+  const [limit, setLimit] = useState(100);
 
   const { data, isLoading } = useQuery<WordInventoryData>({
     queryKey: ["qa-word-inventory", scanId, page, debouncedSearch],
@@ -62,22 +68,13 @@ function WordInventoryContent({ scanId }: { scanId: number }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search words…"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            className="pl-9"
-          />
-        </div>
-        {search && (
-          <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setPage(1); }}>
-            Clear
-          </Button>
-        )}
-      </div>
+      <QAListToolbar
+        search={search}
+        onSearch={(value) => { setSearch(value); setPage(1); }}
+        searchPlaceholder="Search words…"
+        limit={limit}
+        onLimitChange={(value) => { setLimit(value); setPage(1); }}
+      />
 
       {isLoading ? (
         <div className="flex items-center justify-center py-16">
@@ -96,28 +93,27 @@ function WordInventoryContent({ scanId }: { scanId: number }) {
             {debouncedSearch ? ` matching "${debouncedSearch}"` : ""}
           </p>
 
-          <Card>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+          <div className={QA_TABLE_SHELL_CLASS}>
+              <table className={`w-full text-sm ${QA_TABLE_CLASS}`}>
                 <thead>
-                  <tr className="border-b bg-muted/40">
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground w-10">#</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Word</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Frequency</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Pages</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground w-40">Relative frequency</th>
+                  <tr className="border-b">
+                    <th className="h-10 px-2 text-left align-middle font-medium text-muted-foreground w-10">#</th>
+                    <th className="h-10 px-2 text-left align-middle font-medium text-muted-foreground">Word</th>
+                    <th className="h-10 px-2 text-left align-middle font-medium text-muted-foreground">Frequency</th>
+                    <th className="h-10 px-2 text-left align-middle font-medium text-muted-foreground">Pages</th>
+                    <th className="h-10 px-2 text-left align-middle font-medium text-muted-foreground w-40">Relative frequency</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border">
+                <tbody>
                   {items.map((row, i) => (
-                    <tr key={row.word} className="hover:bg-muted/20">
-                      <td className="py-2.5 px-4 text-xs text-muted-foreground">
+                    <tr key={row.word} className="border-b transition-colors hover:bg-muted/50 last:border-0">
+                      <td className="p-2 align-middle text-xs text-muted-foreground">
                         {(page - 1) * limit + i + 1}
                       </td>
-                      <td className="py-2.5 px-4 font-mono font-medium">{row.word}</td>
-                      <td className="py-2.5 px-4 tabular-nums">{row.totalCount.toLocaleString()}</td>
-                      <td className="py-2.5 px-4 text-muted-foreground tabular-nums">{row.pageCount.toLocaleString()}</td>
-                      <td className="py-2.5 px-4">
+                      <td className="p-2 align-middle font-mono font-medium">{row.word}</td>
+                      <td className="p-2 align-middle tabular-nums">{row.totalCount.toLocaleString()}</td>
+                      <td className="p-2 align-middle text-muted-foreground tabular-nums">{row.pageCount.toLocaleString()}</td>
+                      <td className="p-2 align-middle">
                         <div className="flex items-center gap-2">
                           <div className="flex-1 bg-muted rounded-full h-1.5 overflow-hidden">
                             <div
@@ -134,24 +130,9 @@ function WordInventoryContent({ scanId }: { scanId: number }) {
                   ))}
                 </tbody>
               </table>
-            </div>
-          </Card>
+          </div>
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                Showing {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total.toLocaleString()}
-              </p>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-          )}
+          {totalPages > 1 && <QAPagination page={page} total={total} limit={limit} onPageChange={setPage} />}
         </>
       )}
     </div>

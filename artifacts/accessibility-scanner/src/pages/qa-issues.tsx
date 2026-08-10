@@ -12,7 +12,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Download, ExternalLink, Loader2, TriangleAlert } from "lucide-react";
-import { useQASites, useQASelectedSite, QASiteSelector, QA_BASE } from "@/pages/qa-shared";
+import {
+  useQASites,
+  useQASelectedSite,
+  QASiteSelector,
+  QA_BASE,
+  QAListToolbar,
+  QAPagination,
+  QA_TABLE_CLASS,
+  QA_TABLE_SHELL_CLASS,
+  QA_URL_CLASS,
+} from "@/pages/qa-shared";
 import { exportCSV, truncate } from "@/pages/scan-qa";
 
 interface QAIssue {
@@ -53,13 +63,15 @@ function severityBadge(severity: "high" | "medium" | "low") {
 function IssuesContent({ scanId }: { scanId: number }) {
   const [page, setPage] = useState(1);
   const [activeType, setActiveType] = useState<string | null>(null);
-  const limit = 50;
+  const [limit, setLimit] = useState(50);
+  const [search, setSearch] = useState("");
 
   const { data, isLoading } = useQuery<IssuesResponse>({
-    queryKey: ["qa-issues", scanId, page, activeType],
+    queryKey: ["qa-issues", scanId, page, limit, activeType, search],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (activeType) params.set("type", activeType);
+      if (search) params.set("search", search);
       const r = await fetch(`${QA_BASE}/api/scans/${scanId}/qa/issues?${params}`, {
         credentials: "include",
       });
@@ -148,23 +160,33 @@ function IssuesContent({ scanId }: { scanId: number }) {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {total.toLocaleString()} issue{total !== 1 ? "s" : ""}
-          {activeType ? ` — ${ISSUE_TYPE_META[activeType]?.label ?? activeType}` : ""}
-        </p>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => exportCSV(exportData, `qa-issues-scan-${scanId}.csv`)}
-        >
-          <Download className="w-4 h-4 mr-2" />
-          Export CSV
-        </Button>
-      </div>
+      <QAListToolbar
+        search={search}
+        onSearch={(value) => { setSearch(value); setPage(1); }}
+        searchPlaceholder="Search page URL or issue detail…"
+        filters={[{
+          label: "Issue type",
+          value: activeType ?? "all",
+          onChange: (value) => { setActiveType(value === "all" ? null : value); setPage(1); },
+          options: [
+            { value: "all", label: "All issue types" },
+            ...Object.keys(ISSUE_TYPE_META).map((type) => ({
+              value: type,
+              label: ISSUE_TYPE_META[type].label,
+            })),
+          ],
+        }]}
+        limit={limit}
+        onLimitChange={(value) => { setLimit(value); setPage(1); }}
+        onExport={() => exportCSV(exportData, `qa-issues-scan-${scanId}.csv`)}
+      />
+      <p className="text-sm text-muted-foreground">
+        {total.toLocaleString()} issue{total !== 1 ? "s" : ""}
+        {activeType ? ` — ${ISSUE_TYPE_META[activeType]?.label ?? activeType}` : ""}
+      </p>
 
-      <div className="border rounded-lg overflow-x-auto">
-        <Table>
+      <div className={QA_TABLE_SHELL_CLASS}>
+        <Table className={QA_TABLE_CLASS}>
           <TableHeader>
             <TableRow>
               <TableHead className="w-20">Severity</TableHead>
@@ -182,7 +204,7 @@ function IssuesContent({ scanId }: { scanId: number }) {
                     href={row.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-primary hover:underline text-sm font-mono flex items-center gap-1"
+                    className={QA_URL_CLASS}
                   >
                     {truncate(row.url, 70)}
                     <ExternalLink className="w-3 h-3 flex-shrink-0" />
@@ -203,17 +225,7 @@ function IssuesContent({ scanId }: { scanId: number }) {
         </Table>
       </div>
 
-      {pages > 1 && (
-        <div className="flex justify-center gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            Prev
-          </Button>
-          <span className="text-sm text-muted-foreground py-2">Page {page} / {pages}</span>
-          <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
-            Next
-          </Button>
-        </div>
-      )}
+      {pages > 1 && <QAPagination page={page} total={total} limit={limit} onPageChange={setPage} />}
     </div>
   );
 }

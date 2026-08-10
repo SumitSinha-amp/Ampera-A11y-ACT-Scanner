@@ -35,7 +35,16 @@ function getBase() {
 async function fetchProjects(siteId: number | null): Promise<Project[]> {
   if (siteId == null) return [];
   const res = await fetch(`${getBase()}/api/projects?siteId=${siteId}`, { credentials: "include" });
-  if (!res.ok) throw new Error("Failed to fetch projects");
+  if (!res.ok) {
+    let message = `Failed to fetch projects (${res.status})`;
+    try {
+      const body = await res.json();
+      if (typeof body?.error === "string") message = body.error;
+    } catch {
+      // Preserve the status-based message when the response is not JSON.
+    }
+    throw new Error(message);
+  }
   return res.json();
 }
 
@@ -47,7 +56,16 @@ async function createProject(name: string, siteId: number | null): Promise<Proje
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, siteId }),
   });
-  if (!res.ok) throw new Error("Failed to create project");
+  if (!res.ok) {
+    let message = `Failed to create project (${res.status})`;
+    try {
+      const body = await res.json();
+      if (typeof body?.error === "string") message = body.error;
+    } catch {
+      // Preserve the status-based message when the response is not JSON.
+    }
+    throw new Error(message);
+  }
   return res.json();
 }
 
@@ -77,7 +95,13 @@ export function ProjectSelector({
   const [showCreate, setShowCreate] = useState(false);
   const newProjectInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: projects = [], isLoading } = useQuery<Project[]>({
+  const {
+    data: projects = [],
+    isLoading,
+    isError,
+    error: projectsError,
+    refetch,
+  } = useQuery<Project[]>({
     queryKey: ["projects", siteId],
     queryFn: () => fetchProjects(siteId),
     enabled: siteId != null,
@@ -98,8 +122,14 @@ export function ProjectSelector({
       setOpen(false);
       toast({ title: `Project "${project.name}" created` });
     },
-    onError: () => {
-      toast({ title: "Failed to create project", variant: "destructive" });
+    onError: (error) => {
+      toast({
+        title: "Failed to create project",
+        description: error instanceof Error
+          ? error.message
+          : "Confirm that you have project permission and access to the selected site.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -148,9 +178,26 @@ export function ProjectSelector({
             <CommandInput placeholder={siteId == null ? "Select a site first" : "Search projects…"} />
           <CommandList>
             <CommandEmpty>
+              {isError ? (
+                <div className="space-y-2 px-3 py-2 text-left">
+                  <p className="text-sm text-destructive">
+                    {projectsError instanceof Error ? projectsError.message : "Unable to load projects."}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => refetch()}
+                  >
+                    Try again
+                  </Button>
+                </div>
+              ) : (
                 <span className="text-sm text-muted-foreground">
                   {siteId == null ? "Select a site first." : "No projects found under this site."}
                 </span>
+              )}
             </CommandEmpty>
             {projects.length > 0 && (
               <CommandGroup heading="Projects">

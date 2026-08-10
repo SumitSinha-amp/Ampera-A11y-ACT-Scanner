@@ -258,7 +258,14 @@ router.get("/admin/groups", requireAdmin, async (_req, res): Promise<void> => {
 });
 
 router.post("/admin/groups", requireAdmin, async (req, res): Promise<void> => {
-  const { name, description, roleLabel, canManageSiteTargetScore } = req.body ?? {};
+  const {
+    name, description, roleLabel,
+    canScan, canExport, canViewAllScans, canEditScan, canDeleteScan,
+    canManageScan, canCreateProject, canDeleteProject, canDisableJs,
+    canSmartAnalysis, canSwitchSite, canCreateCrawl, canDeleteCrawl,
+    canViewCrawlHistory, canViewQualityAssurance,
+    canViewSiteAccessibilityDashboard, canManageSites, canManageSiteTargetScore,
+  } = req.body ?? {};
   if (!name) { res.status(400).json({ error: "Group name is required" }); return; }
 
   try {
@@ -266,6 +273,23 @@ router.post("/admin/groups", requireAdmin, async (req, res): Promise<void> => {
       name,
       description: description || null,
       roleLabel: roleLabel || null,
+      canScan: typeof canScan === "boolean" ? canScan : false,
+      canExport: typeof canExport === "boolean" ? canExport : false,
+      canViewAllScans: typeof canViewAllScans === "boolean" ? canViewAllScans : false,
+      canEditScan: typeof canEditScan === "boolean" ? canEditScan : false,
+      canDeleteScan: typeof canDeleteScan === "boolean" ? canDeleteScan : false,
+      canManageScan: typeof canManageScan === "boolean" ? canManageScan : false,
+      canCreateProject: typeof canCreateProject === "boolean" ? canCreateProject : false,
+      canDeleteProject: typeof canDeleteProject === "boolean" ? canDeleteProject : false,
+      canDisableJs: typeof canDisableJs === "boolean" ? canDisableJs : false,
+      canSmartAnalysis: typeof canSmartAnalysis === "boolean" ? canSmartAnalysis : false,
+      canSwitchSite: typeof canSwitchSite === "boolean" ? canSwitchSite : false,
+      canCreateCrawl: typeof canCreateCrawl === "boolean" ? canCreateCrawl : false,
+      canDeleteCrawl: typeof canDeleteCrawl === "boolean" ? canDeleteCrawl : false,
+      canViewCrawlHistory: typeof canViewCrawlHistory === "boolean" ? canViewCrawlHistory : false,
+      canViewQualityAssurance: typeof canViewQualityAssurance === "boolean" ? canViewQualityAssurance : false,
+      canViewSiteAccessibilityDashboard: typeof canViewSiteAccessibilityDashboard === "boolean" ? canViewSiteAccessibilityDashboard : false,
+      canManageSites: typeof canManageSites === "boolean" ? canManageSites : false,
       canManageSiteTargetScore: typeof canManageSiteTargetScore === "boolean" ? canManageSiteTargetScore : false,
     }).returning();
     res.status(201).json({ ...group, createdAt: group.createdAt.toISOString(), members: [] });
@@ -279,12 +303,30 @@ router.put("/admin/groups/:id", requireAdmin, async (req, res): Promise<void> =>
   const id = parseInt(req.params["id"] as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid group ID" }); return; }
 
-  const { name, description, roleLabel, canManageSiteTargetScore } = req.body ?? {};
+  const {
+    name, description, roleLabel,
+    canScan, canExport, canViewAllScans, canEditScan, canDeleteScan,
+    canManageScan, canCreateProject, canDeleteProject, canDisableJs,
+    canSmartAnalysis, canSwitchSite, canCreateCrawl, canDeleteCrawl,
+    canViewCrawlHistory, canViewQualityAssurance,
+    canViewSiteAccessibilityDashboard, canManageSites, canManageSiteTargetScore,
+  } = req.body ?? {};
   const updates: Partial<typeof userGroupsTable.$inferInsert> = {};
   if (name) updates.name = name;
   if (description !== undefined) updates.description = description;
   if (roleLabel !== undefined) updates.roleLabel = roleLabel || null;
-  if (typeof canManageSiteTargetScore === "boolean") updates.canManageSiteTargetScore = canManageSiteTargetScore;
+  const permissionFields = {
+    canScan, canExport, canViewAllScans, canEditScan, canDeleteScan,
+    canManageScan, canCreateProject, canDeleteProject, canDisableJs,
+    canSmartAnalysis, canSwitchSite, canCreateCrawl, canDeleteCrawl,
+    canViewCrawlHistory, canViewQualityAssurance,
+    canViewSiteAccessibilityDashboard, canManageSites, canManageSiteTargetScore,
+  } as const;
+  for (const [key, value] of Object.entries(permissionFields)) {
+    if (typeof value === "boolean") {
+      (updates as Record<string, unknown>)[key] = value;
+    }
+  }
 
   const [updated] = await db.update(userGroupsTable).set(updates).where(eq(userGroupsTable.id, id)).returning();
   if (!updated) { res.status(404).json({ error: "Group not found" }); return; }

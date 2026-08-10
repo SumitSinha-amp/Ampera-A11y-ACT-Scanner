@@ -140,6 +140,30 @@ router.get("/scans/:id/qa/broken-links", requireAuth, async (req, res): Promise<
   const page = Math.max(1, parseInt(req.query["page"] as string ?? "1", 10));
   const limit = Math.min(200, Math.max(1, parseInt(req.query["limit"] as string ?? "50", 10)));
   const offset = (page - 1) * limit;
+  const search = (req.query["search"] as string ?? "").trim();
+  const type = (req.query["type"] as string ?? "").trim();
+  const status = (req.query["status"] as string ?? "").trim();
+
+  const brokenConditions = [
+    eq(qaLinksTable.scanId, id),
+    isNotNull(qaLinksTable.checkedAt),
+    or(
+      and(gt(qaLinksTable.httpStatus, 399), sql`${qaLinksTable.httpStatus} <> 403`),
+      and(eq(qaLinksTable.httpStatus, 0), isNotNull(qaLinksTable.checkedAt)),
+    ),
+  ];
+  if (type) brokenConditions.push(eq(qaLinksTable.linkType, type));
+  if (search) {
+    brokenConditions.push(sql`(
+      dest_url ILIKE ${"%" + search + "%"} OR
+      source_url ILIKE ${"%" + search + "%"} OR
+      anchor_text ILIKE ${"%" + search + "%"}
+    )`);
+  }
+  if (status === "timeout") brokenConditions.push(eq(qaLinksTable.httpStatus, 0));
+  else if (/^\d{3}$/.test(status)) brokenConditions.push(eq(qaLinksTable.httpStatus, parseInt(status, 10)));
+  else if (status === "4xx") brokenConditions.push(sql`${qaLinksTable.httpStatus} BETWEEN 400 AND 499`);
+  else if (status === "5xx") brokenConditions.push(sql`${qaLinksTable.httpStatus} BETWEEN 500 AND 599`);
 
   // Broken links include final 4xx/5xx responses and checked transport
   // failures represented by status 0. Successful redirects are separate.
@@ -154,16 +178,7 @@ router.get("/scans/:id/qa/broken-links", requireAuth, async (req, res): Promise<
       anchorTexts: sql<string[]>`array_agg(DISTINCT anchor_text) FILTER (WHERE anchor_text IS NOT NULL AND anchor_text != '')`,
     })
     .from(qaLinksTable)
-    .where(
-      and(
-        eq(qaLinksTable.scanId, id),
-        isNotNull(qaLinksTable.checkedAt),
-        or(
-          and(gt(qaLinksTable.httpStatus, 399), sql`${qaLinksTable.httpStatus} <> 403`),
-          and(eq(qaLinksTable.httpStatus, 0), isNotNull(qaLinksTable.checkedAt)),
-        ),
-      ),
-    )
+      .where(and(...brokenConditions))
     .groupBy(qaLinksTable.destUrl, qaLinksTable.httpStatus, qaLinksTable.linkType, qaLinksTable.checkedAt)
     .orderBy(desc(sql`COUNT(DISTINCT source_url)`))
     .limit(limit)
@@ -172,16 +187,7 @@ router.get("/scans/:id/qa/broken-links", requireAuth, async (req, res): Promise<
   const [countRow] = await db
     .select({ total: sql<number>`COUNT(DISTINCT dest_url)::int` })
     .from(qaLinksTable)
-    .where(
-      and(
-        eq(qaLinksTable.scanId, id),
-        isNotNull(qaLinksTable.checkedAt),
-        or(
-          and(gt(qaLinksTable.httpStatus, 399), sql`${qaLinksTable.httpStatus} <> 403`),
-          and(eq(qaLinksTable.httpStatus, 0), isNotNull(qaLinksTable.checkedAt)),
-        ),
-      ),
-    );
+      .where(and(...brokenConditions));
 
   res.json({ data: rows, total: countRow?.total ?? 0, page, limit });
 });
@@ -194,7 +200,22 @@ router.get("/scans/:id/qa/redirects", requireAuth, async (req, res): Promise<voi
   const page = Math.max(1, parseInt(req.query["page"] as string ?? "1", 10));
   const limit = Math.min(200, Math.max(1, parseInt(req.query["limit"] as string ?? "50", 10)));
   const offset = (page - 1) * limit;
+  const search = (req.query["search"] as string ?? "").trim();
+  const type = (req.query["type"] as string ?? "").trim();
 
+  const redirectConditions = [
+    eq(qaLinksTable.scanId, id),
+    eq(qaLinksTable.isRedirect, true),
+    isNotNull(qaLinksTable.checkedAt),
+  ];
+  if (type) redirectConditions.push(eq(qaLinksTable.linkType, type));
+  if (search) {
+    redirectConditions.push(sql`(
+      dest_url ILIKE ${"%" + search + "%"} OR
+      redirect_to ILIKE ${"%" + search + "%"} OR
+      source_url ILIKE ${"%" + search + "%"}
+    )`);
+  }
   const rows = await db
     .select({
       destUrl: qaLinksTable.destUrl,
@@ -205,13 +226,7 @@ router.get("/scans/:id/qa/redirects", requireAuth, async (req, res): Promise<voi
       sources: sql<string[]>`array_agg(DISTINCT source_url)`,
     })
     .from(qaLinksTable)
-    .where(
-      and(
-        eq(qaLinksTable.scanId, id),
-        eq(qaLinksTable.isRedirect, true),
-        isNotNull(qaLinksTable.checkedAt),
-      ),
-    )
+      .where(and(...redirectConditions))
     .groupBy(qaLinksTable.destUrl, qaLinksTable.redirectTo, qaLinksTable.httpStatus, qaLinksTable.linkType)
     .orderBy(desc(sql`COUNT(DISTINCT source_url)`))
     .limit(limit)
@@ -220,13 +235,7 @@ router.get("/scans/:id/qa/redirects", requireAuth, async (req, res): Promise<voi
   const [countRow] = await db
     .select({ total: sql<number>`COUNT(DISTINCT dest_url)::int` })
     .from(qaLinksTable)
-    .where(
-      and(
-        eq(qaLinksTable.scanId, id),
-        eq(qaLinksTable.isRedirect, true),
-        isNotNull(qaLinksTable.checkedAt),
-      ),
-    );
+      .where(and(...redirectConditions));
 
   res.json({ data: rows, total: countRow?.total ?? 0, page, limit });
 });
@@ -259,7 +268,14 @@ router.get("/scans/:id/qa/pages", requireAuth, async (req, res): Promise<void> =
   const [countRow] = await db
     .select({ total: sql<number>`COUNT(*)::int` })
     .from(qaPagesTable)
-    .where(eq(qaPagesTable.scanId, id));
+    .where(
+      search
+        ? and(
+            eq(qaPagesTable.scanId, id),
+            sql`(url ILIKE ${"%" + search + "%"} OR title ILIKE ${"%" + search + "%"})`,
+          )
+        : eq(qaPagesTable.scanId, id),
+    );
 
   res.json({ data: rows, total: countRow?.total ?? 0, page, limit });
 });
@@ -331,6 +347,7 @@ router.get("/scans/:id/qa/link-inventory", requireAuth, async (req, res): Promis
   const offset = (page - 1) * limit;
   const category = (req.query["category"] as string ?? "all").toLowerCase();
   const search = (req.query["search"] as string ?? "").trim();
+  const type = (req.query["type"] as string ?? "").trim();
 
   const conditions = [eq(qaLinksTable.scanId, id)];
 
@@ -343,6 +360,9 @@ router.get("/scans/:id/qa/link-inventory", requireAuth, async (req, res): Promis
     case "media": conditions.push(sql`dest_url ~* '\\.(jpg|jpeg|png|gif|webp|svg|ico|bmp|tiff|mp4|webm|ogg|avi|mov|mp3|wav)(\\?|#|$)'`); break;
     case "javascript": conditions.push(sql`dest_url ~* '\\.(js|mjs)(\\?|#|$)'`); break;
     case "css": conditions.push(sql`dest_url ~* '\\.css(\\?|#|$)'`); break;
+  }
+  if (type && category === "all") {
+    conditions.push(eq(qaLinksTable.linkType, type));
   }
 
   if (search) {
@@ -382,6 +402,15 @@ router.get("/scans/:id/qa/link-text", requireAuth, async (req, res): Promise<voi
   const page = Math.max(1, parseInt(req.query["page"] as string ?? "1", 10));
   const limit = Math.min(200, Math.max(1, parseInt(req.query["limit"] as string ?? "50", 10)));
   const offset = (page - 1) * limit;
+  const search = (req.query["search"] as string ?? "").trim();
+  const textCondition = sql`anchor_text IS NOT NULL AND trim(anchor_text) != ''`;
+  const conditions = search
+    ? and(
+        eq(qaLinksTable.scanId, id),
+        textCondition,
+        ilike(qaLinksTable.anchorText, `%${search}%`),
+      )
+    : and(eq(qaLinksTable.scanId, id), textCondition);
 
   const rows = await db
     .select({
@@ -391,7 +420,7 @@ router.get("/scans/:id/qa/link-text", requireAuth, async (req, res): Promise<voi
       uniquePages: sql<number>`COUNT(DISTINCT source_url)::int`,
     })
     .from(qaLinksTable)
-    .where(and(eq(qaLinksTable.scanId, id), sql`anchor_text IS NOT NULL AND trim(anchor_text) != ''`))
+    .where(conditions)
     .groupBy(qaLinksTable.anchorText)
     .orderBy(desc(sql`COUNT(*)`))
     .limit(limit)
@@ -400,7 +429,7 @@ router.get("/scans/:id/qa/link-text", requireAuth, async (req, res): Promise<voi
   const [countRow] = await db
     .select({ total: sql<number>`COUNT(DISTINCT anchor_text)::int` })
     .from(qaLinksTable)
-    .where(and(eq(qaLinksTable.scanId, id), sql`anchor_text IS NOT NULL AND trim(anchor_text) != ''`));
+    .where(conditions);
 
   res.json({ data: rows, total: countRow?.total ?? 0, page, limit });
 });
@@ -413,6 +442,14 @@ router.get("/scans/:id/qa/pages-with-broken", requireAuth, async (req, res): Pro
   const page = Math.max(1, parseInt(req.query["page"] as string ?? "1", 10));
   const limit = Math.min(200, Math.max(1, parseInt(req.query["limit"] as string ?? "50", 10)));
   const offset = (page - 1) * limit;
+  const search = (req.query["search"] as string ?? "").trim();
+  const pageCondition = search
+    ? and(
+        eq(qaLinksTable.scanId, id),
+        isNotNull(qaLinksTable.checkedAt),
+        sql`source_url ILIKE ${"%" + search + "%"}`,
+      )
+    : and(eq(qaLinksTable.scanId, id), isNotNull(qaLinksTable.checkedAt));
 
   const rows = await db
     .select({
@@ -423,8 +460,7 @@ router.get("/scans/:id/qa/pages-with-broken", requireAuth, async (req, res): Pro
     .from(qaLinksTable)
     .where(
       and(
-        eq(qaLinksTable.scanId, id),
-        isNotNull(qaLinksTable.checkedAt),
+        pageCondition,
         or(
           gt(qaLinksTable.httpStatus, 399),
           and(eq(qaLinksTable.httpStatus, 0), isNotNull(qaLinksTable.checkedAt)),
@@ -441,8 +477,7 @@ router.get("/scans/:id/qa/pages-with-broken", requireAuth, async (req, res): Pro
     .from(qaLinksTable)
     .where(
       and(
-        eq(qaLinksTable.scanId, id),
-        isNotNull(qaLinksTable.checkedAt),
+        pageCondition,
         or(
           gt(qaLinksTable.httpStatus, 399),
           and(eq(qaLinksTable.httpStatus, 0), isNotNull(qaLinksTable.checkedAt)),
@@ -461,11 +496,18 @@ router.get("/scans/:id/qa/priority-pages", requireAuth, async (req, res): Promis
   const page = Math.max(1, parseInt(req.query["page"] as string ?? "1", 10));
   const limit = Math.min(200, Math.max(1, parseInt(req.query["limit"] as string ?? "50", 10)));
   const offset = (page - 1) * limit;
+  const search = (req.query["search"] as string ?? "").trim();
+  const pageCondition = search
+    ? and(
+        eq(qaPagesTable.scanId, id),
+        sql`(url ILIKE ${"%" + search + "%"} OR title ILIKE ${"%" + search + "%"})`,
+      )
+    : eq(qaPagesTable.scanId, id);
 
   const rows = await db
     .select()
     .from(qaPagesTable)
-    .where(eq(qaPagesTable.scanId, id))
+    .where(pageCondition)
     .orderBy(desc(qaPagesTable.inlinkCount), asc(qaPagesTable.url))
     .limit(limit)
     .offset(offset);
@@ -473,7 +515,7 @@ router.get("/scans/:id/qa/priority-pages", requireAuth, async (req, res): Promis
   const [countRow] = await db
     .select({ total: sql<number>`COUNT(*)::int` })
     .from(qaPagesTable)
-    .where(eq(qaPagesTable.scanId, id));
+    .where(pageCondition);
 
   res.json({ data: rows, total: countRow?.total ?? 0, page, limit });
 });
@@ -487,6 +529,7 @@ router.get("/scans/:id/qa/issues", requireAuth, async (req, res): Promise<void> 
   const limit = Math.min(500, Math.max(1, parseInt(req.query["limit"] as string ?? "50", 10)));
   const offset = (page - 1) * limit;
   const typeFilter = req.query["type"] as string | undefined;
+  const searchFilter = ((req.query["search"] as string) ?? "").trim().toLowerCase();
 
   const allPages = await db
     .select({ id: qaPagesTable.id, url: qaPagesTable.url, title: qaPagesTable.title, h1: qaPagesTable.h1, metaDescription: qaPagesTable.metaDescription, wordCount: qaPagesTable.wordCount, httpStatus: qaPagesTable.httpStatus, inlinkCount: qaPagesTable.inlinkCount })
@@ -526,7 +569,10 @@ router.get("/scans/:id/qa/issues", requireAuth, async (req, res): Promise<void> 
   const summary: Record<string, number> = {};
   for (const i of issues) { summary[i.type] = (summary[i.type] ?? 0) + 1; }
 
-  const filtered = typeFilter ? issues.filter((i) => i.type === typeFilter) : issues;
+  const filtered = issues.filter((i) =>
+    (!typeFilter || i.type === typeFilter) &&
+    (!searchFilter || i.url.toLowerCase().includes(searchFilter) || i.detail.toLowerCase().includes(searchFilter)),
+  );
   res.json({ data: filtered.slice(offset, offset + limit), total: filtered.length, page, limit, summary });
 });
 
@@ -643,11 +689,21 @@ router.get("/scans/:id/qa/unsafe-links", requireAuth, async (req, res): Promise<
   const page = Math.max(1, parseInt((req.query["page"] as string) ?? "1", 10));
   const limit = Math.min(200, Math.max(1, parseInt((req.query["limit"] as string) ?? "50", 10)));
   const offset = (page - 1) * limit;
+  const search = ((req.query["search"] as string) ?? "").trim();
+  const type = ((req.query["type"] as string) ?? "").trim();
+  const unsafeCondition = and(
+    eq(qaLinksTable.scanId, id),
+    eq(qaLinksTable.isUnsafe, true),
+    ...(search
+      ? [sql`(source_url ILIKE ${"%" + search + "%"} OR dest_url ILIKE ${"%" + search + "%"} OR anchor_text ILIKE ${"%" + search + "%"})`]
+      : []),
+    ...(type ? [eq(qaLinksTable.linkType, type)] : []),
+  );
 
   const [countRow] = await db
     .select({ total: sql<number>`COUNT(*)::int` })
     .from(qaLinksTable)
-    .where(and(eq(qaLinksTable.scanId, id), eq(qaLinksTable.isUnsafe, true)));
+    .where(unsafeCondition);
 
   const rows = await db
     .select({
@@ -658,7 +714,7 @@ router.get("/scans/:id/qa/unsafe-links", requireAuth, async (req, res): Promise<
       httpStatus: qaLinksTable.httpStatus,
     })
     .from(qaLinksTable)
-    .where(and(eq(qaLinksTable.scanId, id), eq(qaLinksTable.isUnsafe, true)))
+    .where(unsafeCondition)
     .orderBy(asc(qaLinksTable.sourceUrl))
     .limit(limit)
     .offset(offset);
@@ -762,10 +818,17 @@ router.get("/scans/:id/qa/sitemap", requireAuth, async (req, res): Promise<void>
   const limit = Math.min(200, Math.max(1, parseInt((req.query["limit"] as string) ?? "50", 10)));
   const offset = (pageNum - 1) * limit;
   const filter = (req.query["filter"] as string) ?? "all"; // "in-sitemap" | "not-in-sitemap" | "all"
+  const search = ((req.query["search"] as string) ?? "").trim();
 
   let baseWhere = eq(qaPagesTable.scanId, id);
   if (filter === "in-sitemap") baseWhere = and(baseWhere, eq(qaPagesTable.inSitemap, true)) as typeof baseWhere;
   else if (filter === "not-in-sitemap") baseWhere = and(baseWhere, eq(qaPagesTable.inSitemap, false)) as typeof baseWhere;
+  if (search) {
+    baseWhere = and(
+      baseWhere,
+      sql`(url ILIKE ${"%" + search + "%"} OR title ILIKE ${"%" + search + "%"})`,
+    ) as typeof baseWhere;
+  }
 
   const [countRow] = await db
     .select({ total: sql<number>`COUNT(*)::int` })

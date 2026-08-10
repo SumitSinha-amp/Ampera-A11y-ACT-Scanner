@@ -1,6 +1,16 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useQASites, useQASelectedSite, QASiteSelector, QA_BASE } from "@/pages/qa-shared";
+import {
+  useQASites,
+  useQASelectedSite,
+  QASiteSelector,
+  QA_BASE,
+  QAListToolbar,
+  QAPagination,
+  QA_TABLE_CLASS,
+  QA_TABLE_SHELL_CLASS,
+  QA_URL_CLASS,
+} from "@/pages/qa-shared";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,13 +44,14 @@ interface SitemapData {
 function SitemapCoverageContent({ scanId }: { scanId: number }) {
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<SitemapFilter>("all");
-  const limit = 50;
+  const [limit, setLimit] = useState(50);
+  const [search, setSearch] = useState("");
 
   const { data, isLoading } = useQuery<SitemapData>({
-    queryKey: ["qa-sitemap", scanId, page, filter],
+    queryKey: ["qa-sitemap", scanId, page, limit, filter, search],
     queryFn: async () => {
       const r = await fetch(
-        `${QA_BASE}/api/scans/${scanId}/qa/sitemap?page=${page}&limit=${limit}&filter=${filter}`,
+        `${QA_BASE}/api/scans/${scanId}/qa/sitemap?page=${page}&limit=${limit}&filter=${filter}&search=${encodeURIComponent(search)}`,
         { credentials: "include" },
       );
       if (!r.ok) throw new Error("Failed to load sitemap data");
@@ -93,19 +104,22 @@ function SitemapCoverageContent({ scanId }: { scanId: number }) {
         </Card>
       </div>
 
-      <div className="flex gap-2 flex-wrap">
-        {filterTabs.map((tab) => (
-          <Button
-            key={tab.value}
-            variant={filter === tab.value ? "default" : "outline"}
-            size="sm"
-            onClick={() => { setFilter(tab.value); setPage(1); }}
-          >
-            {tab.label}
-            <Badge variant="secondary" className="ml-1.5 text-xs">{tab.count}</Badge>
-          </Button>
-        ))}
-      </div>
+      <QAListToolbar
+        search={search}
+        onSearch={(value) => { setSearch(value); setPage(1); }}
+        searchPlaceholder="Search URL or page title…"
+        filters={[{
+          label: "Sitemap",
+          value: filter,
+          onChange: (value) => { setFilter(value as SitemapFilter); setPage(1); },
+          options: filterTabs.map((tab) => ({
+            value: tab.value,
+            label: `${tab.label} (${tab.count.toLocaleString()})`,
+          })),
+        }]}
+        limit={limit}
+        onLimitChange={(value) => { setLimit(value); setPage(1); }}
+      />
 
       {items.length === 0 ? (
         <Card>
@@ -121,38 +135,37 @@ function SitemapCoverageContent({ scanId }: { scanId: number }) {
         </Card>
       ) : (
         <>
-          <Card>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+          <div className={QA_TABLE_SHELL_CLASS}>
+            <table className={`w-full text-sm ${QA_TABLE_CLASS}`}>
                 <thead>
-                  <tr className="border-b bg-muted/40">
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">URL</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Title</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Sitemap</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Status</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Words</th>
+                  <tr className="border-b">
+                    <th className="h-10 px-2 text-left align-middle font-medium text-muted-foreground">URL</th>
+                    <th className="h-10 px-2 text-left align-middle font-medium text-muted-foreground">Title</th>
+                    <th className="h-10 px-2 text-left align-middle font-medium text-muted-foreground">Sitemap</th>
+                    <th className="h-10 px-2 text-left align-middle font-medium text-muted-foreground">Status</th>
+                    <th className="h-10 px-2 text-left align-middle font-medium text-muted-foreground">Words</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border">
+                <tbody>
                   {items.map((row, i) => (
-                    <tr key={i} className="hover:bg-muted/20">
-                      <td className="py-2.5 px-4 max-w-[260px]">
+                    <tr key={i} className="border-b transition-colors hover:bg-muted/50 last:border-0">
+                      <td className="p-2 align-middle max-w-[260px]">
                         <a
                           href={row.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-primary hover:underline text-xs font-mono truncate block"
+                          className={`${QA_URL_CLASS} text-xs truncate block`}
                           title={row.url}
                         >
                           {row.url.replace(/^https?:\/\/[^/]+/, "") || "/"}
                         </a>
                       </td>
-                      <td className="py-2.5 px-4 max-w-[200px]">
+                      <td className="p-2 align-middle max-w-[200px]">
                         <span className="truncate block text-xs" title={row.title ?? ""}>
                           {row.title || <span className="italic text-muted-foreground">(no title)</span>}
                         </span>
                       </td>
-                      <td className="py-2.5 px-4">
+                      <td className="p-2 align-middle">
                         {row.inSitemap ? (
                           <div className="flex items-center gap-1 text-green-600">
                             <CheckCircle2 className="w-3.5 h-3.5" />
@@ -165,7 +178,7 @@ function SitemapCoverageContent({ scanId }: { scanId: number }) {
                           </div>
                         )}
                       </td>
-                      <td className="py-2.5 px-4">
+                      <td className="p-2 align-middle">
                         {row.httpStatus ? (
                           <Badge
                             variant={row.httpStatus >= 400 ? "destructive" : "outline"}
@@ -177,31 +190,16 @@ function SitemapCoverageContent({ scanId }: { scanId: number }) {
                           <span className="text-xs text-muted-foreground">—</span>
                         )}
                       </td>
-                      <td className="py-2.5 px-4 text-xs text-muted-foreground">
+                      <td className="p-2 align-middle text-xs text-muted-foreground">
                         {row.wordCount?.toLocaleString() ?? "—"}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
-          </Card>
+          </div>
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                Showing {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total.toLocaleString()}
-              </p>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-          )}
+          {totalPages > 1 && <QAPagination page={page} total={total} limit={limit} onPageChange={setPage} />}
         </>
       )}
     </div>

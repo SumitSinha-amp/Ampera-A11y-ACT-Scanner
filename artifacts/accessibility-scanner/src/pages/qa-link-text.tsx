@@ -11,7 +11,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Download, Loader2, Type } from "lucide-react";
-import { useQASites, useQASelectedSite, QASiteSelector, QA_BASE } from "@/pages/qa-shared";
+import {
+  useQASites,
+  useQASelectedSite,
+  QASiteSelector,
+  QA_BASE,
+  QAListToolbar,
+  QAPagination,
+  QA_TABLE_CLASS,
+  QA_TABLE_SHELL_CLASS,
+} from "@/pages/qa-shared";
 import { exportCSV, truncate } from "@/pages/scan-qa";
 
 interface LinkTextRow {
@@ -23,12 +32,14 @@ interface LinkTextRow {
 
 function LinkTextContent({ scanId }: { scanId: number }) {
   const [page, setPage] = useState(1);
-  const limit = 50;
+  const [limit, setLimit] = useState(50);
+  const [search, setSearch] = useState("");
 
   const { data, isLoading } = useQuery({
-    queryKey: ["qa-link-text", scanId, page],
+    queryKey: ["qa-link-text", scanId, page, limit, search],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (search) params.set("search", search);
       const r = await fetch(`${QA_BASE}/api/scans/${scanId}/qa/link-text?${params}`, {
         credentials: "include",
       });
@@ -72,22 +83,20 @@ function LinkTextContent({ scanId }: { scanId: number }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {total.toLocaleString()} unique anchor text{total !== 1 ? "s" : ""}
-        </p>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => exportCSV(exportData, `link-text-scan-${scanId}.csv`)}
-        >
-          <Download className="w-4 h-4 mr-2" />
-          Export CSV
-        </Button>
-      </div>
+      <QAListToolbar
+        search={search}
+        onSearch={(value) => { setSearch(value); setPage(1); }}
+        searchPlaceholder="Search anchor text…"
+        limit={limit}
+        onLimitChange={(value) => { setLimit(value); setPage(1); }}
+        onExport={() => exportCSV(exportData, `link-text-scan-${scanId}.csv`)}
+      />
+      <p className="text-sm text-muted-foreground">
+        {total.toLocaleString()} unique anchor text{total !== 1 ? "s" : ""}
+      </p>
 
-      <div className="border rounded-lg overflow-hidden">
-        <Table>
+       <div className={QA_TABLE_SHELL_CLASS}>
+         <Table className={QA_TABLE_CLASS}>
           <TableHeader>
             <TableRow>
               <TableHead>Anchor text</TableHead>
@@ -115,17 +124,7 @@ function LinkTextContent({ scanId }: { scanId: number }) {
         </Table>
       </div>
 
-      {pages > 1 && (
-        <div className="flex justify-center gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            Prev
-          </Button>
-          <span className="text-sm text-muted-foreground py-2">Page {page} / {pages}</span>
-          <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
-            Next
-          </Button>
-        </div>
-      )}
+      {pages > 1 && <QAPagination page={page} total={total} limit={limit} onPageChange={setPage} />}
     </div>
   );
 }

@@ -134,27 +134,58 @@ export default function PageReport() {
     };
   } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!scanId || !pageId) return;
+  const loadReport = useCallback(() => {
+    if (!scanId || !pageId) return () => {};
     let cancelled = false;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 20_000);
     setIsLoading(true);
-    fetch(`${BASE}/api/scans/${scanId}/pages/${pageId}/report-data`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    setLoadError(null);
+    fetch(`${BASE}/api/scans/${scanId}/pages/${pageId}/report-data`, {
+      credentials: "include",
+      signal: controller.signal,
+    })
+      .then(async (r) => {
+        if (r.ok) return r.json();
+        let message = `Unable to load this page report (${r.status})`;
+        try {
+          const body = await r.json();
+          if (typeof body?.error === "string") message = body.error;
+        } catch {
+          // Keep the status-based message when the server did not return JSON.
+        }
+        throw new Error(message);
+      })
       .then((data) => {
         if (!cancelled) {
           setReportData(data);
           setIsLoading(false);
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled) {
           setReportData(null);
+          setLoadError(
+            error instanceof DOMException && error.name === "AbortError"
+              ? "The page report request timed out. Check your connection and try again."
+              : error instanceof Error
+                ? error.message
+                : "Unable to load this page report. Please try again.",
+          );
           setIsLoading(false);
         }
-      });
-    return () => { cancelled = true; };
+      })
+      .finally(() => window.clearTimeout(timeout));
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
   }, [scanId, pageId]);
+
+  useEffect(() => loadReport(), [loadReport]);
 
   const scan = reportData;
 
@@ -373,13 +404,32 @@ export default function PageReport() {
       </div>
     );
   }
-  if (!page) {
+  if (loadError || !page) {
     return (
-      <div className="p-8 text-center text-muted-foreground">
-        <p>Page not found in this scan.</p>
-        <Link href={`/scans/${scanId}`} className="text-violet-600 hover:underline text-sm">
-          Back to scan
-        </Link>
+      <div className="flex min-h-[70vh] flex-col items-center justify-center gap-4 p-8 text-center text-muted-foreground">
+        <XCircle className="h-10 w-10 text-destructive" />
+        <div>
+          <p className="font-medium text-foreground">
+            {loadError ? "Unable to load page report" : "Page not found in this scan"}
+          </p>
+          {loadError && <p className="mt-1 max-w-md text-sm">{loadError}</p>}
+        </div>
+        <div className="flex items-center gap-2">
+          {loadError && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                loadReport();
+              }}
+            >
+              Try again
+            </Button>
+          )}
+          <Link href={`/scans/${scanId}`}>
+            <Button variant="ghost" size="sm">Back to scan</Button>
+          </Link>
+        </div>
       </div>
     );
   }

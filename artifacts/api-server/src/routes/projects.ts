@@ -76,10 +76,23 @@ router.get("/projects", requireAuth, async (req, res): Promise<void> => {
           .where(inArray(projectSitesTable.siteId, accessibleSiteIds))
           .orderBy(asc(projectsTable.name))
     : await db
-        .select({ id: projectsTable.id, name: projectsTable.name, createdAt: projectsTable.createdAt })
+        .selectDistinct({
+          id: projectsTable.id,
+          name: projectsTable.name,
+          createdAt: projectsTable.createdAt,
+        })
         .from(projectsTable)
-        .innerJoin(projectSitesTable, eq(projectSitesTable.projectId, projectsTable.id))
-        .where(eq(projectSitesTable.siteId, siteId))
+        .leftJoin(projectSitesTable, eq(projectSitesTable.projectId, projectsTable.id))
+        .leftJoin(scanSessionsTable, eq(scanSessionsTable.projectId, projectsTable.id))
+        .where(or(
+          eq(projectSitesTable.siteId, siteId),
+          // Legacy projects may have a scan tied to the site before the
+          // project_sites association was backfilled.
+          and(
+            isNull(projectSitesTable.id),
+            eq(scanSessionsTable.siteId, siteId),
+          ),
+        ))
         .orderBy(asc(projectsTable.name));
 
   const projectIds = projects.map((project) => project.id);

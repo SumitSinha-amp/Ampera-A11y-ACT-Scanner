@@ -1,6 +1,17 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useQASites, useQASelectedSite, QASiteSelector, QA_BASE } from "@/pages/qa-shared";
+import {
+  useQASites,
+  useQASelectedSite,
+  QASiteSelector,
+  QA_BASE,
+  QAListToolbar,
+  QAPagination,
+  QA_TABLE_CLASS,
+  QA_TABLE_SHELL_CLASS,
+  QA_URL_CLASS,
+  QA_SECONDARY_URL_CLASS,
+} from "@/pages/qa-shared";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,12 +34,17 @@ interface UnsafeLinksData {
 
 function UnsafeLinksTable({ scanId }: { scanId: number }) {
   const [page, setPage] = useState(1);
-  const limit = 50;
+  const [limit, setLimit] = useState(50);
+  const [search, setSearch] = useState("");
+  const [type, setType] = useState("all");
 
   const { data, isLoading } = useQuery<UnsafeLinksData>({
-    queryKey: ["qa-unsafe-links", scanId, page],
+    queryKey: ["qa-unsafe-links", scanId, page, limit, search, type],
     queryFn: async () => {
-      const r = await fetch(`${QA_BASE}/api/scans/${scanId}/qa/unsafe-links?page=${page}&limit=${limit}`, {
+      const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (search) params.set("search", search);
+      if (type !== "all") params.set("type", type);
+      const r = await fetch(`${QA_BASE}/api/scans/${scanId}/qa/unsafe-links?${params}`, {
         credentials: "include",
       });
       if (!r.ok) throw new Error("Failed to load unsafe links");
@@ -72,43 +88,59 @@ function UnsafeLinksTable({ scanId }: { scanId: number }) {
 
   return (
     <div className="space-y-4">
+      <QAListToolbar
+        search={search}
+        onSearch={(value) => { setSearch(value); setPage(1); }}
+        searchPlaceholder="Search source or destination URL…"
+        filters={[{
+          label: "Type",
+          value: type,
+          onChange: (value) => { setType(value); setPage(1); },
+          options: [
+            { value: "all", label: "All types" },
+            { value: "internal", label: "Internal" },
+            { value: "external", label: "External" },
+          ],
+        }]}
+        limit={limit}
+        onLimitChange={(value) => { setLimit(value); setPage(1); }}
+      />
       <p className="text-sm text-muted-foreground">
         <span className="font-semibold text-foreground">{total.toLocaleString()}</span> HTTP link{total !== 1 ? "s" : ""} found on HTTPS pages
       </p>
 
-      <Card>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+      <div className={QA_TABLE_SHELL_CLASS}>
+          <table className={`w-full text-sm ${QA_TABLE_CLASS}`}>
             <thead>
-              <tr className="border-b bg-muted/40">
-                <th className="text-left py-3 px-4 font-medium text-muted-foreground">Source page</th>
-                <th className="text-left py-3 px-4 font-medium text-muted-foreground">HTTP destination</th>
-                <th className="text-left py-3 px-4 font-medium text-muted-foreground">Anchor text</th>
-                <th className="text-left py-3 px-4 font-medium text-muted-foreground">Type</th>
-                <th className="text-left py-3 px-4 font-medium text-muted-foreground">Status</th>
+              <tr className="border-b">
+                <th className="h-10 px-2 text-left align-middle font-medium text-muted-foreground">Source page</th>
+                <th className="h-10 px-2 text-left align-middle font-medium text-muted-foreground">HTTP destination</th>
+                <th className="h-10 px-2 text-left align-middle font-medium text-muted-foreground">Anchor text</th>
+                <th className="h-10 px-2 text-left align-middle font-medium text-muted-foreground">Type</th>
+                <th className="h-10 px-2 text-left align-middle font-medium text-muted-foreground">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border">
+            <tbody>
               {items.map((row, i) => (
-                <tr key={i} className="hover:bg-muted/20">
-                  <td className="py-2.5 px-4 max-w-[220px]">
+                <tr key={i} className="border-b transition-colors hover:bg-muted/50 last:border-0">
+                  <td className="p-2 align-middle max-w-[220px]">
                     <a
                       href={row.sourceUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-primary hover:underline text-xs font-mono truncate block"
+                      className={`${QA_SECONDARY_URL_CLASS} truncate block`}
                       title={row.sourceUrl}
                     >
                       {row.sourceUrl.replace(/^https?:\/\/[^/]+/, "")}
                     </a>
                   </td>
-                  <td className="py-2.5 px-4 max-w-[240px]">
+                  <td className="p-2 align-middle max-w-[240px]">
                     <div className="flex items-center gap-1">
                       <a
                         href={row.destUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-amber-600 hover:underline text-xs font-mono truncate"
+                        className={`${QA_SECONDARY_URL_CLASS} text-amber-600 dark:text-amber-400 truncate`}
                         title={row.destUrl}
                       >
                         {row.destUrl.length > 60 ? row.destUrl.slice(0, 60) + "…" : row.destUrl}
@@ -116,35 +148,22 @@ function UnsafeLinksTable({ scanId }: { scanId: number }) {
                       <ExternalLink className="w-3 h-3 shrink-0 text-muted-foreground" />
                     </div>
                   </td>
-                  <td className="py-2.5 px-4 max-w-[160px]">
+                  <td className="p-2 align-middle max-w-[160px]">
                     <span className="truncate block text-xs text-muted-foreground" title={row.anchorText ?? ""}>
                       {row.anchorText || <span className="italic">(no text)</span>}
                     </span>
                   </td>
-                  <td className="py-2.5 px-4">
+                  <td className="p-2 align-middle">
                     <Badge variant="secondary" className="text-xs capitalize">{row.linkType}</Badge>
                   </td>
-                  <td className="py-2.5 px-4">{statusBadge(row.httpStatus)}</td>
+                  <td className="p-2 align-middle">{statusBadge(row.httpStatus)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-      </Card>
+      </div>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">Page {page} of {totalPages}</p>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      {totalPages > 1 && <QAPagination page={page} total={total} limit={limit} onPageChange={setPage} />}
     </div>
   );
 }

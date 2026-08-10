@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth";
+import { APP_VERSION } from "@/lib/app-version";
 import {
   Accessibility,
   AudioLines,
@@ -16,10 +17,8 @@ import {
   SkipForward,
   Volume2,
 } from "lucide-react";
-//import amperaLogo from "../../public/ampera-logo.png";
 
 const APP_NAME = "Ampera A11y ACT Platform";
-const APP_VERSION = `${import.meta.env.APP_VERSION}`;
 // Keep the login logo in the static public directory so it is included in
 // Azure deployments without depending on the authenticated logo API.
 const AMPERA_LOGO_SRC = `${import.meta.env.BASE_URL}ampera-logo.png`;

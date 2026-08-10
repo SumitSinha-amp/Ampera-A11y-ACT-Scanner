@@ -20,7 +20,14 @@ import {
   Phone,
   XCircle,
 } from "lucide-react";
-import { useQASites, useQASelectedSite, QASiteSelector, QA_BASE } from "@/pages/qa-shared";
+import {
+  useQASites,
+  useQASelectedSite,
+  QASiteSelector,
+  QA_BASE,
+  QA_TABLE_CLASS,
+  QA_TABLE_SHELL_CLASS,
+} from "@/pages/qa-shared";
 import { Card as PlainCard } from "@/components/ui/card";
 
 interface LinksOverview {
@@ -132,8 +139,8 @@ function OverviewContent({ scanId }: { scanId: number }) {
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium">Link breakdown</CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
-          <Table>
+         <CardContent className="p-0 overflow-x-auto">
+           <Table className={QA_TABLE_CLASS}>
             <TableHeader>
               <TableRow>
                 <TableHead>Category</TableHead>

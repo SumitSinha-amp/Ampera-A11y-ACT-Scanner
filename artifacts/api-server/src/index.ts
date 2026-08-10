@@ -125,6 +125,29 @@ async function runStartupMigrations(): Promise<void> {
       )
     `);
 
+    // Additive group permissions. Group grants are independent from direct
+    // user permissions and from site membership/access assignments.
+    await client.query(`
+      ALTER TABLE user_groups
+        ADD COLUMN IF NOT EXISTS can_scan BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_export BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_view_all_scans BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_edit_scan BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_delete_scan BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_manage_scan BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_create_project BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_delete_project BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_disable_js BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_smart_analysis BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_switch_site BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_create_crawl BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_delete_crawl BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_view_crawl_history BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_view_quality_assurance BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_view_site_accessibility_dashboard BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_manage_sites BOOLEAN NOT NULL DEFAULT FALSE
+    `);
+
     // 7. Create user_group_members table
     await client.query(`
       CREATE TABLE IF NOT EXISTS user_group_members (

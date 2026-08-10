@@ -9,8 +9,45 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export const QA_BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+
+export function qaErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) return error.message;
+  return "Quality Assurance could not be loaded. Please try again.";
+}
+
+export async function fetchQAJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(url, {
+      ...init,
+      credentials: "include",
+      signal: init?.signal ?? controller.signal,
+    });
+    if (!response.ok) {
+      let message = `Request failed (${response.status})`;
+      try {
+        const body = await response.json();
+        if (typeof body?.error === "string") message = body.error;
+      } catch {
+        // Keep the status-based message when the server did not return JSON.
+      }
+      throw new Error(message);
+    }
+    if (response.status === 204) return undefined as T;
+    return response.json() as Promise<T>;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("The QA request timed out. Check your connection and try again.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
 
 export interface QASiteEntry {
   siteId: number;
@@ -27,9 +64,7 @@ export function useQASites() {
   return useQuery<QASiteEntry[]>({
     queryKey: ["qa-sites"],
     queryFn: async () => {
-      const r = await fetch(`${QA_BASE}/api/qa/sites`, { credentials: "include" });
-      if (!r.ok) return [];
-      return r.json();
+      return fetchQAJson<QASiteEntry[]>(`${QA_BASE}/api/qa/sites`);
     },
     staleTime: 60_000,
   });
@@ -110,16 +145,32 @@ export function QASiteSelector({
   onChange,
   sites,
   loading,
+  error,
+  onRetry,
 }: {
   value: number | null;
   onChange: (id: number) => void;
   sites: QASiteEntry[];
   loading: boolean;
+  error?: unknown;
+  onRetry?: () => void;
 }) {
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin" /> Loading sites…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-sm text-destructive">
+        <span>{qaErrorMessage(error)}</span>
+        {onRetry && (
+          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+            Try again
+          </Button>
+        )}
       </div>
     );
   }

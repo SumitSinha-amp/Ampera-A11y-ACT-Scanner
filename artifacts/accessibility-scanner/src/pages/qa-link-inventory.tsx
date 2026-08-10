@@ -11,13 +11,16 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Download, ExternalLink, Link2, Loader2, Search } from "lucide-react";
+import { Download, ExternalLink, Link2, Loader2 } from "lucide-react";
 import {
   useQASites,
   useQASelectedSite,
   QASiteSelector,
   QA_BASE,
+  QAListToolbar,
+  QAPagination,
+  QA_TABLE_CLASS,
+  QA_TABLE_SHELL_CLASS,
 } from "@/pages/qa-shared";
 import { httpStatusBadge, exportCSV, truncate } from "@/pages/scan-qa";
 
@@ -102,12 +105,12 @@ function LinkInventoryContent({
   category: Category;
 }) {
   const [page, setPage] = useState(1);
-  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const limit = 50;
+  const [limit, setLimit] = useState(50);
+  const [type, setType] = useState("all");
 
   const { data, isLoading } = useQuery({
-    queryKey: ["qa-link-inventory", scanId, category, page, search],
+    queryKey: ["qa-link-inventory", scanId, category, page, limit, search, type],
     queryFn: async () => {
       const params = new URLSearchParams({
         category,
@@ -115,6 +118,7 @@ function LinkInventoryContent({
         limit: String(limit),
       });
       if (search) params.set("search", search);
+      if (category === "all" && type !== "all") params.set("type", type);
       const r = await fetch(
         `${QA_BASE}/api/scans/${scanId}/qa/link-inventory?${params}`,
         { credentials: "include" }
@@ -132,11 +136,6 @@ function LinkInventoryContent({
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
   const pages = Math.ceil(total / limit);
-
-  const handleSearch = () => {
-    setSearch(searchInput);
-    setPage(1);
-  };
 
   const exportData = rows.map((r) => ({
     "URL": r.destUrl,
@@ -158,7 +157,7 @@ function LinkInventoryContent({
 
   const meta = CATEGORY_META[category];
 
-  if (!rows.length && !search) {
+  if (!rows.length && !search && type === "all") {
     return (
       <Card>
         <CardContent className="py-12 flex flex-col items-center gap-3 text-muted-foreground">
@@ -171,41 +170,32 @@ function LinkInventoryContent({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="w-4 h-4 absolute left-3 top-2.5 text-muted-foreground" />
-          <Input
-            className="pl-9"
-            placeholder="Search URL or anchor text…"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleSearch();
-            }}
-          />
-        </div>
-        <Button variant="outline" size="sm" onClick={handleSearch}>
-          <Search className="w-4 h-4" />
-        </Button>
-        <div className="flex-1 text-right">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => exportCSV(exportData, `links-${category}-scan-${scanId}.csv`)}
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Export CSV
-          </Button>
-        </div>
-      </div>
+      <QAListToolbar
+        search={search}
+        onSearch={(value) => { setSearch(value); setPage(1); }}
+        searchPlaceholder="Search URL or anchor text…"
+        filters={category === "all" ? [{
+          label: "Type",
+          value: type,
+          onChange: (value: string) => { setType(value); setPage(1); },
+          options: [
+            { value: "all", label: "All types" },
+            { value: "internal", label: "Internal" },
+            { value: "external", label: "External" },
+          ],
+        }] : []}
+        limit={limit}
+        onLimitChange={(value) => { setLimit(value); setPage(1); }}
+        onExport={() => exportCSV(exportData, `links-${category}-scan-${scanId}.csv`)}
+      />
 
       <p className="text-sm text-muted-foreground">
         {total.toLocaleString()} link{total !== 1 ? "s" : ""}
         {search ? ` matching "${search}"` : ""}
       </p>
 
-      <div className="border rounded-lg overflow-x-auto">
-        <Table>
+      <div className={QA_TABLE_SHELL_CLASS}>
+        <Table className={QA_TABLE_CLASS}>
           <TableHeader>
             <TableRow>
               <TableHead>URL</TableHead>
@@ -269,29 +259,7 @@ function LinkInventoryContent({
         </Table>
       </div>
 
-      {pages > 1 && (
-        <div className="flex justify-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page <= 1}
-            onClick={() => setPage((p) => p - 1)}
-          >
-            Prev
-          </Button>
-          <span className="text-sm text-muted-foreground py-2">
-            Page {page} / {pages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page >= pages}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next
-          </Button>
-        </div>
-      )}
+      {pages > 1 && <QAPagination page={page} total={total} limit={limit} onPageChange={setPage} />}
     </div>
   );
 }

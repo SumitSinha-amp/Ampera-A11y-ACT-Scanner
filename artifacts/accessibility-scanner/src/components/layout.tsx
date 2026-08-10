@@ -1148,6 +1148,125 @@ function SectionBackButton({
   );
 }
 
+function getShellBreadcrumb(location: string): {
+  parentHref: string;
+  parentLabel: string;
+  current: string;
+} | null {
+  const qaLabels: Array<[string, string]> = [
+    ["/quality-assurance/links/broken", "Broken links"],
+    ["/quality-assurance/links/pages-with-broken", "Pages with broken links"],
+    ["/quality-assurance/links/unsafe", "Unsafe links"],
+    ["/quality-assurance/links/overview", "Links overview"],
+    ["/quality-assurance/inventory/pages", "Pages"],
+    ["/quality-assurance/inventory/links", "Links"],
+    ["/quality-assurance/inventory/link-text", "Link text"],
+    ["/quality-assurance/inventory/documents", "Documents"],
+    ["/quality-assurance/inventory/media", "Media files"],
+    ["/quality-assurance/inventory/email", "Email addresses"],
+    ["/quality-assurance/inventory/phones", "Phone numbers"],
+    ["/quality-assurance/inventory/javascript", "JavaScript files"],
+    ["/quality-assurance/inventory/css", "CSS"],
+    ["/quality-assurance/inventory/meta-tags", "Meta tags"],
+    ["/quality-assurance/inventory/sitemap", "Sitemap"],
+    ["/quality-assurance/inventory", "Inventory"],
+    ["/quality-assurance/issues/resolved", "Resolved issues"],
+    ["/quality-assurance/issues", "Issues"],
+    ["/quality-assurance/priority-pages", "Priority pages"],
+    ["/quality-assurance/check-history", "Check history"],
+    ["/quality-assurance/single-page-check", "Single page check"],
+    ["/quality-assurance/spelling/word-inventory", "Word inventory"],
+    ["/quality-assurance/spelling/pages", "Pages with misspellings"],
+    ["/quality-assurance/spelling/misspellings", "Misspellings"],
+    ["/quality-assurance/spelling/decisions", "Spelling decisions"],
+    ["/quality-assurance/spelling/progress", "Progress and trends"],
+    ["/quality-assurance", "Quality Assurance"],
+  ];
+  const qaMatch = qaLabels.find(([path]) => location === path);
+  if (qaMatch) {
+    const [path, current] = qaMatch;
+    if (path === "/quality-assurance") {
+      return { parentHref: "/welcome", parentLabel: "Home", current };
+    }
+    if (path.startsWith("/quality-assurance/inventory/")) {
+      return { parentHref: "/quality-assurance/inventory", parentLabel: "Inventory", current };
+    }
+    if (path === "/quality-assurance/inventory") {
+      return { parentHref: "/quality-assurance", parentLabel: "Quality Assurance", current };
+    }
+    if (path.startsWith("/quality-assurance/links/")) {
+      return { parentHref: "/quality-assurance/links/overview", parentLabel: "Links overview", current };
+    }
+    if (path.startsWith("/quality-assurance/spelling/")) {
+      return { parentHref: "/quality-assurance", parentLabel: "Quality Assurance", current };
+    }
+    return { parentHref: "/quality-assurance", parentLabel: "Quality Assurance", current };
+  }
+
+  const scanReportMatch = location.match(/^\/scans\/([^/]+)\/report$/);
+  if (scanReportMatch) {
+    return { parentHref: `/scans/${scanReportMatch[1]}`, parentLabel: "Scan details", current: "Report" };
+  }
+  const scanPageReportMatch = location.match(/^\/scans\/([^/]+)\/pages\/([^/]+)\/report$/);
+  if (scanPageReportMatch) {
+    return {
+      parentHref: `/scans/${scanPageReportMatch[1]}`,
+      parentLabel: "Scan details",
+      current: "Page report",
+    };
+  }
+  const scanMatch = location.match(/^\/scans\/([^/]+)$/);
+  if (scanMatch) {
+    return { parentHref: "/scans", parentLabel: "Scan history", current: "Scan details" };
+  }
+  if (location === "/scans") return { parentHref: "/welcome", parentLabel: "Home", current: "Scan history" };
+  if (location === "/compare") return { parentHref: "/scans", parentLabel: "Scan history", current: "Compare scans" };
+  if (location === "/documentation") return { parentHref: "/welcome", parentLabel: "Home", current: "Documentation" };
+  if (location === "/activity") return { parentHref: "/welcome", parentLabel: "Home", current: "Activity" };
+  if (location === "/tickets") return { parentHref: "/welcome", parentLabel: "Home", current: "Tickets" };
+
+  if (location === "/crawler") return { parentHref: "/welcome", parentLabel: "Home", current: "Crawler" };
+  if (location === "/crawler/new") return { parentHref: "/crawler", parentLabel: "Crawler", current: "New crawl" };
+  if (location === "/crawler/sites") return { parentHref: "/crawler", parentLabel: "Crawler", current: "Sites" };
+  const crawlerSiteManageMatch = location.match(/^\/crawler\/sites\/([^/]+)\/manage$/);
+  if (crawlerSiteManageMatch) {
+    return { parentHref: "/crawler/sites", parentLabel: "Crawler sites", current: "Site management" };
+  }
+  const crawlerDetailMatch = location.match(/^\/crawler\/([^/]+)$/);
+  if (crawlerDetailMatch && crawlerDetailMatch[1] !== "sites") {
+    return { parentHref: "/crawler", parentLabel: "Crawler", current: "Crawl details" };
+  }
+
+  const sitePageReportMatch = location.match(/^\/sites\/([^/]+)\/page-report\/([^/]+)$/);
+  if (sitePageReportMatch) {
+    return {
+      parentHref: `/sites/${sitePageReportMatch[1]}`,
+      parentLabel: "Accessibility dashboard",
+      current: "Page report",
+    };
+  }
+  const siteChildRoutes: Array<[string, string]> = [
+    ["compliance/wcag", "WCAG compliance"],
+    ["compliance/eaa", "EAA compliance"],
+    ["compliance/ada", "ADA compliance"],
+  ];
+  const siteChildMatch = location.match(/^\/sites\/([^/]+)\/(.+)$/);
+  if (siteChildMatch) {
+    const route = siteChildRoutes.find(([suffix]) => suffix === siteChildMatch[2]);
+    if (route) {
+      return {
+        parentHref: `/sites/${siteChildMatch[1]}`,
+        parentLabel: "Accessibility dashboard",
+        current: route[1],
+      };
+    }
+  }
+
+  if (location === "/page-report") return { parentHref: "/scans", parentLabel: "Scan history", current: "Page report" };
+
+  return null;
+}
+
 function SectionHeader({
   collapsed,
   icon,
@@ -2979,16 +3098,37 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 location === "/welcome" ? "h-full min-h-0" : ""
               }`}
             >
-              {location !== "/welcome" && (
-                <Link
-                  href="/welcome"
-                  data-testid="link-back-to-home"
-                  className="mb-6 inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <Home className="h-4 w-4" />
-                  Back to Home
-                </Link>
-              )}
+              {location !== "/welcome" && (() => {
+                const breadcrumb = getShellBreadcrumb(location);
+                return breadcrumb ? (
+                  <div className="mb-6">
+                    <nav
+                      aria-label="Breadcrumb"
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                    >
+                      <Link
+                        href={breadcrumb.parentHref}
+                        data-testid="link-back-to-previous"
+                        className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+                      >
+                        <span aria-hidden="true">←</span>
+                        {breadcrumb.parentLabel}
+                      </Link>
+                      <span aria-hidden="true">/</span>
+                      <span className="font-medium text-foreground">{breadcrumb.current}</span>
+                    </nav>
+                  </div>
+                ) : (
+                  <Link
+                    href="/welcome"
+                    data-testid="link-back-to-home"
+                    className="mb-6 inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <Home className="h-4 w-4" />
+                    Back to Home
+                  </Link>
+                );
+              })()}
               {children}
             </div>
           </main>

@@ -44,6 +44,16 @@ import {
   Shield,
   XCircle,
 } from "lucide-react";
+import {
+  fetchQAJson,
+  qaErrorMessage,
+  QAListToolbar,
+  QAPagination,
+  QA_TABLE_CLASS,
+  QA_TABLE_SHELL_CLASS,
+  QA_URL_CLASS,
+  QA_SECONDARY_URL_CLASS,
+} from "@/pages/qa-shared";
 
 export interface QAStatus {
   running: boolean;
@@ -92,19 +102,32 @@ const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
 type QATab = "overview" | "broken-links" | "redirects" | "pages";
 
+function QAQueryError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
+      <AlertCircle className="h-10 w-10 text-destructive" />
+      <p className="text-lg font-medium text-destructive">Unable to load QA data</p>
+      <p className="max-w-md text-sm">{qaErrorMessage(error)}</p>
+      <Button variant="outline" size="sm" onClick={onRetry}>
+        <RefreshCw className="mr-2 h-4 w-4" /> Try again
+      </Button>
+    </div>
+  );
+}
+
 export function httpStatusBadge(status: number | null) {
-  if (status === null) return <Badge variant="outline" className="text-gray-400">—</Badge>;
-  if (status === 0) return <Badge className="bg-red-900/40 text-red-300 border-red-700">Timeout</Badge>;
-  if (status >= 500) return <Badge className="bg-red-900/40 text-red-300 border-red-700">{status}</Badge>;
-  if (status >= 400) return <Badge className="bg-orange-900/40 text-orange-300 border-orange-700">{status}</Badge>;
-  if (status >= 300) return <Badge className="bg-yellow-900/40 text-yellow-300 border-yellow-700">{status}</Badge>;
-  return <Badge className="bg-green-900/40 text-green-300 border-green-700">{status}</Badge>;
+  if (status === null) return <Badge variant="outline" className="text-muted-foreground">—</Badge>;
+  if (status === 0) return <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">Timeout</Badge>;
+  if (status >= 500) return <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">{status}</Badge>;
+  if (status >= 400) return <Badge variant="outline" className="border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300">{status}</Badge>;
+  if (status >= 300) return <Badge variant="outline" className="border-yellow-500/30 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300">{status}</Badge>;
+  return <Badge variant="outline" className="border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-300">{status}</Badge>;
 }
 
 export function linkTypeBadge(type: string) {
-  if (type === "external") return <Badge variant="outline" className="text-blue-400 border-blue-700 text-xs">External</Badge>;
-  if (type === "pdf") return <Badge variant="outline" className="text-purple-400 border-purple-700 text-xs">PDF</Badge>;
-  return <Badge variant="outline" className="text-gray-400 border-gray-600 text-xs">Internal</Badge>;
+  if (type === "external") return <Badge variant="outline" className="border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300 text-xs">External</Badge>;
+  if (type === "pdf") return <Badge variant="outline" className="border-purple-500/30 bg-purple-500/10 text-purple-700 dark:text-purple-300 text-xs">PDF</Badge>;
+  return <Badge variant="outline" className="text-muted-foreground text-xs capitalize">{type || "Internal"}</Badge>;
 }
 
 export function truncate(s: string, n = 80) {
@@ -173,13 +196,24 @@ export function OverviewCards({ status }: { status: QAStatus }) {
 
 export function BrokenLinksTab({ scanId }: { scanId: number }) {
   const [page, setPage] = useState(1);
-  const limit = 50;
+  const [limit, setLimit] = useState(50);
+  const [search, setSearch] = useState("");
+  const [type, setType] = useState("all");
+  const [status, setStatus] = useState("all");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["qa-broken-links", scanId, page],
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ["qa-broken-links", scanId, page, limit, search, type, status],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/scans/${scanId}/qa/broken-links?page=${page}&limit=${limit}`);
-      return r.json() as Promise<{ data: BrokenLink[]; total: number; page: number; limit: number }>;
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+      });
+      if (search) params.set("search", search);
+      if (type !== "all") params.set("type", type);
+      if (status !== "all") params.set("status", status);
+      return fetchQAJson<{ data: BrokenLink[]; total: number; page: number; limit: number }>(
+        `${BASE}/api/scans/${scanId}/qa/broken-links?${params}`,
+      );
     },
     refetchInterval: 10000,
   });
@@ -197,79 +231,131 @@ export function BrokenLinksTab({ scanId }: { scanId: number }) {
     "Anchor Texts": (r.anchorTexts ?? []).slice(0, 3).join("; "),
   }));
 
-  if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-blue-400" /></div>;
-
-  if (!rows.length) return (
-    <div className="flex flex-col items-center gap-2 py-16 text-gray-400">
-      <CheckCircle2 className="w-10 h-10 text-green-500" />
-      <p className="text-lg font-medium text-green-400">No broken links found</p>
-      <p className="text-sm">All checked links responded successfully.</p>
-    </div>
-  );
+  if (isLoading) return <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
+  if (isError) return <QAQueryError error={error} onRetry={() => refetch()} />;
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-400">{total.toLocaleString()} broken link{total !== 1 ? "s" : ""} found</p>
-        <Button variant="outline" size="sm" className="border-[#2a2a4a] hover:bg-[#1a1a2e]" onClick={() => exportCSV(exportData, `broken-links-scan-${scanId}.csv`)}>
-          <Download className="w-4 h-4 mr-2" /> Export CSV
-        </Button>
-      </div>
+      <QAListToolbar
+        search={search}
+        onSearch={(value) => { setSearch(value); setPage(1); }}
+        searchPlaceholder="Search URL, source page, or anchor text…"
+        filters={[
+          {
+            label: "Error code",
+            value: status,
+            onChange: (value) => { setStatus(value); setPage(1); },
+            options: [
+              { value: "all", label: "All error codes" },
+              { value: "4xx", label: "4xx errors" },
+              { value: "5xx", label: "5xx errors" },
+              { value: "timeout", label: "Timeouts" },
+              { value: "400", label: "400 Bad Request" },
+              { value: "401", label: "401 Unauthorized" },
+              { value: "404", label: "404 Not Found" },
+              { value: "408", label: "408 Timeout" },
+              { value: "410", label: "410 Gone" },
+              { value: "429", label: "429 Too Many Requests" },
+              { value: "500", label: "500 Server Error" },
+              { value: "502", label: "502 Bad Gateway" },
+              { value: "503", label: "503 Unavailable" },
+            ],
+          },
+          {
+            label: "Type",
+            value: type,
+            onChange: (value) => { setType(value); setPage(1); },
+            options: [
+              { value: "all", label: "All types" },
+              { value: "internal", label: "Internal" },
+              { value: "external", label: "External" },
+              { value: "document", label: "Document" },
+              { value: "media", label: "Media" },
+            ],
+          },
+        ]}
+        limit={limit}
+        onLimitChange={(value) => { setLimit(value); setPage(1); }}
+        onExport={() => exportCSV(exportData, `broken-links-scan-${scanId}.csv`)}
+      />
 
-      <div className="rounded-lg border border-[#2a2a4a] overflow-x-auto">
-        <Table>
+      {!rows.length ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-12 text-muted-foreground">
+            <CheckCircle2 className="w-10 h-10 text-green-600 dark:text-green-400" />
+            <p className="font-medium text-foreground">
+              {search || type !== "all" || status !== "all" ? "No broken links match these filters" : "No broken links found"}
+            </p>
+            <p className="text-sm">All checked links responded successfully.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <p className="text-sm text-muted-foreground">
+            {total.toLocaleString()} broken link{total !== 1 ? "s" : ""} found
+          </p>
+
+           <div className={QA_TABLE_SHELL_CLASS}>
+         <Table className={QA_TABLE_CLASS}>
           <TableHeader>
-            <TableRow className="border-[#2a2a4a] hover:bg-transparent">
-              <TableHead className="text-gray-400 w-12">Status</TableHead>
-              <TableHead className="text-gray-400">Broken URL</TableHead>
-              <TableHead className="text-gray-400 w-24">Type</TableHead>
-              <TableHead className="text-gray-400 w-24 text-right">Source pages</TableHead>
+            <TableRow>
+              <TableHead>URL</TableHead>
+              <TableHead className="hidden md:table-cell">Source page</TableHead>
+              <TableHead className="hidden sm:table-cell w-24">Type</TableHead>
+              <TableHead className="w-20">Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.map((row, i) => (
-              <TableRow key={i} className="border-[#2a2a4a] hover:bg-[#1a1a2e]">
-                <TableCell>{httpStatusBadge(row.httpStatus)}</TableCell>
+              <TableRow key={i}>
                 <TableCell>
-                  <div className="flex items-start gap-2">
-                    <div className="min-w-0">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <a href={row.destUrl} target="_blank" rel="noopener noreferrer"
-                              className="text-blue-400 hover:underline text-sm flex items-center gap-1 font-mono">
-                              {truncate(row.destUrl, 90)}
-                              <ExternalLink className="w-3 h-3 flex-shrink-0" />
-                            </a>
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-sm break-all">{row.destUrl}</TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                      {row.anchorTexts?.length > 0 && (
-                        <p className="text-xs text-gray-500 mt-0.5">"{truncate(row.anchorTexts[0], 60)}"</p>
-                      )}
-                      {row.sources?.length > 0 && (
-                        <p className="text-xs text-gray-600 mt-0.5">From: {truncate(row.sources[0], 70)}</p>
-                      )}
-                    </div>
-                  </div>
+                  <a
+                    href={row.destUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline text-sm font-mono flex items-center gap-1 break-all"
+                  >
+                    {truncate(row.destUrl, 80)}
+                    <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                  </a>
+                  {row.anchorTexts?.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      "{truncate(row.anchorTexts[0], 60)}"
+                    </p>
+                  )}
                 </TableCell>
-                <TableCell>{linkTypeBadge(row.linkType)}</TableCell>
-                <TableCell className="text-right text-gray-300 text-sm">{row.sourceCount}</TableCell>
+                <TableCell className="hidden md:table-cell">
+                  {row.sources?.[0] ? (
+                    <a
+                      href={row.sources[0]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-muted-foreground hover:text-foreground text-xs font-mono flex items-center gap-1 break-all"
+                    >
+                      {truncate(row.sources[0], 60)}
+                      <ExternalLink className="w-2.5 h-2.5 flex-shrink-0" />
+                    </a>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                  {row.sourceCount > 1 && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      +{row.sourceCount - 1} more source{row.sourceCount - 1 !== 1 ? "s" : ""}
+                    </p>
+                  )}
+                </TableCell>
+                <TableCell className="hidden sm:table-cell">{linkTypeBadge(row.linkType)}</TableCell>
+                <TableCell>{httpStatusBadge(row.httpStatus)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
-      </div>
+          </div>
 
-      {pages > 1 && (
-        <div className="flex justify-center items-center gap-1">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(1)} className="border-[#2a2a4a]" title="First page"><ChevronsLeft className="w-4 h-4" /></Button>
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="border-[#2a2a4a]"><ChevronLeft className="w-4 h-4" /></Button>
-          <span className="text-sm text-gray-400 px-2">Page {page} / {pages}</span>
-          <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => setPage((p) => p + 1)} className="border-[#2a2a4a]"><ChevronRight className="w-4 h-4" /></Button>
-          <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => setPage(pages)} className="border-[#2a2a4a]" title="Last page"><ChevronsRight className="w-4 h-4" /></Button>
-        </div>
+          {pages > 1 && (
+            <QAPagination page={page} total={total} limit={limit} onPageChange={setPage} />
+          )}
+        </>
       )}
     </div>
   );
@@ -277,13 +363,19 @@ export function BrokenLinksTab({ scanId }: { scanId: number }) {
 
 export function RedirectsTab({ scanId }: { scanId: number }) {
   const [page, setPage] = useState(1);
-  const limit = 50;
+  const [limit, setLimit] = useState(50);
+  const [search, setSearch] = useState("");
+  const [type, setType] = useState("all");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["qa-redirects", scanId, page],
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ["qa-redirects", scanId, page, limit, search, type],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/scans/${scanId}/qa/redirects?page=${page}&limit=${limit}`);
-      return r.json() as Promise<{ data: Redirect[]; total: number; page: number; limit: number }>;
+      const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (search) params.set("search", search);
+      if (type !== "all") params.set("type", type);
+      return fetchQAJson<{ data: Redirect[]; total: number; page: number; limit: number }>(
+        `${BASE}/api/scans/${scanId}/qa/redirects?${params}`,
+      );
     },
     refetchInterval: 10000,
   });
@@ -300,57 +392,78 @@ export function RedirectsTab({ scanId }: { scanId: number }) {
     "Source URLs": (r.sources ?? []).slice(0, 5).join("; "),
   }));
 
-  if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-blue-400" /></div>;
-
-  if (!rows.length) return (
-    <div className="flex flex-col items-center gap-2 py-16 text-gray-400">
-      <CheckCircle2 className="w-10 h-10 text-green-500" />
-      <p className="text-lg font-medium text-green-400">No redirects found</p>
-      <p className="text-sm">All links point directly to their destinations.</p>
-    </div>
-  );
+  if (isLoading) return <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
+  if (isError) return <QAQueryError error={error} onRetry={() => refetch()} />;
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-400">{total.toLocaleString()} redirect{total !== 1 ? "s" : ""} found</p>
-        <Button variant="outline" size="sm" className="border-[#2a2a4a] hover:bg-[#1a1a2e]" onClick={() => exportCSV(exportData, `redirects-scan-${scanId}.csv`)}>
-          <Download className="w-4 h-4 mr-2" /> Export CSV
-        </Button>
-      </div>
+      <QAListToolbar
+        search={search}
+        onSearch={(value) => { setSearch(value); setPage(1); }}
+        searchPlaceholder="Search original, destination, or source URL…"
+        filters={[{
+          label: "Type",
+          value: type,
+          onChange: (value) => { setType(value); setPage(1); },
+          options: [
+            { value: "all", label: "All types" },
+            { value: "internal", label: "Internal" },
+            { value: "external", label: "External" },
+            { value: "document", label: "Document" },
+            { value: "media", label: "Media" },
+          ],
+        }]}
+        limit={limit}
+        onLimitChange={(value) => { setLimit(value); setPage(1); }}
+        onExport={() => exportCSV(exportData, `redirects-scan-${scanId}.csv`)}
+      />
 
-      <div className="rounded-lg border border-[#2a2a4a] overflow-x-auto">
-        <Table>
+      {!rows.length ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-12 text-muted-foreground">
+            <CheckCircle2 className="w-10 h-10 text-green-600 dark:text-green-400" />
+            <p className="font-medium text-foreground">
+              {search || type !== "all" ? "No redirects match these filters" : "No redirects found"}
+            </p>
+            <p className="text-sm">All links point directly to their destinations.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <p className="text-sm text-muted-foreground">{total.toLocaleString()} redirect{total !== 1 ? "s" : ""} found</p>
+
+      <div className={QA_TABLE_SHELL_CLASS}>
+        <Table className={QA_TABLE_CLASS}>
           <TableHeader>
-            <TableRow className="border-[#2a2a4a] hover:bg-transparent">
-              <TableHead className="text-gray-400 w-24">Type</TableHead>
-              <TableHead className="text-gray-400">Original URL</TableHead>
-              <TableHead className="text-gray-400">Redirects to</TableHead>
-              <TableHead className="text-gray-400 w-24 text-right">Source pages</TableHead>
+            <TableRow>
+              <TableHead className="w-24">Type</TableHead>
+              <TableHead>Original URL</TableHead>
+              <TableHead>Redirects to</TableHead>
+              <TableHead className="w-24 text-right">Source pages</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.map((row, i) => (
-              <TableRow key={i} className="border-[#2a2a4a] hover:bg-[#1a1a2e]">
+              <TableRow key={i}>
                 <TableCell>{linkTypeBadge(row.linkType)}</TableCell>
                 <TableCell>
                   <a href={row.destUrl} target="_blank" rel="noopener noreferrer"
-                    className="text-yellow-400 hover:underline text-sm font-mono flex items-center gap-1">
+                    className={QA_URL_CLASS}>
                     {truncate(row.destUrl, 70)}<ExternalLink className="w-3 h-3 flex-shrink-0" />
                   </a>
                   {row.sources?.length > 0 && (
-                    <p className="text-xs text-gray-600 mt-0.5">From: {truncate(row.sources[0], 60)}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{truncate(row.sources[0], 60)}</p>
                   )}
                 </TableCell>
                 <TableCell>
                   {row.redirectTo ? (
                     <a href={row.redirectTo} target="_blank" rel="noopener noreferrer"
-                      className="text-green-400 hover:underline text-sm font-mono flex items-center gap-1">
+                      className={QA_URL_CLASS}>
                       {truncate(row.redirectTo, 60)}<ExternalLink className="w-3 h-3 flex-shrink-0" />
                     </a>
-                  ) : <span className="text-gray-500 text-sm">—</span>}
+                  ) : <span className="text-muted-foreground text-sm">—</span>}
                 </TableCell>
-                <TableCell className="text-right text-gray-300 text-sm">{row.sourceCount}</TableCell>
+                <TableCell className="text-right text-muted-foreground text-sm">{row.sourceCount}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -358,13 +471,9 @@ export function RedirectsTab({ scanId }: { scanId: number }) {
       </div>
 
       {pages > 1 && (
-        <div className="flex justify-center items-center gap-1">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(1)} className="border-[#2a2a4a]" title="First page"><ChevronsLeft className="w-4 h-4" /></Button>
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="border-[#2a2a4a]"><ChevronLeft className="w-4 h-4" /></Button>
-          <span className="text-sm text-gray-400 px-2">Page {page} / {pages}</span>
-          <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => setPage((p) => p + 1)} className="border-[#2a2a4a]"><ChevronRight className="w-4 h-4" /></Button>
-          <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => setPage(pages)} className="border-[#2a2a4a]" title="Last page"><ChevronsRight className="w-4 h-4" /></Button>
-        </div>
+        <QAPagination page={page} total={total} limit={limit} onPageChange={setPage} />
+      )}
+        </>
       )}
     </div>
   );
@@ -373,16 +482,16 @@ export function RedirectsTab({ scanId }: { scanId: number }) {
 export function PagesTab({ scanId }: { scanId: number }) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-  const [searchInput, setSearchInput] = useState("");
-  const limit = 50;
+  const [limit, setLimit] = useState(50);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["qa-pages", scanId, page, search],
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ["qa-pages", scanId, page, limit, search],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (search) params.set("search", search);
-      const r = await fetch(`${BASE}/api/scans/${scanId}/qa/pages?${params}`);
-      return r.json() as Promise<{ data: QAPage[]; total: number; page: number; limit: number }>;
+      return fetchQAJson<{ data: QAPage[]; total: number; page: number; limit: number }>(
+        `${BASE}/api/scans/${scanId}/qa/pages?${params}`,
+      );
     },
   });
 
@@ -403,65 +512,55 @@ export function PagesTab({ scanId }: { scanId: number }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="w-4 h-4 absolute left-3 top-2.5 text-gray-400" />
-          <Input
-            className="pl-9 bg-[#12122a] border-[#2a2a4a] text-gray-200 placeholder:text-gray-500"
-            placeholder="Search URL or title…"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { setSearch(searchInput); setPage(1); } }}
-          />
-        </div>
-        <Button variant="outline" size="sm" onClick={() => { setSearch(searchInput); setPage(1); }} className="border-[#2a2a4a]">
-          <Search className="w-4 h-4" />
-        </Button>
-        <div className="flex-1 text-right">
-          <Button variant="outline" size="sm" className="border-[#2a2a4a] hover:bg-[#1a1a2e]" onClick={() => exportCSV(exportData, `pages-scan-${scanId}.csv`)}>
-            <Download className="w-4 h-4 mr-2" /> Export CSV
-          </Button>
-        </div>
-      </div>
+      <QAListToolbar
+        search={search}
+        onSearch={(value) => { setSearch(value); setPage(1); }}
+        searchPlaceholder="Search URL or title…"
+        limit={limit}
+        onLimitChange={(value) => { setLimit(value); setPage(1); }}
+        onExport={() => exportCSV(exportData, `pages-scan-${scanId}.csv`)}
+      />
 
       {isLoading ? (
-        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-blue-400" /></div>
+        <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+      ) : isError ? (
+        <QAQueryError error={error} onRetry={() => refetch()} />
       ) : !rows.length ? (
-        <div className="flex flex-col items-center gap-2 py-16 text-gray-400">
+        <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
           <FileText className="w-10 h-10" />
           <p>{search ? "No pages match your search." : "No page inventory yet. Run a scan first."}</p>
         </div>
       ) : (
         <>
-          <p className="text-sm text-gray-400">{total.toLocaleString()} page{total !== 1 ? "s" : ""}</p>
-          <div className="rounded-lg border border-[#2a2a4a] overflow-x-auto">
-            <Table>
+          <p className="text-sm text-muted-foreground">{total.toLocaleString()} page{total !== 1 ? "s" : ""}</p>
+            <div className={QA_TABLE_SHELL_CLASS}>
+            <Table className={QA_TABLE_CLASS}>
               <TableHeader>
-                <TableRow className="border-[#2a2a4a] hover:bg-transparent">
-                  <TableHead className="text-gray-400">URL / Title</TableHead>
-                  <TableHead className="text-gray-400 w-32">H1</TableHead>
-                  <TableHead className="text-gray-400 w-20 text-right">Words</TableHead>
-                  <TableHead className="text-gray-400 w-20 text-right">Inlinks</TableHead>
+                <TableRow>
+                  <TableHead>URL / Title</TableHead>
+                  <TableHead className="w-32">H1</TableHead>
+                  <TableHead className="w-20 text-right">Words</TableHead>
+                  <TableHead className="w-20 text-right">Inlinks</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((row) => (
-                  <TableRow key={row.id} className="border-[#2a2a4a] hover:bg-[#1a1a2e]">
+                  <TableRow key={row.id}>
                     <TableCell>
                       <a href={row.url} target="_blank" rel="noopener noreferrer"
-                        className="text-blue-400 hover:underline text-sm font-mono flex items-center gap-1">
+                        className={QA_URL_CLASS}>
                         {truncate(row.url, 80)}<ExternalLink className="w-3 h-3 flex-shrink-0" />
                       </a>
-                      {row.title && <p className="text-xs text-gray-400 mt-0.5">{truncate(row.title, 80)}</p>}
-                      {row.metaDescription && <p className="text-xs text-gray-600 mt-0.5">{truncate(row.metaDescription, 100)}</p>}
+                      {row.title && <p className="text-xs text-muted-foreground mt-0.5">{truncate(row.title, 80)}</p>}
+                      {row.metaDescription && <p className="text-xs text-muted-foreground/70 mt-0.5">{truncate(row.metaDescription, 100)}</p>}
                     </TableCell>
                     <TableCell>
-                      <span className="text-xs text-gray-400">{row.h1 ? truncate(row.h1, 40) : <span className="text-gray-600">—</span>}</span>
+                      <span className="text-xs text-muted-foreground">{row.h1 ? truncate(row.h1, 40) : <span className="text-muted-foreground/70">—</span>}</span>
                     </TableCell>
-                    <TableCell className="text-right text-sm text-gray-300">
+                    <TableCell className="text-right text-sm text-muted-foreground">
                       {row.wordCount?.toLocaleString() ?? "—"}
                     </TableCell>
-                    <TableCell className="text-right text-sm text-gray-300">
+                    <TableCell className="text-right text-sm text-muted-foreground">
                       {row.inlinkCount}
                     </TableCell>
                   </TableRow>
@@ -469,15 +568,7 @@ export function PagesTab({ scanId }: { scanId: number }) {
               </TableBody>
             </Table>
           </div>
-          {pages > 1 && (
-            <div className="flex justify-center items-center gap-1">
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(1)} className="border-[#2a2a4a]" title="First page"><ChevronsLeft className="w-4 h-4" /></Button>
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="border-[#2a2a4a]"><ChevronLeft className="w-4 h-4" /></Button>
-              <span className="text-sm text-gray-400 px-2">Page {page} / {pages}</span>
-              <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => setPage((p) => p + 1)} className="border-[#2a2a4a]"><ChevronRight className="w-4 h-4" /></Button>
-              <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => setPage(pages)} className="border-[#2a2a4a]" title="Last page"><ChevronsRight className="w-4 h-4" /></Button>
-            </div>
-          )}
+          {pages > 1 && <QAPagination page={page} total={total} limit={limit} onPageChange={setPage} />}
         </>
       )}
     </div>
@@ -488,11 +579,10 @@ export function ScanQATab({ scanId }: { scanId: number }) {
   const [activeTab, setActiveTab] = useState<QATab>("overview");
   const queryClient = useQueryClient();
 
-  const { data: status, isLoading } = useQuery<QAStatus>({
+  const { data: status, isLoading, isError, error, refetch } = useQuery<QAStatus>({
     queryKey: ["qa-status", scanId],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/scans/${scanId}/qa/status`);
-      return r.json();
+      return fetchQAJson<QAStatus>(`${BASE}/api/scans/${scanId}/qa/status`);
     },
     refetchInterval: (query) => {
       const d = query.state.data;
@@ -522,6 +612,9 @@ export function ScanQATab({ scanId }: { scanId: number }) {
         <Loader2 className="w-6 h-6 animate-spin text-blue-400" />
       </div>
     );
+  }
+  if (isError) {
+    return <QAQueryError error={error} onRetry={() => refetch()} />;
   }
 
   const noData = !status || (status.totalPages === 0 && status.totalLinks === 0);
