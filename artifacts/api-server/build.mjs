@@ -150,6 +150,25 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
   });
+
+  // Do not allow an old or partially generated project bundle to be packaged.
+  // Azure App Service can preserve files from a previous zip deployment, and
+  // the resulting stale bundle previously crashed GET /api/projects with:
+  //   ReferenceError: projectSitesTable3 is not defined
+  const serverBundlePath = path.join(distDir, "index.mjs");
+  const serverBundleContents = await readFile(serverBundlePath, "utf8");
+  if (serverBundleContents.includes("projectSitesTable3")) {
+    throw new Error(
+      "Invalid API bundle: unresolved projectSitesTable3 reference found. " +
+      "Clean the API dist directory and rebuild before deploying.",
+    );
+  }
+  if (!serverBundleContents.includes("projects-route-v2")) {
+    throw new Error(
+      "Invalid API bundle: projects-route-v2 build marker is missing. " +
+      "The projects route or health marker was not included in the build.",
+    );
+  }
 }
 
 buildAll().catch((err) => {
