@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { useSite } from "@/contexts/site";
 import {
   Select,
@@ -10,8 +11,18 @@ import {
 } from "@/components/ui/select";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Search, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight } from "lucide-react";
 
 export const QA_BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+
+/** Shared visual contract for every QA data table. */
+export const QA_TABLE_SHELL_CLASS = "rounded-lg border bg-card overflow-x-auto";
+export const QA_TABLE_CLASS = "min-w-[720px]";
+export const QA_URL_CLASS =
+  "text-primary hover:underline text-sm font-mono flex items-center gap-1 break-all";
+export const QA_SECONDARY_URL_CLASS =
+  "text-muted-foreground hover:text-foreground text-xs font-mono flex items-center gap-1 break-all";
 
 export function qaErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) return error.message;
@@ -200,6 +211,175 @@ export function QASiteSelector({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+export interface QAFilterOption {
+  value: string;
+  label: string;
+}
+
+export interface QAFilter {
+  label: string;
+  value: string;
+  options: QAFilterOption[];
+  onChange: (value: string) => void;
+}
+
+export function QAListToolbar({
+  search,
+  onSearch,
+  searchPlaceholder = "Search URL…",
+  filters = [],
+  limit,
+  onLimitChange,
+  exportLabel = "Export CSV",
+  onExport,
+}: {
+  search?: string;
+  onSearch?: (value: string) => void;
+  searchPlaceholder?: string;
+  filters?: QAFilter[];
+  limit?: number;
+  onLimitChange?: (limit: number) => void;
+  exportLabel?: string;
+  onExport?: () => void;
+}) {
+  const [input, setInput] = useState(search ?? "");
+
+  useEffect(() => {
+    setInput(search ?? "");
+  }, [search]);
+
+  const submitSearch = () => onSearch?.(input.trim());
+
+  return (
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+      {onSearch && (
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="relative flex-1 max-w-lg">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              placeholder={searchPlaceholder}
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") submitSearch();
+              }}
+            />
+          </div>
+          <Button variant="outline" size="sm" onClick={submitSearch} aria-label="Search">
+            <Search className="w-4 h-4" />
+          </Button>
+        </div>
+      )}
+
+      {filters.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          {filters.map((filter) => (
+            <Select key={filter.label} value={filter.value} onValueChange={filter.onChange}>
+              <SelectTrigger className="w-full sm:w-[150px] bg-background text-sm">
+                <SelectValue placeholder={filter.label} />
+              </SelectTrigger>
+              <SelectContent>
+                {filter.options.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 lg:ml-auto">
+        {onLimitChange && limit && (
+          <label className="flex items-center gap-2 text-sm text-muted-foreground whitespace-nowrap">
+            <span className="hidden sm:inline">Show results</span>
+            <Select value={String(limit)} onValueChange={(value) => onLimitChange(Number(value))}>
+              <SelectTrigger className="w-[82px] bg-background text-sm" aria-label="Results per page">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[25, 50, 100, 200].map((value) => (
+                  <SelectItem key={value} value={String(value)}>{value}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+        )}
+        {onExport && (
+          <Button variant="outline" size="sm" onClick={onExport}>
+            {exportLabel}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function QAPagination({
+  page,
+  total,
+  limit,
+  onPageChange,
+}: {
+  page: number;
+  total: number;
+  limit: number;
+  onPageChange: (page: number) => void;
+}) {
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const start = total === 0 ? 0 : (page - 1) * limit + 1;
+  const end = Math.min(page * limit, total);
+
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-sm text-muted-foreground">
+        Showing {start.toLocaleString()}–{end.toLocaleString()} of {total.toLocaleString()}
+      </p>
+      <div className="flex items-center justify-between sm:justify-end gap-1">
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPageChange(1)} aria-label="First page">
+          <ChevronsLeft className="w-4 h-4" />
+        </Button>
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPageChange(page - 1)} aria-label="Previous page">
+          <ChevronLeft className="w-4 h-4" />
+        </Button>
+        <span className="text-sm text-muted-foreground px-2 whitespace-nowrap">Page {page} / {pages}</span>
+        <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => onPageChange(page + 1)} aria-label="Next page">
+          <ChevronRight className="w-4 h-4" />
+        </Button>
+        <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => onPageChange(pages)} aria-label="Last page">
+          <ChevronsRight className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export function QABreadcrumb({
+  parentHref,
+  parentLabel,
+  current,
+}: {
+  parentHref: string;
+  parentLabel: string;
+  current: string;
+}) {
+  return (
+    <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <Link
+        href={parentHref}
+        className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+      >
+        <span aria-hidden="true">←</span>
+        {parentLabel}
+      </Link>
+      <span aria-hidden="true">/</span>
+      <span className="font-medium text-foreground">{current}</span>
+    </nav>
   );
 }
 
