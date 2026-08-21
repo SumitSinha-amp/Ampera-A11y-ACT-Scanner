@@ -72,16 +72,16 @@ type DecisionRecord = {
 
 function ReviewStatusBadge({ status }: { status: string }) {
   if (status === "confirmed")
-    return <Badge className="bg-green-100 text-green-800 border-green-200 gap-1 font-normal whitespace-nowrap"><CheckCircle2 className="w-3 h-3" />Confirmed FP</Badge>;
+    return <Badge className="gap-1 rounded-full border border-[#afe9d0] bg-[#e4f7f0] px-2 py-0.5 text-[10px] font-semibold text-[#14835f] whitespace-nowrap"><CheckCircle2 className="w-3 h-3" />Confirmed</Badge>;
   if (status === "rejected")
-    return <Badge className="bg-red-100 text-red-800 border-red-200 gap-1 font-normal whitespace-nowrap"><XCircle className="w-3 h-3" />Rejected</Badge>;
-  return <Badge className="bg-blue-100 text-blue-800 border-blue-200 gap-1 font-normal whitespace-nowrap"><Clock className="w-3 h-3" />Pending Review</Badge>;
+    return <Badge className="gap-1 rounded-full border border-[#f5c0c0] bg-[#fdf0f0] px-2 py-0.5 text-[10px] font-semibold text-[#be2e2e] whitespace-nowrap"><XCircle className="w-3 h-3" />Rejected</Badge>;
+  return <Badge className="gap-1 rounded-full border border-[#f8d79b] bg-[#fff4e4] px-2 py-0.5 text-[10px] font-semibold text-[#b85c0c] whitespace-nowrap"><Clock className="w-3 h-3" />Pending review</Badge>;
 }
 
 function ScopeBadge({ scope }: { scope: string }) {
-  if (scope === "selector") return <Badge variant="outline" className="text-[10px] font-normal whitespace-nowrap">CSS Selector</Badge>;
-  if (scope === "class") return <Badge variant="outline" className="text-[10px] font-normal whitespace-nowrap">CSS Class (all pages)</Badge>;
-  return <Badge variant="outline" className="text-[10px] font-normal whitespace-nowrap">Single occurrence</Badge>;
+  if (scope === "selector") return <Badge variant="outline" className="border-[#d9d0f8] bg-[#eee9ff] text-[10px] font-semibold text-[#6d48c7] whitespace-nowrap">CSS Selector</Badge>;
+  if (scope === "class") return <Badge variant="outline" className="border-[#d9d0f8] bg-[#eee9ff] text-[10px] font-semibold text-[#6d48c7] whitespace-nowrap">CSS Class (all pages)</Badge>;
+  return <Badge variant="outline" className="border-[#dfe4ec] bg-[#fafbfd] text-[10px] font-medium text-[#7a8899] whitespace-nowrap">Single occurrence</Badge>;
 }
 
 function exportCSV(rows: DecisionRecord[], tab: string) {
@@ -120,6 +120,7 @@ export default function ActivityPage() {
   const [loading, setLoading] = useState(true);
 
   // Filters
+  const [search, setSearch] = useState("");
   const [filterRule, setFilterRule] = useState("");
   const [filterSubmitter, setFilterSubmitter] = useState("");
   const [filterStatus, setFilterStatus] = useState<"" | "pending" | "confirmed" | "rejected">("");
@@ -149,15 +150,26 @@ export default function ActivityPage() {
   const filtered = useMemo(() => {
     return decisions.filter(d => {
       if (d.decisionType !== tab) return false;
+      if (search) {
+        const haystack = [
+          d.ruleId,
+          d.issueDescription,
+          d.pageUrl,
+          d.selector,
+          d.reason,
+          d.submitterName,
+        ].filter(Boolean).join(" ").toLowerCase();
+        if (!haystack.includes(search.toLowerCase())) return false;
+      }
       if (filterRule && !d.ruleId.toLowerCase().includes(filterRule.toLowerCase())) return false;
       if (filterSubmitter && !(d.submitterName ?? "").toLowerCase().includes(filterSubmitter.toLowerCase())) return false;
       if (filterStatus && d.reviewStatus !== filterStatus) return false;
       if (filterDateFrom && new Date(d.createdAt) < new Date(filterDateFrom)) return false;
       return true;
     });
-  }, [decisions, tab, filterRule, filterSubmitter, filterStatus, filterDateFrom]);
+  }, [decisions, tab, search, filterRule, filterSubmitter, filterStatus, filterDateFrom]);
 
-  const hasActiveFilters = filterRule || filterSubmitter || filterStatus || filterDateFrom;
+  const hasActiveFilters = Boolean(search || filterRule || filterSubmitter || filterStatus || filterDateFrom);
 
   async function undo(d: DecisionRecord) {
     const r = await fetch(`${BASE}/api/decisions/${d.id}`, { method: "DELETE", credentials: "include" });
@@ -194,6 +206,7 @@ export default function ActivityPage() {
   }
 
   function clearFilters() {
+    setSearch("");
     setFilterRule("");
     setFilterSubmitter("");
     setFilterStatus("");
@@ -204,23 +217,37 @@ export default function ActivityPage() {
 
   return (
     <TooltipProvider>
-      <div className="p-6 space-y-4 min-w-0">
+      <div className="vision-page vision-activity relative min-h-[calc(100dvh-4rem)] space-y-5 overflow-hidden p-4 sm:p-6 min-w-0">
+      <div className="relative w-full space-y-5">
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-start justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
-            <Activity className="w-6 h-6 text-primary shrink-0" />
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[#d9d0f8] bg-[#eee9ff] text-[#6d48c7] shadow-sm">
+              <Activity className="w-5 h-5" />
+            </div>
             <div>
-              <h1 className="text-2xl font-bold">Activity</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                Review and manage occurrence decisions across all scans
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[.2em] text-[#6d48c7]">Activity</p>
+              <h1 className="mt-1 text-xl font-semibold tracking-tight text-[#172b4d]">Issue decisions</h1>
+              <p className="mt-1 text-xs text-[#7a8899]">
+                Track can't-fix overrides and false-positive rulings across all scans.
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <div className="relative hidden sm:block">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#a0afc2]" />
+              <Input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search rule or URL…"
+                aria-label="Search activity decisions"
+                className="h-9 w-48 rounded-xl border-[#dfe4ec] bg-white/75 pl-8 pr-3 text-xs text-[#263650] placeholder:text-[#a0afc2] focus:border-[#8c72e8] focus:ring-0"
+              />
+            </div>
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5"
+              className="h-9 gap-1.5 rounded-xl border-[#dfe4ec] bg-white/75 px-3 text-xs font-semibold text-[#5a6e87] hover:bg-white"
               onClick={() => setFiltersOpen(v => !v)}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -232,7 +259,7 @@ export default function ActivityPage() {
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5"
+              className="h-9 gap-1.5 rounded-xl border-[#dfe4ec] bg-white/75 px-3 text-xs font-semibold text-[#5a6e87] hover:bg-white"
               disabled={filtered.length === 0}
               onClick={() => exportCSV(filtered, tab)}
             >
@@ -242,32 +269,68 @@ export default function ActivityPage() {
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="border-b border-border">
-          <div className="flex gap-0">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {[
+            ["Total decisions", decisions.length, "Across all scans", "bg-violet-100/70 border-violet-200"],
+            ["Pending review", decisions.filter(d => d.reviewStatus === "pending").length, "Awaiting response", "bg-amber-50/80 border-amber-200"],
+            ["Confirmed", decisions.filter(d => d.reviewStatus === "confirmed").length, "Accepted overrides", "bg-teal-50/80 border-teal-200"],
+          ].map(([label, value, sub, tone]) => (
+            <article key={String(label)} className={`rounded-[22px] border p-5 shadow-[0_14px_34px_rgba(69,57,112,.07)] backdrop-blur-xl ${tone}`}>
+              <p data-testid={`text-activity-${String(label).toLowerCase().replaceAll(" ", "-")}`} className="text-3xl font-bold tracking-tight text-[#172b4d]">{value}</p>
+              <p className="mt-1 text-sm font-semibold text-[#263650]">{label}</p>
+              <p className="text-xs text-[#7a8899]">{sub}</p>
+            </article>
+          ))}
+        </div>
+
+        {/* Tabs + inline status filters */}
+        <div className="overflow-hidden rounded-[22px] border border-white/80 bg-white/70 shadow-[0_14px_34px_rgba(69,57,112,.06)] backdrop-blur-xl">
+          <div className="flex flex-wrap items-center border-b border-[#edf0f7]">
             {([
-              { key: "cant_fix", label: "Dismissed as Can't Fix", icon: Ban },
-              { key: "false_positive", label: "Dismissed as False Positive", icon: XCircle },
+              { key: "cant_fix", label: "Can't fix", icon: Ban },
+              { key: "false_positive", label: "False positives", icon: XCircle },
             ] as const).map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => setTab(key)}
-                className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${tab === key ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                className={`inline-flex items-center gap-2 border-b-2 px-5 py-3 text-xs font-semibold transition-colors ${tab === key ? "border-[#6d48c7] text-[#6d48c7]" : "border-transparent text-[#7a8899] hover:text-[#263650]"}`}
               >
                 <Icon className="w-4 h-4" />
                 {label}
-                <span className={`text-xs px-1.5 py-0.5 rounded-full ${tab === key ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
+                <span className={`rounded-full px-1.5 py-px text-[10px] font-bold ${tab === key ? "bg-[#eee9ff] text-[#6d48c7]" : "bg-[#f0f2f6] text-[#7a899e]"}`}>
                   {decisions.filter(d => d.decisionType === key).length}
                 </span>
               </button>
             ))}
+            <div className="ml-auto flex items-center gap-1.5 px-4 py-2">
+              {([
+                ["", "All"],
+                ["pending", "Pending"],
+                ["confirmed", "Confirmed"],
+                ["rejected", "Rejected"],
+              ] as const).map(([key, label]) => {
+                const count = key
+                  ? decisions.filter(d => d.decisionType === tab && d.reviewStatus === key).length
+                  : decisions.filter(d => d.decisionType === tab).length;
+                const active = filterStatus === key;
+                return (
+                  <button
+                    key={key || "all"}
+                    type="button"
+                    onClick={() => setFilterStatus(key)}
+                    className={`rounded-full px-2.5 py-1 text-[10px] font-semibold transition-all ${active ? "bg-[#6d48c7] text-white" : "bg-[#f0f2f6] text-[#7a899e] hover:text-[#6d48c7]"}`}
+                  >
+                    {label} {count}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
 
-        {/* Filter bar */}
-        {filtersOpen && (
-          <div className="rounded-lg border border-border bg-muted/30 p-4">
+          {/* Filter bar */}
+          {filtersOpen && (
+          <div className="border-b border-[#edf0f7] bg-white/45 p-4">
             <div className="flex items-end gap-3 flex-wrap">
               <div className="space-y-1 min-w-[160px]">
                 <label className="text-xs font-medium text-muted-foreground">Rule ID</label>
@@ -328,7 +391,7 @@ export default function ActivityPage() {
               )}
             </div>
             {hasActiveFilters && (
-              <p className="text-xs text-muted-foreground mt-2">Showing {filtered.length} of {decisions.filter(d => d.decisionType === tab).length} results</p>
+              <p className="mt-2 text-xs text-[#7a8899]">Showing {filtered.length} of {decisions.filter(d => d.decisionType === tab).length} results</p>
             )}
           </div>
         )}
@@ -352,8 +415,8 @@ export default function ActivityPage() {
             )}
           </div>
         ) : (
-          <div className="rounded-lg border border-border overflow-x-auto">
-            <table className="w-full text-sm table-fixed" style={{ minWidth: "980px" }}>
+          <div className="overflow-x-auto">
+            <table className="w-full table-fixed text-xs" style={{ minWidth: "980px" }}>
               <colgroup>
                 <col style={{ width: "16%" }} />
                 <col style={{ width: "14%" }} />
@@ -367,29 +430,29 @@ export default function ActivityPage() {
                 <col style={{ width: tab === "false_positive" ? "7%" : "16%" }} />
               </colgroup>
               <thead>
-                <tr className="border-b bg-muted/40">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Issue</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">URL</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Rule</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Decision by</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Date</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Scope</th>
+                <tr className="border-b border-[#edf0f7] bg-[#fafbfd]">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#7a8899]">Issue</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#7a8899]">Page / selector</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#7a8899]">Rule</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#7a8899]">Submitted by</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#7a8899]">Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#7a8899]">Scope</th>
                   {tab === "false_positive" && (
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-[#7a8899]">Review status</th>
                   )}
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Pages</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Reason</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wide">Actions</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#7a8899]">Pages</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#7a8899]">Reason</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-[#7a8899]">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((d) => (
-                  <tr key={d.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors">
+                  <tr key={d.id} className="border-b border-[#f4f6fa] last:border-0 transition-colors hover:bg-[#f8f6ff]/60">
                     {/* Issue */}
                     <td className="px-4 py-3">
-                      <p className="text-xs text-foreground line-clamp-2">{d.issueDescription ?? d.ruleId}</p>
+                      <p className="text-xs text-[#263650] line-clamp-2">{d.issueDescription ?? d.ruleId}</p>
                       {d.selector && (
-                        <code className="text-[10px] text-muted-foreground font-mono truncate block mt-0.5">{d.selector}</code>
+                        <code className="mt-0.5 block truncate font-mono text-[10px] text-[#9aabb8]">{d.selector}</code>
                       )}
                     </td>
 
@@ -400,32 +463,32 @@ export default function ActivityPage() {
                           href={d.pageUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-xs text-violet-600 hover:underline flex items-center gap-1"
+                          className="flex items-center gap-1 text-xs text-[#3778c8] hover:underline"
                         >
                           <span className="truncate block max-w-[160px]">{d.pageUrl.replace(/^https?:\/\//, "")}</span>
                           <ExternalLink className="w-2.5 h-2.5 shrink-0" />
                         </a>
                       ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
+                        <span className="text-xs text-[#9aabb8]">—</span>
                       )}
                       <Link href={`/scans/${d.scanSessionId}`}>
-                        <span className="text-[10px] text-muted-foreground hover:underline cursor-pointer block mt-0.5">Scan #{d.scanSessionId}</span>
+                        <span className="mt-0.5 block cursor-pointer text-[10px] text-[#9aabb8] hover:underline">Scan #{d.scanSessionId}</span>
                       </Link>
                     </td>
 
                     {/* Rule */}
                     <td className="px-4 py-3">
-                      <span className="text-xs font-mono text-foreground">{d.ruleId}</span>
+                      <span className="rounded bg-[#eee9ff] px-1.5 py-0.5 font-mono text-[10px] font-bold text-[#6d48c7]">{d.ruleId}</span>
                     </td>
 
                     {/* Decision by */}
                     <td className="px-4 py-3">
-                      <span className="text-xs text-foreground">{d.submitterName ?? "Unknown"}</span>
+                      <span className="text-xs text-[#5a6e87]">{d.submitterName ?? "Unknown"}</span>
                     </td>
 
                     {/* Date */}
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="text-xs text-muted-foreground">{new Date(d.createdAt).toLocaleDateString()}</span>
+                      <span className="text-xs text-[#9aabb8]">{new Date(d.createdAt).toLocaleDateString()}</span>
                     </td>
 
                     {/* Scope */}
@@ -438,7 +501,7 @@ export default function ActivityPage() {
                       <td className="px-4 py-3">
                         <ReviewStatusBadge status={d.reviewStatus} />
                         {d.reviewedBy && d.reviewerName && (
-                          <p className="text-[10px] text-muted-foreground mt-0.5">by {d.reviewerName}</p>
+                          <p className="mt-0.5 text-[10px] text-[#9aabb8]">by {d.reviewerName}</p>
                         )}
                       </td>
                     )}
@@ -446,26 +509,26 @@ export default function ActivityPage() {
                     {/* Pages Affected */}
                     <td className="px-4 py-3">
                       {d.pagesAffected != null ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded px-1.5 py-0.5">
+                        <span className="inline-flex items-center gap-1 rounded border border-[#d9d0f8] bg-[#eee9ff] px-1.5 py-0.5 text-xs font-medium text-[#6d48c7]">
                           {d.pagesAffected}
                         </span>
                       ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
+                        <span className="text-xs text-[#9aabb8]">—</span>
                       )}
                     </td>
 
                     {/* Reason + reviewer comment tooltip */}
                     <td className="px-4 py-3">
                       <div className="flex items-start gap-1.5">
-                        <p className="text-xs text-foreground line-clamp-3 flex-1">
-                          {d.reason ?? <span className="text-muted-foreground">—</span>}
+                        <p className="flex-1 text-xs text-[#5a6e87] line-clamp-3">
+                          {d.reason ?? <span className="text-[#9aabb8]">—</span>}
                         </p>
                         {d.reviewComment && (
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <button
                                 type="button"
-                                className="shrink-0 mt-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                                className="mt-0.5 shrink-0 text-[#9aabb8] transition-colors hover:text-[#6d48c7]"
                               >
                                 <MessageSquare className="w-3.5 h-3.5" />
                               </button>
@@ -489,18 +552,20 @@ export default function ActivityPage() {
                             <Button
                               size="sm"
                               variant="outline"
-                              className="h-7 text-xs px-2 gap-1 text-green-700 border-green-300 hover:bg-green-50"
+                               className="grid h-7 w-7 place-items-center rounded-lg border-[#afe9d0] bg-[#e4f7f0] p-0 text-[#14835f] hover:bg-[#c6f0df]"
                               onClick={() => { setReviewTarget(d); setReviewAction("confirmed"); setReviewComment(""); }}
+                               aria-label="Confirm false positive"
                             >
-                              <Check className="w-3 h-3" /> Confirm
+                               <Check className="w-3.5 h-3.5" />
                             </Button>
                             <Button
                               size="sm"
                               variant="outline"
-                              className="h-7 text-xs px-2 gap-1 text-red-700 border-red-300 hover:bg-red-50"
+                               className="grid h-7 w-7 place-items-center rounded-lg border-[#f5c0c0] bg-[#fdf0f0] p-0 text-[#be2e2e] hover:bg-[#fae0e0]"
                               onClick={() => { setReviewTarget(d); setReviewAction("rejected"); setReviewComment(""); }}
+                               aria-label="Reject false positive"
                             >
-                              <X className="w-3 h-3" /> Reject
+                               <X className="w-3.5 h-3.5" />
                             </Button>
                           </>
                         )}
@@ -508,7 +573,7 @@ export default function ActivityPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-7 text-xs px-2 gap-1 text-muted-foreground hover:text-destructive"
+                            className="h-7 rounded-lg px-2 text-xs text-[#7a8899] hover:bg-[#fdf0f0] hover:text-[#be2e2e]"
                             onClick={() => undo(d)}
                           >
                             <Undo2 className="w-3 h-3" /> Undo
@@ -522,6 +587,7 @@ export default function ActivityPage() {
             </table>
           </div>
         )}
+        </div>
 
         {/* Review dialog */}
         <Dialog open={!!reviewTarget} onOpenChange={open => { if (!open) setReviewTarget(null); }}>
@@ -574,6 +640,7 @@ export default function ActivityPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
     </TooltipProvider>
   );

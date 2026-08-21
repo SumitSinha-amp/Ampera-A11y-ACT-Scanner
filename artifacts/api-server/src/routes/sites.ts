@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import type { PoolClient } from "pg";
 import { db, pool } from "@workspace/db";
 import {
   sitesTable,
@@ -43,6 +44,33 @@ const SEVERITY_BASE_WEIGHT: Record<string, number> = {
   moderate: 0.5,   // Review — needs manual confirmation
   minor:    0.25,  // Review — minor/cosmetic
 };
+
+const WCAG_TARGET_LEVELS = ["A", "AA", "AAA", "All"] as const;
+type WcagTargetLevel = typeof WCAG_TARGET_LEVELS[number];
+
+function scopedWcagLevels(targetLevel: WcagTargetLevel): string[] {
+  if (targetLevel === "A")   return ["A"];
+  if (targetLevel === "AA")  return ["A", "AA"];
+  if (targetLevel === "AAA") return ["A", "AA", "AAA"];
+  // "All" — include every known level
+  return ["A", "AA", "AAA", "WAI-ARIA", "Best Practice"];
+}
+
+async function resolvePageGroupScope(
+  client: PoolClient,
+  crawlerId: number,
+  rawValue: unknown,
+): Promise<{ value: string | null; error?: string }> {
+  const requested = typeof rawValue === "string" ? rawValue.trim() : "";
+  if (!requested) return { value: null };
+  const knownGroup = await client.query(
+    `SELECT 1 FROM crawler_pages
+     WHERE session_id = $1 AND COALESCE(page_type, 'General') = $2
+     LIMIT 1`,
+    [crawlerId, requested],
+  );
+  return knownGroup.rowCount ? { value: requested } : { value: null, error: "The selected page group was not found for this site" };
+}
 
 // Static ceiling weight (Mr) for a rule, from its fixed level + severity.
 function ruleMultiplier(level: string, impact: string): number {
@@ -742,8 +770,14 @@ router.get("/sites/:id/dashboard", requireAuth, async (req: Request, res: Respon
   if (!await canViewAccessibilityDashboard(req, res, siteId)) return;
   const client = await pool.connect();
   try {
-    const [site] = await db.select().from(sitesTable).where(eq(sitesTable.id, siteId)).limit(1);
-    if (!site) { res.status(404).json({ error: "Site not found" }); return; }
+    const [siteRow] = await db.select().from(sitesTable).where(eq(sitesTable.id, siteId)).limit(1);
+    if (!siteRow) { res.status(404).json({ error: "Site not found" }); return; }
+    const targetSetting = await client.query<{ target_wcag_level: WcagTargetLevel }>(
+      `SELECT target_wcag_level FROM sites WHERE id = $1`,
+      [siteId],
+    );
+    const targetWcagLevel = targetSetting.rows[0]?.target_wcag_level ?? "AA";
+    const site = { ...siteRow, targetWcagLevel };
 
     // Latest completed session with a linked scan
     const sessionRes = await client.query(
@@ -759,6 +793,44 @@ router.get("/sites/:id/dashboard", requireAuth, async (req: Request, res: Respon
       return;
     }
     const session = sessionRes.rows[0];
+    const rawPageGroup = typeof req.query["page_group"] === "string"
+      ? req.query["page_group"].trim()
+      : "";
+    let pageGroup: string | null = null;
+    if (rawPageGroup) {
+      const knownGroup = await client.query(
+        `SELECT 1 FROM crawler_pages
+         WHERE session_id = $1
+           AND COALESCE(page_type, 'General') = $2
+         LIMIT 1`,
+        [session.crawler_id, rawPageGroup],
+      );
+      if (knownGroup.rowCount === 0) {
+        res.status(400).json({ error: "The selected page group was not found for this site" });
+        return;
+      }
+      pageGroup = rawPageGroup;
+    }
+    const scopedPageCondition = `
+      AND ($2::text IS NULL OR EXISTS (
+        SELECT 1 FROM crawler_pages cp
+        WHERE cp.session_id = $3
+          AND cp.url = pr.url
+          AND COALESCE(cp.page_type, 'General') = $2
+      ))`;
+    const scopedParams = [session.scan_session_id, pageGroup, session.crawler_id];
+    const scopedPageCounts = await client.query<{ total_scanned: number; total_discovered: number }>(
+      `SELECT
+         COUNT(DISTINCT pr.id)::int AS total_scanned,
+         COUNT(DISTINCT cp.id)::int AS total_discovered
+       FROM crawler_pages cp
+       LEFT JOIN page_results pr ON pr.scan_id = $1 AND pr.url = cp.url
+       WHERE cp.session_id = $3
+         AND ($2::text IS NULL OR COALESCE(cp.page_type, 'General') = $2)`,
+      scopedParams,
+    );
+    const scopedTotalScanned = scopedPageCounts.rows[0]?.total_scanned ?? 0;
+    const scopedTotalDiscovered = scopedPageCounts.rows[0]?.total_discovered ?? 0;
 
     // Impact breakdown
     const impactRes = await client.query(
@@ -768,9 +840,9 @@ router.get("/sites/:id/dashboard", requireAuth, async (req: Request, res: Respon
               COUNT(DISTINCT ai.rule_id)::int as distinct_rules
        FROM accessibility_issues ai
        JOIN page_results pr ON pr.id = ai.page_id
-       WHERE pr.scan_id = $1
+        WHERE pr.scan_id = $1 ${scopedPageCondition}
        GROUP BY ai.impact`,
-      [session.scan_session_id],
+      scopedParams,
     );
 
     // Per-rule aggregation — every rule gets its own weight (Mr) and deduction (Dr).
@@ -785,14 +857,14 @@ router.get("/sites/:id/dashboard", requireAuth, async (req: Request, res: Respon
        FROM accessibility_issues ai
        JOIN page_results pr ON pr.id = ai.page_id
        LEFT JOIN rule_page_stats rps ON rps.page_result_id = pr.id AND rps.rule_id = ai.rule_id
-       WHERE pr.scan_id = $1
+        WHERE pr.scan_id = $1 ${scopedPageCondition}
        GROUP BY ai.rule_id, ai.impact`,
-      [session.scan_session_id],
+      scopedParams,
     );
     const ruleDeductions = ruleAggRes.rows.map((r: any) => ({
       level: r.level as string,
       deduction: ruleDeduction(
-        r.level, r.impact, r.occurrences, r.pages_affected, session.total_scanned,
+        r.level, r.impact, r.occurrences, r.pages_affected, scopedTotalScanned,
         r.total_checked > 0 ? r.total_checked : undefined,
       ),
     }));
@@ -806,9 +878,9 @@ router.get("/sites/:id/dashboard", requireAuth, async (req: Request, res: Respon
          COUNT(DISTINCT ai.rule_id)::int AS distinct_rules
        FROM accessibility_issues ai
        JOIN page_results pr ON pr.id = ai.page_id
-       WHERE pr.scan_id = $1
+        WHERE pr.scan_id = $1 ${scopedPageCondition}
        GROUP BY COALESCE(NULLIF(ai.wcag_level, ''), 'Best Practice')`,
-      [session.scan_session_id],
+      scopedParams,
     );
 
     const LEVEL_ORDER = ["A", "AA", "AAA", "WAI-ARIA", "Best Practice"];
@@ -834,19 +906,22 @@ router.get("/sites/:id/dashboard", requireAuth, async (req: Request, res: Respon
     // Overall score = 100 minus the sum of every rule's own deduction, across all levels.
     // No separate blending weights needed — each rule's level/severity weight already
     // reflects its relative importance.
-    const totalRuleDeduction = ruleDeductions.reduce((s: number, r: any) => s + r.deduction, 0);
+    const targetLevels = scopedWcagLevels(targetWcagLevel);
+    const totalRuleDeduction = ruleDeductions
+      .filter((r: any) => targetLevels.includes(r.level))
+      .reduce((s: number, r: any) => s + r.deduction, 0);
     const score = Math.max(0, Math.min(100, +(100 - totalRuleDeduction).toFixed(1)));
 
     const totalOccurrences = impactRes.rows.reduce((s: number, r: any) => s + r.occurrences, 0);
     const totalPagesWithIssues = (await client.query(
       `SELECT COUNT(DISTINCT page_id)::int as n FROM accessibility_issues ai
-       JOIN page_results pr ON pr.id = ai.page_id WHERE pr.scan_id = $1`,
-      [session.scan_session_id],
+       JOIN page_results pr ON pr.id = ai.page_id WHERE pr.scan_id = $1 ${scopedPageCondition}`,
+       scopedParams,
     )).rows[0].n;
     const distinctRules = (await client.query(
       `SELECT COUNT(DISTINCT rule_id)::int as n FROM accessibility_issues ai
-       JOIN page_results pr ON pr.id = ai.page_id WHERE pr.scan_id = $1`,
-      [session.scan_session_id],
+       JOIN page_results pr ON pr.id = ai.page_id WHERE pr.scan_id = $1 ${scopedPageCondition}`,
+       scopedParams,
     )).rows[0].n;
 
     // Top 5 issues (critical+serious) by score impact
@@ -856,16 +931,16 @@ router.get("/sites/:id/dashboard", requireAuth, async (req: Request, res: Respon
               COUNT(*)::int as occurrences, COUNT(DISTINCT ai.page_id)::int as pages_affected,
               ROUND(
                 (${SQL_LEVEL_WEIGHT_CASE} * ${SQL_SEVERITY_WEIGHT_CASE})
-                * LEAST(1, COUNT(DISTINCT ai.page_id)::numeric / GREATEST($2::numeric, 1))
-                * LEAST(1, COUNT(*)::numeric / GREATEST($2::numeric, 1))
+                * LEAST(1, COUNT(DISTINCT ai.page_id)::numeric / GREATEST($4::numeric, 1))
+                * LEAST(1, COUNT(*)::numeric / GREATEST($4::numeric, 1))
               , 2) as points_to_gain
        FROM accessibility_issues ai
        JOIN page_results pr ON pr.id = ai.page_id
-       WHERE pr.scan_id = $1 AND ai.impact IN ('critical','serious')
+        WHERE pr.scan_id = $1 ${scopedPageCondition} AND ai.impact IN ('critical','serious')
        GROUP BY ai.rule_id, ai.impact
        ORDER BY points_to_gain DESC, occurrences DESC
        LIMIT 5`,
-      [session.scan_session_id, session.total_scanned],
+        [session.scan_session_id, pageGroup, session.crawler_id, scopedTotalScanned],
     );
 
     // Top 5 potential issues (moderate+minor) by score impact
@@ -875,21 +950,21 @@ router.get("/sites/:id/dashboard", requireAuth, async (req: Request, res: Respon
               COUNT(*)::int as occurrences, COUNT(DISTINCT ai.page_id)::int as pages_affected,
               ROUND(
                 (${SQL_LEVEL_WEIGHT_CASE} * ${SQL_SEVERITY_WEIGHT_CASE})
-                * LEAST(1, COUNT(DISTINCT ai.page_id)::numeric / GREATEST($2::numeric, 1))
-                * LEAST(1, COUNT(*)::numeric / GREATEST($2::numeric, 1))
+                * LEAST(1, COUNT(DISTINCT ai.page_id)::numeric / GREATEST($4::numeric, 1))
+                * LEAST(1, COUNT(*)::numeric / GREATEST($4::numeric, 1))
               , 2) as points_to_gain
        FROM accessibility_issues ai
        JOIN page_results pr ON pr.id = ai.page_id
-       WHERE pr.scan_id = $1 AND ai.impact IN ('moderate','minor')
+        WHERE pr.scan_id = $1 ${scopedPageCondition} AND ai.impact IN ('moderate','minor')
        GROUP BY ai.rule_id, ai.impact
        ORDER BY points_to_gain DESC, occurrences DESC
        LIMIT 5`,
-      [session.scan_session_id, session.total_scanned],
+        [session.scan_session_id, pageGroup, session.crawler_id, scopedTotalScanned],
     );
 
     // Resolved issues — rules in the previous scan that no longer appear in the current scan
     const prevSessionRes = await client.query(
-      `SELECT scan_session_id, total_scanned FROM crawler_sessions
+      `SELECT id as crawler_id, scan_session_id, total_scanned FROM crawler_sessions
        WHERE site_id = $1 AND status = 'completed' AND scan_session_id IS NOT NULL
          AND id != $2
        ORDER BY completed_at DESC LIMIT 1`,
@@ -944,18 +1019,18 @@ router.get("/sites/:id/dashboard", requireAuth, async (req: Request, res: Respon
       session: {
         crawlerId: session.crawler_id,
         completedAt: session.completed_at,
-        totalScanned: session.total_scanned,
-        totalDiscovered: session.total_discovered,
+        totalScanned: scopedTotalScanned,
+        totalDiscovered: scopedTotalDiscovered,
         brokenLinksCount: session.broken_links_count,
       },
       score,
       scoreDelta,
       previousScore,
       coverage: {
-        totalScanned: session.total_scanned,
-        totalDiscovered: session.total_discovered,
+        totalScanned: scopedTotalScanned,
+        totalDiscovered: scopedTotalDiscovered,
         pagesWithIssues: totalPagesWithIssues,
-        pagesWithoutIssues: Math.max(0, session.total_scanned - totalPagesWithIssues),
+        pagesWithoutIssues: Math.max(0, scopedTotalScanned - totalPagesWithIssues),
         totalOccurrences,
         distinctRules,
         brokenLinks: session.broken_links_count,
@@ -999,13 +1074,30 @@ router.put("/sites/:id/target-score", requireAuth, async (req: Request, res: Res
     res.status(400).json({ error: "targetScore must be between 0 and 100, or null" });
     return;
   }
+  const rawTargetWcagLevel = req.body?.targetWcagLevel;
+  const targetWcagLevel = rawTargetWcagLevel === undefined
+    ? undefined
+    : typeof rawTargetWcagLevel === "string" ? rawTargetWcagLevel.trim() : "";
+  if (targetWcagLevel !== undefined && !WCAG_TARGET_LEVELS.includes(targetWcagLevel as WcagTargetLevel)) {
+    res.status(400).json({ error: "targetWcagLevel must be A, AA, AAA, or All" });
+    return;
+  }
 
-  const [updated] = await db.update(sitesTable)
-    .set({ targetScore: targetScore === null ? null : Math.round(targetScore), updatedAt: new Date() })
-    .where(eq(sitesTable.id, siteId))
-    .returning({ id: sitesTable.id, targetScore: sitesTable.targetScore });
-  if (!updated) { res.status(404).json({ error: "Site not found" }); return; }
-  res.json(updated);
+  const updated = await pool.query<{ id: number; target_score: number | null; target_wcag_level: WcagTargetLevel }>(
+    `UPDATE sites
+     SET target_score = $2,
+         target_wcag_level = COALESCE($3::text, target_wcag_level),
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING id, target_score, target_wcag_level`,
+    [siteId, targetScore === null ? null : Math.round(targetScore), targetWcagLevel ?? null],
+  );
+  if (updated.rowCount === 0) { res.status(404).json({ error: "Site not found" }); return; }
+  res.json({
+    id: updated.rows[0].id,
+    targetScore: updated.rows[0].target_score,
+    targetWcagLevel: updated.rows[0].target_wcag_level,
+  });
 });
 
 // GET /api/sites/:id/score-history
@@ -1015,10 +1107,24 @@ router.get("/sites/:id/score-history", requireAuth, async (req: Request, res: Re
   if (!await canViewAccessibilityDashboard(req, res, siteId)) return;
   const client = await pool.connect();
   try {
+    const latestSession = await client.query(
+      `SELECT id AS crawler_id
+       FROM crawler_sessions
+       WHERE site_id = $1 AND status = 'completed' AND scan_session_id IS NOT NULL
+       ORDER BY completed_at DESC LIMIT 1`,
+      [siteId],
+    );
+    const latestCrawlerId = latestSession.rows[0]?.crawler_id;
+    const pageGroupScope = latestCrawlerId
+      ? await resolvePageGroupScope(client, latestCrawlerId, req.query["page_group"])
+      : { value: null as string | null };
+    if (pageGroupScope.error) { res.status(400).json({ error: pageGroupScope.error }); return; }
     const result = await client.query(
       `SELECT ssh.score::float AS score,
+              cs.id AS crawler_id,
+              cs.scan_session_id,
               COALESCE(cs.completed_at, ssh.scanned_at) AS scanned_at,
-              COALESCE(cs.total_scanned, 0)::int AS total_scanned,
+               COUNT(DISTINCT pr.id)::int AS total_scanned,
               COUNT(ai.id) FILTER (WHERE ai.impact IN ('critical','serious') AND COALESCE(NULLIF(ai.wcag_level,''),'Best Practice') = 'A')::int AS level_a_issues,
               COUNT(ai.id) FILTER (WHERE ai.impact IN ('critical','serious') AND COALESCE(NULLIF(ai.wcag_level,''),'Best Practice') = 'AA')::int AS level_aa_issues,
               COUNT(ai.id) FILTER (WHERE ai.impact IN ('critical','serious'))::int AS total_issues,
@@ -1028,13 +1134,56 @@ router.get("/sites/:id/score-history", requireAuth, async (req: Request, res: Re
        FROM site_score_history ssh
        JOIN crawler_sessions cs ON cs.id = ssh.crawler_session_id
        LEFT JOIN page_results pr ON pr.scan_id = cs.scan_session_id
+        LEFT JOIN crawler_pages cp
+          ON cp.session_id = cs.id AND cp.url = pr.url
+         AND ($2::text IS NULL OR COALESCE(cp.page_type, 'General') = $2)
        LEFT JOIN accessibility_issues ai ON ai.page_id = pr.id
        WHERE ssh.site_id = $1
-       GROUP BY ssh.id, ssh.score, cs.completed_at, ssh.scanned_at, cs.total_scanned
+          AND ($2::text IS NULL OR cp.id IS NOT NULL)
+        GROUP BY ssh.id, ssh.score, cs.id, cs.scan_session_id, cs.completed_at, ssh.scanned_at, cs.total_scanned
        ORDER BY COALESCE(cs.completed_at, ssh.scanned_at) ASC`,
-      [siteId],
+       [siteId, pageGroupScope.value],
     );
-    res.json({ history: result.rows });
+    const history = pageGroupScope.value === null
+      ? result.rows
+      : await Promise.all(result.rows.map(async (row: any) => {
+        const ruleRows = await client.query(
+          `SELECT ai.rule_id, ai.impact,
+                  COALESCE(NULLIF(MAX(ai.wcag_level), ''), 'Best Practice') AS level,
+                  COUNT(*)::int AS occurrences,
+                  COUNT(DISTINCT ai.page_id)::int AS pages_affected,
+                  COALESCE(SUM(rps.total_checked), 0)::int AS total_checked
+           FROM accessibility_issues ai
+           JOIN page_results pr ON pr.id = ai.page_id
+           LEFT JOIN rule_page_stats rps ON rps.page_result_id = pr.id AND rps.rule_id = ai.rule_id
+           WHERE pr.scan_id = $1
+             AND EXISTS (
+               SELECT 1 FROM crawler_pages cp
+               WHERE cp.session_id = $2 AND cp.url = pr.url
+                 AND COALESCE(cp.page_type, 'General') = $3
+             )
+           GROUP BY ai.rule_id, ai.impact`,
+          [row.scan_session_id, row.crawler_id, pageGroupScope.value],
+        );
+        const targetRes = await client.query<{ target_wcag_level: WcagTargetLevel }>(
+          `SELECT target_wcag_level FROM sites WHERE id = $1`,
+          [siteId],
+        );
+        const targetLevels = scopedWcagLevels(targetRes.rows[0]?.target_wcag_level ?? "AA");
+        const totalScanned = Number(row.total_scanned) || 0;
+        const deduction = ruleRows.rows
+          .filter((rule: any) => targetLevels.includes(rule.level))
+          .reduce((sum: number, rule: any) => sum + ruleDeduction(
+            rule.level,
+            rule.impact,
+            Number(rule.occurrences),
+            Number(rule.pages_affected),
+            totalScanned,
+            Number(rule.total_checked) > 0 ? Number(rule.total_checked) : undefined,
+          ), 0);
+        return { ...row, score: Math.max(0, Math.min(100, +(100 - deduction).toFixed(1))) };
+      }));
+    res.json({ history });
   } finally {
     client.release();
   }
@@ -1047,20 +1196,33 @@ router.get("/sites/:id/page-groups", requireAuth, async (req: Request, res: Resp
   if (!await canViewAccessibilityDashboard(req, res, siteId)) return;
   const client = await pool.connect();
   try {
-    const sessionRes = await client.query(
+    const [sessionRes, preferencesRes] = await Promise.all([
+      client.query(
       `SELECT id as crawler_id, scan_session_id, total_scanned
        FROM crawler_sessions
        WHERE site_id = $1 AND status = 'completed' AND scan_session_id IS NOT NULL
        ORDER BY completed_at DESC LIMIT 1`,
       [siteId],
-    );
-    if (sessionRes.rows.length === 0) { res.json({ groups: [] }); return; }
+      ),
+      client.query<{ page_type: string }>(
+        `SELECT page_type FROM site_page_group_preferences WHERE site_id = $1`,
+        [siteId],
+      ),
+    ]);
+    if (sessionRes.rows.length === 0) {
+      res.json({
+        groups: preferencesRes.rows.map((preference) => emptyPageGroup(preference.page_type)),
+        totalScanned: 0,
+      });
+      return;
+    }
     const session = sessionRes.rows[0];
 
     const groupsRes = await client.query(
       `SELECT
          COALESCE(cp.page_type, 'General') as page_type,
          COUNT(DISTINCT cp.id)::int as pages,
+         COUNT(DISTINCT CASE WHEN cp.status = 'completed' THEN cp.id END)::int as scanned_pages,
          COUNT(DISTINCT CASE WHEN ai.id IS NOT NULL THEN cp.id END)::int as pages_with_issues,
          COUNT(DISTINCT CASE WHEN ai.impact IN ('critical','serious') THEN cp.id END)::int as pages_with_critical,
          COUNT(ai.id)::int as total_occurrences,
@@ -1078,7 +1240,7 @@ router.get("/sites/:id/page-groups", requireAuth, async (req: Request, res: Resp
        FROM crawler_pages cp
        LEFT JOIN page_results pr ON pr.url = cp.url AND pr.scan_id = $2
        LEFT JOIN accessibility_issues ai ON ai.page_id = pr.id
-       WHERE cp.session_id = $1 AND cp.status = 'completed'
+        WHERE cp.session_id = $1
        GROUP BY COALESCE(cp.page_type, 'General')
        ORDER BY pages DESC`,
       [session.crawler_id, session.scan_session_id],
@@ -1088,20 +1250,118 @@ router.get("/sites/:id/page-groups", requireAuth, async (req: Request, res: Resp
     // per page in the group (this view has no per-rule/level breakdown, so it's a lighter
     // approximation used only for relative comparison between page types).
     const totalScanned = session.total_scanned;
-    function groupScore(weightedSum: number, pages: number): number {
-      if (pages === 0) return 100;
-      return Math.max(0, Math.min(100, +(100 - (weightedSum / pages) / 2.5).toFixed(1)));
+    function groupScore(weightedSum: number, scannedPages: number): number | null {
+      if (scannedPages === 0) return null;
+      return Math.max(0, Math.min(100, +(100 - (weightedSum / scannedPages) / 2.5).toFixed(1)));
     }
-    const groups = groupsRes.rows.map((g: any) => ({
-      ...g,
-      score: groupScore(+g.weighted_sum, g.pages),
-      points_to_target: +(Math.max(0, 80 - groupScore(+g.weighted_sum, g.pages)) * g.pages / Math.max(totalScanned, 1)).toFixed(2),
-    }));
+    const groupsByType = new Map<string, any>();
+    for (const group of groupsRes.rows) {
+      const score = groupScore(+group.weighted_sum, group.scanned_pages);
+      groupsByType.set(group.page_type, {
+        ...group,
+        score,
+        points_to_target: score === null
+          ? null
+          : +(Math.max(0, 80 - score) * group.scanned_pages / Math.max(totalScanned, 1)).toFixed(2),
+      });
+    }
+    // A saved preference must remain reachable even when its page type is not
+    // present in the newest crawl, so users can always include it again.
+    for (const preference of preferencesRes.rows) {
+      if (!groupsByType.has(preference.page_type)) {
+        groupsByType.set(preference.page_type, emptyPageGroup(preference.page_type));
+      }
+    }
+    const groups = Array.from(groupsByType.values());
 
     res.json({ groups, totalScanned });
   } finally {
     client.release();
   }
+});
+
+function emptyPageGroup(pageType: string) {
+  return {
+    page_type: pageType,
+    pages: 0,
+    scanned_pages: 0,
+    pages_with_issues: 0,
+    pages_with_critical: 0,
+    total_occurrences: 0,
+    distinct_rules: 0,
+    issues_count: 0,
+    potential_issues_count: 0,
+    weighted_sum: 0,
+    score: null,
+    points_to_target: null,
+  };
+}
+
+// GET /api/sites/:id/page-group-preferences
+// Returns explicitly saved choices only. Every newly discovered group defaults
+// to included, so a future crawl never loses coverage without user intent.
+router.get("/sites/:id/page-group-preferences", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const siteId = parseInt(req.params["id"] as string, 10);
+  if (!await canViewAccessibilityDashboard(req, res, siteId)) return;
+
+  const result = await pool.query<{ page_type: string; include_in_scan: boolean }>(
+    `SELECT page_type, include_in_scan
+     FROM site_page_group_preferences
+     WHERE site_id = $1`,
+    [siteId],
+  );
+  res.json({
+    preferences: Object.fromEntries(
+      result.rows.map((row) => [row.page_type, row.include_in_scan]),
+    ),
+  });
+});
+
+// PUT /api/sites/:id/page-group-preferences
+// Page Group coverage affects future crawl accessibility phases, so changing it
+// follows the same capability boundary as creating a crawl.
+router.put("/sites/:id/page-group-preferences", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const siteId = parseInt(req.params["id"] as string, 10);
+  if (!await canViewAccessibilityDashboard(req, res, siteId)) return;
+
+  const sessionUser = (req as any).session?.user;
+  const perms = await getEffectivePermissions(sessionUser?.id ?? 0, sessionUser?.role ?? "user");
+  if (!perms.canCreateCrawl) {
+    res.status(403).json({ error: "You do not have permission to change scan coverage" });
+    return;
+  }
+
+  const pageType = typeof req.body?.pageType === "string" ? req.body.pageType.trim() : "";
+  const included = req.body?.included;
+  if (!pageType || pageType.length > 160 || typeof included !== "boolean") {
+    res.status(400).json({ error: "pageType and included are required" });
+    return;
+  }
+
+  // Only accept categories actually discovered for this site; this prevents
+  // arbitrary input and lets obsolete categories naturally disappear from UI.
+  const knownGroup = await pool.query(
+    `SELECT 1
+     FROM crawler_pages cp
+     JOIN crawler_sessions cs ON cs.id = cp.session_id
+     WHERE cs.site_id = $1
+       AND COALESCE(cp.page_type, 'General') = $2
+     LIMIT 1`,
+    [siteId, pageType],
+  );
+  if (knownGroup.rowCount === 0) {
+    res.status(400).json({ error: "This page group has not been discovered for the selected site" });
+    return;
+  }
+
+  await pool.query(
+    `INSERT INTO site_page_group_preferences (site_id, page_type, include_in_scan, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (site_id, page_type)
+     DO UPDATE SET include_in_scan = EXCLUDED.include_in_scan, updated_at = NOW()`,
+    [siteId, pageType, included],
+  );
+  res.json({ pageType, included });
 });
 
 // GET /api/sites/:id/issues
@@ -1140,7 +1400,9 @@ router.get("/sites/:id/issues", requireAuth, async (req: Request, res: Response)
       res.json({ issues: [], total: 0, totalOccurrences: 0, page, limit });
       return;
     }
-    const { scan_session_id, total_scanned } = sessionRes.rows[0];
+    const { scan_session_id, total_scanned, crawler_id } = sessionRes.rows[0];
+    const pageGroupScope = await resolvePageGroupScope(client, crawler_id, req.query["page_group"]);
+    if (pageGroupScope.error) { res.status(400).json({ error: pageGroupScope.error }); return; }
 
     // Single CTE query — window functions give totals without a second round-trip
     const result = await client.query(
@@ -1160,6 +1422,11 @@ router.get("/sites/:id/issues", requireAuth, async (req: Request, res: Response)
          JOIN page_results pr ON pr.id = ai.page_id
          WHERE pr.scan_id = $1
            AND ai.impact = ANY($2)
+            AND ($6::text IS NULL OR EXISTS (
+              SELECT 1 FROM crawler_pages cp
+              WHERE cp.session_id = $7 AND cp.url = pr.url
+                AND COALESCE(cp.page_type, 'General') = $6
+            ))
            AND ($5::text IS NULL
                 OR ai.description ILIKE '%' || $5 || '%'
                 OR ai.rule_id ILIKE '%' || $5 || '%')
@@ -1178,12 +1445,12 @@ router.get("/sites/:id/issues", requireAuth, async (req: Request, res: Response)
          SELECT filtered.*
          FROM filtered
          ORDER BY points_to_gain DESC, occurrences DESC
-         LIMIT $6 OFFSET $7
+          LIMIT $8 OFFSET $9
        )
        SELECT paged.*, totals.total_rules, totals.total_occurrences
        FROM paged
        CROSS JOIN totals`,
-      [scan_session_id, impacts, total_scanned, wcagLevel, search, limit, offset],
+       [scan_session_id, impacts, total_scanned, wcagLevel, search, pageGroupScope.value, crawler_id, limit, offset],
     );
 
     const total = result.rows[0]?.total_rules ?? 0;
@@ -1218,7 +1485,7 @@ router.get("/sites/:id/pages-with-issues", requireAuth, async (req: Request, res
   const client = await pool.connect();
   try {
     const sessionRes = await client.query(
-      `SELECT scan_session_id, completed_at
+      `SELECT id as crawler_id, scan_session_id, completed_at
        FROM crawler_sessions
        WHERE site_id = $1 AND status = 'completed' AND scan_session_id IS NOT NULL
        ORDER BY completed_at DESC LIMIT 1`,
@@ -1230,6 +1497,8 @@ router.get("/sites/:id/pages-with-issues", requireAuth, async (req: Request, res
     }
 
     const scanId = sessionRes.rows[0].scan_session_id;
+    const pageGroupScope = await resolvePageGroupScope(client, sessionRes.rows[0].crawler_id, req.query["page_group"]);
+    if (pageGroupScope.error) { res.status(400).json({ error: pageGroupScope.error }); return; }
     const result = await client.query(
       `WITH grouped AS (
          SELECT pr.id AS page_id,
@@ -1248,6 +1517,11 @@ router.get("/sites/:id/pages-with-issues", requireAuth, async (req: Request, res
          JOIN accessibility_issues ai ON ai.page_id = pr.id
          WHERE pr.scan_id = $1
            AND ai.impact = ANY($2)
+            AND ($6::text IS NULL OR EXISTS (
+              SELECT 1 FROM crawler_pages cp
+              WHERE cp.session_id = $7 AND cp.url = pr.url
+                AND COALESCE(cp.page_type, 'General') = $6
+            ))
            AND ($3::text IS NULL OR pr.url ILIKE '%' || $3 || '%')
          GROUP BY pr.id, pr.url, pr.page_html
        ),
@@ -1260,7 +1534,7 @@ router.get("/sites/:id/pages-with-issues", requireAuth, async (req: Request, res
        FROM grouped CROSS JOIN totals
        ORDER BY issue_count DESC, url ASC
        LIMIT $4 OFFSET $5`,
-      [scanId, impacts, search, limit, offset],
+       [scanId, impacts, search, limit, offset, pageGroupScope.value, sessionRes.rows[0].crawler_id],
     );
 
     const first = result.rows[0];
@@ -1309,7 +1583,9 @@ router.get("/sites/:id/issues/:ruleId", requireAuth, async (req: Request, res: R
       [siteId],
     );
     if (sessRes.rows.length === 0) { res.status(404).json({ error: "No completed session found" }); return; }
-    const { scan_session_id, total_scanned } = sessRes.rows[0];
+    const { scan_session_id, total_scanned, crawler_id } = sessRes.rows[0];
+    const pageGroupScope = await resolvePageGroupScope(client, crawler_id, req.query["page_group"]);
+    if (pageGroupScope.error) { res.status(400).json({ error: pageGroupScope.error }); return; }
 
     // Rule summary
     const ruleRes = await client.query(
@@ -1325,9 +1601,14 @@ router.get("/sites/:id/issues/:ruleId", requireAuth, async (req: Request, res: R
               , 2) as points_to_gain
        FROM accessibility_issues ai
        JOIN page_results pr ON pr.id = ai.page_id
-       WHERE pr.scan_id = $1 AND ai.rule_id = $3
+        WHERE pr.scan_id = $1 AND ai.rule_id = $3
+          AND ($4::text IS NULL OR EXISTS (
+            SELECT 1 FROM crawler_pages cp
+            WHERE cp.session_id = $5 AND cp.url = pr.url
+              AND COALESCE(cp.page_type, 'General') = $4
+          ))
        GROUP BY ai.rule_id, ai.impact`,
-      [scan_session_id, total_scanned, ruleId],
+       [scan_session_id, total_scanned, ruleId, pageGroupScope.value, crawler_id],
     );
     if (ruleRes.rows.length === 0) { res.status(404).json({ error: "Rule not found in this site's scan" }); return; }
 
@@ -1336,10 +1617,15 @@ router.get("/sites/:id/issues/:ruleId", requireAuth, async (req: Request, res: R
       `SELECT pr.url, ai.element, ai.element_context, ai.selector
        FROM accessibility_issues ai
        JOIN page_results pr ON pr.id = ai.page_id
-       WHERE pr.scan_id = $1 AND ai.rule_id = $2
+        WHERE pr.scan_id = $1 AND ai.rule_id = $2
+          AND ($3::text IS NULL OR EXISTS (
+            SELECT 1 FROM crawler_pages cp
+            WHERE cp.session_id = $4 AND cp.url = pr.url
+              AND COALESCE(cp.page_type, 'General') = $3
+          ))
          AND ai.element_context IS NOT NULL AND ai.element_context <> ''
        LIMIT 5`,
-      [scan_session_id, ruleId],
+       [scan_session_id, ruleId, pageGroupScope.value, crawler_id],
     );
 
     // Pages list with counts
@@ -1351,6 +1637,11 @@ router.get("/sites/:id/issues/:ruleId", requireAuth, async (req: Request, res: R
          FROM page_results pr
          JOIN accessibility_issues ai ON ai.page_id = pr.id
          WHERE pr.scan_id = $1 AND ai.rule_id = $2
+            AND ($6::text IS NULL OR EXISTS (
+              SELECT 1 FROM crawler_pages cp
+              WHERE cp.session_id = $7 AND cp.url = pr.url
+                AND COALESCE(cp.page_type, 'General') = $6
+            ))
            AND ($3::text IS NULL OR pr.url ILIKE '%' || $3 || '%')
          GROUP BY pr.id, pr.url
        ),
@@ -1360,7 +1651,7 @@ router.get("/sites/:id/issues/:ruleId", requireAuth, async (req: Request, res: R
        CROSS JOIN total t
        ORDER BY ${orderClause}
        LIMIT $4 OFFSET $5`,
-      [scan_session_id, ruleId, search, limit, offset],
+       [scan_session_id, ruleId, search, limit, offset, pageGroupScope.value, crawler_id],
     );
 
     const total = pagesRes.rows[0]?.total_pages ?? 0;
@@ -1392,7 +1683,7 @@ router.get("/sites/:id/compliance", requireAuth, async (req: Request, res: Respo
   const client = await pool.connect();
   try {
     const sessionRes = await client.query(
-      `SELECT scan_session_id FROM crawler_sessions
+      `SELECT id AS crawler_id, scan_session_id FROM crawler_sessions
        WHERE site_id = $1 AND status = 'completed' AND scan_session_id IS NOT NULL
        ORDER BY completed_at DESC LIMIT 1`,
       [siteId],
@@ -1401,7 +1692,9 @@ router.get("/sites/:id/compliance", requireAuth, async (req: Request, res: Respo
       res.json({ criteria: {}, bestPractice: null, hasData: false });
       return;
     }
-    const { scan_session_id } = sessionRes.rows[0];
+    const { scan_session_id, crawler_id } = sessionRes.rows[0];
+    const pageGroupScope = await resolvePageGroupScope(client, crawler_id, req.query["page_group"]);
+    if (pageGroupScope.error) { res.status(400).json({ error: pageGroupScope.error }); return; }
 
     const result = await client.query(
       `SELECT ai.rule_id, ai.impact,
@@ -1413,8 +1706,13 @@ router.get("/sites/:id/compliance", requireAuth, async (req: Request, res: Respo
        FROM accessibility_issues ai
        JOIN page_results pr ON pr.id = ai.page_id
        WHERE pr.scan_id = $1
+          AND ($2::text IS NULL OR EXISTS (
+            SELECT 1 FROM crawler_pages cp
+            WHERE cp.session_id = $3 AND cp.url = pr.url
+              AND COALESCE(cp.page_type, 'General') = $2
+          ))
        GROUP BY ai.rule_id, ai.impact`,
-      [scan_session_id],
+       [scan_session_id, pageGroupScope.value, crawler_id],
     );
 
     interface RuleAgg {

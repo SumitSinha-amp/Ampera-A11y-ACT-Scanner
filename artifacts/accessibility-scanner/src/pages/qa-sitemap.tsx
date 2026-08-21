@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   useQASites,
   useQASelectedSite,
-  QASiteSelector,
+  useQAPageGroup,
   QA_BASE,
   QAListToolbar,
   QAPagination,
@@ -46,12 +46,15 @@ function SitemapCoverageContent({ scanId }: { scanId: number }) {
   const [filter, setFilter] = useState<SitemapFilter>("all");
   const [limit, setLimit] = useState(50);
   const [search, setSearch] = useState("");
+  const pageGroupId = useQAPageGroup();
 
   const { data, isLoading } = useQuery<SitemapData>({
-    queryKey: ["qa-sitemap", scanId, page, limit, filter, search],
+    queryKey: ["qa-sitemap", scanId, page, limit, filter, search, pageGroupId],
     queryFn: async () => {
+      const params = new URLSearchParams({ page: String(page), limit: String(limit), filter, search });
+      if (pageGroupId !== null) params.set("page_group", String(pageGroupId));
       const r = await fetch(
-        `${QA_BASE}/api/scans/${scanId}/qa/sitemap?page=${page}&limit=${limit}&filter=${filter}&search=${encodeURIComponent(search)}`,
+        `${QA_BASE}/api/scans/${scanId}/qa/sitemap?${params}`,
         { credentials: "include" },
       );
       if (!r.ok) throw new Error("Failed to load sitemap data");
@@ -208,7 +211,7 @@ function SitemapCoverageContent({ scanId }: { scanId: number }) {
 
 export default function QASitemapPage() {
   const { data: sites = [], isLoading } = useQASites();
-  const [selectedSiteId, selected, setSite] = useQASelectedSite(sites);
+  const [, selected] = useQASelectedSite(sites);
 
   return (
     <div className="space-y-6">
@@ -217,11 +220,6 @@ export default function QASitemapPage() {
         <p className="text-muted-foreground text-sm mt-1">
           Pages discovered during the crawl compared to pages declared in the XML sitemap.
         </p>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground shrink-0">Site:</span>
-        <QASiteSelector value={selectedSiteId} onChange={setSite} sites={sites} loading={isLoading} />
       </div>
 
       {isLoading ? (

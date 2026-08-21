@@ -76,6 +76,79 @@ function containsExecutableIdentifier(source, identifier) {
   return false;
 }
 
+function findIdentifierContext(source, identifier) {
+  let state = "code";
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    const nextCharacter = source[index + 1];
+
+    if (state === "line-comment") {
+      if (character === "\n") state = "code";
+      continue;
+    }
+    if (state === "block-comment") {
+      if (character === "*" && nextCharacter === "/") {
+        state = "code";
+        index += 1;
+      }
+      continue;
+    }
+    if (state === "single-quote" || state === "double-quote" || state === "template") {
+      if (character === "\\") {
+        index += 1;
+      } else if (
+        (state === "single-quote" && character === "'") ||
+        (state === "double-quote" && character === '"') ||
+        (state === "template" && character === "`")
+      ) {
+        state = "code";
+      }
+      continue;
+    }
+
+    if (character === "/" && nextCharacter === "/") {
+      state = "line-comment";
+      index += 1;
+      continue;
+    }
+    if (character === "/" && nextCharacter === "*") {
+      state = "block-comment";
+      index += 1;
+      continue;
+    }
+    if (character === "'") {
+      state = "single-quote";
+      continue;
+    }
+    if (character === '"') {
+      state = "double-quote";
+      continue;
+    }
+    if (character === "`") {
+      state = "template";
+      continue;
+    }
+
+    if (
+      source.startsWith(identifier, index) &&
+      !/[A-Za-z0-9_$]/.test(source[index - 1] ?? "") &&
+      !/[A-Za-z0-9_$]/.test(source[index + identifier.length] ?? "")
+    ) {
+      return source.slice(Math.max(0, index - 140), index + identifier.length + 140);
+    }
+  }
+
+  return null;
+}
+
+function hasIdentifierDeclaration(source, identifier) {
+  const escapedIdentifier = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `\\b(?:var|let|const|function|class)\\s+${escapedIdentifier}\\b`,
+  ).test(source);
+}
+
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
@@ -224,10 +297,22 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
   const serverBundlePath = path.join(distDir, "index.mjs");
   const serverBundleContents = await readFile(serverBundlePath, "utf8");
   const staleProjectSitesSymbol = ["project", "Sites", "Table3"].join("");
-  if (containsExecutableIdentifier(serverBundleContents, staleProjectSitesSymbol)) {
+  const hasStaleProjectSitesReference = containsExecutableIdentifier(
+    serverBundleContents,
+    staleProjectSitesSymbol,
+  );
+  const hasStaleProjectSitesDeclaration = hasIdentifierDeclaration(
+    serverBundleContents,
+    staleProjectSitesSymbol,
+  );
+  if (hasStaleProjectSitesReference && !hasStaleProjectSitesDeclaration) {
+    const context = findIdentifierContext(serverBundleContents, staleProjectSitesSymbol)
+      ?.replace(/\s+/g, " ")
+      .trim();
     throw new Error(
       "Invalid API bundle: unresolved stale project-sites reference found. " +
-      "Clean the API dist directory and rebuild before deploying.",
+      "Clean the API dist directory and rebuild before deploying.\n" +
+      `Generated bundle context: ${context ?? "(context unavailable)"}`,
     );
   }
   if (!serverBundleContents.includes("projects-route-v2")) {

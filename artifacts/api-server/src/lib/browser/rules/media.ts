@@ -168,6 +168,33 @@ export function runMediaRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: 
   // Alfa rule for WCAG 1.4.8 line height (applicability: visible paragraphs).
 
   // ════════════════════════════════════════════════════════════════════════
+  // ACT-R32: Video visual-only content has audio track alternative (SIA-R32)
+  // This is not a WCAG conformance rule. The browser can detect a missing
+  // declared description track on a visible silent video, but cannot prove
+  // whether that track conveys all visual information, so keep it Potential.
+  // ════════════════════════════════════════════════════════════════════════
+  document.querySelectorAll("video").forEach((video) => {
+    if (!(video instanceof HTMLVideoElement) || !isApplicableVideo(video)) return;
+    if (isVideoWithoutAudio(video) !== true) return;
+    const textTracks = Array.from(video.textTracks || []);
+    const hasDescriptionTrack =
+      !!video.querySelector('track[kind="descriptions"]') ||
+      textTracks.some((track: any) => track.kind === "descriptions") ||
+      !!video.closest(".video-js")?.querySelector(".vjs-descriptions-button:not(.vjs-disabled):not(.vjs-hidden)");
+    if (!hasDescriptionTrack) {
+      results.push({
+        ruleId: "ACT-R32",
+        type: "Potential Issue",
+        impact: "minor",
+        description: "Visual-only video has no declared audio-description track — review whether an audio alternative conveys its visual information",
+        element: outerHtmlSnippet(video),
+        elementContext: elementContextForAI(video),
+        selector: getSelector(video),
+      });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
   // ACT-R37: Video missing audio description (WCAG 1.2.5)
   // ════════════════════════════════════════════════════════════════════════
   document.querySelectorAll("video").forEach((video) => {
@@ -385,7 +412,10 @@ export function runMediaRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: 
       const rect = video.getBoundingClientRect();
       return rect.width >= 20 && rect.height >= 20 && isVideoWithoutAudio(video) === true;
     })()).length;
-  if (applicableSilentVideoEls > 0) pushStat("ACT-R35", applicableSilentVideoEls, "element");
+  if (applicableSilentVideoEls > 0) {
+    pushStat("ACT-R32", applicableSilentVideoEls, "element");
+    pushStat("ACT-R35", applicableSilentVideoEls, "element");
+  }
   const autoplayVideoEls = document.querySelectorAll("video[autoplay]").length;
   if (autoplayVideoEls > 0) pushStat("ACT-R52", autoplayVideoEls, "element");
 

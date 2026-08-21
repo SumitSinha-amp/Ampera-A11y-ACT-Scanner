@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   useQASites,
   useQASelectedSite,
-  QASiteSelector,
   QA_BASE,
   QAListToolbar,
   QAPagination,
@@ -170,7 +169,7 @@ function UnsafeLinksTable({ scanId }: { scanId: number }) {
 
 export default function QAUnsafeLinksPage() {
   const { data: sites = [], isLoading } = useQASites();
-  const [selectedSiteId, selected, setSite] = useQASelectedSite(sites);
+  const [, selected] = useQASelectedSite(sites);
 
   return (
     <div className="space-y-6">
@@ -179,11 +178,6 @@ export default function QAUnsafeLinksPage() {
         <p className="text-muted-foreground text-sm mt-1">
           HTTP links found on HTTPS pages — potential mixed-content or security downgrade issues.
         </p>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground shrink-0">Site:</span>
-        <QASiteSelector value={selectedSiteId} onChange={setSite} sites={sites} loading={isLoading} />
       </div>
 
       {isLoading ? (

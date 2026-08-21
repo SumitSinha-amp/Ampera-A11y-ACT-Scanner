@@ -16,7 +16,7 @@ import { Download, ExternalLink, Loader2, Tag } from "lucide-react";
 import {
   useQASites,
   useQASelectedSite,
-  QASiteSelector,
+  useQAPageGroup,
   QA_BASE,
   QAListToolbar,
   QAPagination,
@@ -54,12 +54,14 @@ function MetaTagsContent({ scanId }: { scanId: number }) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [limit, setLimit] = useState(50);
+  const pageGroupId = useQAPageGroup();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["qa-pages", scanId, page, search],
+    queryKey: ["qa-pages", scanId, page, search, pageGroupId],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (search) params.set("search", search);
+      if (pageGroupId !== null) params.set("page_group", String(pageGroupId));
       const r = await fetch(`${QA_BASE}/api/scans/${scanId}/qa/pages?${params}`, {
         credentials: "include",
       });
@@ -201,7 +203,7 @@ function MetaTagsContent({ scanId }: { scanId: number }) {
 
 export default function QAMetaTagsPage() {
   const { data: sites = [], isLoading } = useQASites();
-  const [selectedSiteId, selected, setSite] = useQASelectedSite(sites);
+  const [, selected] = useQASelectedSite(sites);
 
   return (
     <div className="space-y-6">
@@ -210,11 +212,6 @@ export default function QAMetaTagsPage() {
         <p className="text-muted-foreground text-sm mt-1">
           Title, meta description, and H1 for every crawled page. Green = OK, yellow = too short/long, red = missing.
         </p>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground shrink-0">Site:</span>
-        <QASiteSelector value={selectedSiteId} onChange={setSite} sites={sites} loading={isLoading} />
       </div>
 
       {isLoading ? (

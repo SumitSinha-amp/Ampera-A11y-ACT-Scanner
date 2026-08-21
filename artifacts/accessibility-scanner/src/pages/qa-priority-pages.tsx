@@ -15,7 +15,7 @@ import { Download, ExternalLink, Loader2, Star } from "lucide-react";
 import {
   useQASites,
   useQASelectedSite,
-  QASiteSelector,
+  useQAPageGroup,
   QA_BASE,
   QAListToolbar,
   QAPagination,
@@ -41,12 +41,14 @@ function PriorityPagesContent({ scanId }: { scanId: number }) {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(50);
   const [search, setSearch] = useState("");
+  const pageGroupId = useQAPageGroup();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["qa-priority-pages", scanId, page, limit, search],
+    queryKey: ["qa-priority-pages", scanId, page, limit, search, pageGroupId],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (search) params.set("search", search);
+      if (pageGroupId !== null) params.set("page_group", String(pageGroupId));
       const r = await fetch(`${QA_BASE}/api/scans/${scanId}/qa/priority-pages?${params}`, {
         credentials: "include",
       });
@@ -170,7 +172,7 @@ function PriorityPagesContent({ scanId }: { scanId: number }) {
 
 export default function QAPriorityPagesPage() {
   const { data: sites = [], isLoading } = useQASites();
-  const [selectedSiteId, selected, setSite] = useQASelectedSite(sites);
+  const [, selected] = useQASelectedSite(sites);
 
   return (
     <div className="space-y-6">
@@ -179,11 +181,6 @@ export default function QAPriorityPagesPage() {
         <p className="text-muted-foreground text-sm mt-1">
           Pages ranked by inlink count — the more pages link to a page, the higher its priority. Focus accessibility and content fixes here first.
         </p>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground shrink-0">Site:</span>
-        <QASiteSelector value={selectedSiteId} onChange={setSite} sites={sites} loading={isLoading} />
       </div>
 
       {isLoading ? (

@@ -7,7 +7,10 @@
  */
 
 export interface UpdateScanBody {
-  /** @nullable */
+  /**
+   * Descriptive scan title; URL values are rejected.
+   * @nullable
+   */
   name?: string | null;
   /** @nullable */
   projectId?: number | null;

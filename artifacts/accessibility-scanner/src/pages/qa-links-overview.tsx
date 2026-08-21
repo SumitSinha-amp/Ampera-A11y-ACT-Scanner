@@ -23,7 +23,7 @@ import {
 import {
   useQASites,
   useQASelectedSite,
-  QASiteSelector,
+  QAPageShell,
   QA_BASE,
   QA_TABLE_CLASS,
   QA_TABLE_SHELL_CLASS,
@@ -234,22 +234,12 @@ function OverviewContent({ scanId }: { scanId: number }) {
 
 export default function QALinksOverviewPage() {
   const { data: sites = [], isLoading } = useQASites();
-  const [selectedSiteId, selected, setSite] = useQASelectedSite(sites);
+  const [, selected] = useQASelectedSite(sites);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Links overview</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Summary of all links discovered during the crawl, broken down by type and status.
-        </p>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground shrink-0">Site:</span>
-        <QASiteSelector value={selectedSiteId} onChange={setSite} sites={sites} loading={isLoading} />
-      </div>
-
+    <QAPageShell
+      activeTab="redirects"
+    >
       {isLoading ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -267,6 +257,6 @@ export default function QALinksOverviewPage() {
       ) : (
         <OverviewContent scanId={selected.scanId} />
       )}
-    </div>
+    </QAPageShell>
   );
 }

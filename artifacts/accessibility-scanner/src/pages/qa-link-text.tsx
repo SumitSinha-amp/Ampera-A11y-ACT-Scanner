@@ -14,7 +14,6 @@ import { Download, Loader2, Type } from "lucide-react";
 import {
   useQASites,
   useQASelectedSite,
-  QASiteSelector,
   QA_BASE,
   QAListToolbar,
   QAPagination,
@@ -131,7 +130,7 @@ function LinkTextContent({ scanId }: { scanId: number }) {
 
 export default function QALinkTextPage() {
   const { data: sites = [], isLoading } = useQASites();
-  const [selectedSiteId, selected, setSite] = useQASelectedSite(sites);
+  const [, selected] = useQASelectedSite(sites);
 
   return (
     <div className="space-y-6">
@@ -140,11 +139,6 @@ export default function QALinkTextPage() {
         <p className="text-muted-foreground text-sm mt-1">
           Anchor text used across all links, ranked by frequency. Useful for identifying non-descriptive link text like "click here".
         </p>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground shrink-0">Site:</span>
-        <QASiteSelector value={selectedSiteId} onChange={setSite} sites={sites} loading={isLoading} />
       </div>
 
       {isLoading ? (

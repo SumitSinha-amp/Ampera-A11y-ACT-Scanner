@@ -1,31 +1,16 @@
-import { useQASites, useQASelectedSite, QASiteSelector } from "@/pages/qa-shared";
+import { useQASites, useQASelectedSite, QAPageShell } from "@/pages/qa-shared";
 import { RedirectsTab } from "@/pages/scan-qa";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2, ArrowRight } from "lucide-react";
 
 export default function QARedirectsPage() {
   const { data: sites = [], isLoading } = useQASites();
-  const [selectedSiteId, selected, setSite] = useQASelectedSite(sites);
+  const [, selected] = useQASelectedSite(sites);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Redirects</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Links that redirect (3xx responses) discovered during the crawl.
-        </p>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground shrink-0">Site:</span>
-        <QASiteSelector
-          value={selectedSiteId}
-          onChange={setSite}
-          sites={sites}
-          loading={isLoading}
-        />
-      </div>
-
+    <QAPageShell
+      activeTab="redirects"
+    >
       {isLoading ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -43,6 +28,6 @@ export default function QARedirectsPage() {
       ) : (
         <RedirectsTab scanId={selected.scanId} />
       )}
-    </div>
+    </QAPageShell>
   );
 }

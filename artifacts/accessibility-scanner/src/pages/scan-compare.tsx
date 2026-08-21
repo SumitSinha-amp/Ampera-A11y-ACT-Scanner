@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch } from "wouter";
 import { useListScans } from "@workspace/api-client-react";
+import { useSite } from "@/contexts/site";
 import {
   Card, CardContent, CardHeader, CardTitle, CardDescription,
 } from "@/components/ui/card";
@@ -188,7 +189,10 @@ export default function ScanCompare() {
   const [strip2, setStrip2] = useState("");
   const [filterMode, setFilterMode] = useState<"all" | "regression" | "improved" | "unchanged">("all");
 
-  const { data: scans, isLoading: scansLoading } = useListScans();
+  const { activeSite } = useSite();
+  const { data: scans, isLoading: scansLoading } = useListScans(
+    activeSite ? { siteId: activeSite.id } : {},
+  );
 
   const readyToCompare = scan1Id && scan2Id && scan1Id !== scan2Id;
 
@@ -228,7 +232,7 @@ export default function ScanCompare() {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="w-full space-y-6">
       {/* Page header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>

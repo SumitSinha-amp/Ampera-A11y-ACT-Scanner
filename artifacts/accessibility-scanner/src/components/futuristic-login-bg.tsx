@@ -98,7 +98,7 @@ function DotCluster({ cx, cy, fromAngle, toAngle, count }: { cx: number; cy: num
 }
 
 /* ─── Canvas particle network ─────────────────────────────────────── */
-function useParticleNetwork(ref: React.RefObject<HTMLCanvasElement>) {
+function useParticleNetwork(ref: React.RefObject<HTMLCanvasElement | null>) {
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;

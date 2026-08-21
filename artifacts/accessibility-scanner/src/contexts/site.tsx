@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "./auth";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const STORAGE_KEY = "active-site-id";
@@ -49,8 +50,11 @@ function readStoredSiteId(): SiteIdState {
 }
 
 export function SiteProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
   const { data, isLoading } = useQuery<{ sites: MySite[] }>({
-    queryKey: ["my-sites"],
+    queryKey: ["my-sites", user?.id, user?.role],
+    enabled: !!user,
     staleTime: 60_000,
     queryFn: async () => {
       const res = await fetch(`${BASE}/api/sites/my-sites`, { credentials: "include" });
@@ -65,18 +69,18 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (sites.length === 0) return;
-    // User explicitly chose "All sites" — respect it, don't override
-    if (activeSiteIdState === "all") return;
+    // Only Superadmin may keep the global "All sites" selection.
+    if (activeSiteIdState === "all" && isSuperAdmin) return;
     // Valid specific site already selected
     if (typeof activeSiteIdState === "number" && sites.some((s) => s.id === activeSiteIdState)) return;
     // First visit (null) or stored site no longer accessible — auto-select first site
     const first = sites[0];
     setActiveSiteIdState(first.id);
     try { localStorage.setItem(STORAGE_KEY, String(first.id)); } catch {}
-  }, [sites, activeSiteIdState]);
+  }, [sites, activeSiteIdState, isSuperAdmin]);
 
   const activeSite =
-    activeSiteIdState === "all" || activeSiteIdState === null
+    (activeSiteIdState === "all" && isSuperAdmin) || activeSiteIdState === null
       ? null
       : (sites.find((s) => s.id === activeSiteIdState) ?? null);
 
@@ -86,14 +90,14 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
     typeof activeSiteIdState === "number" ? activeSiteIdState : null;
 
   const setActiveSite = useCallback((site: MySite | null) => {
-    if (site === null) {
+    if (site === null && isSuperAdmin) {
       setActiveSiteIdState("all");
       try { localStorage.setItem(STORAGE_KEY, "all"); } catch {}
-    } else {
+    } else if (site) {
       setActiveSiteIdState(site.id);
       try { localStorage.setItem(STORAGE_KEY, String(site.id)); } catch {}
     }
-  }, []);
+  }, [isSuperAdmin]);
 
   return (
     <SiteContext.Provider value={{ sites, activeSite, activeSiteId, setActiveSite, isLoading }}>

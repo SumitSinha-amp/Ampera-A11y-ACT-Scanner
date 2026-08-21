@@ -295,6 +295,14 @@ export interface CrawlerConfig {
     enabled?: boolean;
   }>;
   assetMode?: "all" | "images_only" | "none" | string;
+  /**
+   * Page types excluded from this session's accessibility phase. This is
+   * snapshotted from the site's current Page Groups choices when Phase 2
+   * begins, rather than changing prior scan history when a preference changes.
+   */
+  excludedPageGroups?: string[];
+  /** Marks that Page Group coverage was captured for this Phase 2 run. */
+  pageGroupSelectionCapturedAt?: string;
 }
 
 const TRACKING_PARAMS = new Set([
@@ -981,14 +989,17 @@ async function runScanPhase(
               if (seenHashes.has(hash)) continue;
               seenHashes.add(hash);
               remaining--;
+              const pageType = classifyPageType(norm);
+              const isExcluded = (config.excludedPageGroups ?? []).includes(pageType);
               await db.insert(crawlerPagesTable).values({
                 sessionId,
                 url: norm,
                 urlHash: hash,
-                status: "discovered",
+                status: isExcluded ? "skipped" : "discovered",
                 depth: page.depth + 1,
                 discoveredFrom: page.url,
-                pageType: classifyPageType(norm),
+                pageType,
+                errorMessage: isExcluded ? "Excluded from accessibility scan by Page Group setting" : null,
               }).onConflictDoNothing();
             }
           }
@@ -1551,6 +1562,53 @@ export async function resumeCrawlerJob(sessionId: number): Promise<void> {
 }
 
 // ── Public: start Phase 2 (accessibility scan) manually ───────────────────────
+async function snapshotPageGroupSelection(sessionId: number, config: CrawlerConfig): Promise<CrawlerConfig> {
+  // A retry or resume belongs to the same accessibility run. Never replace the
+  // coverage it already recorded merely because site preferences changed later.
+  if (config.pageGroupSelectionCapturedAt) return config;
+  if (!config.siteId) return config;
+
+  const result = await pool.query<{ page_type: string }>(
+    `SELECT page_type
+     FROM site_page_group_preferences
+     WHERE site_id = $1 AND include_in_scan = FALSE`,
+    [config.siteId],
+  );
+  const excludedPageGroups = result.rows.map((row) => row.page_type);
+  const snapshot = {
+    ...config,
+    excludedPageGroups,
+    pageGroupSelectionCapturedAt: new Date().toISOString(),
+  };
+
+  await db.update(crawlerSessionsTable)
+    .set({ config: snapshot })
+    .where(eq(crawlerSessionsTable.id, sessionId));
+  return snapshot;
+}
+
+async function skipExcludedPageGroups(sessionId: number, config: CrawlerConfig): Promise<void> {
+  const excludedPageGroups = config.excludedPageGroups ?? [];
+  if (excludedPageGroups.length === 0) return;
+
+  const result = await pool.query(
+    `UPDATE crawler_pages
+     SET status = 'skipped',
+         error_message = 'Excluded from accessibility scan by Page Group setting'
+     WHERE session_id = $1
+       AND status IN ('pending', 'discovered')
+       AND COALESCE(page_type, 'General') = ANY($2::text[])`,
+    [sessionId, excludedPageGroups],
+  );
+  if ((result.rowCount ?? 0) > 0) {
+    await updateCrawlerStats(sessionId);
+    logger.info(
+      { sessionId, count: result.rowCount, excludedPageGroups },
+      "Excluded Page Groups from accessibility phase",
+    );
+  }
+}
+
 export async function startScanPhase(sessionId: number): Promise<void> {
   const [session] = await db.select().from(crawlerSessionsTable)
     .where(eq(crawlerSessionsTable.id, sessionId)).limit(1);
@@ -1559,7 +1617,10 @@ export async function startScanPhase(sessionId: number): Promise<void> {
     logger.warn({ sessionId, status: session?.status }, "startScanPhase: session not in 'crawled' state");
     return;
   }
-  const config = session.config as CrawlerConfig;
+  let config = session.config as CrawlerConfig;
+  const hadPageGroupSelection = Boolean(config.pageGroupSelectionCapturedAt);
+  config = await snapshotPageGroupSelection(sessionId, config);
+  await skipExcludedPageGroups(sessionId, config);
 
   // Crawl-only sessions defer creation of the linked accessibility scan until
   // the user explicitly starts Phase 2 from the crawler details page.
@@ -1572,12 +1633,30 @@ export async function startScanPhase(sessionId: number): Promise<void> {
       initiatorRole: config.initiatorRole ?? null,
       status: "running",
       groupId: config.groupId ?? null,
-      options: { crawlerSessionId: sessionId, source: "crawler", crawlBoost: !!config.crawlBoost } as any,
+        options: {
+          crawlerSessionId: sessionId,
+          source: "crawler",
+          crawlBoost: !!config.crawlBoost,
+          excludedPageGroups: config.excludedPageGroups ?? [],
+        } as any,
     }).returning({ id: scanSessionsTable.id });
     scanSessionId = scanSession.id;
     await db.update(crawlerSessionsTable)
       .set({ scanSessionId })
       .where(eq(crawlerSessionsTable.id, sessionId));
+  }
+  else if (!hadPageGroupSelection) {
+    // The auto-scan session is created before discovery. Replace its minimal
+    // options with the final Phase 2 snapshot so reports and retries retain
+    // the exact Page Group coverage that was used.
+    await db.update(scanSessionsTable).set({
+      options: {
+        crawlerSessionId: sessionId,
+        source: "crawler",
+        crawlBoost: !!config.crawlBoost,
+        excludedPageGroups: config.excludedPageGroups ?? [],
+      } as any,
+    }).where(eq(scanSessionsTable.id, scanSessionId));
   }
 
   const prevHashes = new Map<string, string>();

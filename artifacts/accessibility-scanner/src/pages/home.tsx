@@ -16,15 +16,14 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-  CardFooter,
 } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -34,25 +33,26 @@ import {
   Loader2,
   AlertCircle,
   X,
-  Plus,
-  Filter,
   CheckCircle2,
   XCircle,
   Clock,
   BarChart2,
+  Search,
   ChevronDown,
+  ChevronRight,
   Shield,
-  ShieldCheck,
-  ExternalLink,
-  Settings,
   HelpCircle,
   Pause,
   Play,
   Timer,
   CopyCheck,
   RefreshCw,
+  Settings,
+  ShieldCheck,
+  SlidersHorizontal,
+  FileText,
+  ChevronLeft,
 } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
 import {
   getActiveProxy,
   ACTIVE_PROXY_KEY,
@@ -64,6 +64,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getStatusBadge } from "@/lib/status-badge";
 import { isUrlLikeScanName, SCAN_NAME_URL_ERROR } from "@/lib/scan-name";
+import { ScanLevelSelector } from "@/components/ScanLevelSelector";
+import { ALL_SCAN_LEVELS } from "@/lib/scanLevels";
 import { FieldMessage } from "@/components/ui/field-message";
 import { useSite } from "@/contexts/site";
 import { ProjectSelector } from "@/components/project-selector";
@@ -155,7 +157,7 @@ const ALL_RULES: { id: string; label: string }[] = [
     id: "ACT-R31",
     label: "Video with audio is a media alternative for text (WCAG 1.2.1)",
   },
-  { id: "ACT-R32", label: "Target size insufficient (WCAG 2.5.8)" },
+  { id: "ACT-R32", label: "Video visual-only content has an audio-track alternative (best practice)" },
   {
     id: "ACT-R33",
     label: "Media alternative may be insufficient (WCAG 1.2.x)",
@@ -402,127 +404,225 @@ const ALL_RULES: { id: string; label: string }[] = [
 function RuleFilterSelector({
   selectedRules,
   onChange,
+  availableRules = ALL_RULES,
 }: {
   selectedRules: string[];
   onChange: (rules: string[]) => void;
+  availableRules?: { id: string; label: string }[];
 }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
 
-  const filtered = ALL_RULES.filter(
-    (r) =>
-      !selectedRules.includes(r.id) &&
-      (r.id.toLowerCase().includes(query.toLowerCase()) ||
-        r.label.toLowerCase().includes(query.toLowerCase())),
-  );
+  const suggestions = useMemo(() => {
+    if (!query.trim()) return availableRules.filter((r) => !selectedRules.includes(r.id));
+    const q = query.toLowerCase();
+    return availableRules.filter(
+      (r) =>
+        !selectedRules.includes(r.id) &&
+        (r.id.toLowerCase().includes(q) || r.label.toLowerCase().includes(q))
+    );
+  }, [query, selectedRules, availableRules]);
 
   useEffect(() => {
-    function onClickOutside(e: MouseEvent) {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(e.target as Node) &&
-        inputRef.current &&
-        !inputRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
+    const fn = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", fn);
+    return () => document.removeEventListener("mousedown", fn);
   }, []);
 
-  const addRule = (ruleId: string) => {
-    if (!selectedRules.includes(ruleId)) {
-      onChange([...selectedRules, ruleId]);
-    }
+  const add = (id: string) => {
+    if (!selectedRules.includes(id)) onChange([...selectedRules, id]);
     setQuery("");
-    setOpen(false);
+    setHi(-1);
     inputRef.current?.focus();
   };
 
-  const removeRule = (ruleId: string) => {
-    onChange(selectedRules.filter((r) => r !== ruleId));
+  const remove = (id: string) => onChange(selectedRules.filter((x) => x !== id));
+  const clearAll = () => onChange([]);
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); setHi((h) => Math.min(h + 1, suggestions.length - 1)); }
+    if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => Math.max(h - 1, -1)); }
+    if (e.key === "Enter" && hi >= 0 && suggestions[hi]) {
+      e.preventDefault();
+      add(suggestions[hi].id);
+    }
+    if (e.key === "Escape") { setOpen(false); inputRef.current?.blur(); }
+    if (e.key === "Backspace" && !query && selectedRules.length) remove(selectedRules[selectedRules.length - 1]);
+  };
+
+  const highlight = (text: string) => {
+    if (!query.trim()) return <span>{text}</span>;
+    const q = query.toLowerCase();
+    const idx = text.toLowerCase().indexOf(q);
+    if (idx < 0) return <span>{text}</span>;
+    return (
+      <span>
+        {text.slice(0, idx)}
+        <mark className="bg-primary/20 text-primary font-bold rounded-[3px]">{text.slice(idx, idx + query.length)}</mark>
+        {text.slice(idx + query.length)}
+      </span>
+    );
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2 relative">
-        <div className="relative flex-1">
-          <Input
+    <div className="border-2 border-border/60 rounded-xl p-3.5 bg-muted/20">
+      <div className="flex items-center gap-2 mb-1">
+        <Shield className="w-3.5 h-3.5 text-muted-foreground" />
+        <span className="text-[13px] font-semibold text-foreground">Rule Filter</span>
+        <span className="text-[11px] text-muted-foreground">(Optional)</span>
+        {selectedRules.length > 0 && (
+          <>
+            <span className="ml-auto px-2.5 py-0.5 rounded-full bg-primary/10 text-primary text-[11px] font-bold">
+              {selectedRules.length} selected
+            </span>
+            <button
+              type="button"
+              onClick={clearAll}
+              className="px-2 py-0.5 rounded-md border border-border/80 text-muted-foreground text-[11px] hover:bg-muted hover:text-foreground transition-colors"
+            >
+              Clear all
+            </button>
+          </>
+        )}
+      </div>
+      <p className="text-[11px] text-muted-foreground mb-3">
+        Leave empty to run all rules, or search for specific ACT rules to test only those.
+      </p>
+
+      <div ref={wrapRef} className="relative">
+        <div
+          onClick={() => {
+            inputRef.current?.focus();
+            setOpen(true);
+          }}
+          className={`flex flex-wrap gap-1.5 items-center min-h-[38px] p-1.5 rounded-lg border-2 bg-background cursor-text transition-all ${
+            open ? "border-primary ring-4 ring-primary/20" : "border-border/60"
+          }`}
+        >
+          {selectedRules.map((id) => {
+            const rule = ALL_RULES.find((r) => r.id === id);
+            return (
+              <span
+                key={id}
+                className="inline-flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-full bg-primary/10 border border-primary/20 text-[11px] font-mono font-bold text-primary"
+              >
+                {id}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    remove(id);
+                  }}
+                  title={rule?.label}
+                  aria-label={`Remove ${id}`}
+                  className="w-3.5 h-3.5 rounded-full border-none bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </span>
+            );
+          })}
+
+          <input
             ref={inputRef}
-            placeholder="Search rule ID or name (e.g. ACT-R14, contrast)..."
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
               setOpen(true);
+              setHi(-1);
             }}
             onFocus={() => setOpen(true)}
-            className="pr-8"
+            onKeyDown={onKey}
+            role="combobox"
+            aria-label="Search accessibility rules"
+            aria-expanded={open}
+            aria-controls="rule-filter-options"
+            aria-activedescendant={
+              hi >= 0 && suggestions[hi]
+                ? `rule-filter-option-${suggestions[hi].id}`
+                : undefined
+            }
+            placeholder={
+              selectedRules.length === 0 ? "Search rules by ID or keyword…" : "Add another rule…"
+            }
+            className="flex-1 min-w-[180px] h-6 border-none outline-none text-xs text-foreground bg-transparent px-1"
           />
-          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+
+          <Search className="w-3.5 h-3.5 text-muted-foreground mx-2 shrink-0" />
         </div>
+
+        {open && (
+          <div
+            ref={listRef}
+            id="rule-filter-options"
+            role="listbox"
+            aria-label="Available accessibility rules"
+            className="absolute top-[calc(100%+6px)] left-0 right-0 z-50 bg-popover rounded-xl border border-border shadow-[0_10px_36px_rgba(0,0,0,0.13)] max-h-60 overflow-y-auto animate-in fade-in slide-in-from-top-2"
+          >
+            {suggestions.length === 0 ? (
+              <div className="p-3 text-xs text-muted-foreground text-center">
+                {availableRules.length === selectedRules.length ? "All rules selected" : "No matching rules"}
+              </div>
+            ) : (
+              <>
+                {query.trim() === "" && (
+                  <div className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+                    {availableRules.length < ALL_RULES.length
+                      ? `Filtered rules — ${suggestions.length} in scope`
+                      : `All rules — ${suggestions.length} available`}
+                  </div>
+                )}
+                {suggestions.map((rule, i) => (
+                  <div
+                    key={rule.id}
+                    id={`rule-filter-option-${rule.id}`}
+                    role="option"
+                    aria-selected={hi === i}
+                    onClick={() => add(rule.id)}
+                    onMouseEnter={() => setHi(i)}
+                    className={`px-3 py-2 cursor-pointer flex items-center gap-3 border-l-[3px] transition-colors ${
+                      hi === i
+                        ? "bg-primary/5 border-primary"
+                        : "border-transparent hover:bg-muted/50"
+                    }`}
+                  >
+                    <span
+                      className={`font-mono text-xs font-bold min-w-[68px] ${
+                        hi === i ? "text-primary" : "text-foreground"
+                      }`}
+                    >
+                      {highlight(rule.id)}
+                    </span>
+                    <span className="text-xs text-muted-foreground flex-1 truncate">
+                      {highlight(rule.label)}
+                    </span>
+                    {hi === i && (
+                      <kbd className="text-[10px] text-muted-foreground bg-muted border border-border rounded px-1.5 py-0.5">
+                        ↵
+                      </kbd>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
-      {open && filtered.length > 0 && (
-        <div
-          ref={dropdownRef}
-          className="border rounded-md bg-background shadow-md max-h-52 overflow-y-auto z-50 relative"
-        >
-          {filtered.slice(0, 20).map((rule) => (
-            <button
-              key={rule.id}
-              type="button"
-              className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-muted text-left"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                addRule(rule.id);
-              }}
-            >
-              <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded text-primary shrink-0">
-                {rule.id}
-              </span>
-              <span className="text-muted-foreground">{rule.label}</span>
-              <Plus className="w-3.5 h-3.5 ml-auto text-muted-foreground shrink-0" />
-            </button>
-          ))}
-        </div>
-      )}
-
       {selectedRules.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {selectedRules.map((ruleId) => {
-            const rule = ALL_RULES.find((r) => r.id === ruleId);
-            return (
-              <Badge
-                key={ruleId}
-                variant="secondary"
-                className="flex items-center gap-1.5 pl-2 pr-1 py-1 text-sm"
-              >
-                <span className="font-mono text-xs">{ruleId}</span>
-                {rule && (
-                  <span className="text-muted-foreground text-xs hidden sm:inline">
-                    — {rule.label}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => removeRule(ruleId)}
-                  className="rounded-sm hover:bg-muted-foreground/20 p-0.5 ml-1"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </Badge>
-            );
-          })}
-          <button
-            type="button"
-            className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-            onClick={() => onChange([])}
-          >
-            Clear all
-          </button>
+        <div className="mt-3 p-2.5 rounded-lg bg-primary/5 border border-primary/10">
+          <p className="m-0 mb-1 text-[11px] font-semibold text-muted-foreground">
+            Scanning only these {selectedRules.length} rule{selectedRules.length !== 1 ? "s" : ""}:
+          </p>
+          <p className="m-0 text-[11px] font-mono text-primary leading-relaxed break-words">
+            {selectedRules.join(" · ")}
+          </p>
         </div>
       )}
     </div>
@@ -726,9 +826,9 @@ function InlineScanMonitor({
     .slice(0, 10);
 
   return (
-    <Card className="border-primary/30">
+    <Card className="relative overflow-hidden rounded-2xl border-primary/20 bg-card/75 shadow-[0_12px_40px_rgba(109,72,199,0.10)] backdrop-blur-xl">
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <CardTitle className="text-base">
               {scan.name || `Scan #${scan.id}`}
@@ -782,7 +882,8 @@ function InlineScanMonitor({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        <div>
+         <div className="relative overflow-hidden rounded-2xl border border-primary/15 bg-card/45 px-5 py-5 shadow-sm backdrop-blur-xl sm:px-6">
+        <div className="relative">
           <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
             <span>
               {scannedUrls} of {totalUrls} URLs
@@ -1071,6 +1172,7 @@ function InlineScanMonitor({
               })()}
           </div>
         )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -1114,6 +1216,29 @@ export default function Home() {
 
   const [scanNameError, setScanNameError] = useState<string | null>(null);
   const [selectedRules, setSelectedRules] = useState<string[]>([]);
+  const [selectedLevels, setSelectedLevels] = useState<string[]>([...ALL_SCAN_LEVELS]);
+
+  // Rules visible in the filter dropdown — restricted to the selected level scope.
+  // "WAI-ARIA" in the UI covers "WAI-ARIA" and "ARIA APG" entries in actRules.
+  const allLevelsActive = ALL_SCAN_LEVELS.every((l) => selectedLevels.includes(l));
+  const availableRules = useMemo(() => {
+    if (allLevelsActive) return ALL_RULES;
+    const uiLevelSet = new Set(selectedLevels);
+    if (uiLevelSet.has("WAI-ARIA")) uiLevelSet.add("ARIA APG");
+    return ALL_RULES.filter((r) => {
+      const wcagLevel = ACT_RULES[r.id]?.wcagLevel;
+      if (!wcagLevel || wcagLevel.length === 0) return true; // no level metadata → always show
+      return wcagLevel.some((l) => uiLevelSet.has(l));
+    });
+  }, [selectedLevels, allLevelsActive]);
+
+  // Drop any individually selected rules that fall outside the new level scope.
+  useEffect(() => {
+    if (allLevelsActive) return;
+    const inScope = new Set(availableRules.map((r) => r.id));
+    const pruned = selectedRules.filter((id) => inScope.has(id));
+    if (pruned.length !== selectedRules.length) setSelectedRules(pruned);
+  }, [availableRules]); // eslint-disable-line react-hooks/exhaustive-deps
   const [activeScanId, setActiveScanId] = useState<number | null>(null);
 
   const [manualUrls, setManualUrls] = useState("");
@@ -1491,6 +1616,10 @@ export default function Home() {
             ...(resolvedProxy ? { proxyPacUrl: resolvedProxy } : {}),
             ...(disableJavascript ? { disableJavascript: true } : {}),
             ...(incremental ? { incremental: true } : {}),
+            // Level filter — omit when all levels selected (backend default = no filter)
+            ...(!ALL_SCAN_LEVELS.every((l) => selectedLevels.includes(l))
+              ? { wcagLevels: selectedLevels }
+              : {}),
           },
           initiatorName: initiatorName.trim() || undefined,
           initiatorRole: initiatorRole || undefined,
@@ -1533,565 +1662,825 @@ export default function Home() {
     // Proxy settings intentionally kept so user can re-scan the same environment
   };
 
+  const [activeTab, setActiveTab] = useState<"manual" | "sitemap" | "csv">("manual");
+
+  const SCAN_WIZARD_TABS = ["target", "scope", "settings", "details"] as const;
+  type ScanWizardTab = (typeof SCAN_WIZARD_TABS)[number];
+  const SCAN_WIZARD_LABELS: Record<ScanWizardTab, string> = {
+    target: "Target URLs",
+    scope: "Accessibility Scope",
+    settings: "Scan Settings",
+    details: "Scan Details",
+  };
+  const [wizardStep, setWizardStep] = useState<ScanWizardTab>("target");
+  const wizardStepIndex = SCAN_WIZARD_TABS.indexOf(wizardStep);
+  const goNext = () => setWizardStep(SCAN_WIZARD_TABS[Math.min(wizardStepIndex + 1, SCAN_WIZARD_TABS.length - 1)]);
+  const goPrev = () => setWizardStep(SCAN_WIZARD_TABS[Math.max(wizardStepIndex - 1, 0)]);
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">
-          New Accessibility Scan
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          Configure a new scan by providing URLs manually, uploading a CSV, or
-          using a sitemap.xml.
-        </p>
+      {/* ── Page header ── */}
+      <div className="relative">
+        <div className="relative z-10">
+          <h1 className="text-[24px] font-extrabold text-foreground tracking-[-0.3px]">
+            New Accessibility Scan
+          </h1>
+          <p className="mt-1.5 max-w-3xl text-[13px] leading-5 text-muted-foreground">
+            Configure a new scan by providing URLs manually, uploading a CSV, or using a sitemap.xml.
+          </p>
+        </div>
       </div>
 
       {activeScanId ? (
         <InlineScanMonitor scanId={activeScanId} onNewScan={handleNewScan} />
       ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Scan Configuration</CardTitle>
-            <CardDescription>
-              Set a title and provide the URLs to be audited.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2 md:items-start">
-              <div className="space-y-2">
-                <Label>
-                  Project <span className="text-destructive">*</span>
-                </Label>
-                <ProjectSelector
-                  value={projectId}
-                  onChange={(nextProjectId) => {
-                    setProjectId(nextProjectId);
-                    setProjectError(nextProjectId == null ? "Project is required." : null);
-                  }}
-                  siteId={activeSite?.id ?? null}
-                  required
-                  error={Boolean(projectError)}
-                />
-                {projectError && (
-                  <FieldMessage tone="error">{projectError}</FieldMessage>
-                )}
-                <FieldMessage tone="info">
-                  {activeSite
-                    ? "Select an existing project or add a new one under this site."
-                    : "Select a site first, then select or add a project under it."}
-                </FieldMessage>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="scanName">
-                  Scan Title <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="scanName"
-                  placeholder="e.g., Marketing Site Audit Q3"
-                  value={scanName}
-                  onChange={(e) => {
-                    setScanName(e.target.value);
-                    if (e.target.value.trim() && !isUrlLikeScanName(e.target.value)) {
-                      setScanNameError(null);
-                    } else if (isUrlLikeScanName(e.target.value)) {
-                      setScanNameError(SCAN_NAME_URL_ERROR);
-                    }
-                  }}
-                  className={
-                    scanNameError
-                      ? "border-destructive ring-1 ring-destructive"
-                      : ""
-                  }
-                  aria-invalid={Boolean(scanNameError)}
-                  aria-describedby={scanNameError ? "manual-scan-name-error" : undefined}
-                />
-                {scanNameError && (
-                  <FieldMessage id="manual-scan-name-error" tone="error">
-                    {scanNameError}
-                  </FieldMessage>
-                )}
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="initiatorName">Scan Initiator</Label>
-                <Input
-                  id="initiatorName"
-                  value={initiatorName}
-                  readOnly
-                  disabled
-                  className="bg-muted cursor-not-allowed"
-                  title="Automatically set to your account"
-                />
-                <FieldMessage tone="info">
-                  Locked to your account
-                </FieldMessage>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="groupId">Group</Label>
-                <select
-                  id="groupId"
-                  value={groupId ?? ""}
-                  onChange={(e) => {
-                    const id = e.target.value ? Number(e.target.value) : null;
-                    setGroupId(id);
-                    const g = myGroups.find((g) => g.id === id);
-                    setInitiatorRole(g ? g.name : "");
-                  }}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">No group</option>
-                  {myGroups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-muted-foreground">
-                  Group is used as the scan role
+        <div className="space-y-4">
+          {/* ── Hero strip ── */}
+          <div className="relative overflow-hidden rounded-2xl border border-border/70 bg-card/75 px-6 py-4 shadow-[0_4px_16px_rgba(23,43,77,0.07)] backdrop-blur-xl lg:px-8">
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-teal-500/10 text-teal-600 dark:text-teal-400">
+                <Play className="h-4 w-4 fill-current" />
+              </span>
+              <div>
+                <p className="text-[14px] font-bold text-foreground">Manual Scan</p>
+                <p className="text-[12px] text-muted-foreground">
+                  Step {wizardStepIndex + 1} of {SCAN_WIZARD_TABS.length} —{" "}
+                  {SCAN_WIZARD_LABELS[wizardStep]}
                 </p>
               </div>
+              <div className="ml-auto hidden items-center gap-1 sm:flex">
+                {SCAN_WIZARD_TABS.map((tab, i) => (
+                  <div
+                    key={tab}
+                    className={`h-1.5 rounded-full transition-all ${
+                      i < wizardStepIndex
+                        ? "w-6 bg-teal-500"
+                        : i === wizardStepIndex
+                          ? "w-8 bg-primary"
+                          : "w-4 bg-border"
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Step wizard ── */}
+          <Tabs
+            value={wizardStep}
+            onValueChange={(v) => setWizardStep(v as ScanWizardTab)}
+          >
+            <div className="overflow-x-auto pb-1">
+              <TabsList className="grid min-w-[480px] w-full grid-cols-4 rounded-xl border border-border/50 bg-muted/50 p-1 h-auto gap-0.5">
+                {SCAN_WIZARD_TABS.map((tab, i) => {
+                  const icons: Record<typeof tab, React.ReactNode> = {
+                    target: <Globe className="w-3.5 h-3.5" />,
+                    scope: <Shield className="w-3.5 h-3.5" />,
+                    settings: <Settings className="w-3.5 h-3.5" />,
+                    details: <FileText className="w-3.5 h-3.5" />,
+                  };
+                  return (
+                    <TabsTrigger
+                      key={tab}
+                      value={tab}
+                      className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-foreground text-muted-foreground"
+                    >
+                      <span
+                        className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold shrink-0 ${
+                          i < wizardStepIndex
+                            ? "bg-teal-500 text-white"
+                            : i === wizardStepIndex
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted-foreground/20 text-muted-foreground"
+                        }`}
+                      >
+                        {i < wizardStepIndex ? "✓" : i + 1}
+                      </span>
+                      <span className="hidden sm:inline">{SCAN_WIZARD_LABELS[tab]}</span>
+                      <span className="sm:hidden">{icons[tab]}</span>
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
             </div>
 
-            <div className="space-y-2">
-              <Label>URL Input Method</Label>
-              <Tabs defaultValue="manual" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="manual">
-                    <LinkIcon className="w-4 h-4 mr-2" /> Manual Entry
-                  </TabsTrigger>
-                  <TabsTrigger value="sitemap">
-                    <Globe className="w-4 h-4 mr-2" /> Sitemap
-                  </TabsTrigger>
-                  <TabsTrigger value="csv">
-                    <UploadCloud className="w-4 h-4 mr-2" /> CSV Upload
-                  </TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="manual" className="mt-4">
-                  <div className="space-y-3">
-                    <div className="flex items-end gap-2">
-                      <div className="flex-1 space-y-2">
-                        <Label>URL Rewrite</Label>
-                        <Input
-                          placeholder="stg.example.com"
-                          value={urlPrefix}
-                          onChange={(e) =>
-                            handleUrlPrefixChange(e.target.value)
-                          }
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Replace the host before the domain. Example:{" "}
-                          <span className="font-mono">
-                            https://www.example.com/path
-                          </span>{" "}
-                          →{" "}
-                          <span className="font-mono">
-                            https://stg.example.com/path
-                          </span>
-                          .
-                        </p>
-                      </div>
+            {/* ── Step 1: Target ── */}
+            <TabsContent value="target" className="mt-4">
+              <Card className="rounded-2xl border border-border/70 bg-card/75 shadow-[0_4px_16px_rgba(23,43,77,0.06)]">
+                <CardHeader className="px-6 pb-3 pt-6 lg:px-8">
+                  <CardTitle className="flex items-center gap-2 text-[14px] font-bold">
+                    <Globe className="h-4 w-4 text-primary" />
+                    URLs to Scan
+                  </CardTitle>
+                  <CardDescription className="text-[12px]">
+                    Enter URLs manually, fetch from a sitemap, or upload a CSV file.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5 px-6 pb-8 lg:px-8">
+                  {/* URL Input Method */}
+                  <div className="space-y-3.5">
+                    <Label className="text-xs font-semibold text-foreground">URL Input Method</Label>
+                    <div
+                      className="flex max-w-full gap-1 overflow-x-auto rounded-xl border border-border/40 bg-muted/50 p-1"
+                      aria-label="Choose a URL input method"
+                    >
+                      {(
+                        [
+                          { id: "manual", label: "Manual Entry", icon: LinkIcon },
+                          { id: "sitemap", label: "Sitemap", icon: Globe },
+                          { id: "csv", label: "CSV Upload", icon: UploadCloud },
+                        ] as const
+                      ).map((t) => {
+                        const active = activeTab === t.id;
+                        const Icon = t.icon;
+                        return (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => setActiveTab(t.id)}
+                            aria-pressed={active}
+                            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                              active
+                                ? "bg-background text-foreground shadow-[0_1px_4px_rgba(0,0,0,0.08)]"
+                                : "text-muted-foreground hover:text-foreground hover:bg-muted/80"
+                            }`}
+                          >
+                            <Icon className="w-3.5 h-3.5" />
+                            {t.label}
+                          </button>
+                        );
+                      })}
                     </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Label>URLs (one per line)</Label>
-                        {urlFixCount > 0 && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-700">
-                            ✓ {urlFixCount} URL{urlFixCount !== 1 ? "s" : ""}{" "}
-                            auto-corrected
-                          </span>
+
+                    {activeTab === "manual" && (
+                      <div className="space-y-3 animate-in fade-in slide-in-from-top-1">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-semibold text-foreground">URL Rewrite</Label>
+                          <Input
+                            placeholder="stg.example.com"
+                            value={urlPrefix}
+                            onChange={(e) => handleUrlPrefixChange(e.target.value)}
+                            className="h-9 rounded-lg border-2 border-border/60"
+                          />
+                          <p className="text-[11px] text-muted-foreground mt-1">
+                            Replace the host before the domain. Example:{" "}
+                            <code className="bg-muted px-1.5 py-0.5 rounded text-foreground font-mono">
+                              https://www.example.com/path
+                            </code>{" "}
+                            →{" "}
+                            <code className="bg-muted px-1.5 py-0.5 rounded text-foreground font-mono">
+                              https://stg.example.com/path
+                            </code>
+                            .
+                          </p>
+                        </div>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs font-semibold text-foreground flex items-center gap-2">
+                              URLs (one per line)
+                              {urlFixCount > 0 && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-700/60">
+                                  ✓ {urlFixCount} URL{urlFixCount !== 1 ? "s" : ""} auto-corrected
+                                </span>
+                              )}
+                            </Label>
+                            {urlLimitOn && (
+                              <span
+                                className={`text-[11px] font-mono font-medium ${
+                                  parsedUrls.length >= urlLimit ? "text-destructive" : "text-muted-foreground"
+                                }`}
+                              >
+                                {parsedUrls.length} / {urlLimit}
+                              </span>
+                            )}
+                          </div>
+                          <Textarea
+                            placeholder={"https://example.com\nhttps://example.com/about"}
+                            className={`min-h-[160px] font-mono text-xs leading-[1.7] rounded-xl border-2 p-3 ${
+                              urlLimitOn && parsedUrls.length >= urlLimit
+                                ? "border-destructive focus-visible:ring-destructive"
+                                : "border-border/60"
+                            }`}
+                            value={manualUrls}
+                            onChange={handleManualUrlsChange}
+                          />
+                          {urlLimitOn && parsedUrls.length >= urlLimit && (
+                            <p className="text-[11px] text-destructive flex items-center gap-1.5 font-medium mt-1">
+                              <AlertCircle className="w-3.5 h-3.5" />
+                              URL limit of {urlLimit} reached. Go to Settings to increase it.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {activeTab === "sitemap" && (
+                      <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1">
+                        <Label className="text-xs font-semibold text-foreground">Sitemap URL</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="https://example.com/sitemap.xml"
+                            value={sitemapUrl}
+                            onChange={(e) => setSitemapUrl(e.target.value)}
+                            className="h-9 rounded-lg border-2 border-border/60"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleParseSitemap}
+                            disabled={!sitemapUrl || parseSitemap.isPending}
+                            className="h-9 rounded-lg px-4 border-2 font-bold whitespace-nowrap"
+                          >
+                            {parseSitemap.isPending && <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />}
+                            Fetch URLs
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {activeTab === "csv" && (
+                      <div
+                        className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors mt-2 animate-in fade-in slide-in-from-top-1 ${
+                          isDragging
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:border-primary/50 bg-muted/10 hover:bg-muted/30"
+                        }`}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setIsDragging(true);
+                        }}
+                        onDragLeave={() => setIsDragging(false)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setIsDragging(false);
+                          const file = e.dataTransfer.files[0];
+                          if (file) handleFileUpload(file);
+                        }}
+                        onClick={() => document.getElementById("csv-upload")?.click()}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            document.getElementById("csv-upload")?.click();
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        aria-label="Upload a CSV file containing URLs"
+                      >
+                        <input
+                          id="csv-upload"
+                          type="file"
+                          accept=".csv"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleFileUpload(file);
+                          }}
+                        />
+                        <UploadCloud className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+                        <p className="text-sm font-bold text-foreground m-0">Drop your CSV file here</p>
+                        <p className="text-xs text-muted-foreground mt-1">or click to browse</p>
+                        {isUploading && (
+                          <p className="text-xs text-primary mt-4 flex items-center justify-center font-medium">
+                            <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Uploading...
+                          </p>
                         )}
                       </div>
-                      {urlLimitOn && (
-                        <span
-                          className={`text-xs font-medium tabular-nums ${parsedUrls.length >= urlLimit ? "text-destructive" : "text-muted-foreground"}`}
-                        >
-                          {parsedUrls.length} / {urlLimit} URLs
+                    )}
+                  </div>
+
+                  {parsedUrls.length > 0 && (
+                    <Alert className="bg-muted border-muted-foreground/20">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle className="flex items-center gap-2">
+                        Ready to scan {parsedUrls.length} URL
+                        {parsedUrls.length !== 1 ? "s" : ""}
+                        <span className="ml-1 text-xs font-mono px-1.5 py-0.5 rounded bg-muted-foreground/15 text-muted-foreground">
+                          {parsedUrls.length}
                         </span>
-                      )}
-                    </div>
-                    <Textarea
-                      placeholder={
-                        "https://example.com\nhttps://example.com/about"
-                      }
-                      className={`min-h-[160px] font-mono text-sm ${urlLimitOn && parsedUrls.length >= urlLimit ? "border-destructive focus-visible:ring-destructive" : ""}`}
-                      value={manualUrls}
-                      onChange={handleManualUrlsChange}
-                    />
-                    {urlLimitOn && parsedUrls.length >= urlLimit && (
-                      <p className="text-xs text-destructive flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3 shrink-0" />
-                        URL limit of {urlLimit} reached. Go to Settings to
-                        increase it.
-                      </p>
-                    )}
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="sitemap" className="mt-4">
-                  <div className="space-y-2">
-                    <Label>Sitemap URL</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="https://example.com/sitemap.xml"
-                        value={sitemapUrl}
-                        onChange={(e) => setSitemapUrl(e.target.value)}
-                      />
-                      <Button
-                        variant="secondary"
-                        onClick={handleParseSitemap}
-                        disabled={!sitemapUrl || parseSitemap.isPending}
-                      >
-                        {parseSitemap.isPending ? (
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        ) : null}
-                        Fetch URLs
-                      </Button>
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="csv" className="mt-4">
-                  <div
-                    className={`border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors ${
-                      isDragging
-                        ? "border-primary bg-primary/5"
-                        : "border-muted-foreground/25 hover:border-primary/50"
-                    }`}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setIsDragging(true);
-                    }}
-                    onDragLeave={() => setIsDragging(false)}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      setIsDragging(false);
-                      const file = e.dataTransfer.files[0];
-                      if (file) handleFileUpload(file);
-                    }}
-                    onClick={() =>
-                      document.getElementById("csv-upload")?.click()
-                    }
-                  >
-                    <input
-                      id="csv-upload"
-                      type="file"
-                      accept=".csv"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleFileUpload(file);
-                      }}
-                    />
-                    <UploadCloud className="w-10 h-10 text-muted-foreground mx-auto mb-4" />
-                    <h3 className="font-semibold text-lg">
-                      Drop your CSV file here
-                    </h3>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      or click to browse
-                    </p>
-                    {isUploading && (
-                      <p className="text-sm text-primary mt-4 flex items-center justify-center">
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />{" "}
-                        Uploading...
-                      </p>
-                    )}
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </div>
-
-            {/* Duplicate URL review dialog */}
-            <Dialog open={dupDialogOpen} onOpenChange={setDupDialogOpen}>
-              <DialogContent className="sm:max-w-xl max-h-[80vh] flex flex-col">
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2">
-                    <CopyCheck className="w-5 h-5 text-amber-500" />
-                    Duplicate URLs Found
-                  </DialogTitle>
-                  <DialogDescription>
-                    {duplicateMap.size} URL
-                    {duplicateMap.size !== 1 ? "s appear" : " appears"} more
-                    than once ({totalDuplicateRows} extra entr
-                    {totalDuplicateRows !== 1 ? "ies" : "y"}). Removing
-                    duplicates will keep only the first occurrence of each URL.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="overflow-y-auto flex-1 border rounded-md">
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 bg-muted border-b">
-                      <tr>
-                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">
-                          #
-                        </th>
-                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">
-                          URL
-                        </th>
-                        <th className="text-right px-3 py-2 font-medium text-muted-foreground">
-                          Count
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Array.from(duplicateMap.entries()).map(
-                        ([url, count], i) => (
-                          <tr
-                            key={url}
-                            className={
-                              i % 2 === 0 ? "bg-background" : "bg-muted/30"
-                            }
+                        {duplicateMap.size > 0 && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="ml-auto h-7 px-2 text-xs border-amber-400 text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-900/20"
+                            onClick={() => setDupDialogOpen(true)}
                           >
-                            <td className="px-3 py-2 text-muted-foreground tabular-nums">
-                              {i + 1}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-xs break-all">
+                            <CopyCheck className="w-3.5 h-3.5 mr-1.5" />
+                            {duplicateMap.size} duplicate
+                            {duplicateMap.size !== 1 ? "s" : ""} found
+                          </Button>
+                        )}
+                      </AlertTitle>
+                      <AlertDescription>
+                        <div className="mt-2 text-xs font-mono max-h-24 overflow-y-auto space-y-1 text-muted-foreground">
+                          {parsedUrls.slice(0, 8).map((url, i) => (
+                            <div key={i} className="truncate">
                               {url}
-                            </td>
-                            <td className="px-3 py-2 text-right">
-                              <span className="inline-flex items-center justify-center rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 font-bold text-xs px-2 py-0.5 min-w-[2rem]">
-                                ×{count}
-                              </span>
-                            </td>
-                          </tr>
-                        ),
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                <DialogFooter className="mt-4 gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => setDupDialogOpen(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={handleRemoveDuplicates}
-                    className="bg-amber-600 hover:bg-amber-700 text-white"
-                  >
-                    <X className="w-4 h-4 mr-2" />
-                    Remove {totalDuplicateRows} Duplicate
-                    {totalDuplicateRows !== 1 ? "s" : ""}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-
-            {parsedUrls.length > 0 && (
-              <Alert className="bg-muted border-muted-foreground/20">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle className="flex items-center gap-2">
-                  Ready to scan {parsedUrls.length} URL
-                  {parsedUrls.length !== 1 ? "s" : ""}
-                  <span className="ml-1 text-xs font-mono px-1.5 py-0.5 rounded bg-muted-foreground/15 text-muted-foreground">
-                    {parsedUrls.length}
-                  </span>
-                  {duplicateMap.size > 0 && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="ml-auto h-7 px-2 text-xs border-amber-400 text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-900/20"
-                      onClick={() => setDupDialogOpen(true)}
-                    >
-                      <CopyCheck className="w-3.5 h-3.5 mr-1.5" />
-                      {duplicateMap.size} duplicate
-                      {duplicateMap.size !== 1 ? "s" : ""} found
-                    </Button>
+                            </div>
+                          ))}
+                          {parsedUrls.length > 8 && (
+                            <div className="italic text-primary">
+                              ...and {parsedUrls.length - 8} more
+                            </div>
+                          )}
+                        </div>
+                      </AlertDescription>
+                    </Alert>
                   )}
-                </AlertTitle>
-                <AlertDescription>
-                  <div className="mt-2 text-xs font-mono max-h-24 overflow-y-auto space-y-1 text-muted-foreground">
-                    {parsedUrls.slice(0, 8).map((url, i) => (
-                      <div key={i} className="truncate">
-                        {url}
-                      </div>
-                    ))}
-                    {parsedUrls.length > 8 && (
-                      <div className="italic text-primary">
-                        ...and {parsedUrls.length - 8} more
-                      </div>
-                    )}
-                  </div>
-                </AlertDescription>
-              </Alert>
-            )}
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-            {/* Rule filter section */}
-            <div className="space-y-3 border rounded-lg p-4 bg-muted/20">
-              <div className="flex items-center gap-2">
-                <Filter className="w-4 h-4 text-muted-foreground" />
-                <Label className="text-sm font-medium">
-                  Rule Filter (Optional)
-                </Label>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Link
-                      href="/documentation"
-                      className="inline-flex items-center text-muted-foreground hover:text-foreground"
+            {/* ── Step 2: Scope ── */}
+            <TabsContent value="scope" className="mt-4 space-y-4">
+              <Card className="rounded-2xl border border-border/70 bg-card/75 shadow-[0_4px_16px_rgba(23,43,77,0.06)]">
+                <CardHeader className="px-6 pb-3 pt-6 lg:px-8">
+                  <CardTitle className="flex items-center gap-2 text-[14px] font-bold">
+                    <Shield className="h-4 w-4 text-primary" />
+                    WCAG Levels
+                  </CardTitle>
+                  <CardDescription className="text-[12px]">
+                    Restrict the scan to specific conformance levels or rule categories.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="px-6 pb-8 lg:px-8">
+                  <ScanLevelSelector
+                    value={selectedLevels}
+                    onChange={setSelectedLevels}
+                    variant="card"
+                  />
+                </CardContent>
+              </Card>
+
+              <Card className="rounded-2xl border border-border/70 bg-card/75 shadow-[0_4px_16px_rgba(23,43,77,0.06)]">
+                <CardHeader className="px-6 pb-3 pt-6 lg:px-8">
+                  <CardTitle className="flex items-center gap-2 text-[14px] font-bold">
+                    <SlidersHorizontal className="h-4 w-4 text-primary" />
+                    Rule Filter
+                  </CardTitle>
+                  <CardDescription className="text-[12px]">
+                    Optionally pick individual rules to run within the selected levels.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="px-6 pb-8 lg:px-8">
+                  <RuleFilterSelector
+                    selectedRules={selectedRules}
+                    onChange={setSelectedRules}
+                    availableRules={availableRules}
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* ── Step 3: Settings ── */}
+            <TabsContent value="settings" className="mt-4">
+              <Card className="rounded-2xl border border-border/70 bg-card/75 shadow-[0_4px_16px_rgba(23,43,77,0.06)]">
+                <CardHeader className="px-6 pb-3 pt-6 lg:px-8">
+                  <CardTitle className="flex items-center gap-2 text-[14px] font-bold">
+                    <Settings className="h-4 w-4 text-primary" />
+                    Scan Options
+                  </CardTitle>
+                  <CardDescription className="text-[12px]">
+                    Control JavaScript, incremental mode, and proxy settings.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3 px-6 pb-8 lg:px-8">
+                  {/* JS Disable (Permission-gated) */}
+                  {user?.permissions?.canDisableJs && (
+                    <div
+                      className={`border-2 rounded-xl p-3 transition-colors ${
+                        disableJavascript
+                          ? "bg-amber-50/50 border-amber-300 dark:bg-amber-950/20 dark:border-amber-800"
+                          : "bg-muted/20 border-border/60"
+                      }`}
                     >
-                      <HelpCircle className="w-4 h-4" />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    Open documentation for all SI rule references.
-                  </TooltipContent>
-                </Tooltip>
-                {selectedRules.length > 0 && (
-                  <Badge variant="secondary" className="text-xs ml-auto">
-                    {selectedRules.length} rule
-                    {selectedRules.length !== 1 ? "s" : ""} selected
-                  </Badge>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Leave empty to run all rules, or select specific rules to test
-                only those.
-              </p>
-              <RuleFilterSelector
-                selectedRules={selectedRules}
-                onChange={setSelectedRules}
-              />
-            </div>
-
-            {/* JS-disable toggle — shown only when user has canDisableJs permission */}
-            {user?.permissions?.canDisableJs && (
-              <div
-                className={`border rounded-lg p-4 transition-colors ${disableJavascript ? "bg-amber-50/50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800" : "bg-muted/20"}`}
-              >
-                <div className="flex items-center gap-3">
-                  <Shield
-                    className={`w-4 h-4 shrink-0 ${disableJavascript ? "text-amber-600" : "text-muted-foreground"}`}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <Label className="text-sm font-medium">
-                      Disable JavaScript
-                    </Label>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Scan pages with JS turned off — useful for static content
-                      audits and catching server-rendered issues.
-                    </p>
-                  </div>
-                  <Switch
-                    checked={disableJavascript}
-                    onCheckedChange={setDisableJavascript}
-                    aria-label="Disable JavaScript for scan"
-                  />
-                </div>
-                {disableJavascript && (
-                  <div className="mt-3 pt-3 border-t border-amber-200/50 dark:border-amber-800/50 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    <span>
-                      JS disabled — dynamic content, SPAs and client-rendered
-                      pages may appear as empty or incomplete.
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Incremental scan toggle */}
-            <div
-              className={`border rounded-lg p-4 transition-colors ${incremental ? "bg-teal-50/50 border-teal-200 dark:bg-teal-950/20 dark:border-teal-800" : "bg-muted/20"}`}
-            >
-              <div className="flex items-center gap-3">
-                <RefreshCw
-                  className={`w-4 h-4 shrink-0 ${incremental ? "text-teal-600" : "text-muted-foreground"}`}
-                />
-                <div className="flex-1 min-w-0">
-                  <Label className="text-sm font-medium">
-                    Incremental scan
-                  </Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Skip pages whose content hasn't changed since the last
-                    completed scan — previous results are carried forward,
-                    making repeat scans much faster.
-                  </p>
-                </div>
-                <Switch
-                  checked={incremental}
-                  onCheckedChange={setIncremental}
-                  aria-label="Enable incremental scan"
-                />
-              </div>
-            </div>
-
-            {/* Proxy section — proxy URL managed in Settings → Proxy & Tools */}
-            <div
-              className={`border rounded-lg p-4 transition-colors ${proxyEnabled ? "bg-blue-50/50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-800" : "bg-muted/20"}`}
-            >
-              <div className="flex items-center gap-3">
-                {proxyEnabled ? (
-                  <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
-                ) : (
-                  <Shield className="w-4 h-4 text-muted-foreground shrink-0" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <Label className="text-sm font-medium">
-                    Proxy (Optional)
-                  </Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Route scanning through a proxy for internal or staging
-                    environments. Supports PAC, HTTP, and SOCKS4/5.
-                  </p>
-                </div>
-                <Switch
-                  checked={proxyEnabled}
-                  onCheckedChange={setProxyEnabledPersisted}
-                  aria-label="Enable proxy"
-                />
-              </div>
-
-              {proxyEnabled && (
-                <div className="mt-3 pt-3 border-t border-blue-200/50 dark:border-blue-800/50">
-                  {activeProxyPac ? (
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                      <code className="text-xs font-mono text-blue-700 dark:text-blue-400 truncate flex-1">
-                        {activeProxyPac}
-                      </code>
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <Shield
+                            className={`w-4 h-4 shrink-0 ${
+                              disableJavascript ? "text-amber-600 dark:text-amber-500" : "text-muted-foreground"
+                            }`}
+                          />
+                          <div>
+                            <p className="m-0 text-[13px] font-semibold text-foreground">
+                              Disable JavaScript
+                            </p>
+                            <p className="m-0 text-[11px] text-muted-foreground mt-0.5">
+                              Scan pages with JS turned off — useful for static content audits.
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={disableJavascript}
+                          onClick={() => setDisableJavascript(!disableJavascript)}
+                          className={`w-9 h-5 rounded-full border-none relative shrink-0 transition-colors ${
+                            disableJavascript ? "bg-amber-500" : "bg-muted-foreground/30"
+                          }`}
+                        >
+                          <span
+                            className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-all ${
+                              disableJavascript ? "left-[19px]" : "left-[3px]"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                      {disableJavascript && (
+                        <div className="mt-3 flex items-start gap-2 border-t border-amber-200/60 pt-3 text-[11px] text-amber-700 dark:border-amber-800/60 dark:text-amber-400">
+                          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          <span>
+                            Dynamic content, SPAs, and client-rendered pages may appear empty or incomplete.
+                          </span>
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                      <span>No proxy configured. </span>
+                  )}
+
+                  {/* Incremental Scan */}
+                  <div
+                    className={`border-2 rounded-xl p-3 transition-colors ${
+                      incremental
+                        ? "bg-teal-50/50 border-teal-300 dark:bg-teal-950/20 dark:border-teal-800"
+                        : "bg-muted/20 border-border/60"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <RefreshCw
+                          className={`w-4 h-4 shrink-0 ${incremental ? "text-teal-600 dark:text-teal-500" : "text-muted-foreground"}`}
+                        />
+                        <div>
+                          <p className="m-0 text-[13px] font-semibold text-foreground">
+                            Incremental Scan
+                          </p>
+                          <p className="m-0 text-[11px] text-muted-foreground mt-0.5">
+                            Only re-scan pages that changed since the last scan.
+                          </p>
+                        </div>
+                      </div>
                       <button
                         type="button"
-                        onClick={() =>
-                          window.dispatchEvent(new Event(OPEN_SETTINGS_EVENT))
-                        }
-                        className="underline underline-offset-2 inline-flex items-center gap-0.5 hover:opacity-80"
+                        role="switch"
+                        aria-checked={incremental}
+                        onClick={() => setIncremental(!incremental)}
+                        className={`w-9 h-5 rounded-full border-none relative shrink-0 transition-colors ${
+                          incremental ? "bg-teal-500" : "bg-muted-foreground/30"
+                        }`}
                       >
-                        Go to Settings <Settings className="w-3 h-3" />
+                        <span
+                          className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-all ${
+                            incremental ? "left-[19px]" : "left-[3px]"
+                          }`}
+                        />
                       </button>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </CardContent>
+                  </div>
 
-          <CardFooter className="bg-muted/50 flex justify-end border-t p-6">
+                  {/* Proxy Settings */}
+                  <div
+                    className={`border-2 rounded-xl p-3 transition-colors ${
+                      proxyEnabled
+                        ? "bg-primary/5 border-primary/30"
+                        : "bg-muted/20 border-border/60"
+                    }`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex items-start sm:items-center gap-3">
+                        <Globe
+                          className={`w-4 h-4 shrink-0 mt-0.5 sm:mt-0 ${
+                            proxyEnabled ? "text-primary" : "text-muted-foreground"
+                          }`}
+                        />
+                        <div>
+                          <p className="m-0 text-[13px] font-semibold text-foreground flex items-center gap-2">
+                            WAF Bypass Proxy
+                            {!activeProxyPac && proxyEnabled && (
+                              <span className="text-[10px] font-bold text-destructive bg-destructive/10 px-1.5 py-0.5 rounded">
+                                Missing Configuration
+                              </span>
+                            )}
+                          </p>
+                          <p className="m-0 text-[11px] text-muted-foreground mt-0.5 max-w-lg">
+                            Route requests through the platform proxy to reach internal environments.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0 self-end sm:self-auto">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs px-2 text-muted-foreground hover:text-foreground"
+                          onClick={() =>
+                            window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_EVENT))
+                          }
+                        >
+                          <Settings className="w-3 h-3 mr-1.5" />
+                          Configure
+                        </Button>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={proxyEnabled}
+                          onClick={() => setProxyEnabledPersisted(!proxyEnabled)}
+                          className={`w-9 h-5 rounded-full border-none relative shrink-0 transition-colors ${
+                            proxyEnabled ? "bg-primary" : "bg-muted-foreground/30"
+                          }`}
+                        >
+                          <span
+                            className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-all ${
+                              proxyEnabled ? "left-[19px]" : "left-[3px]"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+                    {proxyEnabled && (
+                      <div className="mt-3 border-t border-primary/15 pt-3">
+                        {activeProxyPac ? (
+                          <div className="flex items-center gap-2 text-[11px] text-primary">
+                            <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+                            <code className="min-w-0 flex-1 truncate font-mono">
+                              {activeProxyPac}
+                            </code>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 text-[11px] text-amber-700 dark:text-amber-400">
+                            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                            <span>
+                              No proxy is configured. Use Configure to add one before starting the scan.
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* ── Step 4: Details ── */}
+            <TabsContent value="details" className="mt-4">
+              <Card className="rounded-2xl border border-border/70 bg-card/75 shadow-[0_4px_16px_rgba(23,43,77,0.06)]">
+                <CardHeader className="px-6 pb-3 pt-6 lg:px-8">
+                  <CardTitle className="flex items-center gap-2 text-[14px] font-bold">
+                    <FileText className="h-4 w-4 text-primary" />
+                    Scan Details
+                  </CardTitle>
+                  <CardDescription className="text-[12px]">
+                    Name this scan and assign it to a project and group.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5 px-6 pb-8 lg:px-8">
+                  {/* Row 1 — Project + Scan Title */}
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-foreground flex items-center gap-1">
+                        Project <span className="text-destructive">*</span>
+                      </Label>
+                      <ProjectSelector
+                        value={projectId}
+                        onChange={(nextProjectId) => {
+                          setProjectId(nextProjectId);
+                          setProjectError(nextProjectId == null ? "Project is required." : null);
+                        }}
+                        siteId={activeSite?.id ?? null}
+                        required
+                        error={Boolean(projectError)}
+                      />
+                      {projectError ? (
+                        <FieldMessage tone="error">{projectError}</FieldMessage>
+                      ) : (
+                        <p className="text-[11px] text-primary flex items-center gap-1 mt-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          {activeSite
+                            ? "Select an existing project or add a new one under this site."
+                            : "Select a site first, then select or add a project under it."}
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="scanName" className="text-xs font-semibold text-foreground flex items-center gap-1">
+                        Scan Title <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="scanName"
+                        placeholder="e.g., Marketing Site Audit Q3"
+                        value={scanName}
+                        onChange={(e) => {
+                          setScanName(e.target.value);
+                          if (e.target.value.trim() && !isUrlLikeScanName(e.target.value)) {
+                            setScanNameError(null);
+                          } else if (isUrlLikeScanName(e.target.value)) {
+                            setScanNameError(SCAN_NAME_URL_ERROR);
+                          }
+                        }}
+                        className={`h-9 rounded-lg border-2 ${
+                          scanNameError ? "border-destructive ring-1 ring-destructive" : "border-border/60"
+                        }`}
+                        aria-invalid={Boolean(scanNameError)}
+                        aria-describedby={scanNameError ? "manual-scan-name-error" : undefined}
+                      />
+                      {scanNameError && (
+                        <FieldMessage id="manual-scan-name-error" tone="error">
+                          {scanNameError}
+                        </FieldMessage>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Row 2 — Initiator + Group */}
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="initiatorName" className="text-xs font-semibold text-foreground">
+                        Scan Initiator
+                      </Label>
+                      <Input
+                        id="initiatorName"
+                        value={initiatorName}
+                        readOnly
+                        disabled
+                        className="h-9 rounded-lg border-2 border-border/60 bg-muted/50 cursor-not-allowed text-muted-foreground"
+                        title="Automatically set to your account"
+                      />
+                      <p className="text-[11px] text-muted-foreground mt-1">Locked to your account</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="groupId" className="text-xs font-semibold text-foreground">
+                        Group
+                      </Label>
+                      <div className="relative">
+                        <select
+                          id="groupId"
+                          value={groupId ?? ""}
+                          onChange={(e) => {
+                            const id = e.target.value ? Number(e.target.value) : null;
+                            setGroupId(id);
+                            const g = myGroups.find((g) => g.id === id);
+                            setInitiatorRole(g ? g.name : "");
+                          }}
+                          className="h-9 w-full appearance-none rounded-lg border-2 border-border/60 bg-background px-3 py-1 text-[13px] outline-none transition-colors focus:border-primary focus:ring-4 focus:ring-primary/20"
+                        >
+                          <option value="">No group</option>
+                          {myGroups.map((g) => (
+                            <option key={g.id} value={g.id}>
+                              {g.name}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-1">Group is used as the scan role</p>
+                    </div>
+                  </div>
+
+                  {/* URL count summary */}
+                  {parsedUrls.length > 0 && (
+                    <div className="flex items-center gap-2 rounded-xl border border-teal-200/60 bg-teal-50/40 px-4 py-3 text-[12px] dark:border-teal-800/40 dark:bg-teal-950/20">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-teal-600 dark:text-teal-400" />
+                      <span className="text-teal-700 dark:text-teal-300">
+                        Ready to scan{" "}
+                        <span className="font-bold">{parsedUrls.length} URL{parsedUrls.length !== 1 ? "s" : ""}</span>
+                        {selectedRules.length > 0
+                          ? ` using ${selectedRules.length} rule${selectedRules.length !== 1 ? "s" : ""}`
+                          : ""}
+                        .{" "}
+                        <button
+                          type="button"
+                          className="underline underline-offset-2 opacity-70 hover:opacity-100"
+                          onClick={() => setWizardStep("target")}
+                        >
+                          Edit URLs
+                        </button>
+                      </span>
+                    </div>
+                  )}
+                  {parsedUrls.length === 0 && (
+                    <div className="flex items-center gap-2 rounded-xl border border-amber-200/60 bg-amber-50/40 px-4 py-3 text-[12px] dark:border-amber-800/40 dark:bg-amber-950/20">
+                      <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                      <span className="text-amber-700 dark:text-amber-300">
+                        No URLs added yet.{" "}
+                        <button
+                          type="button"
+                          className="underline underline-offset-2 opacity-70 hover:opacity-100"
+                          onClick={() => setWizardStep("target")}
+                        >
+                          Go to Target
+                        </button>{" "}
+                        to add URLs before scanning.
+                      </span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+
+          {/* ── Step navigation bar ── */}
+          <div className="flex items-center justify-between gap-3 pt-2">
             <Button
-              size="lg"
-              onClick={startScan}
-              disabled={
-                parsedUrls.length === 0 || createScan.isPending || startingScan
-              }
-              className="w-full sm:w-auto"
+              type="button"
+              variant="outline"
+              onClick={goPrev}
+              disabled={wizardStepIndex === 0}
+              className="rounded-xl border-2 font-semibold h-10 px-5 disabled:opacity-40"
             >
-              {createScan.isPending || startingScan ? (
-                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-              ) : null}
-              {proxyEnabled && activeProxyPac
-                ? `Scan via Proxy${selectedRules.length > 0 ? ` (${selectedRules.length} rules)` : ""}`
-                : selectedRules.length > 0
-                  ? `Scan ${selectedRules.length} Rule${selectedRules.length !== 1 ? "s" : ""}`
-                  : "Start Scan"}
+              <ChevronLeft className="w-4 h-4 mr-1.5" />
+              Previous
             </Button>
-          </CardFooter>
-        </Card>
+
+            <span className="hidden text-[12px] text-muted-foreground sm:block">
+              Step {wizardStepIndex + 1} of {SCAN_WIZARD_TABS.length}
+            </span>
+
+            {wizardStep === "details" ? (
+              <Button
+                type="button"
+                onClick={startScan}
+                disabled={
+                  createScan.isPending ||
+                  startingScan ||
+                  parsedUrls.length === 0
+                }
+                className="rounded-xl font-bold h-10 px-6 bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_4px_14px_rgba(0,0,0,0.15)]"
+              >
+                {createScan.isPending || startingScan ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-2 fill-current" />
+                )}
+                {proxyEnabled && activeProxyPac
+                  ? `Scan via Proxy${selectedRules.length > 0 ? ` (${selectedRules.length} rules)` : ""}`
+                  : selectedRules.length > 0
+                    ? `Scan ${selectedRules.length} Rule${selectedRules.length !== 1 ? "s" : ""}`
+                    : "Start Scan"}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                onClick={goNext}
+                className="rounded-xl font-bold h-10 px-6 bg-primary hover:bg-primary/90 text-primary-foreground"
+              >
+                Next
+                <ChevronRight className="w-4 h-4 ml-1.5" />
+              </Button>
+            )}
+          </div>
+        </div>
       )}
+
+      <Dialog open={dupDialogOpen} onOpenChange={setDupDialogOpen}>
+        <DialogContent className="sm:max-w-xl max-h-[80vh] flex flex-col rounded-2xl border-2">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CopyCheck className="w-5 h-5 text-amber-500" />
+              Duplicate URLs Found
+            </DialogTitle>
+            <DialogDescription>
+              {duplicateMap.size} URL{duplicateMap.size !== 1 ? "s appear" : " appears"} more than once
+              {" "}({totalDuplicateRows} extra entr{totalDuplicateRows !== 1 ? "ies" : "y"}).
+              Removing duplicates will keep only the first occurrence of each URL.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1 border-2 border-border/60 rounded-xl">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm border-b-2 border-border/60">
+                <tr>
+                  <th className="text-left px-3 py-2 font-bold text-muted-foreground">#</th>
+                  <th className="text-left px-3 py-2 font-bold text-muted-foreground">URL</th>
+                  <th className="text-right px-3 py-2 font-bold text-muted-foreground">Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from(duplicateMap.entries()).map(([url, count], i) => (
+                  <tr key={url} className={i % 2 === 0 ? "bg-background" : "bg-muted/20"}>
+                    <td className="px-3 py-2 text-muted-foreground tabular-nums">{i + 1}</td>
+                    <td className="px-3 py-2 font-mono text-[11px] break-all">{url}</td>
+                    <td className="px-3 py-2 text-right">
+                      <span className="inline-flex items-center justify-center rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 font-bold text-[10px] px-2 py-0.5 min-w-[2rem]">
+                        ×{count}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <DialogFooter className="mt-2 gap-2">
+            <Button type="button" variant="outline" onClick={() => setDupDialogOpen(false)} className="rounded-lg font-semibold border-2">
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleRemoveDuplicates}
+              className="rounded-lg font-bold bg-amber-500 hover:bg-amber-600 text-white"
+            >
+              <X className="w-4 h-4 mr-2" />
+              Remove {totalDuplicateRows} Duplicate{totalDuplicateRows !== 1 ? "s" : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -5,11 +5,13 @@ import projectsRouter from "./projects";
 import authRouter from "./auth";
 import adminRouter from "./admin";
 import ticketsRouter from "./tickets";
+import advancedRouter from "./advanced";
 import aiRouter from "./ai";
 import crawlerRouter from "./crawler";
 import sitesRouter from "./sites";
 import qaRouter from "./qa";
 import decisionsRouter from "./decisions";
+import notificationsRouter from "./notifications";
 
 const router: IRouter = Router();
 
@@ -19,10 +21,12 @@ router.use(adminRouter);
 router.use(ticketsRouter);
 router.use(projectsRouter);
 router.use(scansRouter);
+router.use(advancedRouter);
 router.use(aiRouter);
 router.use(crawlerRouter);
 router.use(sitesRouter);
 router.use(qaRouter);
 router.use(decisionsRouter);
+router.use(notificationsRouter);
 
 export default router;

@@ -22,6 +22,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Globe, Map, Link2, Shield, Zap, RefreshCw, RotateCcw, Upload, AlertTriangle, Building2, Users, Clock, Database, CheckCircle2, Info } from "lucide-react";
+import { ScanLevelSelector } from "@/components/ScanLevelSelector";
+import { ALL_SCAN_LEVELS } from "@/lib/scanLevels";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -248,6 +250,8 @@ export default function CrawlerNewPage() {
       .catch(() => {});
   }, [values.siteId]);
 
+  const [selectedLevels, setSelectedLevels] = useState<string[]>([...ALL_SCAN_LEVELS]);
+
   const createMutation = useMutation({
     mutationFn: async (data: object) => {
       const res = await fetch(`${BASE}/api/crawler/sessions`, {
@@ -330,6 +334,10 @@ export default function CrawlerNewPage() {
     if (data.skipDiscovery) {
       payload.skipDiscovery = true;
     }
+    // Level filter — omit when all levels selected (backend default = no filter)
+    if (!ALL_SCAN_LEVELS.every((l) => selectedLevels.includes(l))) {
+      payload.wcagLevels = selectedLevels;
+    }
       if (scheduledStartAt && new Date(scheduledStartAt).getTime() <= Date.now()) {
        toast({ title: "Choose a future date and time", description: "The scheduled start must be later than now.", variant: "destructive" });
        return;
@@ -340,27 +348,34 @@ export default function CrawlerNewPage() {
   return (
     <TooltipProvider delayDuration={250}>
     <div className="w-full max-w-none space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">New Crawler Scan</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+      <div className="relative overflow-hidden rounded-2xl border border-primary/15 bg-card/55 px-5 py-6 shadow-[0_12px_36px_rgba(109,72,199,0.08)] backdrop-blur-xl sm:px-7">
+        <div className="relative flex items-start gap-3">
+          <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Globe className="h-4 w-4" /></span>
+          <div>
+        <h1 className="text-2xl font-bold tracking-tight">New Crawler Scan</h1>
+        <p className="relative mt-1 max-w-3xl text-sm text-muted-foreground">
           Crawl an entire site for accessibility issues, broken links, and more.
           Phase 1 discovers all URLs; Phase 2 runs accessibility scanning.
         </p>
+          </div>
+        </div>
       </div>
 
       <form onSubmit={onSubmit}>
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as CrawlerTab)}>
-          <TabsList aria-label="New crawler scan configuration sections" className="grid w-full grid-cols-5">
-            <TabsTrigger value="basic" className="gap-1.5" aria-label="Basic crawler settings"><Globe aria-hidden="true" className="w-3.5 h-3.5" />Basic</TabsTrigger>
-            <TabsTrigger value="discovery" className="gap-1.5" aria-label="URL discovery settings"><Map aria-hidden="true" className="w-3.5 h-3.5" />Discovery</TabsTrigger>
-            <TabsTrigger value="auth" className="gap-1.5" aria-label="Authentication settings"><Shield aria-hidden="true" className="w-3.5 h-3.5" />Auth</TabsTrigger>
-            <TabsTrigger value="performance" className="gap-1.5" aria-label="Crawler speed settings"><Zap aria-hidden="true" className="w-3.5 h-3.5" />Speed</TabsTrigger>
-            <TabsTrigger value="incremental" className="gap-1.5" aria-label="Incremental scan settings"><RefreshCw aria-hidden="true" className="w-3.5 h-3.5" />Incremental</TabsTrigger>
-          </TabsList>
+          <div className="overflow-x-auto pb-1">
+            <TabsList aria-label="New crawler scan configuration sections" className="grid w-full min-w-[560px] grid-cols-5 rounded-xl border border-border/60 bg-card/55 p-1 shadow-sm backdrop-blur">
+              <TabsTrigger value="basic" className="gap-1.5 rounded-lg" aria-label="Basic crawler settings"><Globe aria-hidden="true" className="w-3.5 h-3.5" />Basic</TabsTrigger>
+              <TabsTrigger value="discovery" className="gap-1.5 rounded-lg" aria-label="URL discovery settings"><Map aria-hidden="true" className="w-3.5 h-3.5" />Discovery</TabsTrigger>
+              <TabsTrigger value="auth" className="gap-1.5 rounded-lg" aria-label="Authentication settings"><Shield aria-hidden="true" className="w-3.5 h-3.5" />Auth</TabsTrigger>
+              <TabsTrigger value="performance" className="gap-1.5 rounded-lg" aria-label="Crawler speed settings"><Zap aria-hidden="true" className="w-3.5 h-3.5" />Speed</TabsTrigger>
+              <TabsTrigger value="incremental" className="gap-1.5 rounded-lg" aria-label="Incremental scan settings"><RefreshCw aria-hidden="true" className="w-3.5 h-3.5" />Incremental</TabsTrigger>
+            </TabsList>
+          </div>
 
           {/* BASIC */}
             <TabsContent value="basic" className="grid gap-4 pt-4 lg:grid-cols-2 lg:items-stretch">
-            <Card>
+            <Card className="bg-card/75 backdrop-blur-xl border-border/70 shadow-[0_8px_28px_rgba(23,43,77,0.07)] rounded-2xl overflow-hidden relative z-10">
               <CardHeader><CardTitle>Target</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-1.5">
@@ -456,7 +471,7 @@ export default function CrawlerNewPage() {
                </CardContent>
              </Card>
 
-             <Card>
+             <Card className="bg-card/75 backdrop-blur-xl border-border/70 shadow-[0_8px_28px_rgba(23,43,77,0.07)] rounded-2xl overflow-hidden relative z-10">
                <CardHeader><CardTitle>Coverage</CardTitle></CardHeader>
                <CardContent className="space-y-4">
                  <div className="grid grid-cols-2 gap-4">
@@ -567,7 +582,7 @@ export default function CrawlerNewPage() {
            <TabsContent value="discovery" className="grid gap-4 pt-4 lg:grid-cols-2 lg:items-stretch">
             {/* URL Cache callout — shown when a cache exists for this domain */}
             {(discoveryCache || cacheChecking) && (
-               <Card className={`border-2 lg:col-span-2 ${values.skipDiscovery ? "border-amber-400 dark:border-amber-600" : "border-border"}`}>
+               <Card className={`relative z-10 overflow-hidden rounded-2xl border-2 bg-card/80 shadow-[0_4px_22px_rgba(0,0,0,0.07)] backdrop-blur-xl lg:col-span-2 ${values.skipDiscovery ? "border-amber-400 dark:border-amber-600" : "border-border"}`}>
                 <CardContent className="pt-4">
                   {cacheChecking ? (
                     <p className="text-xs text-muted-foreground">Checking for saved URL cache…</p>
@@ -608,7 +623,7 @@ export default function CrawlerNewPage() {
               </Card>
             )}
 
-             <Card>
+             <Card className="bg-card/80 backdrop-blur-xl border border-border shadow-[0_4px_22px_rgba(0,0,0,0.07)] rounded-2xl overflow-hidden relative z-10">
               <CardHeader><CardTitle>URL Discovery</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -693,7 +708,7 @@ export default function CrawlerNewPage() {
                </CardContent>
              </Card>
 
-             <Card>
+             <Card className="bg-card/80 backdrop-blur-xl border border-border shadow-[0_4px_22px_rgba(0,0,0,0.07)] rounded-2xl overflow-hidden relative z-10">
                <CardHeader><CardTitle>Filters &amp; Scan Behavior</CardTitle></CardHeader>
                <CardContent className="space-y-4">
                 <Separator />
@@ -788,7 +803,7 @@ export default function CrawlerNewPage() {
               </CardContent>
             </Card>
 
-              <Card className="lg:col-span-2">
+              <Card className="relative z-10 overflow-hidden rounded-2xl border border-border bg-card/80 shadow-[0_4px_22px_rgba(0,0,0,0.07)] backdrop-blur-xl lg:col-span-2">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2"><Upload className="w-4 h-4" />Bulk URL Import</CardTitle>
                 <CardDescription>
@@ -806,7 +821,7 @@ export default function CrawlerNewPage() {
 
           {/* AUTH */}
            <TabsContent value="auth" className="grid gap-4 pt-4 lg:grid-cols-2 lg:items-stretch">
-             <Card className="lg:col-span-2">
+             <Card className="relative z-10 overflow-hidden rounded-2xl border border-border bg-card/80 shadow-[0_4px_22px_rgba(0,0,0,0.07)] backdrop-blur-xl lg:col-span-2">
               <CardHeader>
                 <CardTitle>Authenticated Crawling</CardTitle>
                 <CardDescription>Log in before crawling to access protected pages.</CardDescription>
@@ -869,124 +884,135 @@ export default function CrawlerNewPage() {
 
           {/* PERFORMANCE */}
            <TabsContent value="performance" className="grid gap-4 pt-4 lg:grid-cols-2 lg:items-stretch">
-             <Card>
-              <CardHeader><CardTitle>Page Loading</CardTitle></CardHeader>
-               <CardContent className="space-y-4">
-                 <div className="flex items-center justify-between">
-                  <div>
-                    <Label className="flex items-center gap-1.5">
-                      <Zap className="w-3.5 h-3.5 text-yellow-500" />
-                      Crawl Boost
-                      <OptionHelp text="Captures rendered page snapshots during discovery so Phase 2 can reuse them and avoid a second browser visit." />
-                      <Badge variant="outline" className="text-xs">Beta</Badge>
-                    </Label>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Phase 1 captures each page's rendered HTML (with DOM stability wait). Phase 2 reuses it via <code className="font-mono bg-muted px-1 rounded">page.setContent()</code> — eliminates double browser visits and Cloudflare challenges in Phase 2.
-                      Ideal for bot-protected or slow sites.
-                    </p>
-                  </div>
-                  <Switch
-                    checked={values.crawlBoost}
-                    onCheckedChange={(v) => setValue("crawlBoost", v)}
-                    aria-label="Enable crawl boost"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label className="flex items-center gap-1">
-                      Block Assets
-                      <OptionHelp text="Prevents non-essential assets from loading during discovery to reduce bandwidth and speed up crawling." />
-                    </Label>
-                    <p className="text-xs text-muted-foreground">Block images, fonts, media and analytics requests — 3–5× faster page loads (Phase 2)</p>
-                  </div>
-                  <Switch
-                    checked={values.blockAssets}
-                    onCheckedChange={(v) => setValue("blockAssets", v)}
-                    aria-label="Block non-essential assets"
-                  />
-                </div>
-              </CardContent>
-             </Card>
-
-             <Card>
-              <CardHeader><CardTitle>Timing &amp; Concurrency</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label className="flex items-center gap-1">
-                    Scan Delay (ms)
-                    <OptionHelp text="Extra time to wait after a page becomes stable before accessibility rules run." />
-                  </Label>
-                    <div className="flex flex-wrap items-center gap-2">
-                     <Input
-                       type="number"
-                       min={0}
-                       max={100000}
-                       step={100}
-                       value={values.scanDelayMs}
-                       onChange={(event) => {
-                         const parsed = Number(event.target.value);
-                         setValue(
-                           "scanDelayMs",
-                           Number.isFinite(parsed)
-                             ? Math.min(100000, Math.max(0, parsed))
-                             : 0,
-                         );
-                       }}
-                       aria-label="Scan delay in milliseconds"
-                       className="w-32 font-mono"
-                     />
-                     <span className="text-sm text-muted-foreground">ms</span>
-                  </div>
-                   <div className="flex flex-wrap items-center gap-1.5" aria-label="Scan delay presets">
-                     <span className="mr-1 text-xs text-muted-foreground">Quick select:</span>
-                     {SCAN_DELAY_PRESETS.map((preset) => {
-                       const selected = values.scanDelayMs === preset.value;
-                       return (
-                         <Button
-                           key={preset.value}
-                           type="button"
-                           size="sm"
-                           variant={selected ? "default" : "outline"}
-                           className="h-7 px-2.5 text-xs"
-                           aria-pressed={selected}
-                           onClick={() => setValue("scanDelayMs", preset.value)}
-                         >
-                           {preset.label}
-                         </Button>
-                       );
-                     })}
+              {/* Left column: Page Loading + Timing & Concurrency stacked */}
+              <div className="flex h-full flex-col gap-4">
+              <Card className="bg-card/80 backdrop-blur-xl border border-border shadow-[0_4px_22px_rgba(0,0,0,0.07)] rounded-2xl overflow-hidden relative z-10">
+               <CardHeader><CardTitle>Page Loading</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                   <div>
+                     <Label className="flex items-center gap-1.5">
+                       <Zap className="w-3.5 h-3.5 text-yellow-500" />
+                       Crawl Boost
+                       <OptionHelp text="Captures rendered page snapshots during discovery so Phase 2 can reuse them and avoid a second browser visit." />
+                       <Badge variant="outline" className="text-xs">Beta</Badge>
+                     </Label>
+                     <p className="text-xs text-muted-foreground mt-0.5">
+                       Phase 1 captures each page's rendered HTML (with DOM stability wait). Phase 2 reuses it via <code className="font-mono bg-muted px-1 rounded">page.setContent()</code> — eliminates double browser visits and Cloudflare challenges in Phase 2.
+                       Ideal for bot-protected or slow sites.
+                     </p>
                    </div>
-                   <p className="text-xs text-muted-foreground">Extra wait after page load before running rules (Phase 2). Default: 10,000 ms. Use the field arrows, choose a preset, or enter an exact value.</p>
-                </div>
+                   <Switch
+                     checked={values.crawlBoost}
+                     onCheckedChange={(v) => setValue("crawlBoost", v)}
+                     aria-label="Enable crawl boost"
+                   />
+                 </div>
 
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <Label className="flex items-center gap-1">
-                      Chrome Tab Pool Size
-                      <OptionHelp text="Number of browser tabs available for scanning. Higher values can use more memory." />
-                    </Label>
-                    <Badge variant="outline" className="text-xs">Config stored — parallel processing via horizontal scaling</Badge>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Slider
-                      min={1} max={5} step={1}
-                      value={[values.tabPoolSize]}
-                      onValueChange={([v]) => setValue("tabPoolSize", v)}
-                      aria-label="Chrome tab pool size"
-                      className="flex-1"
-                    />
-                    <span className="text-sm font-mono w-4 text-right">{values.tabPoolSize}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">Number of concurrent tabs for Phase 2. Currently serialized by the shared browser mutex.</p>
-                </div>
-              </CardContent>
-             </Card>
-          </TabsContent>
+                 <div className="flex items-center justify-between">
+                   <div>
+                     <Label className="flex items-center gap-1">
+                       Block Assets
+                       <OptionHelp text="Prevents non-essential assets from loading during discovery to reduce bandwidth and speed up crawling." />
+                     </Label>
+                     <p className="text-xs text-muted-foreground">Block images, fonts, media and analytics requests — 3–5× faster page loads (Phase 2)</p>
+                   </div>
+                   <Switch
+                     checked={values.blockAssets}
+                     onCheckedChange={(v) => setValue("blockAssets", v)}
+                     aria-label="Block non-essential assets"
+                   />
+                 </div>
+               </CardContent>
+              </Card>
+
+              <Card className="bg-card/80 backdrop-blur-xl border border-border shadow-[0_4px_22px_rgba(0,0,0,0.07)] rounded-2xl overflow-hidden relative z-10">
+               <CardHeader><CardTitle>Timing &amp; Concurrency</CardTitle></CardHeader>
+               <CardContent className="space-y-4">
+                 <div className="space-y-1.5">
+                   <Label className="flex items-center gap-1">
+                     Scan Delay (ms)
+                     <OptionHelp text="Extra time to wait after a page becomes stable before accessibility rules run." />
+                   </Label>
+                     <div className="flex flex-wrap items-center gap-2">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100000}
+                        step={100}
+                        value={values.scanDelayMs}
+                        onChange={(event) => {
+                          const parsed = Number(event.target.value);
+                          setValue(
+                            "scanDelayMs",
+                            Number.isFinite(parsed)
+                              ? Math.min(100000, Math.max(0, parsed))
+                              : 0,
+                          );
+                        }}
+                        aria-label="Scan delay in milliseconds"
+                        className="w-32 font-mono"
+                      />
+                      <span className="text-sm text-muted-foreground">ms</span>
+                   </div>
+                    <div className="flex flex-wrap items-center gap-1.5" aria-label="Scan delay presets">
+                      <span className="mr-1 text-xs text-muted-foreground">Quick select:</span>
+                      {SCAN_DELAY_PRESETS.map((preset) => {
+                        const selected = values.scanDelayMs === preset.value;
+                        return (
+                          <Button
+                            key={preset.value}
+                            type="button"
+                            size="sm"
+                            variant={selected ? "default" : "outline"}
+                            className="h-7 px-2.5 text-xs"
+                            aria-pressed={selected}
+                            onClick={() => setValue("scanDelayMs", preset.value)}
+                          >
+                            {preset.label}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Extra wait after page load before running rules (Phase 2). Default: 10,000 ms. Use the field arrows, choose a preset, or enter an exact value.</p>
+                 </div>
+
+                 <div className="space-y-1.5">
+                   <div className="flex items-center gap-2">
+                     <Label className="flex items-center gap-1">
+                       Chrome Tab Pool Size
+                       <OptionHelp text="Number of browser tabs available for scanning. Higher values can use more memory." />
+                     </Label>
+                     <Badge variant="outline" className="text-xs">Config stored — parallel processing via horizontal scaling</Badge>
+                   </div>
+                   <div className="flex items-center gap-3">
+                     <Slider
+                       min={1} max={5} step={1}
+                       value={[values.tabPoolSize]}
+                       onValueChange={([v]) => setValue("tabPoolSize", v)}
+                       aria-label="Chrome tab pool size"
+                       className="flex-1"
+                     />
+                     <span className="text-sm font-mono w-4 text-right">{values.tabPoolSize}</span>
+                   </div>
+                   <p className="text-xs text-muted-foreground">Number of concurrent tabs for Phase 2. Currently serialized by the shared browser mutex.</p>
+                 </div>
+               </CardContent>
+              </Card>
+              </div>{/* end left column */}
+
+              {/* Right column: Accessibility Scope */}
+              <Card className="flex h-full flex-col bg-card/80 backdrop-blur-xl border border-border shadow-[0_4px_22px_rgba(0,0,0,0.07)] rounded-2xl overflow-hidden relative z-10">
+               <CardHeader><CardTitle>Accessibility Scope</CardTitle></CardHeader>
+               <CardContent className="flex-1">
+                 <ScanLevelSelector value={selectedLevels} onChange={setSelectedLevels} variant="card" />
+               </CardContent>
+              </Card>
+           </TabsContent>
 
           {/* INCREMENTAL */}
            <TabsContent value="incremental" className="grid gap-4 pt-4 lg:grid-cols-2 lg:items-stretch">
-             <Card className="lg:col-span-2">
+             <Card className="relative z-10 overflow-hidden rounded-2xl border border-border bg-card/80 shadow-[0_4px_22px_rgba(0,0,0,0.07)] backdrop-blur-xl lg:col-span-2">
               <CardHeader>
                 <CardTitle>Incremental Re-Scan</CardTitle>
                 <CardDescription>Skip pages whose HTML content hasn't changed since the previous crawl.</CardDescription>

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
+import { Fragment, useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
 import { useAuth } from "@/contexts/auth";
 import { ACT_RULES, getRuleTitle } from "@/lib/actRules";
 import { useParams, Link, useLocation } from "wouter";
@@ -39,6 +39,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -104,7 +105,6 @@ import { useToast } from "@/hooks/use-toast";
 import { isUrlLikeScanName, SCAN_NAME_URL_ERROR } from "@/lib/scan-name";
 import { FieldMessage } from "@/components/ui/field-message";
 import { Copy } from "lucide-react";
-import { isElementViewerEnabled } from "@/pages/settings";
 import { FixSuggestionPanel } from "@/components/fix-suggestion-panel";
 import { ScanQATab } from "@/pages/scan-qa";
 import { InteractiveHtmlTree } from "@/components/page-report/html-tree";
@@ -353,28 +353,19 @@ function getLegalText(issue: Issue) {
   return parts.join(", ");
 }
 
-function ImpactBadge({ impact }: { impact: string }) {
+function ImpactBadge({ impact, className = "" }: { impact: string; className?: string }) {
+  const compactClass = `h-5 rounded-full border-0 px-2 py-0 text-[10px] font-bold leading-5 capitalize ${className}`;
   switch (impact) {
     case "critical":
-      return <Badge variant="outline" className="bg-[#E11D48] text-white border-transparent">Critical</Badge>;
+      return <Badge variant="outline" className={`bg-[#fdecea] text-[#d32f2f] ${compactClass}`}>Critical</Badge>;
     case "serious":
-      return <Badge variant="outline" className="bg-[#EA580C] text-white border-transparent">Serious</Badge>;
+      return <Badge variant="outline" className={`bg-[#fbe9e7] text-[#e64a19] ${compactClass}`}>Serious</Badge>;
     case "moderate":
-      return <Badge variant="outline" className="bg-[#EAB308] text-black border-transparent">Moderate</Badge>;
+      return <Badge variant="outline" className={`bg-[#fff8e1] text-[#f57f17] ${compactClass}`}>Moderate</Badge>;
     case "minor":
-      return <Badge variant="outline" className="bg-[#3B82F6] text-white border-transparent">Minor</Badge>;
+      return <Badge variant="outline" className={`bg-[#e3f0fb] text-[#1976d2] ${compactClass}`}>Minor</Badge>;
     default:
-      return <Badge>{impact}</Badge>;
-  }
-}
-
-function ImpactIcon({ impact }: { impact: string }) {
-  switch (impact) {
-    case "critical": return <AlertTriangle className="w-4 h-4 text-[#E11D48]" />;
-    case "serious":  return <AlertTriangle className="w-4 h-4 text-[#EA580C]" />;
-    case "moderate": return <AlertCircle className="w-4 h-4 text-[#EAB308]" />;
-    case "minor":    return <Info className="w-4 h-4 text-[#3B82F6]" />;
-    default:         return <Info className="w-4 h-4" />;
+      return <Badge className={compactClass}>{impact}</Badge>;
   }
 }
 
@@ -385,6 +376,7 @@ function IssueFilterBar({
   singleRule = false,
   selectedRules,
   ruleInfoMap,
+  trailingControl,
 }: {
   issues: Issue[];
   filters: IssueFilters;
@@ -392,6 +384,7 @@ function IssueFilterBar({
   singleRule?: boolean;
   selectedRules?: string[];
   ruleInfoMap?: Record<string, RuleInfo>;
+  trailingControl?: React.ReactNode;
 }) {
   const ruleIds = useMemo(
     () => Array.from(new Set([...issues.map((i) => i.ruleId), ...(selectedRules ?? [])])).sort(),
@@ -405,101 +398,83 @@ function IssueFilterBar({
 
   const hasFilters = filters.search || filters.ruleId !== "all" || filters.severity !== "all" || filters.wcag !== "all" || filters.level !== "all";
 
-  if (singleRule) return null;
+  if (singleRule) return trailingControl ? <>{trailingControl}</> : null;
 
   return (
-    <div className="p-3 bg-muted/30 rounded-lg border space-y-2">
-      <div className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-        <Filter className="w-3.5 h-3.5" />
-        <span>Filters</span>
+    <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-[#f0f2f8] py-2">
+      <div className="relative min-w-[160px] flex-[1_1_190px]">
+        <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-[#9eadca]" />
+        <Input
+          placeholder="Search issue description..."
+          value={filters.search}
+          onChange={(e) => onChange({ ...filters, search: e.target.value })}
+          className="h-8 rounded-lg border-[#e0e4ef] bg-[#f7f8fd] pl-7 text-xs text-[#172b4d] shadow-none placeholder:text-[#9eadca] dark:border-slate-800 dark:bg-slate-950"
+        />
+      </div>
+
+      <Select value={filters.ruleId} onValueChange={(v) => onChange({ ...filters, ruleId: v })}>
+        <SelectTrigger className="h-8 w-[88px] rounded-lg border-[#e0e4ef] bg-[#f7f8fd] text-xs text-[#172b4d] shadow-none dark:border-slate-800 dark:bg-slate-950"><SelectValue placeholder="Rule ID" /></SelectTrigger>
+        <SelectContent className="max-h-64 overflow-y-auto">
+          <SelectItem value="all">Rule ID</SelectItem>
+          {ruleIds.map((id) => <SelectItem key={id} value={id} className="font-mono text-xs">{id}</SelectItem>)}
+        </SelectContent>
+      </Select>
+
+      <Select value={filters.severity} onValueChange={(v) => onChange({ ...filters, severity: v })}>
+        <SelectTrigger className="h-8 w-[94px] rounded-lg border-[#e0e4ef] bg-[#f7f8fd] text-xs text-[#172b4d] shadow-none dark:border-slate-800 dark:bg-slate-950"><SelectValue placeholder="Severity" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Severity</SelectItem>
+          <SelectItem value="critical">Critical</SelectItem>
+          <SelectItem value="serious">Serious</SelectItem>
+          <SelectItem value="moderate">Moderate</SelectItem>
+          <SelectItem value="minor">Minor</SelectItem>
+        </SelectContent>
+      </Select>
+
+      {wcagCriteria.length > 0 && (
+        <Select value={filters.wcag} onValueChange={(v) => onChange({ ...filters, wcag: v })}>
+          <SelectTrigger className="h-8 w-[122px] rounded-lg border-[#e0e4ef] bg-[#f7f8fd] text-xs text-[#172b4d] shadow-none dark:border-slate-800 dark:bg-slate-950"><SelectValue placeholder="WCAG criterion" /></SelectTrigger>
+          <SelectContent className="max-h-64 overflow-y-auto">
+            <SelectItem value="all">WCAG criterion</SelectItem>
+            {wcagCriteria.map((wc) => <SelectItem key={wc} value={wc} className="font-mono text-xs">{wc}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      )}
+
+      <Select value={filters.level} onValueChange={(v) => onChange({ ...filters, level: v })}>
+        <SelectTrigger className="h-8 w-[76px] rounded-lg border-[#e0e4ef] bg-[#f7f8fd] text-xs text-[#172b4d] shadow-none dark:border-slate-800 dark:bg-slate-950"><SelectValue placeholder="Level" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Level</SelectItem>
+          <SelectItem value="A">A</SelectItem>
+          <SelectItem value="AA">AA</SelectItem>
+          <SelectItem value="AAA">AAA</SelectItem>
+        </SelectContent>
+      </Select>
+
+      {trailingControl}
+
+      <Button
+        variant={filters.hideFalsePositives ? "secondary" : "ghost"}
+        size="sm"
+        className={`h-8 shrink-0 rounded-lg px-2.5 text-xs gap-1 ${filters.hideFalsePositives ? "border border-[#9c27b0] bg-[#f3e5f5] text-[#6a1b9a] hover:bg-[#f0dff3] dark:border-violet-900 dark:bg-violet-950/50 dark:text-violet-200" : "border border-[#e0e4ef] bg-[#f7f8fd] text-[#9eadca] dark:border-slate-800"}`}
+        onClick={() => onChange({ ...filters, hideFalsePositives: !filters.hideFalsePositives })}
+        title={filters.hideFalsePositives ? "False positives are hidden — click to show" : "Click to hide false positives"}
+      >
+        <Flag className="w-3 h-3" />
+        {filters.hideFalsePositives ? "FP hidden" : "Show FP"}
+      </Button>
+
+      {hasFilters && (
         <Button
-          variant={filters.hideFalsePositives ? "secondary" : "ghost"}
+          variant="ghost"
           size="sm"
-          className={`ml-2 h-6 px-2 text-xs gap-1 ${filters.hideFalsePositives ? "text-foreground" : "text-muted-foreground"}`}
-          onClick={() => onChange({ ...filters, hideFalsePositives: !filters.hideFalsePositives })}
-          title={filters.hideFalsePositives ? "False positives are hidden — click to show" : "Click to hide false positives"}
+          className="h-7 px-2 text-[11px] text-muted-foreground"
+          onClick={() => onChange({ search: "", ruleId: "all", severity: "all", wcag: "all", level: "all", hideFalsePositives: true })}
         >
-          <Flag className="w-3 h-3" />
-          {filters.hideFalsePositives ? "FP hidden" : "Show FP"}
+          <X className="mr-1 h-3 w-3" />
+          Clear
         </Button>
-        {hasFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto h-6 px-2 text-xs text-muted-foreground"
-            onClick={() => onChange({ search: "", ruleId: "all", severity: "all", wcag: "all", level: "all", hideFalsePositives: true })}
-          >
-            <X className="w-3 h-3 mr-1" />
-            Clear
-          </Button>
-        )}
-      </div>
-
-      <div className="flex flex-wrap gap-3">
-        <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
-          <span className="text-xs text-muted-foreground font-medium">Search</span>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-            <Input
-              placeholder="Search issue description..."
-              value={filters.search}
-              onChange={(e) => onChange({ ...filters, search: e.target.value })}
-              className="pl-8 h-8 text-sm"
-            />
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground font-medium">Rule</span>
-          <Select value={filters.ruleId} onValueChange={(v) => onChange({ ...filters, ruleId: v })}>
-            <SelectTrigger className="h-8 text-xs w-[130px]"><SelectValue placeholder="Rule ID" /></SelectTrigger>
-            <SelectContent className="max-h-64 overflow-y-auto">
-              <SelectItem value="all">All</SelectItem>
-              {ruleIds.map((id) => <SelectItem key={id} value={id} className="font-mono text-xs">{id}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground font-medium">Severity</span>
-          <Select value={filters.severity} onValueChange={(v) => onChange({ ...filters, severity: v })}>
-            <SelectTrigger className="h-8 text-xs w-[120px]"><SelectValue placeholder="Severity" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="critical">Critical</SelectItem>
-              <SelectItem value="serious">Serious</SelectItem>
-              <SelectItem value="moderate">Moderate</SelectItem>
-              <SelectItem value="minor">Minor</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {wcagCriteria.length > 0 && (
-          <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground font-medium">WCAG</span>
-            <Select value={filters.wcag} onValueChange={(v) => onChange({ ...filters, wcag: v })}>
-              <SelectTrigger className="h-8 text-xs w-[140px]"><SelectValue placeholder="WCAG" /></SelectTrigger>
-              <SelectContent className="max-h-64 overflow-y-auto">
-                <SelectItem value="all">All</SelectItem>
-                {wcagCriteria.map((wc) => <SelectItem key={wc} value={wc} className="font-mono text-xs">{wc}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground font-medium">Level</span>
-          <Select value={filters.level} onValueChange={(v) => onChange({ ...filters, level: v })}>
-            <SelectTrigger className="h-8 text-xs w-[100px]"><SelectValue placeholder="Level" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="A">A</SelectItem>
-              <SelectItem value="AA">AA</SelectItem>
-              <SelectItem value="AAA">AAA</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -585,52 +560,27 @@ function IssueGroupList({
   }
 
   return (
-    <div className="space-y-2 mt-4 border-t pt-4">
-      <p className="text-xs text-muted-foreground mb-3">
-        Showing {filteredIssues.length} issue{filteredIssues.length !== 1 ? "s" : ""} across {groups.length} rule{groups.length !== 1 ? "s" : ""}
-        {zeroRules.length > 0 && ` · ${zeroRules.length} rule${zeroRules.length !== 1 ? "s" : ""} with 0 occurrences`}
-      </p>
-      <Accordion type="multiple" className="space-y-2">
+    <div className="mt-1.5 space-y-1.5">
+      <Accordion type="multiple" className="space-y-1.5">
         {groups.map((group) => {
           const first = group[0];
           const count = group.length;
           return (
-            <AccordionItem key={first.ruleId} value={first.ruleId} className="border rounded-md bg-muted/20 px-4">
-              <AccordionTrigger className="hover:no-underline py-3 items-start">
-                <div className="flex flex-col gap-2 w-full pr-3 text-left">
-                  <div className="flex items-start gap-2">
-                    <span className="mt-0.5 shrink-0"><ImpactIcon impact={first.impact} /></span>
-                    <span className="font-medium text-sm text-foreground break-words whitespace-normal leading-snug">{first.description}</span>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 pl-6">
-                    <Badge variant="secondary" className="font-mono tabular-nums">
-                      {count} {count === 1 ? "occurrence" : "occurrences"}
-                    </Badge>
-                    <Badge variant="outline" className="font-mono text-xs bg-background">{first.ruleId}</Badge>
-                    {first.ruleId.startsWith("ACT-") && (
-                      <Badge variant="outline" className="text-xs font-mono text-muted-foreground">
-                        Equivalent: {first.ruleId.replace(/^ACT-/, "SIA-")}
-                      </Badge>
-                    )}
-                    {DEPRECATED_RULES.has(first.ruleId) && (
-                      <Badge variant="outline" className="text-xs border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400">
-                        Deprecated
-                      </Badge>
-                    )}
-                    <ImpactBadge impact={first.impact} />
-                    {first.wcagCriteria && <Badge variant="secondary" className="text-xs font-mono">WCAG {first.wcagCriteria}</Badge>}
-                    {first.wcagLevel && <Badge variant="outline" className="text-xs">Level {first.wcagLevel}</Badge>}
-                    {getLegalText(first) && <Badge variant="outline" className="text-xs">Compliance: {getLegalText(first)}</Badge>}
+            <AccordionItem key={first.ruleId} value={first.ruleId} className="overflow-hidden rounded-[10px] border-[1.5px] border-[#f0f2f8] bg-white dark:border-slate-800 dark:bg-slate-950">
+              <AccordionTrigger className="min-w-0 items-center px-3.5 py-2.5 hover:bg-[rgba(109,72,199,0.03)] hover:no-underline data-[state=open]:bg-[rgba(109,72,199,0.03)] dark:hover:bg-slate-900 dark:data-[state=open]:bg-slate-900">
+                <div className="flex min-w-0 w-full items-center gap-2.5 pr-2 text-left">
+                  <ImpactBadge impact={first.impact} />
+                  <span className="min-w-0 flex-1 truncate text-xs font-semibold text-[#172b4d] dark:text-slate-100">{first.description}</span>
+                  <div className="hidden shrink-0 items-center gap-2 text-[10px] sm:flex">
+                    <span className="font-mono text-[#9eadca]">{first.ruleId}</span>
+                    <span className="rounded-full bg-[#fdecea] px-2 py-0.5 font-semibold text-[#c62828]">{first.ruleType || "Issue"}</span>
+                    {first.wcagCriteria && <span className="rounded-full bg-[#f3f4fb] px-2 py-0.5 font-mono text-[#667] dark:bg-slate-800">WCAG {first.wcagCriteria}</span>}
+                    {first.wcagLevel && <span className="rounded-full bg-[#f3f4fb] px-2 py-0.5 text-[#667] dark:bg-slate-800">{first.wcagLevel}</span>}
+                    <span className="text-xs font-extrabold text-[#e84a3d]">{count}</span>
                   </div>
                 </div>
               </AccordionTrigger>
-              <AccordionContent className="pb-4">
-                {first.remediation && (
-                  <div className="mb-3 p-3 bg-primary/5 border border-primary/20 rounded-md text-sm">
-                    <span className="font-medium text-primary">How to fix: </span>
-                    <span className="text-foreground/80">{first.remediation}</span>
-                  </div>
-                )}
+              <AccordionContent className="border-t border-[#f5f6fb] px-3.5 pb-3 pt-0 sm:px-3.5">
                 {isCrawlerScan && onOpenUpdateResults && (
                   <div className="mb-3">
                     <Button
@@ -645,16 +595,15 @@ function IssueGroupList({
                   </div>
                 )}
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground mb-2">{count} element{count !== 1 ? "s" : ""} affected</p>
-                  <div className="border rounded-md overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead className="bg-muted sticky top-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[11px]">
+                      <thead className="sticky top-0 bg-white">
                         <tr>
-                          <th className="text-left px-3 py-2 font-medium w-10">#</th>
-                          <th className="text-left px-3 py-2 font-medium">Selector</th>
-                          <th className="text-left px-3 py-2 font-medium hidden md:table-cell">Element</th>
+                          <th className="w-8 px-1 py-1.5 text-left text-[10px] font-bold uppercase tracking-[0.04em] text-[#9eadca]">#</th>
+                          <th className="px-1 py-1.5 text-left text-[10px] font-bold uppercase tracking-[0.04em] text-[#9eadca]">Selector</th>
+                          <th className="hidden px-1 py-1.5 text-left text-[10px] font-bold uppercase tracking-[0.04em] text-[#9eadca] md:table-cell">Element</th>
                           {group.some((i) => i.description !== first.description) && (
-                            <th className="text-left px-3 py-2 font-medium hidden lg:table-cell">Note</th>
+                            <th className="hidden px-1 py-1.5 text-left text-[10px] font-bold uppercase tracking-[0.04em] text-[#9eadca] lg:table-cell">Note</th>
                           )}
                           <th className="w-8 shrink-0" />
                           {onSelectOccurrence && <th className="w-32 shrink-0" />}
@@ -667,7 +616,7 @@ function IssueGroupList({
                           const isSelected = selectedIssueId === issue.id;
                           const isFlagged = issue.falsePositive === true;
                           return (
-                            <div key={issue.id} className="contents">
+                            <Fragment key={issue.id}>
                               <tr
                                 className={`border-t cursor-pointer select-none transition-colors ${
                                   isFlagged
@@ -680,22 +629,22 @@ function IssueGroupList({
                                 }`}
                                 onClick={() => toggleRow(issue.id)}
                               >
-                                <td className="px-3 py-2 text-muted-foreground font-mono">{idx + 1}</td>
-                                <td className="px-3 py-2 font-mono max-w-[200px]">
+                                <td className="px-1 py-1.5 font-mono text-[#9eadca]">{idx + 1}</td>
+                                <td className="max-w-[200px] px-1 py-1.5 font-mono">
                                   {issue.selector ? (
-                                    <span className="block truncate text-foreground/80" title={issue.selector}>{issue.selector}</span>
+                                    <span className="block truncate text-[#6d48c7]" title={issue.selector}>{issue.selector}</span>
                                   ) : (
                                     <span className="text-muted-foreground italic">—</span>
                                   )}
                                 </td>
-                                <td className="px-3 py-2 hidden md:table-cell max-w-[380px]">
+                                <td className="hidden max-w-[380px] px-1 py-1.5 md:table-cell">
                                   {issue.element ? (
                                     <div className="flex items-center gap-2">
                                       <code className="block truncate text-primary font-mono" title={issue.element}>{issue.element}</code>
                                       <Button
                                         variant="ghost"
                                         size="icon"
-                                        className="h-7 w-7 shrink-0"
+                                        className="h-6 w-6 shrink-0 text-[#667]"
                                         onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(issue.element || ""); }}
                                         title="Copy element HTML"
                                       >
@@ -707,13 +656,13 @@ function IssueGroupList({
                                   )}
                                 </td>
                                 {group.some((i) => i.description !== first.description) && (
-                                  <td className="px-3 py-2 hidden lg:table-cell text-muted-foreground max-w-[200px]">
+                                  <td className="hidden max-w-[200px] px-1 py-1.5 text-[#7b8aaa] lg:table-cell">
                                     {hasVariantDesc ? (
                                       <span className="truncate block italic" title={issue.description}>{issue.description}</span>
                                     ) : null}
                                   </td>
                                 )}
-                                <td className="px-2 py-2 text-muted-foreground w-8">
+                                <td className="w-8 px-1 py-1.5 text-[#9eadca]">
                                   <div className="flex items-center gap-1.5">
                                     <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform duration-150 ${isExpanded ? "rotate-180" : ""}`} />
                                     {onFlagIssue && (
@@ -730,11 +679,11 @@ function IssueGroupList({
                                   </div>
                                 </td>
                                 {onSelectOccurrence && (
-                                  <td className="px-2 py-2 w-32 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                  <td className="w-32 shrink-0 px-1 py-1.5" onClick={(e) => e.stopPropagation()}>
                                     <Button
                                       variant="outline"
                                       size="sm"
-                                      className="h-6 text-[11px] px-2 gap-1 whitespace-nowrap w-full"
+                                      className="h-6 w-full whitespace-nowrap border-[#6d48c7]/20 bg-[#6d48c7]/[0.05] px-2 text-[11px] text-[#6d48c7] hover:bg-[#6d48c7]/10"
                                       onClick={(e) => { e.stopPropagation(); onSelectOccurrence(issue, group); }}
                                     >
                                       View Details
@@ -746,9 +695,9 @@ function IssueGroupList({
                                 <tr key={`${issue.id}-detail`} className="bg-primary/5 border-t border-primary/10">
                                   <td
                                     colSpan={99}
-                                    className="px-4 py-4"
+                                    className="px-1 py-2"
                                   >
-                                    <div className="space-y-3">
+                                    <div className="space-y-2">
                                       {isFlagged && (
                                         <div className="flex items-start gap-2 p-2 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
                                           <Flag className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5 fill-amber-400" />
@@ -815,12 +764,18 @@ function IssueGroupList({
                                   </td>
                                 </tr>
                               )}
-                            </div>
+                            </Fragment>
                           );
                         })}
                       </tbody>
                     </table>
                   </div>
+                  {first.remediation && (
+                    <div className="mt-1 rounded-lg border border-[#6d48c7]/20 bg-[#6d48c7]/[0.05] px-3 py-2 text-xs">
+                      <span className="font-semibold text-[#6d48c7]">How to fix: </span>
+                      <span className="text-[#334155]">{first.remediation}</span>
+                    </div>
+                  )}
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -942,11 +897,13 @@ function buildExportRows(scan: {
 
 function ExportButtons({
   scan,
+  compact = false,
 }: {
   scan: {
     id: number;
     name?: string | null;
   };
+  compact?: boolean;
 }) {
   const { toast } = useToast();
   const [exporting, setExporting] = useState<"csv" | "excel" | "pdf" | null>(null);
@@ -1067,14 +1024,19 @@ function ExportButtons({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" disabled={!!exporting}>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!!exporting}
+          className={compact ? "h-7 rounded-md border-slate-200 bg-white/80 px-2.5 text-[11px] shadow-sm hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950" : undefined}
+        >
           {exporting ? (
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            <Loader2 className={`${compact ? "mr-1.5 h-3.5 w-3.5" : "mr-2 h-4 w-4"} animate-spin`} />
           ) : (
-            <Download className="w-4 h-4 mr-2" />
+            <Download className={compact ? "mr-1.5 h-3.5 w-3.5" : "mr-2 h-4 w-4"} />
           )}
           {exporting ? "Exporting…" : "Export"}
-          {!exporting && <ChevronDown className="w-3.5 h-3.5 ml-2 opacity-60" />}
+          {!exporting && <ChevronDown className={compact ? "ml-1.5 h-3 w-3 opacity-60" : "ml-2 h-3.5 w-3.5 opacity-60"} />}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -1138,31 +1100,6 @@ function formatElapsedTime(
   return minsRem ? `${hrs}h ${minsRem}m` : `${hrs}h`;
 }
 
-function UrlCell({ url }: { url: string }) {
-  const { toast } = useToast();
-  return (
-    <div className="flex items-center gap-2 min-w-0">
-      <span
-        className="min-w-0 flex-1 break-words [overflow-wrap:anywhere] whitespace-normal"
-        title={url}
-      >
-        {url}
-      </span>
-      <button
-        type="button"
-        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-        onClick={async () => {
-          await navigator.clipboard.writeText(url);
-          toast({ title: "URL copied" });
-        }}
-        aria-label="Copy URL"
-      >
-        <Copy className="h-3.5 w-3.5" />
-      </button>
-    </div>
-  );
-}
-
 function applyPrefix(urls: string[], prefix: string) {
   const p = prefix.trim();
   if (!p) return urls;
@@ -1205,10 +1142,7 @@ export default function ScanDetail() {
   });
 
   const ALL_CATS = ["Issue", "Potential Issue", "Best Practice", "WAI-ARIA"] as const;
-  const [expandedCats, setExpandedCats] = useState<Set<string>>(() => new Set(ALL_CATS));
   const [visibleCats, setVisibleCats] = useState<Set<string>>(() => new Set(ALL_CATS));
-  const toggleCat = (cat: string) =>
-    setExpandedCats(prev => { const n = new Set(prev); n.has(cat) ? n.delete(cat) : n.add(cat); return n; });
 
   const [pageStatusFilter, setPageStatusFilter] = useState<string>("all");
   const [pageUrlFilter, setPageUrlFilter] = useState("");
@@ -1305,6 +1239,8 @@ export default function ScanDetail() {
   const [smartSearch, setSmartSearch] = useState("");
   const [smartImpact, setSmartImpact] = useState("all");
   const [smartRule, setSmartRule] = useState("all");
+  const [smartSort, setSmartSort] = useState<"severity" | "occurrences" | "pages" | "component">("severity");
+  const [smartError, setSmartError] = useState<string | null>(null);
   const [smartExpanded, setSmartExpanded] = useState<Set<string>>(new Set());
   const [smartUrlFilter, setSmartUrlFilter] = useState("");
   const [smartAnalysisAiEnabled, setSmartAnalysisAiEnabled] = useState(false);
@@ -1316,6 +1252,8 @@ export default function ScanDetail() {
   type CodeViewOccurrence = { id: number; ruleId: string; impact: string; element: string; elementContext?: string | null; selector: string; description: string; bboxX: number | null; bboxY: number | null; bboxWidth: number | null; bboxHeight: number | null };
   const [codeViewOpen, setCodeViewOpen] = useState(false);
   const [codeViewLoading, setCodeViewLoading] = useState(false);
+  const [codeViewError, setCodeViewError] = useState<string | null>(null);
+  const [codeViewComponent, setCodeViewComponent] = useState<SmartComponent | null>(null);
   const [codeViewUrl, setCodeViewUrl] = useState("");
   const [codeViewComponentName, setCodeViewComponentName] = useState("");
   const [codeViewOccurrences, setCodeViewOccurrences] = useState<CodeViewOccurrence[]>([]);
@@ -1527,17 +1465,28 @@ export default function ScanDetail() {
     if (smartData?.scanId === scanId) return;
     setSmartLoading(true);
     setSmartData(null);
+    setSmartError(null);
     try {
       const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
       const [res, cfgRes] = await Promise.all([
         fetch(`${BASE}/api/scans/${scanId}/smart-analysis`, { credentials: "include" }),
         fetch(`${BASE}/api/ai/config`, { credentials: "include" }),
       ]);
-      if (res.ok) setSmartData(await res.json());
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: string } | null;
+        throw new Error(body?.error || "Smart Analysis could not be loaded.");
+      }
+      setSmartData(await res.json());
       if (cfgRes.ok) {
         const cfg = await cfgRes.json();
         setSmartAnalysisAiEnabled(cfg.smartAnalysisAiEnabled === true);
       }
+    } catch (error) {
+      setSmartError(
+        error instanceof Error
+          ? error.message
+          : "Smart Analysis could not be loaded.",
+      );
     } finally {
       setSmartLoading(false);
     }
@@ -1586,6 +1535,7 @@ export default function ScanDetail() {
   async function openCodeView(comp: SmartComponent, url: string) {
     const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
     setCodeViewComponentName(comp.componentName);
+    setCodeViewComponent(comp);
     setCodeViewUrl(url);
     setCodeViewSelectedIdx(0);
     setCodeViewOccurrences([]);
@@ -1593,6 +1543,7 @@ export default function ScanDetail() {
     setCodeViewPageId(null);
     setCodeViewExpandedOccs(new Set());
     setCodeViewMode("html");
+    setCodeViewError(null);
     setCodeViewOpen(true);
     setCodeViewLoading(true);
     try {
@@ -1600,19 +1551,30 @@ export default function ScanDetail() {
         `${BASE}/api/scans/${scanId}/smart-analysis/page-occurrences?componentName=${encodeURIComponent(comp.componentName)}&pageUrl=${encodeURIComponent(url)}`,
         { credentials: "include" }
       );
-      if (res.ok) {
-        const data = await res.json();
-        setCodeViewOccurrences(data.occurrences ?? []);
-        const pid: number | null = data.pageId ?? null;
-        setCodeViewPageId(pid);
-        if (pid) {
-          const htmlRes = await fetch(`${BASE}/api/pages/${pid}/html`, { credentials: "include" });
-          if (htmlRes.ok) {
-            const htmlData = await htmlRes.json();
-            setCodeViewPageHtml(htmlData.html ?? "");
-          }
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: string } | null;
+        throw new Error(body?.error || "Code View occurrences could not be loaded.");
+      }
+      const data = await res.json();
+      setCodeViewOccurrences(data.occurrences ?? []);
+      const pid: number | null = data.pageId ?? null;
+      setCodeViewPageId(pid);
+      if (pid) {
+        const htmlRes = await fetch(`${BASE}/api/pages/${pid}/html`, { credentials: "include" });
+        if (htmlRes.ok) {
+          const htmlData = await htmlRes.json();
+          setCodeViewPageHtml(htmlData.html ?? "");
+        } else if (htmlRes.status !== 404) {
+          const body = await htmlRes.json().catch(() => null) as { error?: string } | null;
+          throw new Error(body?.error || "Stored page HTML could not be loaded.");
         }
       }
+    } catch (error) {
+      setCodeViewError(
+        error instanceof Error
+          ? error.message
+          : "Code View could not be loaded.",
+      );
     } finally {
       setCodeViewLoading(false);
     }
@@ -1634,11 +1596,21 @@ export default function ScanDetail() {
       if (smartUrlFilter && !c.topPages.some(u => u.toLowerCase().includes(smartUrlFilter.toLowerCase()))) return false;
       return true;
     })
-    // Consistent severity hierarchy: Critical → Serious → Moderate → Minor, then by occurrence count
     .sort((a, b) => {
-      const ai = IMPACT_ORDER[a.worstImpact] ?? 99;
-      const bi = IMPACT_ORDER[b.worstImpact] ?? 99;
-      if (ai !== bi) return ai - bi;
+      if (smartSort === "occurrences") {
+        return (b.totalOccurrences ?? 0) - (a.totalOccurrences ?? 0);
+      }
+      if (smartSort === "pages") {
+        return (b.affectedPageCount ?? 0) - (a.affectedPageCount ?? 0);
+      }
+      if (smartSort === "component") {
+        return (a.componentName || a.hierarchy).localeCompare(
+          b.componentName || b.hierarchy,
+        );
+      }
+      const aImpact = IMPACT_ORDER[a.worstImpact] ?? 99;
+      const bImpact = IMPACT_ORDER[b.worstImpact] ?? 99;
+      if (aImpact !== bImpact) return aImpact - bImpact;
       return (b.totalOccurrences ?? 0) - (a.totalOccurrences ?? 0);
     });
 
@@ -1706,19 +1678,6 @@ export default function ScanDetail() {
     );
   };
 
-  const [viewerEnabled, setViewerEnabled] = useState<boolean>(() =>
-    isElementViewerEnabled(),
-  );
-
-  useEffect(() => {
-    const syncViewer = () => setViewerEnabled(isElementViewerEnabled());
-    window.addEventListener("storage", syncViewer);
-    window.addEventListener("focus", syncViewer);
-    return () => {
-      window.removeEventListener("storage", syncViewer);
-      window.removeEventListener("focus", syncViewer);
-    };
-  }, []);
   const handleSelectOccurrence = useCallback(
     (issue: Issue, _group: Issue[], _pageUrl: string, pageId: number) => {
       // Open the full-screen page report for this page,
@@ -2046,19 +2005,23 @@ export default function ScanDetail() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scan?.pages]);
 
-  const handleCopyAllUrls = async () => {
-    if (!scan?.pages?.length) return;
-    const filtered = pageStatusFilter === "all"
-      ? scan.pages
-      : scan.pages.filter(matchesPageFilter);
-    if (!filtered.length) {
-      toast({ title: "No URLs match the current filter" });
+  const copyUrls = async (pages: Array<{ url: string }>, emptyMessage: string) => {
+    if (!pages.length) {
+      toast({ title: emptyMessage });
       return;
     }
-    await navigator.clipboard.writeText(filtered.map((p) => p.url).join("\n"));
+    await navigator.clipboard.writeText(pages.map((p) => p.url).join("\n"));
     toast({
-      title: `Copied ${filtered.length} URL${filtered.length !== 1 ? "s" : ""}`,
+      title: `Copied ${pages.length} URL${pages.length !== 1 ? "s" : ""}`,
     });
+  };
+
+  const handleCopyAllUrls = async () => {
+    await copyUrls(scan?.pages ?? [], "No URLs are available to copy");
+  };
+
+  const handleCopyFilteredUrls = async () => {
+    await copyUrls((scan?.pages ?? []).filter(matchesPageFilter), "No URLs match the current filters");
   };
 
   // Must be before any early return to satisfy Rules of Hooks.
@@ -2173,8 +2136,14 @@ export default function ScanDetail() {
 
   if (scanLoading || !scan) {
     return (
-      <div className="flex justify-center p-12">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      <div className="flex min-h-[360px] items-center justify-center">
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white/85 px-8 py-7 text-center shadow-[0_5px_20px_rgba(15,23,42,0.05)] dark:border-slate-800 dark:bg-slate-950/80">
+          <Loader2 className="h-7 w-7 animate-spin text-violet-600" />
+          <div>
+            <p className="text-sm font-semibold text-foreground">Loading scan results</p>
+            <p className="mt-1 text-xs text-muted-foreground">Fetching pages, issues, and scan details…</p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -2203,7 +2172,7 @@ export default function ScanDetail() {
     : null;
 
   return (
-    <div className="space-y-8">
+    <div className="min-h-full space-y-4 pb-4">
       {/* Loading Results Overlay — shown briefly after scan completes while page data loads */}
       {showUpdatingResults && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
@@ -2219,21 +2188,39 @@ export default function ScanDetail() {
 
       {/* Smart Analysis Dialog */}
       <Dialog open={smartOpen} onOpenChange={setSmartOpen}>
-        <DialogContent className="max-w-[99vw] w-screen max-h-[95vh] flex flex-col gap-0 p-0">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
-            <DialogTitle className="flex items-center gap-2 text-lg">
-              <Sparkles className="w-5 h-5 text-violet-500" />
-              Smart Analysis
+        <DialogContent className="flex h-[calc(100dvh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-none flex-col gap-0 rounded-2xl p-0">
+          <DialogHeader className="shrink-0 border-b bg-gradient-to-r from-primary/8 via-background/80 to-teal-500/8 px-5 pb-4 pt-5 pr-14 sm:px-6 sm:pt-6">
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-teal-500 text-white shadow-lg shadow-violet-500/20">
+                <Sparkles className="h-4 w-4" />
+              </span>
+              <span>Smart Analysis</span>
             </DialogTitle>
-            <p className="text-sm text-muted-foreground mt-1">
+            <DialogDescription className="mt-1 max-w-3xl">
               Component-level breakdown of accessibility issues — grouped by AEM component or element type across all scanned pages.
-            </p>
+            </DialogDescription>
           </DialogHeader>
 
           {smartLoading && (
-            <div className="flex flex-col items-center justify-center gap-3 py-16">
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16">
               <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
               <p className="text-sm text-muted-foreground">Analysing issues across all pages…</p>
+            </div>
+          )}
+
+          {!smartLoading && smartError && (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
+                <AlertCircle className="h-6 w-6" />
+              </span>
+              <div>
+                <p className="font-semibold">Smart Analysis is unavailable</p>
+                <p className="mt-1 max-w-md text-sm text-muted-foreground">{smartError}</p>
+              </div>
+              <Button variant="outline" onClick={openSmartAnalysis}>
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Try again
+              </Button>
             </div>
           )}
 
@@ -2281,8 +2268,8 @@ export default function ScanDetail() {
               </div>
 
               {/* Filters */}
-              <div className="flex gap-2 px-6 py-3 border-b shrink-0 flex-wrap">
-                <div className="relative flex-1 min-w-48">
+              <div className="flex shrink-0 flex-wrap gap-2 border-b bg-background/70 px-4 py-3 sm:px-6">
+                <div className="relative min-w-full flex-1 sm:min-w-48">
                   <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-muted-foreground" />
                   <input
                     value={smartSearch}
@@ -2291,7 +2278,7 @@ export default function ScanDetail() {
                     className="pl-8 pr-3 py-1.5 text-sm w-full rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
-                <div className="relative flex-1 min-w-48">
+                <div className="relative min-w-full flex-1 sm:min-w-48">
                   <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-muted-foreground" />
                   <input
                     value={smartUrlFilter}
@@ -2300,25 +2287,43 @@ export default function ScanDetail() {
                     className="pl-8 pr-3 py-1.5 text-sm w-full rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
-                <select
-                  value={smartImpact}
-                  onChange={e => setSmartImpact(e.target.value)}
-                  className="text-sm px-3 py-1.5 rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                <Select value={smartImpact} onValueChange={setSmartImpact}>
+                  <SelectTrigger className="w-full sm:w-[150px]" aria-label="Filter by impact">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All impacts</SelectItem>
+                    <SelectItem value="critical">Critical</SelectItem>
+                    <SelectItem value="serious">Serious</SelectItem>
+                    <SelectItem value="moderate">Moderate</SelectItem>
+                    <SelectItem value="minor">Minor</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={smartRule} onValueChange={setSmartRule}>
+                  <SelectTrigger className="w-full sm:w-[150px]" aria-label="Filter by rule">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All rules</SelectItem>
+                    {allSmartRules.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={smartSort}
+                  onValueChange={(value) =>
+                    setSmartSort(value as typeof smartSort)
+                  }
                 >
-                  <option value="all">All impacts</option>
-                  <option value="critical">Critical</option>
-                  <option value="serious">Serious</option>
-                  <option value="moderate">Moderate</option>
-                  <option value="minor">Minor</option>
-                </select>
-                <select
-                  value={smartRule}
-                  onChange={e => setSmartRule(e.target.value)}
-                  className="text-sm px-3 py-1.5 rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  <option value="all">All rules</option>
-                  {allSmartRules.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
+                  <SelectTrigger className="w-full sm:w-[170px]" aria-label="Sort Smart Analysis results">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="severity">Sort: Severity</SelectItem>
+                    <SelectItem value="occurrences">Sort: Occurrences</SelectItem>
+                    <SelectItem value="pages">Sort: Pages affected</SelectItem>
+                    <SelectItem value="component">Sort: Component</SelectItem>
+                  </SelectContent>
+                </Select>
                 {(smartSearch || smartUrlFilter || smartImpact !== "all" || smartRule !== "all") && (
                   <button
                     onClick={() => { setSmartSearch(""); setSmartUrlFilter(""); setSmartImpact("all"); setSmartRule("all"); }}
@@ -2330,14 +2335,14 @@ export default function ScanDetail() {
               </div>
 
               {/* Table */}
-              <div className="overflow-y-auto flex-1">
+              <div className="flex-1 overflow-auto">
                 {filteredSmartComponents.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-sm gap-2">
                     <Filter className="w-6 h-6" />
                     No components match your filters.
                   </div>
                 ) : (
-                  <table className="w-full text-sm">
+                  <table className="w-full min-w-[980px] text-sm">
                     <thead className="sticky top-0 z-10 bg-background border-b">
                       <tr>
                         <th className="text-left px-6 py-3 font-medium text-muted-foreground w-8"></th>
@@ -2367,7 +2372,7 @@ export default function ScanDetail() {
                         const hierParts = (comp.hierarchy ?? comp.componentName).split(" > ");
 
                         return (
-                          <>
+                          <Fragment key={rowKey}>
                             <tr
                               key={rowKey}
                               className={`border-b hover:bg-muted/30 cursor-pointer ${idx % 2 === 0 ? "" : "bg-muted/10"}`}
@@ -2569,7 +2574,7 @@ export default function ScanDetail() {
                                 </td>
                               </tr>
                             )}
-                          </>
+                          </Fragment>
                         );
                       })}
                     </tbody>
@@ -2628,13 +2633,13 @@ export default function ScanDetail() {
 
       {/* Code View Dialog */}
       <Dialog open={codeViewOpen} onOpenChange={setCodeViewOpen}>
-        <DialogContent className="max-w-[88vw] h-[82vh] flex flex-col gap-0 p-0">
-          <DialogHeader className="px-6 pt-5 pb-4 border-b shrink-0">
+        <DialogContent className="flex h-[calc(100dvh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-none flex-col gap-0 p-0 sm:h-[88dvh] sm:w-[94vw]">
+          <DialogHeader className="shrink-0 border-b px-5 pb-4 pt-5 pr-14 sm:px-6">
             <DialogTitle className="flex items-center gap-2 text-base">
               <Code className="w-4 h-4 text-violet-500" />
               Code View — {codeViewComponentName}
             </DialogTitle>
-            <p className="text-xs text-muted-foreground mt-0.5 font-mono break-all">{codeViewUrl}</p>
+            <DialogDescription className="mt-0.5 break-all font-mono text-xs">{codeViewUrl}</DialogDescription>
           </DialogHeader>
           {codeViewLoading && (
             <div className="flex flex-col items-center justify-center flex-1 gap-3">
@@ -2642,10 +2647,30 @@ export default function ScanDetail() {
               <p className="text-sm text-muted-foreground">Loading occurrences…</p>
             </div>
           )}
-          {!codeViewLoading && (
-            <div className="flex flex-1 overflow-hidden">
+          {!codeViewLoading && codeViewError && (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
+                <AlertCircle className="h-6 w-6" />
+              </span>
+              <div>
+                <p className="font-semibold">Code View is unavailable</p>
+                <p className="mt-1 max-w-md text-sm text-muted-foreground">{codeViewError}</p>
+              </div>
+              {codeViewComponent && (
+                <Button
+                  variant="outline"
+                  onClick={() => openCodeView(codeViewComponent, codeViewUrl)}
+                >
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Try again
+                </Button>
+              )}
+            </div>
+          )}
+          {!codeViewLoading && !codeViewError && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
               {/* Left pane — occurrence list */}
-              <div className="w-80 shrink-0 border-r overflow-y-auto flex flex-col">
+              <div className="flex h-[42%] w-full shrink-0 flex-col overflow-y-auto border-b md:h-auto md:w-80 md:border-b-0 md:border-r">
                 <div className="px-4 py-2.5 border-b bg-muted/30 shrink-0">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     {codeViewOccurrences.length > 99 ? "99+" : codeViewOccurrences.length} occurrence{codeViewOccurrences.length !== 1 ? "s" : ""}
@@ -2716,10 +2741,10 @@ export default function ScanDetail() {
                 )}
               </div>
               {/* Right pane — HTML tree or Live Preview */}
-              <div className="flex-1 overflow-hidden flex flex-col border-l">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 {codeViewOccurrences.length > 0 && codeViewOccurrences[codeViewSelectedIdx] ? (
                   <>
-                    <div className="px-3 py-1.5 border-b bg-gray-50 shrink-0 flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b bg-gray-50 px-3 py-1.5">
                       {/* Prev/First nav */}
                       <div className="flex items-center gap-0.5 shrink-0">
                         <button
@@ -2965,43 +2990,37 @@ export default function ScanDetail() {
         );
       })()}
 
-      <div className="flex justify-between items-start">
+      <section className="px-0 py-1.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="min-w-0 flex-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mb-3 -ml-2"
-            onClick={() => setLocation(isCrawlerScan ? "/crawler" : "/scans")}
-          >
-            &lt; Back to {isCrawlerScan ? "Crawler History" : "Scan History"}
-          </Button>
-          {(scan as { projectName?: string | null }).projectName && (
-            <div className="flex items-center gap-1.5 mb-1">
-              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Project
-              </span>
-              <span className="text-xs font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                {(scan as { projectName: string }).projectName}
-              </span>
-            </div>
-          )}
-          <div className="flex min-w-0 items-center gap-3 mb-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 rounded-lg border-[#e0e4ef] bg-white/80 px-3 text-xs font-medium text-[#667] shadow-none hover:bg-white dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
+              onClick={() => setLocation(isCrawlerScan ? "/crawler" : "/scans")}
+            >
+              <ChevronLeft className="mr-1 h-3 w-3" />
+              Back to {isCrawlerScan ? "Crawler History" : "Scan History"}
+            </Button>
             <h1
-              className="min-w-0 flex-1 max-w-full line-clamp-2 break-words [overflow-wrap:anywhere] text-3xl font-bold tracking-tight"
+              className="min-w-0 max-w-[min(52vw,760px)] flex-1 truncate whitespace-nowrap text-[19px] font-bold tracking-[-0.02em] text-[#172b4d] dark:text-slate-100"
               title={scan.name || `Scan #${scan.id}`}
             >
               {scan.name || `Scan #${scan.id}`}
             </h1>
+            <span className="shrink-0 [&>span]:rounded-full [&>span]:bg-[#e3f0fb] [&>span]:px-3 [&>span]:py-1 [&>span]:text-xs [&>span]:font-bold [&>span]:text-[#1565c0]">
+              {getStatusBadge(displayStatus)}
+            </span>
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              className="h-7 w-7 rounded-md text-[#7b8aaa] hover:bg-white hover:text-[#172b4d] dark:hover:bg-slate-800"
               title="Edit scan details"
               onClick={openEditDialog}
             >
-              <Pencil className="w-4 h-4" />
+              <Pencil className="h-3.5 w-3.5" />
             </Button>
-            {getStatusBadge(displayStatus)}
             {isCrawlBoost && (
               <Badge variant="outline" className="gap-1.5 text-xs border-emerald-500 text-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400">
                 <span className="relative flex h-2 w-2">
@@ -3012,32 +3031,28 @@ export default function ScanDetail() {
                 Crawl Boost
               </Badge>
             )}
-            {elapsedText && (
-              <Badge variant="outline" className="text-xs">
-                {isRunning || isPaused ? "Elapsed" : "Time taken"} {elapsedText}
-              </Badge>
-            )}
           </div>
-          <p className="text-muted-foreground font-mono text-sm">
-            ID: {scan.id} | Created: {new Date(scan.createdAt).toLocaleString()}
-          </p>
-          {initiatorText && (
-            <p className="text-muted-foreground text-sm mt-1">
-              {initiatorText}
-            </p>
-          )}
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs font-normal text-[#7b8aaa] dark:text-slate-400">
+            {(scan as { projectName?: string | null }).projectName && (
+              <span>Project <span className="font-semibold text-violet-700 dark:text-violet-300">{(scan as { projectName: string }).projectName}</span></span>
+            )}
+            <span className="font-mono">Scan #{scan.id}</span>
+            <span>Created {new Date(scan.createdAt).toLocaleString()}</span>
+            {initiatorText && <span>{initiatorText}</span>}
+            {elapsedText && <span>{isRunning || isPaused ? "Elapsed" : "Time taken"} {elapsedText}</span>}
+          </div>
           <RulesBadges selectedRules={selectedRules} />
-          <div className="mt-2 flex flex-wrap gap-2">
+          <div className="mt-1 flex flex-wrap gap-1.5">
             {scan.status === "running" ||
             scan.status === "pending" ||
             scan.status === "paused" ? (
-              <Badge variant="secondary" className="text-xs">
+              <Badge variant="secondary" className="h-5 px-2 text-[10px]">
                 {formatEta(estimatedMinutes)}
               </Badge>
             ) : null}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="ml-auto flex flex-wrap items-center gap-2 [&_button]:h-9 [&_button]:rounded-[9px] [&_button]:px-3.5 [&_button]:text-[13px] [&_button_svg]:h-3.5 [&_button_svg]:w-3.5">
           {isActive && (
             <Button
               variant="outline"
@@ -3114,30 +3129,34 @@ export default function ScanDetail() {
               </Button>
             </div>
           )}
-          {!isRunning && scan.status === "completed" && !isUpdatingResults && (
+          {!isActive && !isUpdatingResults && (
             <>
-              {authUser?.permissions?.canSmartAnalysis && (
-                <Button variant="outline" onClick={openSmartAnalysis} data-testid="smart-analysis-btn">
-                  <Sparkles className="w-4 h-4 mr-2 text-violet-500" />
-                  Smart Analysis
-                </Button>
+              {scan.status === "completed" && authUser?.permissions?.canSmartAnalysis && (
+                  <Button variant="outline" className="border-[#6d48c7] bg-[#6d48c7]/[0.06] font-semibold text-[#6d48c7] hover:bg-[#6d48c7]/[0.12]" onClick={openSmartAnalysis} data-testid="smart-analysis-btn">
+                    <Sparkles className="w-4 h-4 mr-2 text-violet-500" />
+                    Smart Analysis
+                  </Button>
               )}
-              <Link href={`/scans/${scan.id}/report`}>
-                <Button>
-                  <BarChart2 className="w-4 h-4 mr-2" />
-                  View Report
-                </Button>
-              </Link>
+              <ExportButtons scan={scan} compact />
+              {scan.status === "completed" && (
+                <Link href={`/scans/${scan.id}/report`}>
+                  <Button>
+                    <BarChart2 className="w-4 h-4 mr-2" />
+                    View Report
+                  </Button>
+                </Link>
+              )}
             </>
           )}
         </div>
-      </div>
+        </div>
+      </section>
 
       {/* Progress card — only shown while scan is active */}
       {isActive && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Scan Progress</CardTitle>
+        <Card className="overflow-hidden rounded-2xl border-violet-200/80 bg-white/85 shadow-[0_5px_20px_rgba(15,23,42,0.05)] dark:border-violet-900/60 dark:bg-slate-950/80">
+          <CardHeader className="border-b border-violet-100 bg-violet-50/45 pb-4 dark:border-violet-950 dark:bg-violet-950/20">
+            <CardTitle className="text-base">Scan Progress</CardTitle>
             {liveStatus?.currentUrl && (
               <CardDescription
                 className="min-w-0 max-w-full font-mono break-words [overflow-wrap:anywhere]"
@@ -3152,7 +3171,7 @@ export default function ScanDetail() {
               </CardDescription>
             )}
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-5">
             <div className="flex justify-between text-sm font-medium">
               <span>
                 {scannedUrls} of {totalUrls} URLs scanned
@@ -3173,13 +3192,13 @@ export default function ScanDetail() {
 
       {/* Main view tab bar — shown for completed/cancelled/failed scans */}
       {!showUpdatingResults && !isActive && (
-        <div className="flex items-center border-b border-border gap-1">
+        <div className="flex items-center gap-0 border-b-2 border-[#e8edf5] dark:border-slate-800">
           <button
             onClick={() => setMainView("accessibility")}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t transition-colors ${
+            className={`flex items-center gap-2 border-b-[2.5px] px-5 py-2.5 text-[13px] font-semibold transition-colors ${
               mainView === "accessibility"
-                ? "text-foreground border border-b-0 border-border bg-background"
-                : "text-muted-foreground hover:text-foreground"
+                ? "border-[#6d48c7] text-[#6d48c7] dark:text-violet-300"
+                : "border-transparent text-[#7b8aaa] hover:text-[#172b4d]"
             }`}
           >
             <Globe className="w-4 h-4" />
@@ -3187,10 +3206,10 @@ export default function ScanDetail() {
           </button>
           <button
             onClick={() => setMainView("qa")}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t transition-colors ${
+            className={`flex items-center gap-2 border-b-[2.5px] px-5 py-2.5 text-[13px] font-medium transition-colors ${
               mainView === "qa"
-                ? "text-foreground border border-b-0 border-border bg-background"
-                : "text-muted-foreground hover:text-foreground"
+                ? "border-[#6d48c7] text-[#6d48c7] dark:text-violet-300"
+                : "border-transparent text-[#7b8aaa] hover:text-[#172b4d]"
             }`}
           >
             <Shield className="w-4 h-4" />
@@ -3210,86 +3229,77 @@ export default function ScanDetail() {
         mainView === "accessibility" &&
         scan.pages &&
         scan.pages.length > 0 && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-3">
-                <h2 className="text-2xl font-semibold tracking-tight">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-baseline gap-2">
+                <h2 className="text-sm font-semibold text-[#172b4d]">
                   Page Results
                 </h2>
-                <span className="text-base text-muted-foreground font-medium">
-                  {scannedUrls.toLocaleString()} of {totalUrls.toLocaleString()} URLs scanned · {progressPercent}%
+                <span className="text-[13px] text-[#7b8aaa]">
+                  {scannedUrls.toLocaleString()}/{totalUrls.toLocaleString()} URLs scanned · {progressPercent}%
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
+                  size="sm"
+                  className="h-8 rounded-lg border-[#e0e4ef] bg-white/85 px-3 text-xs font-medium text-[#667] shadow-none hover:bg-white dark:border-slate-800 dark:bg-slate-950"
                   onClick={handleCopyAllUrls}
                   disabled={scan.pages.length === 0}
                 >
-                  {pageStatusFilter === "all" ? "Copy all URLs" : "Copy filtered URLs"}
+                  Copy all URLs
                 </Button>
-                <ExportButtons scan={scan} />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-lg border-[#e0e4ef] bg-white/85 px-3 text-xs font-medium text-[#667] shadow-none hover:bg-white dark:border-slate-800 dark:bg-slate-950"
+                  onClick={handleCopyFilteredUrls}
+                  disabled={scan.pages.filter(matchesPageFilter).length === 0}
+                >
+                  Copy filtered URLs
+                </Button>
               </div>
             </div>
 
-            {/* Status filter tiles */}
+            {/* Compact status filters */}
             {(() => {
-              type TileDef = { value: string; label: string; count: number; activeClass: string; Icon: React.ElementType };
+              type TileDef = { value: string; label: string; count: number };
               const tiles: TileDef[] = [
-                { value: "all",                    label: "All Pages",    count: pageStatusCounts.all,                    activeClass: "border-slate-400 bg-slate-50 dark:bg-slate-900/40 dark:border-slate-500",       Icon: Globe },
-                { value: "completed_with_issues",  label: "With Issues",  count: pageStatusCounts.completed_with_issues,  activeClass: "border-amber-400 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-500",        Icon: AlertCircle },
-                { value: "completed_no_issues",    label: "No Issues",    count: pageStatusCounts.completed_no_issues,    activeClass: "border-green-400 bg-green-50 dark:bg-green-950/30 dark:border-green-500",        Icon: CheckCircle2 },
-                { value: "failed",                 label: "Failed",       count: pageStatusCounts.failed,                 activeClass: "border-red-400 bg-red-50 dark:bg-red-950/30 dark:border-red-500",               Icon: XCircle },
-                { value: "not_available",          label: "Not Available",count: pageStatusCounts.not_available,          activeClass: "border-slate-400 bg-slate-50 dark:bg-slate-900/40 dark:border-slate-500",       Icon: CircleSlash },
-                { value: "pending",                label: "Pending",      count: pageStatusCounts.pending,                activeClass: "border-yellow-400 bg-yellow-50 dark:bg-yellow-950/30 dark:border-yellow-500",    Icon: Clock },
-                { value: "not_scanned",            label: "Not Scanned",  count: pageStatusCounts.not_scanned,            activeClass: "border-orange-400 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-500",   Icon: AlertTriangle },
+                { value: "all",                    label: "All Pages",    count: pageStatusCounts.all },
+                { value: "completed_with_issues",  label: "With Issues",  count: pageStatusCounts.completed_with_issues },
+                { value: "completed_no_issues",    label: "No Issues",    count: pageStatusCounts.completed_no_issues },
+                { value: "failed",                 label: "Failed",       count: pageStatusCounts.failed },
+                { value: "not_available",          label: "Not Available",count: pageStatusCounts.not_available },
+                { value: "pending",                label: "Pending",      count: pageStatusCounts.pending },
+                { value: "not_scanned",            label: "Not Scanned",  count: pageStatusCounts.not_scanned },
               ].filter(t => t.value === "all" || t.count > 0);
-              const iconColors: Record<string, string> = {
-                all: "text-slate-500",
-                completed_with_issues: "text-amber-500",
-                completed_no_issues: "text-green-500",
-                failed: "text-red-500",
-                not_available: "text-slate-400",
-                pending: "text-yellow-500",
-                not_scanned: "text-orange-500",
-              };
-              const countColors: Record<string, string> = {
-                all: "text-slate-700 dark:text-slate-200",
-                completed_with_issues: "text-amber-700 dark:text-amber-300",
-                completed_no_issues: "text-green-700 dark:text-green-300",
-                failed: "text-red-700 dark:text-red-300",
-                not_available: "text-slate-600 dark:text-slate-300",
-                pending: "text-yellow-700 dark:text-yellow-300",
-                not_scanned: "text-orange-700 dark:text-orange-300",
-              };
               return (
                 <div className="flex flex-wrap items-center gap-2">
-                  {tiles.map(({ value, label, count, activeClass, Icon }) => {
+                  {tiles.map(({ value, label, count }) => {
                     const isActive = pageStatusFilter === value;
                     return (
                       <button
                         key={value}
                         type="button"
                         onClick={() => setPageStatusFilter(value)}
-                        className={`flex items-center gap-3 rounded-lg border px-5 py-3 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+                        className={`inline-flex h-8 items-center gap-1.5 rounded-[10px] border-[1.5px] px-3 text-xs font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6d48c7] ${
                           isActive
-                            ? `${activeClass} shadow-sm`
-                            : "border-border bg-card hover:bg-muted/50 hover:border-muted-foreground/30"
+                            ? "border-[#6d48c7] bg-[#6d48c7] text-white"
+                            : "border-[#e0e4ef] bg-white/85 text-[#667] hover:border-[#6d48c7]/40 hover:bg-white dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
                         }`}
                       >
-                        <Icon className={`w-5 h-5 shrink-0 ${isActive ? iconColors[value] : "text-muted-foreground"}`} />
-                        <div>
-                          <p className={`text-xs font-semibold uppercase tracking-wide leading-none mb-1 ${isActive ? iconColors[value] : "text-muted-foreground"}`}>{label}</p>
-                          <p className={`text-2xl font-bold leading-none ${isActive ? countColors[value] : "text-foreground"}`}>{count.toLocaleString()}</p>
-                        </div>
+                        <span>{label}</span>
+                        <span className={`inline-flex min-w-4 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] leading-none ${
+                          isActive ? "bg-white/25 text-white" : "bg-[#f0f2f8] text-[#9eadca] dark:bg-slate-800 dark:text-slate-300"
+                        }`}>{count.toLocaleString()}</span>
                       </button>
                     );
                   })}
                   {/* File extension filter */}
                   {pageExtensions.length > 0 && (
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="shrink-0">
                       <Select value={pageExtFilter} onValueChange={setPageExtFilter}>
-                        <SelectTrigger className="h-11 w-36 bg-white dark:bg-white dark:text-slate-900">
+                        <SelectTrigger className="h-8 w-[92px] rounded-lg border-[#e0e4ef] bg-white/85 text-xs text-[#172b4d] shadow-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
                           <SelectValue placeholder="Extension" />
                         </SelectTrigger>
                         <SelectContent>
@@ -3299,22 +3309,16 @@ export default function ScanDetail() {
                           ))}
                         </SelectContent>
                       </Select>
-                      <Badge
-                        variant="secondary"
-                        className="h-7 whitespace-nowrap px-2.5 text-xs font-medium"
-                      >
-                        {(pageExtensionCounts[pageExtFilter] ?? 0).toLocaleString()} total
-                      </Badge>
                     </div>
                   )}
                   {/* URL text filter — right side of the same row */}
-                  <div className="relative ml-auto w-72 shrink-0">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <div className="relative ml-auto w-full min-w-[180px] shrink-0 sm:w-52">
+                      <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-[#9eadca]" />
                     <Input
                       placeholder="Filter URLs…"
                       value={pageUrlFilter}
                       onChange={(e) => setPageUrlFilter(e.target.value)}
-                      className="pl-9 h-11 bg-white dark:bg-white dark:text-slate-900 dark:placeholder:text-slate-400"
+                      className="h-9 rounded-[9px] border-[#e0e4ef] bg-white/85 pl-7 text-xs text-[#172b4d] shadow-none placeholder:text-[#9eadca] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-400"
                     />
                     {pageUrlFilter && (
                       <button
@@ -3330,7 +3334,7 @@ export default function ScanDetail() {
               );
             })()}
 
-            <Accordion type="multiple" className="space-y-4">
+            <Accordion type="multiple" className="space-y-2">
               {scan.pages.filter(matchesPageFilter).map((page) => {
                 const pageIssues = (page.issues || []).map((issue: Issue) => {
                   const override = fpOverrides[issue.id];
@@ -3340,83 +3344,72 @@ export default function ScanDetail() {
                   <AccordionItem
                     key={page.id}
                     value={`page-${page.id}`}
-                    className="border bg-card rounded-lg px-4 shadow-sm"
+                    className="overflow-hidden rounded-[14px] border-[1.5px] border-transparent bg-white/80 shadow-[0_2px_8px_rgba(15,23,42,0.05)] data-[state=open]:border-[#6d48c7]/20 dark:border-slate-800 dark:bg-slate-950 dark:data-[state=open]:border-violet-900"
                   >
-                    <AccordionTrigger className="hover:no-underline py-4">
-                      <div className="flex items-center justify-between w-full pr-4">
-                        <div className="flex items-center gap-3 overflow-hidden">
+                    <div className="flex items-center [&>h3]:min-w-0 [&>h3]:flex-1 [&>h3]:overflow-hidden">
+                    <AccordionTrigger className="min-w-0 flex-1 overflow-hidden px-4 py-2.5 hover:bg-[rgba(109,72,199,0.025)] hover:no-underline data-[state=open]:bg-[rgba(109,72,199,0.025)] dark:hover:bg-violet-950/20 dark:data-[state=open]:bg-violet-950/20">
+                      <div className="flex w-full min-w-0 flex-col items-start gap-2 pr-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                        <div className="flex w-full min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
                           {page.status === "completed" ? (
-                            <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
+                            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
                           ) : page.status === "failed" ? (
-                            <XCircle className="w-5 h-5 text-red-500 shrink-0" />
+                            <XCircle className="h-4 w-4 shrink-0 text-red-500" />
                           ) : page.status === "not_available" ? (
-                            <Ban className="w-5 h-5 text-slate-400 shrink-0" />
+                            <Ban className="h-4 w-4 shrink-0 text-slate-400" />
                           ) : page.status === "requeued" ? (
-                            <RotateCcw className="w-5 h-5 text-indigo-500 shrink-0" />
+                            <RotateCcw className="h-4 w-4 shrink-0 text-indigo-500" />
                           ) : page.status === "pending" ? (
-                            <Clock className="w-5 h-5 text-yellow-500 shrink-0" />
+                            <Clock className="h-4 w-4 shrink-0 text-yellow-500" />
                           ) : (
-                            <AlertTriangle className="w-5 h-5 text-orange-500 shrink-0" />
+                            <AlertTriangle className="h-4 w-4 shrink-0 text-orange-500" />
                           )}
-                          <div className="min-w-0 max-w-full">
-                            <UrlCell url={page.url} />
+                          <div className="min-w-0 flex-1 overflow-hidden">
+                            <span className="block min-w-0 line-clamp-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[13px] font-semibold text-[#172b4d] dark:text-slate-200" title={page.url}>
+                              {page.url}
+                            </span>
                           </div>
                         </div>
-                        <div className="flex items-center gap-4 shrink-0">
+                        <div className="flex max-w-full flex-wrap items-center gap-2 shrink-0 text-[11px] sm:flex-nowrap sm:gap-3">
                           {page.status === "failed" && (
-                            <Badge variant="destructive" className="ml-auto">
+                            <Badge variant="destructive" className="h-5 rounded-full px-2 text-[10px]">
                               Failed
                             </Badge>
                           )}
                           {page.status === "requeued" && (
-                            <Badge variant="outline" className="ml-auto bg-indigo-50 text-indigo-600 border-indigo-200">
+                            <Badge variant="outline" className="h-5 rounded-full border-indigo-200 bg-indigo-50 px-2 text-[10px] text-indigo-600">
                               Requeued
                             </Badge>
                           )}
                           {page.status === "not_available" && !page.wafToken && (
-                            <Badge variant="outline" className="ml-auto bg-slate-50 text-slate-500 border-slate-200">
+                            <Badge variant="outline" className="h-5 rounded-full border-slate-200 bg-slate-50 px-2 text-[10px] text-slate-500">
                               Not Available
                             </Badge>
                           )}
                           {page.status === "not_available" && page.wafToken && (
-                            <button
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-amber-500 hover:bg-amber-600 text-white transition-colors"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const hash = [
-                                  `_ampera_sid=${scan.id}`,
-                                  `_ampera_pid=${page.id}`,
-                                  `_ampera_srv=${encodeURIComponent(window.location.origin)}`,
-                                  `_ampera_tok=${page.wafToken}`,
-                                ].join("&");
-                                window.open(`${page.url}#${hash}`, "_blank", "noopener");
-                              }}
-                            >
-                              🔍 Scan from Browser
-                            </button>
+                            <Badge variant="outline" className="h-5 rounded-full border-amber-200 bg-amber-50 px-2 text-[10px] text-amber-700">
+                              Browser scan available
+                            </Badge>
                           )}
                           {!["completed","failed","not_available","pending","requeued"].includes(page.status) && (
-                            <Badge variant="outline" className="ml-auto bg-orange-50 text-orange-600 border-orange-200" title={`Interrupted mid-scan (status: ${page.status})`}>
+                            <Badge variant="outline" className="h-5 rounded-full border-orange-200 bg-orange-50 px-2 text-[10px] text-orange-600" title={`Interrupted mid-scan (status: ${page.status})`}>
                               Not Scanned
                             </Badge>
                           )}
                           {(page.loadDurationMs != null || page.scanDurationMs != null) && (
-                            <div className="flex items-center gap-2 text-sm font-mono font-medium">
+                            <div className="flex items-center gap-1 whitespace-nowrap text-[11px] font-medium text-[#9eadca] dark:text-slate-500">
                               {page.loadDurationMs != null && (
-                                <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400" title="Page load time (DOMContentLoaded)">
-                                  <Globe className="w-3.5 h-3.5" />
-                                  {page.loadDurationMs >= 1000
+                                <span title="Page load time (DOMContentLoaded)">
+                                  Load {page.loadDurationMs >= 1000
                                     ? `${(page.loadDurationMs / 1000).toFixed(1)}s`
                                     : `${page.loadDurationMs}ms`}
                                 </span>
                               )}
                               {page.loadDurationMs != null && page.scanDurationMs != null && (
-                                <span className="text-slate-400">·</span>
+                                <span className="text-slate-300">·</span>
                               )}
                               {page.scanDurationMs != null && (
-                                <span className="flex items-center gap-1 text-violet-600 dark:text-violet-400" title="Total scan time (load + scan delay + rule checks)">
-                                  <Cpu className="w-3.5 h-3.5" />
-                                  {page.scanDurationMs >= 1000
+                                <span title="Total scan time (load + scan delay + rule checks)">
+                                  Scan {page.scanDurationMs >= 1000
                                     ? `${(page.scanDurationMs / 1000).toFixed(1)}s`
                                     : `${page.scanDurationMs}ms`}
                                 </span>
@@ -3424,14 +3417,14 @@ export default function ScanDetail() {
                             </div>
                           )}
                           {page.issueCount > 0 && (
-                            <div className="flex items-center gap-2">
-                              <Badge variant="secondary" className="font-mono">
-                                {page.issueCount} total
-                              </Badge>
+                            <div className="flex items-center gap-1.5 whitespace-nowrap">
+                              <span className="text-[13px] font-extrabold text-[#e84a3d]">
+                                {page.issueCount} issue{page.issueCount !== 1 ? "s" : ""}
+                              </span>
                               {page.criticalCount > 0 && (
                                 <Badge
                                   variant="default"
-                                  className="bg-[#E11D48] hover:bg-[#E11D48] font-mono"
+                                  className="h-5 rounded-full bg-[#fdecea] px-2 text-[11px] font-bold text-[#d32f2f] hover:bg-[#fdecea]"
                                 >
                                   {page.criticalCount} critical
                                 </Badge>
@@ -3441,7 +3434,44 @@ export default function ScanDetail() {
                         </div>
                       </div>
                     </AccordionTrigger>
-                    <AccordionContent className="pt-2 pb-4">
+                    <div className="flex shrink-0 self-stretch items-center gap-1 border-l border-[#f0f2f8] px-1.5 sm:px-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                         className="h-8 w-8 rounded-md text-muted-foreground hover:bg-slate-100 hover:text-violet-700 dark:hover:bg-slate-800 dark:hover:text-violet-300"
+                        onClick={async () => {
+                          await navigator.clipboard.writeText(page.url);
+                          toast({ title: "URL copied" });
+                        }}
+                        aria-label={`Copy URL ${page.url}`}
+                        title="Copy URL"
+                      >
+                          <Copy className="h-3 w-3" />
+                      </Button>
+                      {page.status === "not_available" && page.wafToken && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 rounded-md border-amber-300 bg-amber-50 px-2 text-[11px] font-semibold text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+                          onClick={() => {
+                            const hash = [
+                              `_ampera_sid=${scan.id}`,
+                              `_ampera_pid=${page.id}`,
+                              `_ampera_srv=${encodeURIComponent(window.location.origin)}`,
+                              `_ampera_tok=${page.wafToken}`,
+                            ].join("&");
+                            window.open(`${page.url}#${hash}`, "_blank", "noopener");
+                          }}
+                        >
+                          <Monitor className="mr-1 h-3 w-3" />
+                          Scan from browser
+                        </Button>
+                      )}
+                    </div>
+                    </div>
+                    <AccordionContent className="border-t border-slate-100 px-3 pb-3 pt-2.5 dark:border-slate-800">
                       {!["completed","failed","not_available","pending","requeued"].includes(page.status) && (
                         <div className="p-4 bg-orange-50 text-orange-800 text-sm rounded-md mb-4 border border-orange-200 flex items-start gap-2">
                           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-orange-500" />
@@ -3523,49 +3553,46 @@ export default function ScanDetail() {
                         <div className="space-y-3">
                           {/* Filter bar + Category visibility dropdown */}
                           {(pageIssues.length > 0 || selectedRules.length >= 2) && (
-                            <div className="flex items-start gap-2">
-                              <div className="flex-1">
-                                <IssueFilterBar
-                                  issues={pageIssues}
-                                  filters={filters}
-                                  onChange={setFilters}
-                                  singleRule={selectedRules.length === 1}
-                                  selectedRules={selectedRules}
-                                  ruleInfoMap={ruleInfoMap}
-                                />
-                              </div>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="outline" size="sm" className="shrink-0 gap-1.5 text-xs h-8 px-2.5 mt-0.5">
-                                    <Filter className="w-3.5 h-3.5" />
-                                    Categories
-                                    {visibleCats.size < 4 && (
-                                      <Badge variant="secondary" className="px-1 py-0 text-[10px]">{visibleCats.size}/4</Badge>
-                                    )}
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-52">
-                                  <DropdownMenuLabel className="text-xs text-muted-foreground">Show categories</DropdownMenuLabel>
-                                  <DropdownMenuSeparator />
-                                  {([
-                                    { key: "Issue", label: "Issues", cls: "text-red-600" },
-                                    { key: "Potential Issue", label: "Potential Issues", cls: "text-amber-600" },
-                                    { key: "Best Practice", label: "Best Practices", cls: "text-blue-600" },
-                                    { key: "WAI-ARIA", label: "WAI-ARIA", cls: "text-purple-600" },
-                                  ] as const).map(({ key, label, cls }) => (
-                                    <DropdownMenuCheckboxItem
-                                      key={key}
-                                      checked={visibleCats.has(key)}
-                                      onCheckedChange={(checked) =>
-                                        setVisibleCats(prev => { const n = new Set(prev); checked ? n.add(key) : n.delete(key); return n; })
-                                      }
-                                      className={`text-xs ${cls}`}
-                                    >
-                                      {label}
-                                    </DropdownMenuCheckboxItem>
-                                  ))}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
+                            <div className="min-w-0 flex-1">
+                              <IssueFilterBar
+                                issues={pageIssues}
+                                filters={filters}
+                                onChange={setFilters}
+                                singleRule={selectedRules.length === 1}
+                                selectedRules={selectedRules}
+                                ruleInfoMap={ruleInfoMap}
+                                trailingControl={
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button variant="outline" size="sm" className="h-8 shrink-0 gap-1 rounded-lg border-[#e0e4ef] bg-[#f7f8fd] px-2.5 text-xs font-normal text-[#172b4d] shadow-none dark:border-slate-800 dark:bg-slate-950">
+                                        <Filter className="h-3 w-3" />
+                                        Categories ({visibleCats.size})
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-52">
+                                      <DropdownMenuLabel className="text-xs text-muted-foreground">Show categories</DropdownMenuLabel>
+                                      <DropdownMenuSeparator />
+                                      {([
+                                        { key: "Issue", label: "Issues", cls: "text-red-600" },
+                                        { key: "Potential Issue", label: "Potential Issues", cls: "text-amber-600" },
+                                        { key: "Best Practice", label: "Best Practices", cls: "text-blue-600" },
+                                        { key: "WAI-ARIA", label: "WAI-ARIA", cls: "text-purple-600" },
+                                      ] as const).map(({ key, label, cls }) => (
+                                        <DropdownMenuCheckboxItem
+                                          key={key}
+                                          checked={visibleCats.has(key)}
+                                          onCheckedChange={(checked) =>
+                                            setVisibleCats(prev => { const n = new Set(prev); checked ? n.add(key) : n.delete(key); return n; })
+                                          }
+                                          className={`text-xs ${cls}`}
+                                        >
+                                          {label}
+                                        </DropdownMenuCheckboxItem>
+                                      ))}
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                }
+                              />
                             </div>
                           )}
                           {pageIssues.length === 0 && page.status === "completed" && (
@@ -3585,119 +3612,63 @@ export default function ScanDetail() {
                           )}
                           {/* Issues section */}
                           {visibleCats.has("Issue") && pageIssues.filter((i) => !i.ruleType || i.ruleType === "Issue").length > 0 && (
-                            <div>
-                              <button
-                                onClick={() => toggleCat("Issue")}
-                                className="w-full flex items-center justify-between px-2.5 py-1.5 mb-2 rounded-md bg-red-50 border border-red-200 text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors"
-                              >
-                                <span className="flex items-center gap-1.5">
-                                  <XCircle className="w-3.5 h-3.5" />
-                                  Issues ({pageIssues.filter((i) => !i.ruleType || i.ruleType === "Issue").length})
-                                </span>
-                                {expandedCats.has("Issue") ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                              </button>
-                              {expandedCats.has("Issue") && (
-                                <IssueGroupList
-                                  issues={pageIssues.filter((i) => !i.ruleType || i.ruleType === "Issue")}
-                                  filters={filters}
-                                  pageUrl={page.url}
-                                  selectedRules={selectedRules}
-                                  ruleInfoMap={ruleInfoMap}
-                                  selectedIssueId={undefined}
-                                  onFlagIssue={handleOpenFlagDialog}
-                                  onSelectOccurrence={viewerEnabled ? (issue, group) => handleSelectOccurrence(issue, group, page.url, page.id) : undefined}
-                                  isCrawlerScan={isCrawlerScan}
-                                  onOpenUpdateResults={handleOpenUpdateResults}
-                                />
-                              )}
-                            </div>
+                            <IssueGroupList
+                              issues={pageIssues.filter((i) => !i.ruleType || i.ruleType === "Issue")}
+                              filters={filters}
+                              pageUrl={page.url}
+                              selectedRules={selectedRules}
+                              ruleInfoMap={ruleInfoMap}
+                              selectedIssueId={undefined}
+                              onFlagIssue={handleOpenFlagDialog}
+                              onSelectOccurrence={(issue, group) => handleSelectOccurrence(issue, group, page.url, page.id)}
+                              isCrawlerScan={isCrawlerScan}
+                              onOpenUpdateResults={handleOpenUpdateResults}
+                            />
                           )}
                           {/* Potential issues section */}
                           {visibleCats.has("Potential Issue") && pageIssues.filter((i) => i.ruleType === "Potential Issue").length > 0 && (
-                            <div>
-                              <button
-                                onClick={() => toggleCat("Potential Issue")}
-                                className="w-full flex items-center justify-between px-2.5 py-1.5 mb-2 rounded-md bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition-colors"
-                              >
-                                <span className="flex items-center gap-1.5">
-                                  <AlertCircle className="w-3.5 h-3.5" />
-                                  Potential Issues ({pageIssues.filter((i) => i.ruleType === "Potential Issue").length})
-                                </span>
-                                {expandedCats.has("Potential Issue") ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                              </button>
-                              {expandedCats.has("Potential Issue") && (
-                                <IssueGroupList
-                                  issues={pageIssues.filter((i) => i.ruleType === "Potential Issue")}
-                                  filters={filters}
-                                  pageUrl={page.url}
-                                  selectedRules={selectedRules}
-                                  ruleInfoMap={ruleInfoMap}
-                                  selectedIssueId={undefined}
-                                  onFlagIssue={handleOpenFlagDialog}
-                                  onSelectOccurrence={viewerEnabled ? (issue, group) => handleSelectOccurrence(issue, group, page.url, page.id) : undefined}
-                                  isCrawlerScan={isCrawlerScan}
-                                  onOpenUpdateResults={handleOpenUpdateResults}
-                                />
-                              )}
-                            </div>
+                            <IssueGroupList
+                              issues={pageIssues.filter((i) => i.ruleType === "Potential Issue")}
+                              filters={filters}
+                              pageUrl={page.url}
+                              selectedRules={selectedRules}
+                              ruleInfoMap={ruleInfoMap}
+                              selectedIssueId={undefined}
+                              onFlagIssue={handleOpenFlagDialog}
+                              onSelectOccurrence={(issue, group) => handleSelectOccurrence(issue, group, page.url, page.id)}
+                              isCrawlerScan={isCrawlerScan}
+                              onOpenUpdateResults={handleOpenUpdateResults}
+                            />
                           )}
                           {/* Best practices section */}
                           {visibleCats.has("Best Practice") && pageIssues.filter((i) => i.ruleType === "Best Practice").length > 0 && (
-                            <div>
-                              <button
-                                onClick={() => toggleCat("Best Practice")}
-                                className="w-full flex items-center justify-between px-2.5 py-1.5 mb-2 rounded-md bg-blue-50 border border-blue-200 text-xs font-semibold text-blue-700 hover:bg-blue-100 transition-colors"
-                              >
-                                <span className="flex items-center gap-1.5">
-                                  <Info className="w-3.5 h-3.5" />
-                                  Best Practices ({pageIssues.filter((i) => i.ruleType === "Best Practice").length})
-                                </span>
-                                {expandedCats.has("Best Practice") ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                              </button>
-                              {expandedCats.has("Best Practice") && (
-                                <IssueGroupList
-                                  issues={pageIssues.filter((i) => i.ruleType === "Best Practice")}
-                                  filters={filters}
-                                  pageUrl={page.url}
-                                  selectedRules={selectedRules}
-                                  ruleInfoMap={ruleInfoMap}
-                                  selectedIssueId={undefined}
-                                  onFlagIssue={handleOpenFlagDialog}
-                                  onSelectOccurrence={viewerEnabled ? (issue, group) => handleSelectOccurrence(issue, group, page.url, page.id) : undefined}
-                                  isCrawlerScan={isCrawlerScan}
-                                  onOpenUpdateResults={handleOpenUpdateResults}
-                                />
-                              )}
-                            </div>
+                            <IssueGroupList
+                              issues={pageIssues.filter((i) => i.ruleType === "Best Practice")}
+                              filters={filters}
+                              pageUrl={page.url}
+                              selectedRules={selectedRules}
+                              ruleInfoMap={ruleInfoMap}
+                              selectedIssueId={undefined}
+                              onFlagIssue={handleOpenFlagDialog}
+                              onSelectOccurrence={(issue, group) => handleSelectOccurrence(issue, group, page.url, page.id)}
+                              isCrawlerScan={isCrawlerScan}
+                              onOpenUpdateResults={handleOpenUpdateResults}
+                            />
                           )}
                           {/* WAI-ARIA section */}
                           {visibleCats.has("WAI-ARIA") && pageIssues.filter((i) => i.ruleType === "WAI-ARIA").length > 0 && (
-                            <div>
-                              <button
-                                onClick={() => toggleCat("WAI-ARIA")}
-                                className="w-full flex items-center justify-between px-2.5 py-1.5 mb-2 rounded-md bg-purple-50 border border-purple-200 text-xs font-semibold text-purple-700 hover:bg-purple-100 transition-colors"
-                              >
-                                <span className="flex items-center gap-1.5">
-                                  <Code className="w-3.5 h-3.5" />
-                                  WAI-ARIA ({pageIssues.filter((i) => i.ruleType === "WAI-ARIA").length})
-                                </span>
-                                {expandedCats.has("WAI-ARIA") ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                              </button>
-                              {expandedCats.has("WAI-ARIA") && (
-                                <IssueGroupList
-                                  issues={pageIssues.filter((i) => i.ruleType === "WAI-ARIA")}
-                                  filters={filters}
-                                  pageUrl={page.url}
-                                  selectedRules={selectedRules}
-                                  ruleInfoMap={ruleInfoMap}
-                                  selectedIssueId={undefined}
-                                  onFlagIssue={handleOpenFlagDialog}
-                                  onSelectOccurrence={viewerEnabled ? (issue, group) => handleSelectOccurrence(issue, group, page.url, page.id) : undefined}
-                                  isCrawlerScan={isCrawlerScan}
-                                  onOpenUpdateResults={handleOpenUpdateResults}
-                                />
-                              )}
-                            </div>
+                            <IssueGroupList
+                              issues={pageIssues.filter((i) => i.ruleType === "WAI-ARIA")}
+                              filters={filters}
+                              pageUrl={page.url}
+                              selectedRules={selectedRules}
+                              ruleInfoMap={ruleInfoMap}
+                              selectedIssueId={undefined}
+                              onFlagIssue={handleOpenFlagDialog}
+                              onSelectOccurrence={(issue, group) => handleSelectOccurrence(issue, group, page.url, page.id)}
+                              isCrawlerScan={isCrawlerScan}
+                              onOpenUpdateResults={handleOpenUpdateResults}
+                            />
                           )}
                         </div>
                       ) : page.status === "completed" ? (
@@ -3750,11 +3721,41 @@ export default function ScanDetail() {
           </div>
         )}
 
+      {!showUpdatingResults &&
+        !isActive &&
+        mainView === "accessibility" &&
+        (!scan.pages || scan.pages.length === 0) && (
+          <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/70 px-6 py-10 text-center shadow-[0_2px_8px_rgba(15,23,42,0.03)] dark:border-slate-700 dark:bg-slate-950/60">
+            {scan.status === "failed" ? (
+              <AlertTriangle className="h-9 w-9 text-amber-500" />
+            ) : (
+              <Info className="h-9 w-9 text-violet-500" />
+            )}
+            <h2 className="mt-3 text-base font-semibold text-foreground">
+              {scan.status === "failed" ? "This scan did not produce page results" : "No page results are available yet"}
+            </h2>
+            <p className="mt-1 max-w-md text-sm text-muted-foreground">
+              {scan.status === "failed"
+                ? "Review the scan status above, then retry the scan after addressing the reported issue."
+                : "Results will appear here once this scan has collected a page to review."}
+            </p>
+            {canRetry && (
+              <Button variant="outline" size="sm" className="mt-4 rounded-lg" onClick={handleRetry} disabled={retryClone.isPending}>
+                {retryClone.isPending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-2 h-3.5 w-3.5" />}
+                Retry scan
+              </Button>
+            )}
+          </div>
+        )}
+
       {/* Live running state view */}
       {isActive && liveStatus && (liveStatus.counts || (liveStatus.pages && liveStatus.pages.length > 0)) && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-lg">Live Progress</h3>
+            <div>
+              <h3 className="text-lg font-semibold">Live Progress</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">Page activity updates as each URL moves through the scanner.</p>
+            </div>
             {isPaused && (
               <Badge
                 variant="outline"
@@ -3855,7 +3856,7 @@ export default function ScanDetail() {
             );
           })()}
 
-          <div className="border rounded-lg bg-card overflow-hidden">
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white/85 shadow-[0_2px_8px_rgba(15,23,42,0.05)] dark:border-slate-800 dark:bg-slate-950/80">
             <div className="max-h-[500px] overflow-y-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted sticky top-0">

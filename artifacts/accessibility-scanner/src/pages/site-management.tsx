@@ -732,7 +732,7 @@ export default function SiteManagementPage() {
   const { site, overview, history } = data;
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto pb-16">
+    <div className="w-full space-y-8 pb-16">
       <div className="flex items-center gap-4 pb-2 border-b border-border/60">
         <Button variant="outline" size="icon" asChild className="shrink-0 h-9 w-9 border-border/60 hover:bg-muted/50">
           <Link href="/crawler/manage"><ArrowLeft className="w-4 h-4 text-muted-foreground" /></Link>

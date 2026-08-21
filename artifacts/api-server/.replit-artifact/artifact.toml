@@ -15,7 +15,10 @@ run = "pnpm --filter @workspace/api-server run dev"
 [services.production]
 
 [services.production.build]
-args = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
+# Run build-production.sh first — it installs Chrome system dependencies via
+# apt-get (required in the Azure/Ubuntu deployment container where Nix is
+# unavailable) and then calls the normal pnpm build.
+args = ["bash", "artifacts/api-server/build-production.sh"]
 
 [services.production.build.env]
 NODE_ENV = "production"

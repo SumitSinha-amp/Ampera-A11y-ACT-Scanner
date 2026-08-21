@@ -2,192 +2,75 @@ import { useParams, Link } from "wouter";
 import { useGetScanReport, useGetScan, getGetScanQueryKey, getGetScanReportQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2 } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Legend
-} from "recharts";
+import { Badge } from "@/components/ui/badge";
+import { ArrowLeft, ArrowUpRight, FileDown, Loader2, Sparkles } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
+import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 export default function ScanReport() {
   const { id } = useParams();
   const scanId = Number(id);
-
+  const { toast } = useToast();
+  const [isExporting, setIsExporting] = useState(false);
   const { data: scan } = useGetScan(scanId, { query: { enabled: !!scanId, queryKey: getGetScanQueryKey(scanId) } });
   const { data: report, isLoading, isError, refetch } = useGetScanReport(scanId, { query: { enabled: !!scanId, queryKey: getGetScanReportQueryKey(scanId) } });
 
-  if (isError || (!isLoading && !report)) {
-    return (
-      <div className="flex flex-col items-center gap-4 p-12 text-center" data-testid="report-error">
-        <p className="text-muted-foreground">Failed to load the report. Please try again.</p>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => refetch()}>Retry</Button>
-          <Link href={`/scans/${scanId}`}>
-            <Button variant="ghost"><ArrowLeft className="w-4 h-4 mr-2" />Back to scan</Button>
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  const exportCsv = async () => {
+    if (!scanId) return;
+    setIsExporting(true);
+    try {
+      const response = await fetch(`/api/scans/${scanId}/export?format=csv`, { credentials: "include" });
+      if (!response.ok) throw new Error(`Export failed with status ${response.status}`);
+      const url = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${(scan?.name || `scan-${scanId}`).replace(/[^a-z0-9_-]/gi, "_").toLowerCase()}-a11y-report.csv`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "CSV exported" });
+    } catch {
+      toast({ title: "Export failed", description: "Could not generate the CSV report.", variant: "destructive" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
-  if (isLoading || !report) {
-    return <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>;
-  }
+  if (isError || (!isLoading && !report)) return (
+    <div className="mx-auto flex min-h-[55vh] max-w-xl flex-col items-center justify-center gap-4 text-center" data-testid="report-error">
+      <div className="grid h-14 w-14 place-items-center rounded-2xl bg-red-50 text-red-600">!</div>
+      <div><h2 className="text-lg font-semibold">Report unavailable</h2><p className="mt-1 text-sm text-muted-foreground">We couldn’t load this scan report.</p></div>
+      <div className="flex gap-2"><Button variant="outline" onClick={() => refetch()} data-testid="button-retry-report">Retry</Button><Link href={`/scans/${scanId}`}><Button variant="ghost" data-testid="link-back-scan"><ArrowLeft className="mr-2 h-4 w-4" />Back to scan</Button></Link></div>
+    </div>
+  );
+  if (isLoading || !report) return <div className="space-y-6"><div className="h-20 animate-pulse rounded-3xl bg-muted/60" /><div className="grid gap-4 md:grid-cols-4">{[1,2,3,4].map((n) => <div key={n} className="h-28 animate-pulse rounded-2xl bg-muted/60" />)}</div></div>;
 
   const impactData = [
-    { name: "Critical", value: report.issuesByImpact.critical, color: "var(--color-chart-1)" },
-    { name: "Serious", value: report.issuesByImpact.serious, color: "var(--color-chart-2)" },
-    { name: "Moderate", value: report.issuesByImpact.moderate, color: "var(--color-chart-3)" },
-    { name: "Minor", value: report.issuesByImpact.minor, color: "var(--color-chart-4)" },
-  ].filter(d => d.value > 0);
-
-  const wcagData = [
-    { name: "A", value: report.issuesByWcagLevel.A },
-    { name: "AA", value: report.issuesByWcagLevel.AA },
-    { name: "AAA", value: report.issuesByWcagLevel.AAA },
-  ].filter(d => d.value > 0);
+    { name: "Critical", value: report.issuesByImpact.critical, color: "hsl(346 75% 51%)" },
+    { name: "Serious", value: report.issuesByImpact.serious, color: "hsl(24 86% 52%)" },
+    { name: "Moderate", value: report.issuesByImpact.moderate, color: "hsl(42 88% 48%)" },
+    { name: "Minor", value: report.issuesByImpact.minor, color: "hsl(198 70% 52%)" },
+  ].filter((d) => d.value > 0);
+  const wcagData = [{ name: "A", value: report.issuesByWcagLevel.A }, { name: "AA", value: report.issuesByWcagLevel.AA }, { name: "AAA", value: report.issuesByWcagLevel.AAA }].filter((d) => d.value > 0);
+  const average = report.scannedPages ? Math.round((report.totalIssues / report.scannedPages) * 10) / 10 : 0;
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center gap-4">
-        <Link href={`/scans/${scanId}`}>
-          <Button variant="outline" size="icon">
-            <ArrowLeft className="w-4 h-4" />
-          </Button>
-        </Link>
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Executive Report</h1>
-          <p className="text-muted-foreground mt-1">{scan?.name || `Scan #${scanId}`}</p>
-        </div>
+    <div className="relative space-y-7 pb-8">
+      <header className="relative flex flex-wrap items-start gap-4">
+        <Link href={`/scans/${scanId}`}><Button variant="outline" size="icon" className="rounded-xl bg-white/70" data-testid="link-report-back"><ArrowLeft className="h-4 w-4" /></Button></Link>
+        <div className="min-w-0 flex-1"><div className="mb-2 flex flex-wrap items-center gap-2"><Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">Executive view</Badge><span className="font-mono text-xs text-muted-foreground">SCAN-{scanId}</span></div><h1 className="text-3xl font-semibold tracking-tight text-[#172b4d]">Scan intelligence report</h1><p className="mt-1 text-sm text-muted-foreground">{scan?.name || `Scan #${scanId}`} <span className="mx-2 text-border">·</span> WCAG 2.2 AA</p></div>
+        <Button variant="outline" className="rounded-xl bg-white/70" onClick={exportCsv} disabled={isExporting} data-testid="button-export-report">{isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}{isExporting ? "Exporting…" : "Export CSV"}</Button>
+      </header>
+      <section className="relative grid gap-4 md:grid-cols-4">
+        {[["Total issues", report.totalIssues, "Across all scanned pages", "text-[#6d48c7]"], ["Scanned pages", report.scannedPages, `${report.failedPages} failed or unavailable`, "text-[#198f88]"], ["Critical issues", report.issuesByImpact.critical, "Needs immediate attention", "text-red-600"], ["Issues / page", average, "Average issue density", "text-[#3778c8]"]].map(([label, value, hint, color]) => (
+          <Card key={String(label)} className="rounded-2xl border-white/80 bg-white/65 shadow-[0_10px_30px_rgba(69,57,112,.06)] backdrop-blur-xl"><CardContent className="p-5"><p className="text-xs font-semibold uppercase tracking-[.12em] text-muted-foreground">{label}</p><p className={`mt-3 font-mono text-3xl font-bold ${color}`}>{value}</p><p className="mt-1 text-xs text-muted-foreground">{hint}</p></CardContent></Card>
+        ))}
+      </section>
+      <div className="relative grid gap-5 lg:grid-cols-[1.05fr_.95fr]">
+        <Card className="rounded-2xl border-white/80 bg-white/65 shadow-[0_12px_32px_rgba(69,57,112,.06)] backdrop-blur-xl"><CardHeader className="flex flex-row items-start justify-between"><div><CardTitle className="text-base">Impact distribution</CardTitle><p className="mt-1 text-xs text-muted-foreground">Where remediation effort is concentrated</p></div><Sparkles className="h-4 w-4 text-[#6d48c7]" /></CardHeader><CardContent className="h-[290px]">{impactData.length ? <ResponsiveContainer><PieChart><Pie data={impactData} cx="50%" cy="50%" innerRadius={62} outerRadius={94} paddingAngle={4} dataKey="value">{impactData.map((entry) => <Cell key={entry.name} fill={entry.color} />)}</Pie><Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e8e0fa" }} /><Legend /></PieChart></ResponsiveContainer> : <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No issues found</div>}</CardContent></Card>
+        <Card className="rounded-2xl border-white/80 bg-white/65 shadow-[0_12px_32px_rgba(69,57,112,.06)] backdrop-blur-xl"><CardHeader><CardTitle className="text-base">WCAG level breakdown</CardTitle><p className="mt-1 text-xs text-muted-foreground">Issues mapped to conformance levels</p></CardHeader><CardContent className="h-[290px]">{wcagData.length ? <ResponsiveContainer><BarChart data={wcagData} margin={{ top: 20, right: 18, left: -18, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ebe8f3" /><XAxis dataKey="name" /><YAxis allowDecimals={false} /><Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e8e0fa" }} /><Bar dataKey="value" fill="#6d48c7" radius={[7, 7, 0, 0]} /></BarChart></ResponsiveContainer> : <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No issues found</div>}</CardContent></Card>
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Issues</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold font-mono">{report.totalIssues}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Scanned Pages</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold font-mono">{report.scannedPages}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Critical Issues</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold font-mono text-destructive">{report.issuesByImpact.critical}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Avg Issues / Page</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold font-mono">
-              {report.scannedPages > 0 ? Math.round((report.totalIssues / report.scannedPages) * 10) / 10 : 0}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <Card>
-          <CardHeader>
-            <CardTitle>Issues by Impact</CardTitle>
-          </CardHeader>
-           <CardContent className="h-[300px]">
-            {impactData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={impactData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={100}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {impactData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip 
-                    formatter={(value) => [`${value} issues`, 'Count']}
-                    contentStyle={{ borderRadius: '8px', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-background)' }}
-                  />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-muted-foreground">No issues found</div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>WCAG Level Breakdown</CardTitle>
-          </CardHeader>
-          <CardContent className="h-[300px]">
-            {wcagData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={wcagData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" />
-                  <XAxis dataKey="name" stroke="var(--color-muted-foreground)" />
-                  <YAxis stroke="var(--color-muted-foreground)" />
-                  <Tooltip 
-                    cursor={{fill: 'var(--color-muted)', opacity: 0.4}}
-                    contentStyle={{ borderRadius: '8px', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-background)' }}
-                  />
-                  <Bar dataKey="value" fill="var(--color-primary)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-muted-foreground">No issues found</div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Top Violated Rules</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {report.topRules.length > 0 ? report.topRules.map((rule, idx) => (
-                <div key={idx} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
-                  <div>
-                    <div className="font-semibold text-foreground">{rule.description}</div>
-                    <div className="text-sm text-muted-foreground font-mono mt-1">{rule.ruleId}</div>
-                  </div>
-                  <div className="text-xl font-mono font-bold bg-muted px-4 py-2 rounded-lg">
-                    {rule.count}
-                  </div>
-                </div>
-              )) : (
-                <div className="text-center py-8 text-muted-foreground">No violated rules recorded.</div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="relative rounded-2xl border-white/80 bg-white/65 shadow-[0_12px_32px_rgba(69,57,112,.06)] backdrop-blur-xl"><CardHeader className="flex flex-row items-center justify-between"><div><CardTitle className="text-base">Top violated rules</CardTitle><p className="mt-1 text-xs text-muted-foreground">Prioritized by occurrence count</p></div><ArrowUpRight className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent>{report.topRules.length ? <div className="divide-y divide-violet-100/70">{report.topRules.map((rule, idx) => <div key={`${rule.ruleId}-${idx}`} className="flex items-center gap-4 py-4" data-testid={`row-rule-${rule.ruleId}`}><span className="font-mono text-xs text-muted-foreground">0{idx + 1}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{rule.description}</p><p className="mt-1 font-mono text-xs text-[#6d48c7]">{rule.ruleId}</p></div><Badge variant="outline" className="rounded-lg border-violet-200 bg-violet-50 px-3 py-1 font-mono text-violet-700">{rule.count} issues</Badge></div>)}</div> : <div className="py-10 text-center text-sm text-muted-foreground">No violated rules recorded.</div>}</CardContent></Card>
     </div>
   );
 }

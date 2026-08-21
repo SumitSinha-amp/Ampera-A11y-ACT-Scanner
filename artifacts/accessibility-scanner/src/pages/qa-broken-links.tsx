@@ -1,4 +1,4 @@
-import { useQASites, useQASelectedSite, QASiteSelector, QAComingSoon } from "@/pages/qa-shared";
+import { useQASites, useQASelectedSite, QAPageShell } from "@/pages/qa-shared";
 import { BrokenLinksTab } from "@/pages/scan-qa";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2, RefreshCw, XCircle } from "lucide-react";
@@ -7,29 +7,12 @@ import { qaErrorMessage } from "@/pages/qa-shared";
 
 export default function QABrokenLinksPage() {
   const { data: sites = [], isLoading, isError, error, refetch } = useQASites();
-  const [selectedSiteId, selected, setSite] = useQASelectedSite(sites);
+  const [, selected] = useQASelectedSite(sites);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Broken links</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Links that return HTTP errors (4xx, 5xx) or fail to connect, discovered during the crawl.
-        </p>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground shrink-0">Site:</span>
-        <QASiteSelector
-          value={selectedSiteId}
-          onChange={setSite}
-          sites={sites}
-          loading={isLoading}
-          error={isError ? error : undefined}
-          onRetry={() => refetch()}
-        />
-      </div>
-
+    <QAPageShell
+      activeTab="broken-links"
+    >
       {isLoading ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -58,6 +41,6 @@ export default function QABrokenLinksPage() {
       ) : (
         <BrokenLinksTab scanId={selected.scanId} />
       )}
-    </div>
+    </QAPageShell>
   );
 }

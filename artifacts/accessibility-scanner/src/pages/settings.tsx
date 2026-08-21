@@ -40,6 +40,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth, isAdmin, isSuperAdmin } from "@/contexts/auth";
 
 const BASE = (import.meta.env.BASE_URL as string).replace(/\/$/, "");
+const SETTINGS_CARD_CLASS = "rounded-[22px] border border-white/80 bg-card/75 shadow-[0_14px_34px_rgba(69,57,112,.06)] backdrop-blur-xl";
 
 export const ELEMENT_VIEWER_LS_KEY = "a11y-element-viewer-enabled";
 
@@ -529,7 +530,7 @@ function LogoSettingsCard() {
 
   if (loading) {
     return (
-      <Card>
+      <Card className={SETTINGS_CARD_CLASS}>
         <CardContent className="py-8 flex justify-center">
           <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
         </CardContent>
@@ -538,7 +539,7 @@ function LogoSettingsCard() {
   }
 
   return (
-    <Card>
+    <Card className={SETTINGS_CARD_CLASS}>
       <CardHeader>
         <div className="flex items-center gap-2">
           <ImageIcon className="w-5 h-5 text-muted-foreground" />
@@ -1031,22 +1032,36 @@ export default function Settings() {
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <p className="text-muted-foreground">Manage your appearance, scan, and proxy preferences.</p>
+    <div className="relative w-full space-y-5 pb-10 pt-1">
+      <header className="relative flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="font-mono text-[10px] font-bold uppercase tracking-[.2em] text-primary">Workspace</p>
+          <h1 className="mt-1 text-xl font-semibold tracking-tight text-foreground">Settings</h1>
+          <p className="mt-1 text-xs text-muted-foreground">Manage your appearance, scan, and proxy preferences.</p>
+        </div>
+        <Button
+          type="button"
+          className="h-9 rounded-xl px-4 text-xs font-semibold shadow-[0_8px_18px_rgba(109,72,199,.20)]"
+          onClick={() => toast({ title: "Settings save automatically", description: "Your preferences are applied as you update them." })}
+        >
+          <CheckCircle2 className="mr-2 h-3.5 w-3.5" />
+          Saved automatically
+        </Button>
+      </header>
 
-      <Tabs defaultValue="appearance">
-        <TabsList className="mb-2">
-          <TabsTrigger value="appearance" className="gap-1.5">
+      <Tabs defaultValue="appearance" className="relative">
+        <TabsList className="mb-5 flex h-auto w-fit flex-wrap justify-start gap-1 rounded-2xl border border-white/80 bg-card/75 p-1.5 shadow-[0_8px_20px_rgba(69,57,112,.05)] backdrop-blur-xl">
+          <TabsTrigger value="appearance" className="gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-muted-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-[0_4px_12px_rgba(109,72,199,.2)]">
             <Sun className="w-3.5 h-3.5" />
             Appearance
           </TabsTrigger>
-          <TabsTrigger value="scan" className="gap-1.5">
+          <TabsTrigger value="scan" className="gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-muted-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-[0_4px_12px_rgba(109,72,199,.2)]">
             <Clock className="w-3.5 h-3.5" />
-            Scan
+            Scan defaults
           </TabsTrigger>
-          <TabsTrigger value="proxy" className="gap-1.5">
+          <TabsTrigger value="proxy" className="gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-muted-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-[0_4px_12px_rgba(109,72,199,.2)]">
             <Shield className="w-3.5 h-3.5" />
-            Proxy &amp; Tools
+            Proxy &amp; tools
           </TabsTrigger>
         </TabsList>
 
@@ -1054,7 +1069,7 @@ export default function Settings() {
         <TabsContent value="appearance" className="space-y-5 mt-0">
           {canEditLogo && <LogoSettingsCard />}
 
-          <Card>
+          <Card className={SETTINGS_CARD_CLASS}>
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Sun className="w-5 h-5 text-muted-foreground" />
@@ -1318,7 +1333,7 @@ export default function Settings() {
 
         {/* ── Scan tab ────────────────────────────────────────────────────── */}
         <TabsContent value="scan" className="space-y-5 mt-0">
-          <Card>
+          <Card className={SETTINGS_CARD_CLASS}>
             <CardHeader>
               <div className="flex items-center gap-2">
                 <ListFilter className="w-5 h-5 text-muted-foreground" />
@@ -1394,7 +1409,7 @@ export default function Settings() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className={SETTINGS_CARD_CLASS}>
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Clock className="w-5 h-5 text-muted-foreground" />
@@ -1481,7 +1496,7 @@ export default function Settings() {
           </Card>
 
           {isSuperAdmin(user) && (
-            <Card>
+            <Card className={SETTINGS_CARD_CLASS}>
               <CardHeader>
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-muted-foreground" />
@@ -1532,7 +1547,7 @@ export default function Settings() {
 
         {/* ── Proxy & Tools tab ───────────────────────────────────────────── */}
         <TabsContent value="proxy" className="space-y-5 mt-0">
-          <Card>
+          <Card className={SETTINGS_CARD_CLASS}>
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Shield className="w-5 h-5 text-muted-foreground" />
@@ -1660,7 +1675,7 @@ export default function Settings() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className={SETTINGS_CARD_CLASS}>
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Eye className="w-5 h-5 text-muted-foreground" />

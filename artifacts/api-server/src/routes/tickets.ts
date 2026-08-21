@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { supportTicketsTable, ticketRepliesTable, usersTable } from "@workspace/db";
 import { eq, desc, asc } from "drizzle-orm";
+import { createNotification } from "../lib/notifications";
 import { requireAuth, requireAdmin } from "../middlewares/authMiddleware";
 
 const router: IRouter = Router();
@@ -70,6 +71,17 @@ router.post("/tickets", requireAuth, async (req, res): Promise<void> => {
       status: "open",
     })
     .returning();
+
+  const isFeatReq = subject.startsWith("[Feature Request]");
+  const displaySubject = subject.replace(/^\[Feature Request\]\s*/, "");
+  createNotification({
+    type:      isFeatReq ? "feature_request" : "ticket",
+    title:     isFeatReq ? `New feature request: ${displaySubject}` : `New support ticket: ${subject}`,
+    body:      description.length > 120 ? description.slice(0, 117) + "…" : description,
+    link:      `/admin/inbox`,
+    actorId:   req.session!.user!.id,
+    actorName: req.session!.user!.fullName ?? req.session!.user!.username,
+  }).catch(() => {});
 
   res.status(201).json({ ...ticket, createdAt: ticket.createdAt.toISOString(), updatedAt: ticket.updatedAt.toISOString() });
 });

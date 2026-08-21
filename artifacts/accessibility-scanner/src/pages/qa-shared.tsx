@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useSite } from "@/contexts/site";
@@ -9,15 +9,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight } from "lucide-react";
+import { usePageGroup } from "@/contexts/page-group";
 
 export const QA_BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
 /** Shared visual contract for every QA data table. */
-export const QA_TABLE_SHELL_CLASS = "rounded-lg border bg-card overflow-x-auto";
+export const QA_TABLE_SHELL_CLASS = "overflow-x-auto rounded-[18px] border border-white/80 bg-card/80 shadow-[0_8px_22px_rgba(69,57,112,.06)] backdrop-blur-xl";
 export const QA_TABLE_CLASS = "min-w-[720px]";
 export const QA_URL_CLASS =
   "text-primary hover:underline text-sm font-mono flex items-center gap-1 break-all";
@@ -81,136 +82,124 @@ export function useQASites() {
   });
 }
 
+/**
+ * Derives the selected QA site entry from the global header `activeSite`.
+ * No local fallback auto-selection and no method to switch site — the header
+ * site selector is the single source of truth.
+ *
+ * Returns a two-element tuple: [selectedSiteId, selectedEntry].
+ */
 export function useQASelectedSite(sites: QASiteEntry[]) {
-  const { activeSite, setActiveSite } = useSite();
+  const { activeSite } = useSite();
   const globalSiteId = activeSite?.id ?? null;
 
-  const [selectedSiteId, setSelectedSiteId] = useState<number | null>(() => {
-    // Prefer global activeSite if it matches a QA site entry
-    if (globalSiteId != null && sites.some((s) => s.siteId === globalSiteId)) {
-      return globalSiteId;
-    }
-    try {
-      const v = sessionStorage.getItem("qa-selected-site");
-      return v ? parseInt(v) : null;
-    } catch { return null; }
-  });
-
-  // Auto-select first when no valid selection exists
-  useEffect(() => {
-    if (!sites.length) return;
-    if (globalSiteId != null) {
-      // The sync effect below handles a matching QA site. If the active
-      // header site has no QA data, preserve that selection as an empty state
-      // instead of silently switching to a different site's report.
-      if (sites.some((s) => s.siteId === globalSiteId)) return;
-      setSelectedSiteId(null);
-      try { sessionStorage.removeItem("qa-selected-site"); } catch {}
-      return;
-    }
-    if (selectedSiteId !== null && sites.some((s) => s.siteId === selectedSiteId)) return;
-    const first = sites[0].siteId;
-    setSelectedSiteId(first);
-    try { sessionStorage.setItem("qa-selected-site", String(first)); } catch {}
-  }, [sites, selectedSiteId]);
-
-  // Sync with the global header selector when activeSite changes. A selected
-  // site without QA data should show the empty state rather than leaving the
-  // previous site's report on screen.
-  useEffect(() => {
-    if (globalSiteId == null || sites.length === 0) return;
-    const globalSiteIsAvailable = sites.some((s) => s.siteId === globalSiteId);
-    setSelectedSiteId(globalSiteIsAvailable ? globalSiteId : null);
-    try {
-      if (globalSiteIsAvailable) {
-        sessionStorage.setItem("qa-selected-site", String(globalSiteId));
-      } else {
-        sessionStorage.removeItem("qa-selected-site");
-      }
-    } catch {}
-  }, [globalSiteId, sites]);
-
-  const setSite = (id: number) => {
-    setSelectedSiteId(id);
-    const matchingSite = sites.find((site) => site.siteId === id);
-    if (matchingSite) {
-      const contextSite = {
-        id: matchingSite.siteId,
-        name: matchingSite.siteName,
-        baseUrl: matchingSite.siteUrl,
-        description: null,
-        role: "",
-        pageCount: matchingSite.pageCount,
-      };
-      setActiveSite(contextSite);
-    }
-    try { sessionStorage.setItem("qa-selected-site", String(id)); } catch {}
-  };
+  const selectedSiteId =
+    globalSiteId !== null && sites.some((s) => s.siteId === globalSiteId)
+      ? globalSiteId
+      : null;
 
   const selected = sites.find((s) => s.siteId === selectedSiteId) ?? null;
-  return [selectedSiteId, selected, setSite] as const;
+  return [selectedSiteId, selected] as const;
 }
 
-export function QASiteSelector({
-  value,
-  onChange,
-  sites,
-  loading,
-  error,
-  onRetry,
-}: {
-  value: number | null;
-  onChange: (id: number) => void;
-  sites: QASiteEntry[];
-  loading: boolean;
+/** @deprecated The site selector has been moved to the global header. This
+ * component is kept temporarily to avoid breaking imports; it renders nothing.
+ * Remove import references when all QA pages are updated.
+ */
+export function QASiteSelector(_props: {
+  value?: number | null;
+  onChange?: (id: number) => void;
+  sites?: QASiteEntry[];
+  loading?: boolean;
   error?: unknown;
   onRetry?: () => void;
+  compact?: boolean;
 }) {
-  if (loading) {
-    return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="w-4 h-4 animate-spin" /> Loading sites…
-      </div>
-    );
-  }
-  if (error) {
-    return (
-      <div className="flex flex-wrap items-center gap-2 text-sm text-destructive">
-        <span>{qaErrorMessage(error)}</span>
-        {onRetry && (
-          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-            Try again
-          </Button>
-        )}
-      </div>
-    );
-  }
-  if (!sites.length) {
-    return (
-      <p className="text-sm text-muted-foreground italic">
-        No crawler-linked sites with completed scans found.
-      </p>
-    );
-  }
+  return null;
+}
+
+/**
+ * QA scan tables do not retain crawler page-type assignments. Returning null
+ * prevents QA endpoints from advertising a page-group filter they cannot apply;
+ * the header site remains their shared, accurate context.
+ */
+export function useQAPageGroup() {
+  usePageGroup();
+  return null;
+}
+
+export type QAPrimaryTab = "overview" | "broken-links" | "redirects" | "pages" | "word-inventory";
+
+const QA_PRIMARY_TABS: Array<{ key: QAPrimaryTab; href: string; label: string; icon: string }> = [
+  { key: "overview", href: "/quality-assurance", label: "Overview", icon: "📊" },
+  { key: "broken-links", href: "/quality-assurance/links/broken", label: "Broken Links", icon: "🔗" },
+  { key: "redirects", href: "/quality-assurance/links/overview", label: "Redirects", icon: "↪️" },
+  { key: "pages", href: "/quality-assurance/inventory/pages", label: "Page Inventory", icon: "📄" },
+  { key: "word-inventory", href: "/quality-assurance/spelling/word-inventory", label: "Word Inventory", icon: "🔤" },
+];
+
+export function QAPageShell({
+  activeTab,
+  children,
+}: {
+  activeTab: QAPrimaryTab;
+  children: ReactNode;
+}) {
   return (
-    <Select
-      value={value !== null ? String(value) : ""}
-      onValueChange={(v) => onChange(parseInt(v))}
-    >
-      <SelectTrigger className="w-full max-w-sm bg-background border-border text-sm">
-        <SelectValue placeholder="Select a site…" />
-      </SelectTrigger>
-      <SelectContent>
-        {sites.map((s) => (
-          <SelectItem key={s.siteId} value={String(s.siteId)}>
-            <span className="font-medium">{s.siteName}</span>
-            <span className="ml-2 text-muted-foreground text-xs truncate max-w-[200px]">
-              {s.siteUrl}
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <div className="vision-page vision-qa relative -m-6 min-h-[calc(100vh-3rem)] overflow-hidden bg-[#f5f6fb] p-6 md:-m-8 md:min-h-[calc(100vh-4rem)] md:p-8">
+      <div className="relative z-10 mx-auto max-w-none space-y-5 pb-10">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Link href="/welcome" className="inline-flex items-center gap-1 hover:text-foreground hover:underline">
+            <span aria-hidden="true">←</span>
+            Home
+          </Link>
+          <span aria-hidden="true">/</span>
+          <span className="font-medium text-foreground">Quality Assurance</span>
+        </nav>
+        <header className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight text-[#172b4d]">Quality Assurance</h1>
+            <p className="mt-1 text-[13px] text-[#7b8aaa]">
+              Site health, broken links, redirects, page inventory, and content metrics.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild className="h-8 rounded-[9px] px-4 text-xs font-semibold shadow-[0_6px_16px_rgba(109,72,199,.22)]">
+              <Link href="/crawler/new">
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                Run QA Scan
+              </Link>
+            </Button>
+          </div>
+        </header>
+
+        <nav
+          aria-label="Quality assurance sections"
+          className="flex w-full max-w-full gap-1 overflow-x-auto rounded-xl bg-white/80 p-1.5 shadow-[0_4px_16px_rgba(69,57,112,.05)] backdrop-blur-xl"
+        >
+          {QA_PRIMARY_TABS.map((tab) => {
+            const active = tab.key === activeTab;
+            return (
+              <Link
+                key={tab.key}
+                href={tab.href}
+                aria-current={active ? "page" : undefined}
+                className={`flex shrink-0 items-center gap-1.5 rounded-[9px] px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                  active
+                    ? "bg-primary text-primary-foreground shadow-[0_4px_12px_rgba(109,72,199,.22)]"
+                    : "text-[#7b8aaa] hover:bg-[#f0f2f8] hover:text-[#172b4d]"
+                }`}
+              >
+                <span aria-hidden="true" className="text-[13px] leading-none">{tab.icon}</span>
+                {tab.label}
+              </Link>
+            );
+          })}
+        </nav>
+
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -235,6 +224,7 @@ export function QAListToolbar({
   onLimitChange,
   exportLabel = "Export CSV",
   onExport,
+  compact = false,
 }: {
   search?: string;
   onSearch?: (value: string) => void;
@@ -244,6 +234,7 @@ export function QAListToolbar({
   onLimitChange?: (limit: number) => void;
   exportLabel?: string;
   onExport?: () => void;
+  compact?: boolean;
 }) {
   const [input, setInput] = useState(search ?? "");
 
@@ -254,13 +245,17 @@ export function QAListToolbar({
   const submitSearch = () => onSearch?.(input.trim());
 
   return (
-    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+    <div className={`flex flex-col gap-2 ${
+      compact
+        ? "w-full border-0 p-0 lg:w-auto lg:flex-row lg:items-center"
+        : "rounded-2xl border border-white/80 bg-background/60 p-3 shadow-[0_5px_16px_rgba(69,57,112,.04)] lg:flex-row lg:items-center"
+    }`}>
       {onSearch && (
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <div className="relative flex-1 max-w-lg">
+        <div className={`flex min-w-0 items-center gap-2 ${compact ? "flex-1 lg:flex-none" : "flex-1"}`}>
+          <div className={`relative flex-1 ${compact ? "max-w-none lg:w-[200px]" : "max-w-lg"}`}>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
-              className="pl-9"
+              className={`h-8 pl-8 text-[11px] ${compact ? "rounded-md border-border/70 bg-background/60 shadow-none" : "rounded-xl border-white/80 bg-card/90 shadow-sm"}`}
               placeholder={searchPlaceholder}
               value={input}
               onChange={(event) => setInput(event.target.value)}
@@ -269,8 +264,8 @@ export function QAListToolbar({
               }}
             />
           </div>
-          <Button variant="outline" size="sm" onClick={submitSearch} aria-label="Search">
-            <Search className="w-4 h-4" />
+          <Button variant="outline" size="sm" className={`h-8 ${compact ? "rounded-md border-border/70 px-2" : "rounded-xl border-white/80 bg-card/90 shadow-sm"}`} onClick={submitSearch} aria-label="Search">
+            <Search className="h-3.5 w-3.5" />
           </Button>
         </div>
       )}
@@ -279,7 +274,7 @@ export function QAListToolbar({
         <div className="flex flex-wrap items-center gap-2">
           {filters.map((filter) => (
             <Select key={filter.label} value={filter.value} onValueChange={filter.onChange}>
-              <SelectTrigger className="w-full sm:w-[150px] bg-background text-sm">
+              <SelectTrigger className="h-9 w-full rounded-xl border-white/80 bg-card/90 text-sm shadow-sm sm:w-[150px]">
                 <SelectValue placeholder={filter.label} />
               </SelectTrigger>
               <SelectContent>
@@ -297,9 +292,9 @@ export function QAListToolbar({
       <div className="flex items-center gap-2 lg:ml-auto">
         {onLimitChange && limit && (
           <label className="flex items-center gap-2 text-sm text-muted-foreground whitespace-nowrap">
-            <span className="hidden sm:inline">Show results</span>
+            <span className={`${compact ? "text-[10px]" : "hidden text-sm sm:inline"}`}>Show results</span>
             <Select value={String(limit)} onValueChange={(value) => onLimitChange(Number(value))}>
-              <SelectTrigger className="w-[82px] bg-background text-sm" aria-label="Results per page">
+              <SelectTrigger className={`h-8 w-[76px] text-[11px] ${compact ? "rounded-md border-border/70 bg-background/60 shadow-none" : "rounded-xl border-white/80 bg-card/90 shadow-sm"}`} aria-label="Results per page">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -311,7 +306,7 @@ export function QAListToolbar({
           </label>
         )}
         {onExport && (
-          <Button variant="outline" size="sm" onClick={onExport}>
+          <Button variant="outline" size="sm" className={`h-8 text-[11px] ${compact ? "rounded-md border-primary/20 bg-primary/5 px-2.5 text-primary hover:bg-primary/10" : "rounded-xl border-primary/20 bg-primary/5 text-primary hover:bg-primary/10"}`} onClick={onExport}>
             {exportLabel}
           </Button>
         )}

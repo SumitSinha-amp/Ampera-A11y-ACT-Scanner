@@ -15,7 +15,7 @@ import { Download, ExternalLink, Loader2, TriangleAlert } from "lucide-react";
 import {
   useQASites,
   useQASelectedSite,
-  QASiteSelector,
+  useQAPageGroup,
   QA_BASE,
   QAListToolbar,
   QAPagination,
@@ -65,13 +65,15 @@ function IssuesContent({ scanId }: { scanId: number }) {
   const [activeType, setActiveType] = useState<string | null>(null);
   const [limit, setLimit] = useState(50);
   const [search, setSearch] = useState("");
+  const pageGroupId = useQAPageGroup();
 
   const { data, isLoading } = useQuery<IssuesResponse>({
-    queryKey: ["qa-issues", scanId, page, limit, activeType, search],
+    queryKey: ["qa-issues", scanId, page, limit, activeType, search, pageGroupId],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (activeType) params.set("type", activeType);
       if (search) params.set("search", search);
+      if (pageGroupId !== null) params.set("page_group", String(pageGroupId));
       const r = await fetch(`${QA_BASE}/api/scans/${scanId}/qa/issues?${params}`, {
         credentials: "include",
       });
@@ -232,7 +234,7 @@ function IssuesContent({ scanId }: { scanId: number }) {
 
 export default function QAIssuesPage() {
   const { data: sites = [], isLoading } = useQASites();
-  const [selectedSiteId, selected, setSite] = useQASelectedSite(sites);
+  const [, selected] = useQASelectedSite(sites);
 
   return (
     <div className="space-y-6">
@@ -241,11 +243,6 @@ export default function QAIssuesPage() {
         <p className="text-muted-foreground text-sm mt-1">
           Content quality issues detected across all crawled pages — missing titles, H1 headings, meta descriptions, thin content, and HTTP errors.
         </p>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground shrink-0">Site:</span>
-        <QASiteSelector value={selectedSiteId} onChange={setSite} sites={sites} loading={isLoading} />
       </div>
 
       {isLoading ? (

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { useSite as useSiteContext } from "@/contexts/site";
+import { usePageGroup } from "@/contexts/page-group";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,7 @@ export interface Site {
   baseUrl: string;
   description: string | null;
   targetScore?: number | null;
+  targetWcagLevel?: "A" | "AA" | "AAA";
 }
 
 export interface SessionInfo {
@@ -125,13 +127,14 @@ export interface ScoreHistoryPoint {
 export interface PageGroup {
   page_type: string;
   pages: number;
+  scanned_pages: number;
   pages_with_issues: number;
   total_occurrences: number;
   distinct_rules: number;
   issues_count: number;
   potential_issues_count: number;
-  score: number;
-  points_to_target: number;
+  score: number | null;
+  points_to_target: number | null;
 }
 
 export interface IssueRow {
@@ -372,6 +375,7 @@ const LIMIT = 25;
 
 export function IssuesTable({ siteId, type, label, scopeImpacts }: IssuesTableProps) {
   const [, navigate] = useLocation();
+  const { selectedGroup } = usePageGroup();
   const [page, setPage] = useState(1);
   const [filterImpact, setFilterImpact] = useState<string>("all");
   const [filterWcag, setFilterWcag] = useState<string>("all");
@@ -397,9 +401,10 @@ export function IssuesTable({ siteId, type, label, scopeImpacts }: IssuesTablePr
   if (filterImpact !== "all") params.set("impact", filterImpact);
   if (filterWcag !== "all") params.set("wcag_level", filterWcag);
   if (debouncedSearch) params.set("search", debouncedSearch);
+  if (selectedGroup) params.set("page_group", selectedGroup.id);
 
   const { data, isLoading, isFetching } = useQuery<IssuesResponse>({
-    queryKey: ["site-issues", siteId, type, page, filterImpact, filterWcag, debouncedSearch],
+    queryKey: ["site-issues", siteId, type, page, filterImpact, filterWcag, debouncedSearch, selectedGroup?.id ?? "all"],
     queryFn: async () => {
       const r = await fetch(`${BASE}/api/sites/${siteId}/issues?${params}`, {
         credentials: "include",
@@ -595,6 +600,7 @@ export function IssuesTable({ siteId, type, label, scopeImpacts }: IssuesTablePr
 }
 
 export function PagesWithIssuesTable({ siteId, type = "issues" }: { siteId: number; type?: "issues" | "potential" }) {
+  const { selectedGroup } = usePageGroup();
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -612,9 +618,10 @@ export function PagesWithIssuesTable({ siteId, type = "issues" }: { siteId: numb
     limit: String(limit),
   });
   if (search) params.set("search", search);
+  if (selectedGroup) params.set("page_group", selectedGroup.id);
 
   const { data, isLoading, isFetching } = useQuery<PagesWithIssuesResponse>({
-    queryKey: ["site-pages-with-issues", siteId, type, page, search],
+    queryKey: ["site-pages-with-issues", siteId, type, page, search, selectedGroup?.id ?? "all"],
     queryFn: async () => {
       const response = await fetch(`${BASE}/api/sites/${siteId}/pages-with-issues?${params}`, {
         credentials: "include",

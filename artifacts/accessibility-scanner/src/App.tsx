@@ -12,17 +12,19 @@ import ScanReport from "@/pages/scan-report";
 import ScanCompare from "@/pages/scan-compare";
 import Documentation from "@/pages/documentation";
 import AppUpdates from "@/pages/app-updates";
-import AppWalkthrough from "@/pages/app-walkthrough";
 import LoginPage from "@/pages/login";
 import ResetPasswordPage from "@/pages/reset-password";
 import ChangePasswordPage from "@/pages/change-password";
 import ProfileSettingsPage from "@/pages/profile-settings";
+import SettingsPage from "@/pages/settings";
 import AdminUsersPage from "@/pages/admin/users";
 import AdminGroupsPage from "@/pages/admin/groups";
 import AdminDashboardPage from "@/pages/admin/dashboard";
 import AdminPermissionsPage from "@/pages/admin/permissions";
 import AdminSettingsPage from "@/pages/admin/settings";
 import TicketsPage from "@/pages/tickets";
+import FeatureRequestPage from "@/pages/feature-request";
+import AdminInboxPage from "@/pages/admin/inbox";
 import CrawlerListPage from "@/pages/crawler-list";
 import CrawlerNewPage from "@/pages/crawler-new";
 import CrawlerDetailPage from "@/pages/crawler-detail";
@@ -64,6 +66,7 @@ import QASitemapPage from "@/pages/qa-sitemap";
 import QAWordInventoryPage from "@/pages/qa-word-inventory";
 import { AuthProvider, useAuth } from "@/contexts/auth";
 import { SiteProvider } from "@/contexts/site";
+import { PageGroupProvider } from "@/contexts/page-group";
 import AdminSiteManagerPage from "@/pages/admin/site-manager";
 import ManageProjectsPage from "@/pages/manage-projects";
 import { AppStatusProvider, useAppStatus } from "@/contexts/app-status";
@@ -184,6 +187,11 @@ function Router() {
           <Layout><ProfileSettingsPage /></Layout>
         </AuthGuard>
       </Route>
+      <Route path="/settings">
+        <AuthGuard>
+          <Layout><SettingsPage /></Layout>
+        </AuthGuard>
+      </Route>
 
       {/* Protected app routes */}
       <Route path="/">
@@ -231,10 +239,13 @@ function Router() {
         <AuthGuard><Layout><AppUpdates /></Layout></AuthGuard>
       </Route>
       <Route path="/app-walkthrough">
-        <AuthGuard><Layout><AppWalkthrough /></Layout></AuthGuard>
+        <AuthGuard><Redirect to="/app-updates" /></AuthGuard>
       </Route>
       <Route path="/tickets">
         <AuthGuard><Layout><TicketsPage /></Layout></AuthGuard>
+      </Route>
+      <Route path="/feature-request">
+        <AuthGuard><Layout><FeatureRequestPage /></Layout></AuthGuard>
       </Route>
       <Route path="/activity">
         <AuthGuard><Layout><ActivityPage /></Layout></AuthGuard>
@@ -452,6 +463,9 @@ function Router() {
       </Route>
 
       {/* Admin-only routes */}
+      <Route path="/admin/inbox">
+        <AuthGuard><AdminGuard><Layout><AdminInboxPage /></Layout></AdminGuard></AuthGuard>
+      </Route>
       <Route path="/admin/dashboard">
         <AuthGuard><AdminGuard><Layout><AdminDashboardPage /></Layout></AdminGuard></AuthGuard>
       </Route>
@@ -684,11 +698,13 @@ function App() {
           <AppStatusGate>
             <AuthProvider>
               <SiteProvider>
-                <TooltipProvider>
-                  <AppOverlayScrollbars />
-                  <Router />
-                  <Toaster />
-                </TooltipProvider>
+                <PageGroupProvider>
+                  <TooltipProvider>
+                    <AppOverlayScrollbars />
+                    <Router />
+                    <Toaster />
+                  </TooltipProvider>
+                </PageGroupProvider>
               </SiteProvider>
             </AuthProvider>
           </AppStatusGate>

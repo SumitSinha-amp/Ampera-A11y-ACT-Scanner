@@ -19,7 +19,9 @@ import {
   Database,
   Filter,
   FolderOpen,
+  GitBranch,
   Globe,
+  Layers,
   ListFilter,
   MousePointerClick,
   PanelLeft,
@@ -36,7 +38,11 @@ import {
 import { DEFAULT_LOGO_SUBTITLE, DEFAULT_LOGO_TEXT } from "@/pages/settings";
 
 const BRANDING_BASE = (import.meta.env.BASE_URL as string).replace(/\/$/, "");
-import { APP_RELEASE_MONTH, APP_VERSION } from "@/lib/app-version";
+import {
+  APP_RELEASE_MONTH,
+  APP_RULE_MAPPING_RELEASE,
+  APP_VERSION,
+} from "@/lib/app-version";
 
 export const APP_UPDATES_VERSION = APP_VERSION;
 export const APP_UPDATES_MONTH = APP_RELEASE_MONTH;
@@ -57,6 +63,41 @@ type UpdateCategory =
   | "Platform";
 
 export const updateGroups: UpdateGroup[] = [
+  {
+    icon: GitBranch,
+    title: "Release continuity",
+    description: "Patch releases now remain traceable within the same minor version.",
+    category: "Platform",
+    features: [
+      "Additional releases in the same minor line increment the patch number, such as 1.4.1, 1.4.2, and 1.4.3",
+      "The shared version source keeps the header, Welcome page, login intro, update indicator, and release history synchronized",
+    ],
+  },
+  {
+    icon: Workflow,
+    title: "Guided manual scan setup",
+    description: "New scans now move through a focused four-step setup instead of one long form.",
+    category: "Scanning",
+    features: [
+      "Target, Accessibility Scope, Scan Settings, and Scan Details are separated into clear steps",
+      "Previous and Next controls keep navigation predictable, while Start Scan appears only after the details step",
+      "The target step supports manual URLs, sitemap fetching, and CSV upload without losing the rest of the scan configuration",
+      "The details step keeps project, scan title, group, and initiator information together before launch",
+      "Completed steps show a checkmark so users can see which parts of the setup are ready",
+    ],
+  },
+  {
+    icon: Accessibility,
+    title: "Scoped accessibility checks",
+    description: "Choose the standards and rules that matter for each scan.",
+    category: "Accessibility",
+    features: [
+      "Scan scope can be limited to WCAG A, AA, AAA, WAI-ARIA, or Best Practice levels",
+      "Selecting levels filters the individual rule picker to only the rules in scope",
+      "The scan preserves the selected scope in its request so manual and crawler workflows stay aligned",
+      "Scope is presented as a dedicated review step instead of being hidden among URL and settings controls",
+    ],
+  },
   {
     icon: FolderOpen,
     title: "Projects and scan organization",
@@ -248,6 +289,67 @@ export const updateGroups: UpdateGroup[] = [
   },
 ];
 
+const ruleMappingReleaseGroups: UpdateGroup[] = [
+  {
+    icon: ShieldCheck,
+    title: "Verified rule mappings and cloud-safe upgrades",
+    description: "Accessibility findings now retain the correct rule identity across new scans and deployed environments.",
+    category: "Accessibility",
+    features: [
+      "Corrected ACT-R32 to Siteimprove SIA-R32: visual-only video content must have an audio-track alternative",
+      "ACT-R32 is now presented as a non-WCAG best-practice review instead of an enhanced touch-target finding",
+      "Enhanced 44×44 target-size findings are recorded as ACT-R111 (WCAG 2.5.5 AAA), while 24×24 minimum findings use ACT-R113 (WCAG 2.5.8 AA)",
+      "Startup migration safely reclassifies legacy R32 target-size findings and their scoring statistics during Azure deployment",
+      "Rule labels, report metadata, documentation, and guided fixes now use the corrected mapping consistently",
+    ],
+  },
+];
+
+const release141ProductGroups: UpdateGroup[] = [
+  {
+    icon: Layers,
+    title: "Page Groups and scoped insights",
+    description: "Keep dashboards and issue review focused on the pages that matter to each team or journey.",
+    category: "Reporting",
+    features: [
+      "Page Groups can be created, edited, and selected from the workspace without changing the active site",
+      "The selected Page Group scopes dashboards, issue lists, affected pages, issue details, compliance cards, and score history",
+      "Page Group coverage is captured at scan analysis start so retries and resumed scans keep a stable scope",
+      "QA pages intentionally remain unfiltered so link, content, and inventory checks continue to represent the full scan",
+      "Page Group selectors and empty states explain when a group has no matching pages or coverage yet",
+    ],
+  },
+  {
+    icon: Sparkles,
+    title: "New screens and guided workspace flows",
+    description: "New destinations make the platform easier to learn, organize, and use day to day.",
+    category: "Platform",
+    features: [
+      "App Updates provides searchable release history, category filters, section jumps, counts, and expandable change details",
+      "App Walkthrough introduces the header, site switcher, sidebar, accessibility controls, projects, scan history, and profile settings",
+      "Manual Scan, Projects, Page Groups, Quality Assurance, Smart Analysis, and profile settings have clearer dedicated screens and entry points",
+      "The refreshed welcome screen highlights the latest release, manual scanning, recent scans, walkthrough, and workspace personalization",
+      "New header, sidebar, rail flyouts, account menu, themes, backgrounds, and accessibility controls are coordinated across the application",
+    ],
+  },
+  {
+    icon: CheckCircle2,
+    title: "Bug fixes and reliability improvements",
+    description: "The release removes recurring sources of incorrect results, lost context, and fragile long-running work.",
+    category: "Reliability",
+    features: [
+      "Large report responses now use SQL aggregation instead of loading every issue row into server memory",
+      "Failed crawler pages are requeued before completion, and active queue claims are protected from pending-URL removal",
+      "Slow, WAF-protected, and JavaScript-heavy pages receive safer navigation retries and browser fallbacks",
+      "Incremental scans never carry forward failed-page results, and visual assets are hydrated only when issue evidence needs them",
+      "Site, project, Page Group, permission, target-scope, and legacy site-less history boundaries remain consistent across screens",
+      "Theme, flyout, tooltip, account-menu, navigation, contrast, and responsive-layout fixes keep the redesigned shell usable across modes",
+    ],
+  },
+  ...updateGroups.slice(1),
+  ...ruleMappingReleaseGroups,
+];
+
 type ReleaseHistoryEntry = {
   version: string;
   month: string;
@@ -261,8 +363,15 @@ export const releaseHistory: ReleaseHistoryEntry[] = [
     version: APP_UPDATES_VERSION,
     month: APP_UPDATES_MONTH,
     label: "Current release",
-    summary: "A more organized, reliable, and navigable accessibility workspace.",
-    groups: updateGroups,
+    summary: "A clearer manual scan setup, scoped accessibility checks, and patch release continuity for the 1.4 minor release line.",
+    groups: [updateGroups[0], updateGroups[1], updateGroups[2]],
+  },
+  {
+    version: APP_RULE_MAPPING_RELEASE,
+    month: "August 2026",
+    label: "Previous release",
+    summary: "New screens, scoped Page Group insights, reliability fixes, and corrected historical rule mappings.",
+    groups: release141ProductGroups,
   },
   {
     version: "1.3.0",
@@ -1064,14 +1173,14 @@ export function AppUpdatesContent({ compact = false }: { compact?: boolean }) {
   }, [selectedReleaseVersion]);
 
   return (
-    <div className={compact ? "space-y-5" : "space-y-6"}>
+    <div className={compact ? "space-y-5" : "space-y-7"}>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Badge className="mb-3 gap-1.5 bg-primary/10 text-primary hover:bg-primary/15">
             <Sparkles className="h-3.5 w-3.5" />
             Version {selectedRelease.version}
           </Badge>
-          <h1 className={compact ? "text-2xl font-bold tracking-tight" : "text-3xl font-bold tracking-tight"}>
+          <h1 className={compact ? "text-2xl font-bold tracking-tight" : "text-3xl font-bold tracking-tight text-foreground"}>
             What&apos;s new
           </h1>
           <p className="mt-1 max-w-2xl text-muted-foreground">
@@ -1085,7 +1194,7 @@ export function AppUpdatesContent({ compact = false }: { compact?: boolean }) {
       </div>
 
       {!compact && (
-        <Card className="overflow-hidden border-primary/20">
+        <Card className="overflow-hidden rounded-2xl border-primary/20 bg-card/70 shadow-[0_10px_34px_rgba(109,72,199,0.08)] backdrop-blur-xl">
           <CardHeader className="pb-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -1224,7 +1333,7 @@ export function AppUpdatesContent({ compact = false }: { compact?: boolean }) {
         )}
       </div>
 
-      <div className={compact ? "space-y-3" : "grid gap-5 lg:grid-cols-[minmax(0,1fr)_220px]"}>
+      <div className={compact ? "space-y-3" : "grid gap-6 lg:grid-cols-[minmax(0,1fr)_230px]"}>
         <div className="space-y-3">
           {filteredGroups.length > 0 ? (
             filteredGroups.map((group) => (
@@ -1248,7 +1357,7 @@ export function AppUpdatesContent({ compact = false }: { compact?: boolean }) {
           )}
         </div>
         {!compact && (
-          <aside className="h-fit rounded-xl border bg-card/60 p-3 lg:sticky lg:top-4">
+          <aside className="h-fit rounded-2xl border border-primary/15 bg-card/55 p-3 shadow-sm backdrop-blur-xl lg:sticky lg:top-4">
             <div className="mb-2 flex items-center gap-2 px-2">
               <ListFilter className="h-4 w-4 text-primary" aria-hidden="true" />
               <h2 className="text-sm font-semibold">In this release</h2>
@@ -1277,7 +1386,7 @@ export function AppUpdatesContent({ compact = false }: { compact?: boolean }) {
 
 export default function AppUpdates() {
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="w-full">
       <AppUpdatesContent />
     </div>
   );

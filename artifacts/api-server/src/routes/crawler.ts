@@ -11,6 +11,7 @@ import {
 } from "@workspace/db";
 import { eq, and, desc, sql, asc, inArray } from "drizzle-orm";
 import { requireAuth } from "../middlewares/authMiddleware";
+import { getRulesForLevels, ALL_SCAN_LEVELS } from "../lib/scanner";
 import { canAccessSite, getEffectivePermissions } from "../lib/permissions";
 import { logger } from "../lib/logger";
 import {
@@ -223,7 +224,14 @@ function validateCreateCrawler(body: any): { data: any; error?: string } {
       timezone: typeof body.timezone === "string" && body.timezone.trim() ? body.timezone.trim() : undefined,
       initiatorName: body.initiatorName,
       initiatorRole: body.initiatorRole,
-      rules: Array.isArray(body.rules) ? body.rules : undefined,
+      rules: (() => {
+        const rawLevels = Array.isArray(body.wcagLevels) ? (body.wcagLevels as string[]) : [];
+        const isAll = rawLevels.length === 0 || ALL_SCAN_LEVELS.every((l) => rawLevels.includes(l));
+        const baseRules: string[] = Array.isArray(body.rules) ? body.rules : [];
+        if (isAll) return baseRules.length ? baseRules : undefined;
+        const merged = [...new Set([...getRulesForLevels(rawLevels), ...baseRules])];
+        return merged.length ? merged : undefined;
+      })(),
       crawlBoost: body.crawlBoost === true,
       scheduledStartAt,
     },

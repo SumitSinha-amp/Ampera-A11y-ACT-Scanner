@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight as ChevronRightIcon, FileCheck2 } from "lucid
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { BASE, ConformanceBadge, ImpactIcon, SiteBreadcrumb, useSite, useAutoActiveSite } from "@/pages/site/shared";
+import { usePageGroup } from "@/contexts/page-group";
 import {
   WCAG_TAXONOMY,
   FRAMEWORK_META,
@@ -27,10 +28,14 @@ interface ComplianceData {
 }
 
 function useCompliance(siteId: number) {
+  const { selectedGroup } = usePageGroup();
   return useQuery<ComplianceData>({
-    queryKey: ["site-compliance", siteId],
+    queryKey: ["site-compliance", siteId, selectedGroup?.id ?? "all"],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/sites/${siteId}/compliance`, { credentials: "include" });
+      const pageGroupQuery = selectedGroup
+        ? `?page_group=${encodeURIComponent(selectedGroup.id)}`
+        : "";
+      const r = await fetch(`${BASE}/api/sites/${siteId}/compliance${pageGroupQuery}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load compliance data");
       return r.json();
     },

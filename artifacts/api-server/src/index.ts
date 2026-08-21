@@ -451,6 +451,58 @@ async function runStartupMigrations(): Promise<void> {
       WHERE rule_id = 'ACT-R35' AND wcag_criteria = '1.2.1'
     `);
 
+    // 20d2. Correct the legacy ACT-R32 target-size implementation.
+    // SIA-R32 is the visual-only-video audio-track rule, not a target-size
+    // rule. Earlier deployments stored 44×44 enhanced and 24×24 minimum
+    // target findings under R32; classify only those recognisable historical
+    // descriptions so genuine R32 video findings remain untouched.
+    await client.query(`
+      UPDATE accessibility_issues
+      SET
+        rule_id = CASE
+          WHEN description ILIKE '%44×44%' OR description ILIKE '%enhanced touch target%'
+            THEN 'ACT-R111'
+          ELSE 'ACT-R113'
+        END,
+        description = CASE
+          WHEN description ILIKE '%44×44%' OR description ILIKE '%enhanced touch target%'
+            THEN regexp_replace(
+              description,
+              '^Target size is too small:',
+              'Interactive element does not meet enhanced size:'
+            )
+          ELSE replace(
+            regexp_replace(
+              description,
+              '^(Target size is too small|Interactive element does not meet enhanced target size \\(2\\.5\\.5\\)):',
+              'Touch target size is too small:'
+            ),
+            'enhanced target size',
+            'minimum touch target size'
+          )
+        END,
+        wcag_criteria = CASE
+          WHEN description ILIKE '%44×44%' OR description ILIKE '%enhanced touch target%'
+            THEN '2.5.5'
+          ELSE '2.5.8'
+        END,
+        wcag_level = CASE
+          WHEN description ILIKE '%44×44%' OR description ILIKE '%enhanced touch target%'
+            THEN 'AAA'
+          ELSE 'AA'
+        END,
+        impact = CASE
+          WHEN description ILIKE '%44×44%' OR description ILIKE '%enhanced touch target%'
+            THEN 'minor'
+          ELSE 'moderate'
+        END
+      WHERE rule_id = 'ACT-R32'
+        AND (
+          description ILIKE '%target size%'
+          OR description ILIKE '%touch target%'
+        )
+    `);
+
     // 20e. Add rule_type column to accessibility_issues (stores Issue / Potential Issue / Best Practice)
     await client.query(`
       ALTER TABLE accessibility_issues ADD COLUMN IF NOT EXISTS rule_type TEXT NOT NULL DEFAULT 'Issue'
@@ -983,6 +1035,104 @@ async function runStartupMigrations(): Promise<void> {
     `);
     await client.query(`
       CREATE INDEX IF NOT EXISTS rule_page_stats_page_idx ON rule_page_stats(page_result_id)
+    `);
+
+    // 43a. Preserve score-density data for the corrected historical R32
+    // findings. This follows the CREATE TABLE step so an older Azure database
+    // can safely receive the same release in a single startup.
+    await client.query(`
+      WITH legacy_stats AS (
+        SELECT page_result_id, total_checked, scope
+        FROM rule_page_stats
+        WHERE rule_id = 'ACT-R32'
+      ),
+      corrected_rules AS (
+        SELECT DISTINCT
+          legacy_stats.page_result_id,
+          corrected.rule_id,
+          legacy_stats.total_checked,
+          legacy_stats.scope
+        FROM legacy_stats
+        JOIN accessibility_issues AS corrected
+          ON corrected.page_id = legacy_stats.page_result_id
+        WHERE corrected.rule_id IN ('ACT-R111', 'ACT-R113')
+      )
+      INSERT INTO rule_page_stats (page_result_id, rule_id, total_checked, scope)
+      SELECT page_result_id, rule_id, total_checked, scope
+      FROM corrected_rules
+      ON CONFLICT (page_result_id, rule_id) DO UPDATE
+        SET total_checked = GREATEST(
+          rule_page_stats.total_checked,
+          EXCLUDED.total_checked
+        ),
+        scope = EXCLUDED.scope
+    `);
+    await client.query(`
+      DELETE FROM rule_page_stats WHERE rule_id = 'ACT-R32'
+    `);
+
+    // 44. Per-site Page Group accessibility scan choices. Page groups are
+    // derived from crawler_pages.page_type, while these preferences decide
+    // which groups enter Phase 2 on future crawler scans.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS site_page_group_preferences (
+        site_id          INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+        page_type        TEXT    NOT NULL,
+        include_in_scan  BOOLEAN NOT NULL DEFAULT TRUE,
+        updated_at       TIMESTAMP NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (site_id, page_type)
+      )
+    `);
+
+    // 45. WCAG conformance scope for each site's accessibility target. Existing
+    // installations retain AA as their current default target scope.
+    await client.query(`
+      ALTER TABLE sites
+        ADD COLUMN IF NOT EXISTS target_wcag_level TEXT NOT NULL DEFAULT 'AA'
+          CHECK (target_wcag_level IN ('A', 'AA', 'AAA'))
+    `);
+
+    // 46. System notifications for admins
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id         SERIAL PRIMARY KEY,
+        type       TEXT NOT NULL,
+        title      TEXT NOT NULL,
+        body       TEXT,
+        link       TEXT,
+        actor_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        actor_name TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // 47. Per-user read tracking for notifications
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notification_reads (
+        notification_id INTEGER NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+        user_id         INTEGER NOT NULL REFERENCES users(id)         ON DELETE CASCADE,
+        PRIMARY KEY (notification_id, user_id)
+      )
+    `);
+
+    // 48. Expand target_wcag_level CHECK constraint to allow 'All' level
+    await client.query(`
+      DO $$
+      DECLARE v text;
+      BEGIN
+        SELECT constraint_name INTO v
+          FROM information_schema.table_constraints
+         WHERE table_name = 'sites' AND constraint_type = 'CHECK'
+           AND constraint_name LIKE '%wcag%'
+         LIMIT 1;
+        IF v IS NOT NULL THEN
+          EXECUTE 'ALTER TABLE sites DROP CONSTRAINT ' || quote_ident(v);
+        END IF;
+        ALTER TABLE sites
+          ADD CONSTRAINT sites_target_wcag_level_check
+          CHECK (target_wcag_level IN ('A','AA','AAA','All'));
+      END
+      $$
     `);
 
     await client.query("COMMIT");

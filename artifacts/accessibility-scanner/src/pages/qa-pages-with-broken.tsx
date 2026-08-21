@@ -15,7 +15,7 @@ import { CheckCircle2, Download, ExternalLink, Loader2, XCircle } from "lucide-r
 import {
   useQASites,
   useQASelectedSite,
-  QASiteSelector,
+  useQAPageGroup,
   QA_BASE,
   QAListToolbar,
   QAPagination,
@@ -36,12 +36,14 @@ function PagesWithBrokenContent({ scanId }: { scanId: number }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [limit, setLimit] = useState(50);
   const [search, setSearch] = useState("");
+  const pageGroupId = useQAPageGroup();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["qa-pages-with-broken", scanId, page, limit, search],
+    queryKey: ["qa-pages-with-broken", scanId, page, limit, search, pageGroupId],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (search) params.set("search", search);
+      if (pageGroupId !== null) params.set("page_group", String(pageGroupId));
       const r = await fetch(
         `${QA_BASE}/api/scans/${scanId}/qa/pages-with-broken?${params}`,
         { credentials: "include" }
@@ -201,7 +203,7 @@ function PagesWithBrokenContent({ scanId }: { scanId: number }) {
 
 export default function QAPagesWithBrokenPage() {
   const { data: sites = [], isLoading } = useQASites();
-  const [selectedSiteId, selected, setSite] = useQASelectedSite(sites);
+  const [, selected] = useQASelectedSite(sites);
 
   return (
     <div className="space-y-6">
@@ -210,16 +212,6 @@ export default function QAPagesWithBrokenPage() {
         <p className="text-muted-foreground text-sm mt-1">
           Pages that contain at least one broken outbound link, ordered by number of broken links.
         </p>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground shrink-0">Site:</span>
-        <QASiteSelector
-          value={selectedSiteId}
-          onChange={setSite}
-          sites={sites}
-          loading={isLoading}
-        />
       </div>
 
       {isLoading ? (

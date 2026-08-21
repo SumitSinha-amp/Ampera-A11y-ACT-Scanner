@@ -203,23 +203,6 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // ACT-R32: Target size too small — enhanced (WCAG 2.5.5 AAA, 44×44 px)
-  // R113 covers the AA minimum (24px). R32 is the stricter AAA threshold.
-  // ════════════════════════════════════════════════════════════════════════
-  {
-    const r32Targets = Array.from(document.querySelectorAll("a, button, [role='button'], [role='link'], input[type='checkbox'], input[type='radio'], select"))
-      .filter((el) => isVisible(el))
-      .map((el) => ({ el, rect: el.getBoundingClientRect() }))
-      .filter((t) => t.rect.width > 0 || t.rect.height > 0);
-    r32Targets.forEach(({ el, rect }) => {
-      if (rect.width >= 44 && rect.height >= 44) return;
-      if (rect.width < 24 && rect.height < 24) return; // already reported by R113
-      if (el.tagName === "A" && window.getComputedStyle(el).display === "inline") return;
-      results.push({ ruleId: "ACT-R32", type: "Issue", impact: "minor", description: `Interactive element is ${Math.round(rect.width)}×${Math.round(rect.height)}px — below the recommended 44×44px enhanced touch target (WCAG 2.5.5 AAA)`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-    });
-  }
-
-  // ════════════════════════════════════════════════════════════════════════
   // ACT-R44: Orientation restricted via CSS (WCAG 1.3.4)
   // ════════════════════════════════════════════════════════════════════════
   {
@@ -250,8 +233,6 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   }
 
   // ── Scoring stats: total elements checked per rule ────────────────────────
-  const r32Els = document.querySelectorAll("a,button,[role='button'],[role='link'],input[type='checkbox'],input[type='radio'],select").length;
-  if (r32Els > 0) pushStat("ACT-R32", r32Els, "element");
   const allLinksEl = document.querySelectorAll("a[href]").length;
   if (allLinksEl > 0) {
     pushStat("ACT-R41", allLinksEl, "element");

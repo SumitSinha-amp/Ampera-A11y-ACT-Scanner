@@ -274,7 +274,7 @@ const WCAG_MAPPING: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R29": { sc: ["1.2.1"], level: ["A"] },
   "ACT-R30": { sc: ["1.2.1"], level: ["A"] },
   "ACT-R31": { sc: ["1.2.1"], level: ["A"] },
-  "ACT-R32": { sc: ["2.5.5"], level: ["AAA"] },
+  "ACT-R32": { sc: [], level: ["Best Practice"] },
   "ACT-R33": { sc: ["1.2.1"], level: ["A"] },
   "ACT-R34": { sc: [], level: ["Best Practice"] },
   "ACT-R35": { sc: ["1.2.1"], level: ["A"] },
@@ -371,6 +371,25 @@ const WCAG_MAPPING: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R126": { sc: ["3.3.8"], level: ["AA"] },
   "ACT-R127": { sc: ["3.3.9"], level: ["AAA"] },
 };
+
+/** All five level identifiers recognised by the scan level selector. */
+export const ALL_SCAN_LEVELS = ["A", "AA", "AAA", "WAI-ARIA", "Best Practice"] as const;
+export type ScanLevel = (typeof ALL_SCAN_LEVELS)[number];
+
+/**
+ * Given a list of level names from the level selector, return the ACT rule IDs
+ * whose WCAG_MAPPING entries match at least one of those levels.
+ * "WAI-ARIA" in the UI covers both "WAI-ARIA" and "ARIA APG" in the mapping.
+ * Returns an empty array when levels is empty (meaning: no filter, run everything).
+ */
+export function getRulesForLevels(levels: string[]): string[] {
+  if (levels.length === 0) return [];
+  const levelSet = new Set(levels);
+  if (levelSet.has("WAI-ARIA")) levelSet.add("ARIA APG");
+  return Object.entries(WCAG_MAPPING)
+    .filter(([, v]) => v.level.some((l) => levelSet.has(l)))
+    .map(([id]) => id);
+}
 
 const RULE_DESCRIPTIONS: Record<
   string,
@@ -568,10 +587,10 @@ const RULE_DESCRIPTIONS: Record<
       "Provide a visible text alternative and label it as a video alternative for text",
   },
   "ACT-R32": {
-    type: "Issue",
-    description: "Target size is too small",
+    type: "Potential Issue",
+    description: "Visual-only video may be missing an audio-track alternative",
     remediation:
-      "Ensure interactive elements have a minimum size of 24×24 pixels or equivalent spacing",
+      "Provide an audio-description track or an alternative version with audio that conveys the video’s visual information",
   },
   "ACT-R33": {
     type: "Potential Issue",

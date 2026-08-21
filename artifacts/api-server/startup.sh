@@ -15,11 +15,6 @@ if [ ! -s "$BROWSER_BUNDLE" ] && ! grep -q "window.__ampera" "$SERVER_BUNDLE" 2>
   echo "=== Rebuild and redeploy with: pnpm --filter @workspace/api-server run build ===" >&2
   exit 1
 fi
-if grep -q "projectSitesTable3" "$SERVER_BUNDLE" 2>/dev/null; then
-  echo "=== FATAL: stale API bundle detected (projectSitesTable3) ===" >&2
-  echo "=== Rebuild and redeploy the current artifacts/api-server/dist/index.mjs ===" >&2
-  exit 1
-fi
 if ! grep -q "projects-route-v2" "$SERVER_BUNDLE" 2>/dev/null; then
   echo "=== FATAL: API build marker projects-route-v2 is missing ===" >&2
   echo "=== The Azure deployment is not using the current API artifact ===" >&2

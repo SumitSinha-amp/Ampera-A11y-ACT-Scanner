@@ -192,9 +192,9 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       "Visible prerecorded video with audio must have a visible text alternative and be labeled as a video alternative for text.",
   },
   "ACT-R32": {
-    title: "Target size is too small",
+    title: "Video visual-only content has an audio-track alternative",
     detail:
-      "Interactive elements should meet a minimum touch target area of 24×24 px (WCAG 2.5.8 AA) or 44×44 px (AAA) so users with motor impairments can activate them reliably.",
+      "Visible prerecorded video without audio needs an audio track or alternative version that conveys its visual information. This is a Siteimprove best-practice check, not a WCAG conformance criterion.",
   },
   "ACT-R33": {
     title: "Media alternative may be insufficient",
@@ -722,7 +722,7 @@ const WCAG_RULE_METADATA: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R22": { sc: ["1.2.2"], level: ["A"] }, "ACT-R23": { sc: ["1.2.1"], level: ["A"] }, "ACT-R24": { sc: ["1.2.3"], level: ["A"] },
   "ACT-R25": { sc: ["1.2.5"], level: ["AA"] }, "ACT-R26": { sc: ["1.2.1"], level: ["A"] }, "ACT-R27": { sc: ["1.2.2"], level: ["A"] },
   "ACT-R28": { sc: ["1.1.1", "4.1.2"], level: ["A"] }, "ACT-R29": { sc: ["1.2.1"], level: ["A"] }, "ACT-R30": { sc: ["1.2.1"], level: ["A"] },
-  "ACT-R31": { sc: ["1.4.8"], level: ["AAA"] }, "ACT-R32": { sc: ["2.5.5"], level: ["AAA"] }, "ACT-R33": { sc: ["1.2.1"], level: ["A"] },
+  "ACT-R31": { sc: ["1.4.8"], level: ["AAA"] }, "ACT-R32": { sc: [], level: ["Best Practice"] }, "ACT-R33": { sc: ["1.2.1"], level: ["A"] },
   "ACT-R34": { sc: [], level: ["Best Practice"] }, "ACT-R35": { sc: ["1.2.1"], level: ["A"] }, "ACT-R36": { sc: ["4.1.2"], level: ["A"] },
   "ACT-R37": { sc: ["1.2.5"], level: ["AA"] }, "ACT-R38": { sc: ["1.2.3", "1.2.5", "1.2.8"], level: ["A", "AA", "AAA"] },
   "ACT-R39": { sc: ["1.1.1"], level: ["A"] }, "ACT-R40": { sc: ["1.3.1"], level: ["WAI-ARIA"] }, "ACT-R41": { sc: ["2.4.4"], level: ["A"] },

@@ -14,7 +14,7 @@ export default function AppWalkthrough() {
   };
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="w-full space-y-6">
       <div>
         <Badge className="mb-3 gap-1.5 bg-primary/10 text-primary hover:bg-primary/15">
           <Compass className="h-3.5 w-3.5" />

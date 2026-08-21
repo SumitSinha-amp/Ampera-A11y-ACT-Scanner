@@ -5,6 +5,7 @@
  * Accessibility Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { ScanSessionOptions } from "./scanSessionOptions";
 import type { ScanSessionStatus } from "./scanSessionStatus";
 
 export interface ScanSession {
@@ -17,12 +18,15 @@ export interface ScanSession {
   siteId?: number | null;
   /** @nullable */
   projectName?: string | null;
+  /** @nullable */
+  options?: ScanSessionOptions;
   status: ScanSessionStatus;
   totalUrls: number;
   scannedUrls: number;
   failedUrls: number;
   totalIssues: number;
   criticalIssues: number;
+  pagesWithIssues?: number;
   createdAt: string;
   /** @nullable */
   completedAt: string | null;

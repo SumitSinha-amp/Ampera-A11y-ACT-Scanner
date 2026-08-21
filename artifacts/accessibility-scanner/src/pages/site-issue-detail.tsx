@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAutoActiveSite } from "@/pages/site/shared";
+import { usePageGroup } from "@/contexts/page-group";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -209,6 +210,7 @@ interface Props { siteId: number; ruleId: string }
 
 export default function SiteIssueDetail({ siteId, ruleId }: Props) {
   useAutoActiveSite(siteId);
+  const { selectedGroup } = usePageGroup();
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -228,9 +230,10 @@ export default function SiteIssueDetail({ siteId, ruleId }: Props) {
     sort,
   });
   if (debouncedSearch) params.set("search", debouncedSearch);
+  if (selectedGroup) params.set("page_group", selectedGroup.id);
 
   const { data, isLoading, isFetching } = useQuery<DetailResponse>({
-    queryKey: ["site-issue-detail", siteId, ruleId, page, debouncedSearch, sort],
+    queryKey: ["site-issue-detail", siteId, ruleId, page, debouncedSearch, sort, selectedGroup?.id ?? "all"],
     queryFn: async () => {
       const r = await fetch(
         `${BASE}/api/sites/${siteId}/issues/${encodeURIComponent(ruleId)}?${params}`,

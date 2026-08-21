@@ -13,10 +13,13 @@ import {
   FilePlus2,
   Route,
   Palette,
+  ShieldCheck,
+  ListChecks,
+  CheckCircle2,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useAuth } from "@/contexts/auth";
-import { APP_VERSION } from "@/lib/app-version";
+import { APP_RULE_MAPPING_RELEASE, APP_VERSION } from "@/lib/app-version";
 import { useEffect, useState } from "react";
 import { DEFAULT_LOGO_SUBTITLE, DEFAULT_LOGO_TEXT } from "@/pages/settings";
 
@@ -116,32 +119,111 @@ export default function WelcomePage() {
           <Card className="overflow-hidden border-primary/20">
             <div className="h-1 bg-gradient-to-r from-cyan-400 via-violet-500 to-fuchsia-500" />
             <CardContent className="flex items-start gap-4 p-5">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-400/10 text-cyan-600 dark:text-cyan-300">
-                <Palette className="h-5 w-5" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-400/10 text-emerald-600 dark:text-emerald-300">
+                <ShieldCheck className="h-5 w-5" />
               </div>
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-base font-semibold">
-                    Themes, backgrounds, and accents
+                    Guided scan setup and scoped accessibility checks in {APP_VERSION}
                   </h2>
                   <Badge variant="outline" className="text-[10px]">
-                    Version {APP_VERSION}
+                    Version {APP_RULE_MAPPING_RELEASE}
                   </Badge>
                 </div>
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                  Personalize your workspace with theme options, background
-                  images, and custom accent colors that carry through the shell,
-                  navigation, panels, and controls.
+                  Build a scan in four focused steps, choose the WCAG levels and
+                  rules you need, and see what is ready before you start. The
+                  release also keeps the workspace updates and release history in sync.
                 </p>
                 <Link href="/app-updates">
                   <Button variant="link" className="h-auto px-0 text-xs text-cyan-700 dark:text-cyan-300">
-                    Explore the update
+                    Explore the latest update
                     <ArrowRight className="ml-1 h-3 w-3" />
                   </Button>
                 </Link>
               </div>
             </CardContent>
           </Card>
+
+          {/* New workflow spotlight */}
+          <section className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+            <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-primary/[0.07] via-card to-fuchsia-500/[0.06]">
+              <CardContent className="p-5 md:p-6">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15">
+                    <ListChecks className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-base font-semibold">A simpler path from URL to results</h2>
+                      <Badge variant="secondary" className="text-[10px]">New</Badge>
+                    </div>
+                    <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
+                      The manual scan wizard keeps each decision in context, so you can review the target,
+                      accessibility scope, settings, and scan details before launch.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5 grid gap-2 sm:grid-cols-4">
+                  {[
+                    ["1", "Target"],
+                    ["2", "Scope"],
+                    ["3", "Settings"],
+                    ["4", "Details"],
+                  ].map(([number, label], index) => (
+                    <div key={label} className="flex items-center gap-2 rounded-lg border border-border/70 bg-background/60 px-3 py-2.5">
+                      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
+                        index < 2 ? "bg-teal-500 text-white" : "bg-primary/10 text-primary"
+                      }`}>
+                        {index < 2 ? <CheckCircle2 className="h-3.5 w-3.5" /> : number}
+                      </span>
+                      <span className="text-xs font-semibold">{label}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <Link href="/new">
+                    <Button size="sm" className="h-8 gap-1.5 text-xs">
+                      Try the new scan flow
+                      <ArrowRight className="h-3 w-3" />
+                    </Button>
+                  </Link>
+                  <Link href="/app-updates">
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+                      See all changes
+                      <ArrowRight className="h-3 w-3" />
+                    </Button>
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-teal-400/20 bg-teal-400/[0.04]">
+              <CardContent className="p-5 md:p-6">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-400/10 text-teal-600 dark:text-teal-300">
+                    <ShieldCheck className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-300">
+                      Scan scope
+                    </p>
+                    <h2 className="mt-0.5 text-base font-semibold">Choose what to check</h2>
+                  </div>
+                </div>
+                <p className="mt-4 text-sm leading-6 text-muted-foreground">
+                  Focus a scan on WCAG A, AA, AAA, WAI-ARIA, Best Practice, or a filtered combination of rules.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-1.5">
+                  {["A", "AA", "AAA", "ARIA", "Best Practice"].map((level) => (
+                    <Badge key={level} variant="outline" className="border-teal-400/30 bg-teal-400/5 text-[10px] text-teal-700 dark:text-teal-300">
+                      {level}
+                    </Badge>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </section>
 
           {/* Workspace experience */}
           <section className="space-y-4">

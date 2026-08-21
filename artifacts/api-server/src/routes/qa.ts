@@ -32,12 +32,26 @@ async function requireQAScanAccess(req: any, res: any, next: any): Promise<void>
     res.status(404).json({ error: "Scan not found" });
     return;
   }
-  if (!scan.siteId || !await canAccessSite(
-    user?.id ?? 0,
-    String(user?.id ?? 0),
-    user?.role ?? "user",
-    scan.siteId,
-  )) {
+  const crawlerSessions = await db
+    .select({ siteId: crawlerSessionsTable.siteId })
+    .from(crawlerSessionsTable)
+    .where(eq(crawlerSessionsTable.scanSessionId, id));
+  const candidateSiteIds = new Set(
+    [scan.siteId, ...crawlerSessions.map((crawler) => crawler.siteId)].filter(
+      (siteId): siteId is number => typeof siteId === "number",
+    ),
+  );
+  const hasAccess = await Promise.all(
+    [...candidateSiteIds].map((siteId) =>
+      canAccessSite(
+        user?.id ?? 0,
+        String(user?.id ?? 0),
+        user?.role ?? "user",
+        siteId,
+      ),
+    ),
+  );
+  if (!hasAccess.some(Boolean)) {
     res.status(403).json({ error: "You do not have access to this site's QA data" });
     return;
   }
@@ -97,7 +111,20 @@ router.get("/scans/:id/qa/status", requireAuth, async (req, res): Promise<void> 
     .where(eq(qaLinksTable.scanId, id));
 
   const [pagesRow] = await db
-    .select({ totalPages: sql<number>`COUNT(*)::int` })
+    .select({
+      totalPages: sql<number>`COUNT(*)::int`,
+      missingTitles: sql<number>`COUNT(*) FILTER (WHERE title IS NULL OR BTRIM(title) = '')::int`,
+      invalidDescriptions: sql<number>`COUNT(*) FILTER (
+        WHERE meta_description IS NULL
+          OR BTRIM(meta_description) = ''
+          OR LENGTH(meta_description) < 50
+          OR LENGTH(meta_description) > 160
+      )::int`,
+      missingH1s: sql<number>`COUNT(*) FILTER (WHERE h1 IS NULL OR BTRIM(h1) = '')::int`,
+      thinContent: sql<number>`COUNT(*) FILTER (WHERE word_count IS NULL OR word_count < 100)::int`,
+      missingFromSitemap: sql<number>`COUNT(*) FILTER (WHERE in_sitemap = false)::int`,
+      responseErrors: sql<number>`COUNT(*) FILTER (WHERE http_status IS NULL OR http_status < 200 OR http_status >= 400)::int`,
+    })
     .from(qaPagesTable)
     .where(eq(qaPagesTable.scanId, id));
 
@@ -109,6 +136,14 @@ router.get("/scans/:id/qa/status", requireAuth, async (req, res): Promise<void> 
     broken: row?.broken ?? 0,
     redirects: row?.redirects ?? 0,
     unchecked: row?.unchecked ?? 0,
+    pageChecks: {
+      pageTitles: { checked: pagesRow?.totalPages ?? 0, issues: pagesRow?.missingTitles ?? 0 },
+      metaDescriptions: { checked: pagesRow?.totalPages ?? 0, issues: pagesRow?.invalidDescriptions ?? 0 },
+      h1Headings: { checked: pagesRow?.totalPages ?? 0, issues: pagesRow?.missingH1s ?? 0 },
+      contentDepth: { checked: pagesRow?.totalPages ?? 0, issues: pagesRow?.thinContent ?? 0 },
+      sitemapCoverage: { checked: pagesRow?.totalPages ?? 0, issues: pagesRow?.missingFromSitemap ?? 0 },
+      responseStatus: { checked: pagesRow?.totalPages ?? 0, issues: pagesRow?.responseErrors ?? 0 },
+    },
   });
 });
 

@@ -80,3 +80,4 @@ export * from "./schema";
 export { appSettingsTable } from "./schema/users";
 export { issueDecisionsTable, type IssueDecision, type InsertIssueDecision } from "./schema/scans";
 export { siteUserAccessTable, siteGroupAccessTable, type SiteUserAccess, type SiteGroupAccess } from "./schema/site-access";
+export { notificationsTable, notificationReadsTable, type Notification, type NotificationRead } from "./schema/notifications";

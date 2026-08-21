@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
 @layer theme, base, components, utilities;
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -98,11 +98,11 @@
   --popover-foreground: 222 47% 11%;
   --popover-border: 214 32% 91%;
 
-  --primary: 255 85% 55%; /* Vibrant Purple-Blue for precision/contrast */
+  --primary: 260 52% 53%; /* Violet: #6d48c7 */
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 210 40% 96%;
-  --secondary-foreground: 222 47% 11%;
+  --secondary: 176 70% 33%; /* Teal: #198f88 */
+  --secondary-foreground: 0 0% 100%;
 
   --muted: 210 40% 96%;
   --muted-foreground: 215 16% 47%;
@@ -165,10 +165,10 @@
   --popover-foreground: 210 40% 98%;
   --popover-border: 217 33% 17%;
 
-  --primary: 255 80% 74%;
+  --primary: 260 80% 74%;
   --primary-foreground: 222 47% 11%;
 
-  --secondary: 217 33% 17%;
+  --secondary: 176 70% 45%;
   --secondary-foreground: 210 40% 98%;
 
   --muted: 217 33% 17%;
@@ -226,10 +226,10 @@
   --popover-foreground: 210 40% 96%;
   --popover-border: 255 35% 24%;
 
-  --primary: 255 80% 74%;
+  --primary: 260 80% 74%;
   --primary-foreground: 240 28% 8%;
 
-  --secondary: 255 28% 17%;
+  --secondary: 176 70% 45%;
   --secondary-foreground: 210 40% 96%;
 
   --muted: 255 28% 16%;
@@ -373,21 +373,11 @@ html.glass-dark .bg-muted\/40 {
   --chart-5: 240 15% 48%;
 }
 
-/* Fixed gradient pinned to viewport — always the backmost layer */
-html.glass-light body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background: linear-gradient(135deg, #e4deff 0%, #f5e4ff 40%, #dceeff 70%, #ffe8f8 100%);
-  pointer-events: none;
-}
-
-/* All layout containers transparent to reveal the gradient */
+/* Light glass keeps its frosted surfaces without the decorative aurora backdrop. */
 html.glass-light,
 html.glass-light body,
 html.glass-light [class*="bg-background"] {
-  background: transparent !important;
+  background: hsl(var(--background)) !important;
 }
 
 /* Fixed overlays (dialogs, sheets, drawers) — frosted light glass */
@@ -1178,8 +1168,9 @@ html.glass-vision-light .sidebar-nav-item[data-sidebar-active="true"] svg {
 /* ═══════════════════════════════════════════════════════
    VISIONOS ELEMENT LANGUAGE — shared by both Vision themes
    ═══════════════════════════════════════════════════════
-   visionOS controls are capsules: fully-rounded buttons and
-   tabs, generously rounded cards and menus, translucent
+   visionOS controls use softly rounded rectangles; badges and
+   tabs may be capsules, while buttons, cards, and menus retain
+   predictable rectangular geometry and translucent
    material fills instead of flat colours. Purely visual —
    no functional changes.
    ═══════════════════════════════════════════════════════ */
@@ -1190,12 +1181,13 @@ html.glass-vision-light .bg-card {
   border-radius: 1.125rem !important;
 }
 
-/* ── Buttons: capsule shape, like visionOS pill controls.
+/* ── Buttons: compact rounded rectangles.
      Exclude checkboxes, switches, radios, and calendar cells so
-     their native square/round shapes stay intact. ── */
-html.glass-vision button:not([role="checkbox"]):not([role="switch"]):not([role="radio"]):not([role="gridcell"]):not(.sidebar-rail-toggle):not(.sidebar-rail-item):not([role="grid"] *):not(.rdp *):not([class*="flex-col"]):not([class*="h-auto"]):not([class*="items-start"]),
-html.glass-vision-light button:not([role="checkbox"]):not([role="switch"]):not([role="radio"]):not([role="gridcell"]):not(.sidebar-rail-toggle):not(.sidebar-rail-item):not([role="grid"] *):not(.rdp *):not([class*="flex-col"]):not([class*="h-auto"]):not([class*="items-start"]) {
-  border-radius: 9999px !important;
+     their native square/round shapes stay intact. Do not turn
+     full-width action cards into pills. ── */
+html.glass-vision button:not([role="checkbox"]):not([role="switch"]):not([role="radio"]):not([role="gridcell"]):not(.sidebar-rail-toggle):not(.sidebar-rail-item):not(.sidebar-flyout-create):not(.sidebar-flyout-item):not(.accessibility-mode-control button):not([role="grid"] *):not(.rdp *):not([class*="flex-col"]):not([class*="h-auto"]):not([class*="items-start"]),
+html.glass-vision-light button:not([role="checkbox"]):not([role="switch"]):not([role="radio"]):not([role="gridcell"]):not(.sidebar-rail-toggle):not(.sidebar-rail-item):not(.sidebar-flyout-create):not(.sidebar-flyout-item):not(.accessibility-mode-control button):not([role="grid"] *):not(.rdp *):not([class*="flex-col"]):not([class*="h-auto"]):not([class*="items-start"]) {
+  border-radius: var(--vision-control-radius, 14px) !important;
 }
 
 /* Tall tile buttons (theme cards, option tiles) stay rounded rects */
@@ -1317,11 +1309,11 @@ html.glass-vision-light [role="alertdialog"] {
 }
 
 /* ── Inputs: soft rounded fields ── */
-html.glass-vision input:not([type="checkbox"]):not([type="radio"]),
-html.glass-vision select,
-html.glass-vision-light input:not([type="checkbox"]):not([type="radio"]),
-html.glass-vision-light select {
-  border-radius: 9999px !important;
+html.glass-vision input:not([type="checkbox"]):not([type="radio"]):not(.sidebar-flyout input):not([role="menu"] input),
+html.glass-vision select:not(.sidebar-flyout select):not([role="menu"] select),
+html.glass-vision-light input:not([type="checkbox"]):not([type="radio"]):not(.sidebar-flyout input):not([role="menu"] input),
+html.glass-vision-light select:not(.sidebar-flyout select):not([role="menu"] select) {
+  border-radius: var(--vision-control-radius, 14px) !important;
 }
 html.glass-vision textarea,
 html.glass-vision-light textarea {
@@ -1333,18 +1325,18 @@ html.glass-vision-light [cmdk-input] {
   border-radius: 9999px !important;
 }
 
-/* ── Flyout & sidebar items: rounded capsules ── */
+/* ── Flyout & sidebar items: rounded rows, not capsules ── */
 html.glass-vision .sidebar-flyout-item,
 html.glass-vision .sidebar-nav-item,
 html.glass-vision .sidebar-search-result,
 html.glass-vision-light .sidebar-flyout-item,
 html.glass-vision-light .sidebar-nav-item,
 html.glass-vision-light .sidebar-search-result {
-  border-radius: 9999px !important;
+  border-radius: 10px !important;
 }
 html.glass-vision .sidebar-flyout-create,
 html.glass-vision-light .sidebar-flyout-create {
-  border-radius: 9999px !important;
+  border-radius: 10px !important;
 }
 html.glass-vision .sidebar-flyout,
 html.glass-vision-light .sidebar-flyout {
@@ -1386,10 +1378,10 @@ html.glass-vision-light tbody tr:hover {
   background-color: rgba(30, 140, 190, 0.06);
 }
 
-/* ── Tooltips: mini glass capsules ── */
+/* ── Tooltips: compact glass labels ── */
 html.glass-vision [role="tooltip"],
 html.glass-vision-light [role="tooltip"] {
-  border-radius: 9999px !important;
+  border-radius: 10px !important;
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
@@ -1425,6 +1417,17 @@ html[data-bg-image="on"]:not(.dark):not(.glass-light):not(.glass-vision-light) b
     linear-gradient(rgba(255, 255, 255, 0.55), rgba(246, 250, 252, 0.65)),
     var(--app-bg-image) !important;
 }
+
+/* Standard Light/System themes use the normal solid surface. Background
+   imagery is reserved for the explicitly selected glass/spatial treatments. */
+html[data-bg-image="on"]:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light),
+html[data-bg-image="on"]:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light) body {
+  background: hsl(var(--background)) !important;
+}
+html[data-bg-image="on"]:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light) body::before {
+  display: none !important;
+}
+
 /* Dark glass themes: dim the image so white text stays legible */
 html.glass-vision[data-bg-image="on"] body::before,
 html.glass-dark[data-bg-image="on"] body::before {
@@ -4071,4 +4074,1398 @@ html.glass-vision-light .sidebar-search-input::placeholder {
 
 .site-selector-icon.has-favicon > .site-selector-fallback-icon {
   display: none !important;
+}
+
+/* Standard Light/System shell: use the normal solid theme surface. */
+html:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light) body {
+  background: hsl(var(--background)) !important;
+}
+
+html:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light) .app-shell {
+  background: hsl(var(--background)) !important;
+}
+
+html:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light) .app-shell .bg-card {
+  background-color: rgba(255, 255, 255, 0.78);
+  border-color: rgba(211, 214, 231, 0.78);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.92) inset,
+    0 12px 34px rgba(76, 57, 133, 0.07);
+  backdrop-filter: blur(18px) saturate(145%);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+}
+
+html:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light) .ampera-header {
+  background-color: rgba(255, 255, 255, 0.76);
+  border-color: rgba(211, 214, 231, 0.72);
+}
+
+.ampera-header button,
+.ampera-header [role="button"] {
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.ampera-header button:active,
+.ampera-header [role="button"]:active {
+  transform: translateY(1px);
+}
+
+@media (max-width: 760px) {
+  .ampera-header-brand .vision-header-logo-text,
+  .ampera-header-brand .vision-header-logo-subtitle,
+  .ampera-header-brand .vision-header-version {
+    display: none;
+  }
+
+  .ampera-header-brand img {
+    max-width: 38px !important;
+  }
+
+  .ampera-header-inner {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .ampera-header-actions {
+    gap: 0;
+  }
+
+  .ampera-site-selector-trigger {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   VISION PRO FINAL MATERIAL CONTRACT
+   Keep this last. Earlier Vision rules were added feature-by-feature, which
+   meant a page could inherit a different glass recipe depending on its cards,
+   dialog, table, or custom utility classes. These shared materials are the
+   final source of truth for every authenticated screen.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Shared geometry and motion: readable, dimensional, and never dependent on
+   a page-specific card implementation. */
+html.glass-vision,
+html.glass-vision-light {
+  --vision-pane-radius: 24px;
+  --vision-card-radius: 18px;
+  --vision-control-radius: 14px;
+}
+
+html.glass-vision .app-shell,
+html.glass-vision-light .app-shell {
+  isolation: isolate;
+}
+
+/* ── Vision Pro Dark ─────────────────────────────────────────────────── */
+html.glass-vision {
+  --background: 205 30% 10%;
+  --foreground: 0 0% 100%;
+  --card: 215 10% 14%;
+  --card-foreground: 0 0% 100%;
+  --popover: 215 11% 13%;
+  --popover-foreground: 0 0% 100%;
+  --sidebar-foreground: 0 0% 100%;
+  --muted-foreground: 0 0% 76%;
+  --border: 0 0% 100%;
+  --input: 0 0% 100%;
+  --radius: 0.95rem;
+}
+
+html.glass-vision body::before {
+  background:
+    radial-gradient(ellipse 70% 56% at 18% 0%, rgba(58, 139, 165, 0.58) 0%, transparent 64%),
+    radial-gradient(ellipse 48% 48% at 96% 16%, rgba(18, 86, 113, 0.52) 0%, transparent 66%),
+    radial-gradient(ellipse 76% 56% at 48% 108%, rgba(5, 48, 68, 0.78) 0%, transparent 70%),
+    linear-gradient(165deg, #174f67 0%, #113e54 38%, #0b2e40 70%, #071e2b 100%);
+}
+
+html.glass-vision .app-shell > header,
+html.glass-vision main#main-content,
+html.glass-vision .sidebar-panel {
+  background:
+    radial-gradient(120% 94% at 8% -16%, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.07) 34%, transparent 66%),
+    linear-gradient(150deg, rgba(30, 40, 48, 0.58) 0%, rgba(15, 23, 30, 0.70) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.22) inset,
+    0 18px 52px rgba(0, 13, 22, 0.36) !important;
+  backdrop-filter: blur(46px) saturate(135%) !important;
+  -webkit-backdrop-filter: blur(46px) saturate(135%) !important;
+}
+
+html.glass-vision .app-shell > header {
+  border-radius: 20px !important;
+}
+
+html.glass-vision main#main-content {
+  border-radius: var(--vision-pane-radius) !important;
+}
+
+html.glass-vision .bg-card,
+html.glass-vision [role="dialog"],
+html.glass-vision [role="alertdialog"],
+html.glass-vision [role="menu"],
+html.glass-vision [data-radix-menu-content],
+html.glass-vision .sidebar-flyout,
+html.glass-vision .sidebar-flyout-nested-menu,
+html.glass-vision .sidebar-flyout-create-menu {
+  background:
+    radial-gradient(135% 92% at 8% -14%, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.045) 40%, transparent 70%),
+    linear-gradient(152deg, rgba(31, 40, 47, 0.76) 0%, rgba(15, 22, 28, 0.86) 100%) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.16) inset,
+    0 10px 30px rgba(0, 10, 18, 0.25) !important;
+  backdrop-filter: blur(22px) saturate(125%) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(125%) !important;
+}
+
+html.glass-vision .bg-card {
+  border-radius: var(--vision-card-radius) !important;
+}
+
+html.glass-vision .sidebar-rail {
+  background:
+    radial-gradient(130% 42% at 50% -8%, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.07) 58%, transparent 82%),
+    linear-gradient(180deg, rgba(25, 36, 43, 0.54), rgba(11, 20, 27, 0.62)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.17) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.20) inset,
+    0 12px 32px rgba(0, 10, 18, 0.30) !important;
+  backdrop-filter: blur(32px) saturate(125%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(125%) !important;
+}
+
+html.glass-vision .sidebar-rail-item:hover,
+html.glass-vision .sidebar-rail-item[data-sidebar-active="true"],
+html.glass-vision .sidebar-rail-toggle,
+html.glass-vision .sidebar-nav-item[data-sidebar-active="true"] {
+  background: rgba(255, 255, 255, 0.16) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14) !important;
+}
+
+html.glass-vision input,
+html.glass-vision textarea,
+html.glass-vision select,
+html.glass-vision .sidebar-search-wrap {
+  background: rgba(4, 14, 21, 0.34) !important;
+  color: rgb(255 255 255) !important;
+  border-color: rgba(255, 255, 255, 0.19) !important;
+}
+
+html.glass-vision input::placeholder,
+html.glass-vision textarea::placeholder {
+  color: rgba(255, 255, 255, 0.64) !important;
+}
+
+html.glass-vision thead tr {
+  background: rgba(255, 255, 255, 0.09) !important;
+}
+
+html.glass-vision tbody tr:hover {
+  background: rgba(255, 255, 255, 0.075) !important;
+}
+
+/* ── Vision Pro Light ────────────────────────────────────────────────── */
+html.glass-vision-light {
+  --background: 204 38% 96%;
+  --foreground: 211 36% 13%;
+  --card: 0 0% 100%;
+  --card-foreground: 211 36% 13%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 211 36% 13%;
+  --sidebar-foreground: 211 36% 13%;
+  --muted-foreground: 211 21% 32%;
+  --border: 211 24% 42%;
+  --input: 211 24% 42%;
+  --ring: 201 76% 30%;
+  --radius: 0.95rem;
+}
+
+html.glass-vision-light body::before {
+  background:
+    radial-gradient(ellipse 68% 58% at 12% -4%, rgba(177, 227, 246, 0.90) 0%, transparent 66%),
+    radial-gradient(ellipse 48% 46% at 96% 6%, rgba(250, 232, 208, 0.76) 0%, transparent 63%),
+    radial-gradient(ellipse 72% 56% at 52% 108%, rgba(181, 212, 228, 0.86) 0%, transparent 70%),
+    linear-gradient(165deg, #e9f4f8 0%, #dcecf3 52%, #d2e2ea 100%);
+}
+
+html.glass-vision-light .app-shell > header,
+html.glass-vision-light main#main-content,
+html.glass-vision-light .sidebar-panel {
+  background:
+    radial-gradient(120% 94% at 8% -16%, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.38) 36%, transparent 70%),
+    linear-gradient(150deg, rgba(255, 255, 255, 0.46) 0%, rgba(222, 238, 245, 0.52) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.72) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.94) inset,
+    0 18px 52px rgba(62, 99, 121, 0.18) !important;
+  backdrop-filter: blur(46px) saturate(122%) !important;
+  -webkit-backdrop-filter: blur(46px) saturate(122%) !important;
+}
+
+html.glass-vision-light .app-shell > header {
+  border-radius: 20px !important;
+}
+
+html.glass-vision-light main#main-content {
+  border-radius: var(--vision-pane-radius) !important;
+}
+
+html.glass-vision-light .bg-card,
+html.glass-vision-light [role="dialog"],
+html.glass-vision-light [role="alertdialog"],
+html.glass-vision-light [role="menu"],
+html.glass-vision-light [data-radix-menu-content],
+html.glass-vision-light .sidebar-flyout,
+html.glass-vision-light .sidebar-flyout-nested-menu,
+html.glass-vision-light .sidebar-flyout-create-menu {
+  background:
+    radial-gradient(135% 92% at 8% -14%, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.42) 42%, transparent 72%),
+    linear-gradient(152deg, rgba(255, 255, 255, 0.66) 0%, rgba(228, 240, 246, 0.70) 100%) !important;
+  border-color: rgba(255, 255, 255, 0.72) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.96) inset,
+    0 10px 30px rgba(62, 99, 121, 0.12) !important;
+  backdrop-filter: blur(22px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(120%) !important;
+}
+
+html.glass-vision-light .bg-card {
+  border-radius: var(--vision-card-radius) !important;
+}
+
+/* The light rail deliberately stays visually quiet: it adapts to the room
+   and reserves the strong material for the content/window panes. */
+html.glass-vision-light .sidebar-rail {
+  background: transparent !important;
+  border-color: rgba(73, 103, 120, 0.20) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.glass-vision-light .sidebar-rail-toggle,
+html.glass-vision-light .sidebar-rail-item:hover,
+html.glass-vision-light .sidebar-rail-item[data-sidebar-active="true"],
+html.glass-vision-light .sidebar-nav-item[data-sidebar-active="true"] {
+  background: rgba(255, 255, 255, 0.52) !important;
+  color: hsl(var(--foreground)) !important;
+  box-shadow: inset 0 0 0 1px rgba(73, 103, 120, 0.15) !important;
+}
+
+html.glass-vision-light input,
+html.glass-vision-light textarea,
+html.glass-vision-light select,
+html.glass-vision-light .sidebar-search-wrap {
+  background: rgba(255, 255, 255, 0.64) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: rgba(73, 103, 120, 0.28) !important;
+}
+
+html.glass-vision-light thead tr {
+  background: rgba(255, 255, 255, 0.52) !important;
+}
+
+html.glass-vision-light tbody tr:hover {
+  background: rgba(29, 114, 147, 0.08) !important;
+}
+
+/* Shared Vision controls and responsive panes. */
+html.glass-vision .app-shell > header button,
+html.glass-vision .app-shell > header [role="button"],
+html.glass-vision-light .app-shell > header button,
+html.glass-vision-light .app-shell > header [role="button"] {
+  border-color: currentColor !important;
+  border-color: color-mix(in srgb, currentColor 18%, transparent) !important;
+}
+
+html.glass-vision .ampera-header button:hover,
+html.glass-vision .ampera-header [role="button"]:hover {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+html.glass-vision-light .ampera-header button:hover,
+html.glass-vision-light .ampera-header [role="button"]:hover {
+  background-color: rgba(255, 255, 255, 0.50) !important;
+}
+
+html.glass-vision .fixed.inset-0[class*="bg-black"] {
+  background-color: rgba(3, 13, 20, 0.44) !important;
+  backdrop-filter: blur(7px) !important;
+  -webkit-backdrop-filter: blur(7px) !important;
+}
+
+html.glass-vision-light .fixed.inset-0[class*="bg-black"] {
+  background-color: rgba(37, 68, 84, 0.26) !important;
+  backdrop-filter: blur(7px) !important;
+  -webkit-backdrop-filter: blur(7px) !important;
+}
+
+@media (max-width: 767px) {
+  html.glass-vision .app-shell > header,
+  html.glass-vision-light .app-shell > header {
+    margin: 8px 8px 0;
+    border-radius: 18px !important;
+  }
+
+  html.glass-vision main#main-content,
+  html.glass-vision-light main#main-content {
+    margin: 8px;
+    border-radius: 20px !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   THEME-ADAPTIVE ELEMENT CONTRACT
+   Page components use a mixture of semantic tokens and legacy utility
+   classes. Normalize the legacy neutral utilities here so switching between
+   Vision Pro Dark and Light never leaves a table, form, link, or action
+   control in the previous theme's colors.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+html.glass-vision,
+html.glass-vision-light {
+  color-scheme: dark;
+}
+
+html.glass-vision-light {
+  color-scheme: light;
+}
+
+/* Neutral utility text must follow the active foreground. Status colors
+   (red/orange/green/yellow) intentionally remain semantic. */
+html.glass-vision [class*="text-gray-"],
+html.glass-vision [class*="text-slate-"],
+html.glass-vision [class*="text-zinc-"],
+html.glass-vision [class*="text-neutral-"],
+html.glass-vision [class*="text-stone-"] {
+  color: rgb(255 255 255) !important;
+}
+
+html.glass-vision-light [class*="text-gray-"],
+html.glass-vision-light [class*="text-slate-"],
+html.glass-vision-light [class*="text-zinc-"],
+html.glass-vision-light [class*="text-neutral-"],
+html.glass-vision-light [class*="text-stone-"] {
+  color: hsl(var(--foreground)) !important;
+}
+
+html.glass-vision .text-muted-foreground,
+html.glass-vision [class*="text-muted-foreground"],
+html.glass-vision-light .text-muted-foreground,
+html.glass-vision-light [class*="text-muted-foreground"] {
+  color: hsl(var(--muted-foreground)) !important;
+  opacity: 1 !important;
+}
+
+/* Links consistently use the active theme accent. Explicit status links are
+   excluded so issue severity and success states retain their meaning. */
+html.glass-vision a:not([class*="text-red"]):not([class*="text-orange"]):not([class*="text-yellow"]):not([class*="text-green"]):not([class*="text-emerald"]):not([class*="text-destructive"]) {
+  color: rgb(255 255 255) !important;
+}
+
+html.glass-vision-light a:not([class*="text-red"]):not([class*="text-orange"]):not([class*="text-yellow"]):not([class*="text-green"]):not([class*="text-emerald"]):not([class*="text-destructive"]) {
+  color: hsl(var(--primary)) !important;
+}
+
+html.glass-vision a:hover,
+html.glass-vision-light a:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* Every card variant, including opacity utilities such as bg-card/70, gets
+   the same material and foreground. */
+html.glass-vision [class*="bg-card"],
+html.glass-vision-light [class*="bg-card"] {
+  color: hsl(var(--card-foreground)) !important;
+  border-color: color-mix(in srgb, hsl(var(--border)) 22%, transparent) !important;
+}
+
+html.glass-vision [class*="bg-card"] .text-muted-foreground,
+html.glass-vision-light [class*="bg-card"] .text-muted-foreground {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+html.glass-vision [class*="bg-popover"],
+html.glass-vision [class*="bg-secondary"],
+html.glass-vision [class*="bg-muted"],
+html.glass-vision-light [class*="bg-popover"],
+html.glass-vision-light [class*="bg-secondary"],
+html.glass-vision-light [class*="bg-muted"] {
+  color: hsl(var(--foreground)) !important;
+  border-color: color-mix(in srgb, hsl(var(--border)) 24%, transparent) !important;
+}
+
+html.glass-vision [class*="bg-muted"],
+html.glass-vision [class*="bg-secondary"] {
+  background-color: rgba(255, 255, 255, 0.07) !important;
+}
+
+html.glass-vision-light [class*="bg-muted"],
+html.glass-vision-light [class*="bg-secondary"] {
+  background-color: rgba(255, 255, 255, 0.52) !important;
+}
+
+/* Neutral legacy fills become theme surfaces. Keep black overlays and
+   semantic status fills untouched. */
+html.glass-vision [class*="bg-gray-"]:not([class*="bg-black"]),
+html.glass-vision [class*="bg-slate-"]:not([class*="bg-black"]),
+html.glass-vision [class*="bg-zinc-"]:not([class*="bg-black"]),
+html.glass-vision [class*="bg-neutral-"]:not([class*="bg-black"]),
+html.glass-vision [class*="bg-stone-"]:not([class*="bg-black"]) {
+  background-color: rgba(16, 25, 32, 0.82) !important;
+  color: rgb(255 255 255) !important;
+}
+
+html.glass-vision-light [class*="bg-gray-"]:not([class*="bg-black"]),
+html.glass-vision-light [class*="bg-slate-"]:not([class*="bg-black"]),
+html.glass-vision-light [class*="bg-zinc-"]:not([class*="bg-black"]),
+html.glass-vision-light [class*="bg-neutral-"]:not([class*="bg-black"]),
+html.glass-vision-light [class*="bg-stone-"]:not([class*="bg-black"]) {
+  background-color: rgba(255, 255, 255, 0.62) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+/* Tables are shared by reports, inventories, admin screens, and history
+   views. Explicitly style every surface instead of relying on inherited
+   utility colors. */
+html.glass-vision table,
+html.glass-vision-light table {
+  color: hsl(var(--foreground)) !important;
+  border-color: color-mix(in srgb, hsl(var(--border)) 24%, transparent) !important;
+}
+
+html.glass-vision thead,
+html.glass-vision thead tr,
+html.glass-vision-light thead,
+html.glass-vision-light thead tr {
+  color: hsl(var(--foreground)) !important;
+}
+
+html.glass-vision thead th,
+html.glass-vision-light thead th {
+  background: transparent !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: color-mix(in srgb, hsl(var(--border)) 30%, transparent) !important;
+}
+
+html.glass-vision tbody td,
+html.glass-vision tbody th,
+html.glass-vision-light tbody td,
+html.glass-vision-light tbody th {
+  color: hsl(var(--foreground)) !important;
+  border-color: color-mix(in srgb, hsl(var(--border)) 20%, transparent) !important;
+}
+
+html.glass-vision tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.035) !important;
+}
+
+html.glass-vision-light tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.34) !important;
+}
+
+html.glass-vision tbody tr:hover {
+  background: rgba(255, 255, 255, 0.10) !important;
+}
+
+html.glass-vision-light tbody tr:hover {
+  background: rgba(24, 108, 140, 0.09) !important;
+}
+
+/* Buttons and interactive controls. Semantic destructive/status fills win
+   through their more specific selectors below. */
+html.glass-vision button:not([class*="bg-"]),
+html.glass-vision [role="button"]:not([class*="bg-"]),
+html.glass-vision-light button:not([class*="bg-"]),
+html.glass-vision-light [role="button"]:not([class*="bg-"]) {
+  color: hsl(var(--foreground)) !important;
+  border-color: color-mix(in srgb, currentColor 22%, transparent) !important;
+}
+
+html.glass-vision button:not([class*="bg-"]):hover,
+html.glass-vision [role="button"]:not([class*="bg-"]):hover {
+  background-color: rgba(255, 255, 255, 0.11) !important;
+}
+
+html.glass-vision-light button:not([class*="bg-"]):hover,
+html.glass-vision-light [role="button"]:not([class*="bg-"]):hover {
+  background-color: rgba(255, 255, 255, 0.48) !important;
+}
+
+html.glass-vision button[class*="bg-primary"],
+html.glass-vision-light button[class*="bg-primary"],
+html.glass-vision [role="button"][class*="bg-primary"],
+html.glass-vision-light [role="button"][class*="bg-primary"] {
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  border-color: hsl(var(--primary)) !important;
+}
+
+html.glass-vision button[class*="bg-secondary"],
+html.glass-vision-light button[class*="bg-secondary"],
+html.glass-vision [role="button"][class*="bg-secondary"],
+html.glass-vision-light [role="button"][class*="bg-secondary"] {
+  background-color: hsl(var(--secondary)) !important;
+  color: hsl(var(--secondary-foreground)) !important;
+}
+
+html.glass-vision button[class*="bg-destructive"],
+html.glass-vision-light button[class*="bg-destructive"],
+html.glass-vision [role="button"][class*="bg-destructive"],
+html.glass-vision-light [role="button"][class*="bg-destructive"] {
+  background-color: hsl(var(--destructive)) !important;
+  color: hsl(var(--destructive-foreground)) !important;
+}
+
+html.glass-vision button:disabled,
+html.glass-vision-light button:disabled,
+html.glass-vision [aria-disabled="true"],
+html.glass-vision-light [aria-disabled="true"] {
+  opacity: 0.52 !important;
+  cursor: not-allowed;
+}
+
+/* Forms: labels, controls, placeholders, checkboxes, and native options all
+   use the active theme instead of browser defaults or stale slate utilities. */
+html.glass-vision label,
+html.glass-vision-light label {
+  color: hsl(var(--foreground)) !important;
+}
+
+html.glass-vision input:not([type="checkbox"]):not([type="radio"]),
+html.glass-vision select,
+html.glass-vision textarea,
+html.glass-vision-light input:not([type="checkbox"]):not([type="radio"]),
+html.glass-vision-light select,
+html.glass-vision-light textarea {
+  color: hsl(var(--foreground)) !important;
+  caret-color: hsl(var(--foreground)) !important;
+  border-color: color-mix(in srgb, hsl(var(--border)) 36%, transparent) !important;
+  outline-color: hsl(var(--ring)) !important;
+}
+
+html.glass-vision input:not([type="checkbox"]):not([type="radio"]),
+html.glass-vision select,
+html.glass-vision textarea {
+  background-color: rgba(6, 15, 22, 0.48) !important;
+}
+
+html.glass-vision-light input:not([type="checkbox"]):not([type="radio"]),
+html.glass-vision-light select,
+html.glass-vision-light textarea {
+  background-color: rgba(255, 255, 255, 0.66) !important;
+}
+
+html.glass-vision input::placeholder,
+html.glass-vision textarea::placeholder {
+  color: rgba(255, 255, 255, 0.62) !important;
+  opacity: 1 !important;
+}
+
+html.glass-vision-light input::placeholder,
+html.glass-vision-light textarea::placeholder {
+  color: hsl(var(--muted-foreground)) !important;
+  opacity: 0.90 !important;
+}
+
+html.glass-vision input[type="checkbox"],
+html.glass-vision input[type="radio"],
+html.glass-vision-light input[type="checkbox"],
+html.glass-vision-light input[type="radio"] {
+  accent-color: hsl(var(--primary)) !important;
+}
+
+html.glass-vision option {
+  background: rgb(16 25 32);
+  color: rgb(255 255 255);
+}
+
+html.glass-vision-light option {
+  background: rgb(255 255 255);
+  color: hsl(var(--foreground));
+}
+
+/* Tabs, selected rows, and disclosure controls use theme surfaces instead
+   of leaving active states in an old accent color. */
+html.glass-vision [role="tab"],
+html.glass-vision [role="option"],
+html.glass-vision-light [role="tab"],
+html.glass-vision-light [role="option"] {
+  color: hsl(var(--foreground)) !important;
+}
+
+html.glass-vision [role="tab"][data-state="active"],
+html.glass-vision [role="option"][data-highlighted],
+html.glass-vision [data-state="active"],
+html.glass-vision-light [role="tab"][data-state="active"],
+html.glass-vision-light [role="option"][data-highlighted],
+html.glass-vision-light [data-state="active"] {
+  color: hsl(var(--foreground)) !important;
+  border-color: color-mix(in srgb, hsl(var(--border)) 28%, transparent) !important;
+}
+
+/* Neutral icon wrappers follow their parent text color. Do not blanket all
+   SVGs because Recharts uses SVG for data visualization. */
+html.glass-vision .lucide,
+html.glass-vision .lucide *,
+html.glass-vision-light .lucide,
+html.glass-vision-light .lucide * {
+  stroke: currentColor !important;
+  opacity: 1 !important;
+}
+
+/* ───────────────────────────────────────────────────────────────────────
+   Vision page conversion
+   The newest report, QA, crawler, Activity, and Page Group screens were
+   composed with local white/pastel utilities before the Vision themes
+   existed. Limit this conversion to their marked roots so data/status colors
+   remain meaningful while every structural surface uses the active material.
+   ─────────────────────────────────────────────────────────────────────── */
+
+html.glass-vision .vision-page,
+html.glass-vision-light .vision-page {
+  color: hsl(var(--foreground));
+}
+
+html.glass-vision .vision-page[class*="bg-[#f5f6fb]"],
+html.glass-vision-light .vision-page[class*="bg-[#f5f6fb]"] {
+  background-color: transparent !important;
+}
+
+/* White cards, toolbars, filters, and table wrappers are smoke glass in dark
+   Vision and bright frosted glass in light Vision, including opacity forms
+   such as bg-white/65 and bg-white/80. */
+html.glass-vision .vision-page [class*="bg-white"] {
+  background-color: rgba(12, 25, 34, 0.70) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+}
+
+html.glass-vision-light .vision-page [class*="bg-white"] {
+  background-color: rgba(255, 255, 255, 0.68) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: rgba(67, 96, 113, 0.18) !important;
+}
+
+/* The neutral custom palette used on these pages needs the same conversion.
+   This excludes branded/status colors such as purple, teal, red, and amber. */
+html.glass-vision .vision-page [class*="bg-[#f5f6fb]"],
+html.glass-vision .vision-page [class*="bg-[#f7f8fd]"],
+html.glass-vision .vision-page [class*="bg-[#f8f9fc]"],
+html.glass-vision .vision-page [class*="bg-[#fafafa]"],
+html.glass-vision .vision-page [class*="bg-[#fafbfd]"],
+html.glass-vision .vision-page [class*="bg-[#fcfcfe]"],
+html.glass-vision .vision-page [class*="bg-[#f0f2f8]"],
+html.glass-vision .vision-page [class*="bg-[#f0f2f6]"],
+html.glass-vision .vision-page [class*="bg-[#f3f4fb]"],
+html.glass-vision .vision-page [class*="bg-[#eeeef3]"] {
+  background-color: rgba(15, 29, 39, 0.58) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+html.glass-vision-light .vision-page [class*="bg-[#f5f6fb]"],
+html.glass-vision-light .vision-page [class*="bg-[#f7f8fd]"],
+html.glass-vision-light .vision-page [class*="bg-[#f8f9fc]"],
+html.glass-vision-light .vision-page [class*="bg-[#fafafa]"],
+html.glass-vision-light .vision-page [class*="bg-[#fafbfd]"],
+html.glass-vision-light .vision-page [class*="bg-[#fcfcfe]"],
+html.glass-vision-light .vision-page [class*="bg-[#f0f2f8]"],
+html.glass-vision-light .vision-page [class*="bg-[#f0f2f6]"],
+html.glass-vision-light .vision-page [class*="bg-[#f3f4fb]"],
+html.glass-vision-light .vision-page [class*="bg-[#eeeef3]"] {
+  background-color: rgba(255, 255, 255, 0.48) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+/* Dashboard tiles were individually tinted before the theme switch existed.
+   Keep their compact geometry but make the tile surface part of the glass
+   system instead of a light-only pastel block. */
+html.glass-vision .vision-page [class*="bg-violet-100"],
+html.glass-vision .vision-page [class*="bg-amber-50"],
+html.glass-vision .vision-page [class*="bg-teal-50"] {
+  background-color: rgba(255, 255, 255, 0.075) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+}
+
+html.glass-vision-light .vision-page [class*="bg-violet-100"],
+html.glass-vision-light .vision-page [class*="bg-amber-50"],
+html.glass-vision-light .vision-page [class*="bg-teal-50"] {
+  background-color: rgba(255, 255, 255, 0.56) !important;
+  border-color: rgba(67, 96, 113, 0.15) !important;
+}
+
+/* Newer screens also use a local navy/slate text palette. Map only those
+   neutral colors to the theme; status and chart colors remain untouched. */
+html.glass-vision .vision-page [class*="text-[#172b4d]"],
+html.glass-vision .vision-page [class*="text-[#263650]"],
+html.glass-vision .vision-page [class*="text-[#405575]"],
+html.glass-vision .vision-page [class*="text-[#52627e]"],
+html.glass-vision .vision-page [class*="text-[#53647f]"],
+html.glass-vision .vision-page [class*="text-[#596981]"],
+html.glass-vision .vision-page [class*="text-[#5a6e87]"] {
+  color: rgb(255 255 255) !important;
+}
+
+html.glass-vision .vision-page [class*="text-[#667085]"],
+html.glass-vision .vision-page [class*="text-[#667788]"],
+html.glass-vision .vision-page [class*="text-[#7a8899]"],
+html.glass-vision .vision-page [class*="text-[#7b8aaa]"],
+html.glass-vision .vision-page [class*="text-[#8a97ac]"],
+html.glass-vision .vision-page [class*="text-[#8b98af]"],
+html.glass-vision .vision-page [class*="text-[#98a4b8]"],
+html.glass-vision .vision-page [class*="text-[#9aabb8]"],
+html.glass-vision .vision-page [class*="text-[#9eadca]"],
+html.glass-vision .vision-page [class*="text-[#a0afc2]"],
+html.glass-vision .vision-page [class*="text-[#b8c1cf]"],
+html.glass-vision .vision-page [class*="text-[#cccccc]"] {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+html.glass-vision-light .vision-page [class*="text-[#172b4d]"],
+html.glass-vision-light .vision-page [class*="text-[#263650]"],
+html.glass-vision-light .vision-page [class*="text-[#405575]"],
+html.glass-vision-light .vision-page [class*="text-[#52627e]"],
+html.glass-vision-light .vision-page [class*="text-[#53647f]"],
+html.glass-vision-light .vision-page [class*="text-[#596981]"],
+html.glass-vision-light .vision-page [class*="text-[#5a6e87]"] {
+  color: hsl(var(--foreground)) !important;
+}
+
+html.glass-vision-light .vision-page [class*="text-[#667085]"],
+html.glass-vision-light .vision-page [class*="text-[#667788]"],
+html.glass-vision-light .vision-page [class*="text-[#7a8899]"],
+html.glass-vision-light .vision-page [class*="text-[#7b8aaa]"],
+html.glass-vision-light .vision-page [class*="text-[#8a97ac]"],
+html.glass-vision-light .vision-page [class*="text-[#8b98af]"],
+html.glass-vision-light .vision-page [class*="text-[#98a4b8]"],
+html.glass-vision-light .vision-page [class*="text-[#9aabb8]"],
+html.glass-vision-light .vision-page [class*="text-[#9eadca]"],
+html.glass-vision-light .vision-page [class*="text-[#a0afc2]"],
+html.glass-vision-light .vision-page [class*="text-[#b8c1cf]"],
+html.glass-vision-light .vision-page [class*="text-[#cccccc]"] {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+/* Local pale borders and legacy table stripes cannot be left white in dark
+   Vision; retain a quiet structural edge in both directions. */
+html.glass-vision .vision-page [class*="border-white"],
+html.glass-vision .vision-page [class*="border-[#d"],
+html.glass-vision .vision-page [class*="border-[#e"],
+html.glass-vision .vision-page [class*="border-[#f"] {
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+html.glass-vision-light .vision-page [class*="border-white"],
+html.glass-vision-light .vision-page [class*="border-[#d"],
+html.glass-vision-light .vision-page [class*="border-[#e"],
+html.glass-vision-light .vision-page [class*="border-[#f"] {
+  border-color: rgba(67, 96, 113, 0.17) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ALL DARK THEME LEGACY-SURFACE CONTRACT
+   Modified report pages still contain pre-theme white, pastel, and navy
+   utilities. Apply one contract across Standard Dark, Glass Dark, and
+   Vision Dark so a theme switch changes every structural surface—not only
+   components already built from semantic tokens.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Reusable selectors for the legacy light page palette. These are limited to
+   the authenticated application so login, illustrations, and image previews
+   retain their intentional colors. */
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#172b4d]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#263650]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#374151]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#405575]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#52627e]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#53647f]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#596981]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#5a6e87]"] {
+  color: hsl(var(--foreground)) !important;
+}
+
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#555555]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#667085]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#667788]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#7a8899]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#7b8aaa]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#8a97ac]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#8b98af]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#98a4b8]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#9aabb8]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#9eadca]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#a0afc2]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#b8c1cf]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#cccccc]"] {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#6d48c7]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="text-[#5c3bb5]"] {
+  color: hsl(var(--primary)) !important;
+}
+
+/* All pre-theme neutral fills are structural surfaces, not status colors.
+   Treat pale status chips separately through their text/icon color, keeping
+   the dark shell calm and preventing large pastel cards. */
+html.dark:not(.glass-dark):not(.glass-vision) .app-shell :is(
+  [class*="bg-white"],
+  [class*="bg-[#f5f6fb]"], [class*="bg-[#f7f8fd]"],
+  [class*="bg-[#f8f9fc]"], [class*="bg-[#fafafa]"],
+  [class*="bg-[#fafbfd]"], [class*="bg-[#fcfcfe]"],
+  [class*="bg-[#f0f2f8]"], [class*="bg-[#f0f2f6]"],
+  [class*="bg-[#f3f4fb]"], [class*="bg-[#eeeef3]"],
+  [class*="bg-[#eee9ff]"], [class*="bg-[#e3f0fb]"],
+  [class*="bg-[#e4f7f0]"], [class*="bg-[#fff0ed]"],
+  [class*="bg-[#fff4e4]"], [class*="bg-[#fff8e1]"],
+  [class*="bg-[#fce4ec]"], [class*="bg-[#fdf0f0]"]
+) {
+  background-color: hsl(var(--card)) !important;
+  color: hsl(var(--card-foreground)) !important;
+  border-color: hsl(var(--border) / 0.35) !important;
+}
+
+html.glass-dark .app-shell :is(
+  [class*="bg-white"],
+  [class*="bg-[#f5f6fb]"], [class*="bg-[#f7f8fd]"],
+  [class*="bg-[#f8f9fc]"], [class*="bg-[#fafafa]"],
+  [class*="bg-[#fafbfd]"], [class*="bg-[#fcfcfe]"],
+  [class*="bg-[#f0f2f8]"], [class*="bg-[#f0f2f6]"],
+  [class*="bg-[#f3f4fb]"], [class*="bg-[#eeeef3]"],
+  [class*="bg-[#eee9ff]"], [class*="bg-[#e3f0fb]"],
+  [class*="bg-[#e4f7f0]"], [class*="bg-[#fff0ed]"],
+  [class*="bg-[#fff4e4]"], [class*="bg-[#fff8e1]"],
+  [class*="bg-[#fce4ec]"], [class*="bg-[#fdf0f0]"]
+) {
+  background:
+    radial-gradient(125% 96% at 6% -18%, rgba(255, 255, 255, 0.14), transparent 64%),
+    linear-gradient(152deg, rgba(29, 40, 48, 0.76), rgba(13, 22, 29, 0.84)) !important;
+  color: hsl(var(--card-foreground)) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset !important;
+}
+
+html.glass-vision .app-shell :is(
+  [class*="bg-white"],
+  [class*="bg-[#f5f6fb]"], [class*="bg-[#f7f8fd]"],
+  [class*="bg-[#f8f9fc]"], [class*="bg-[#fafafa]"],
+  [class*="bg-[#fafbfd]"], [class*="bg-[#fcfcfe]"],
+  [class*="bg-[#f0f2f8]"], [class*="bg-[#f0f2f6]"],
+  [class*="bg-[#f3f4fb]"], [class*="bg-[#eeeef3]"],
+  [class*="bg-[#eee9ff]"], [class*="bg-[#e3f0fb]"],
+  [class*="bg-[#e4f7f0]"], [class*="bg-[#fff0ed]"],
+  [class*="bg-[#fff4e4]"], [class*="bg-[#fff8e1]"],
+  [class*="bg-[#fce4ec]"], [class*="bg-[#fdf0f0]"]
+) {
+  background:
+    radial-gradient(130% 92% at 7% -16%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04) 42%, transparent 70%),
+    linear-gradient(152deg, rgba(31, 40, 47, 0.76), rgba(15, 22, 28, 0.86)) !important;
+  color: hsl(var(--card-foreground)) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.16) inset,
+    0 10px 30px rgba(0, 10, 18, 0.22) !important;
+}
+
+/* Legacy controls must retain one consistent pattern in every dark theme:
+   token foreground, dark input well, and a visible focus ring. */
+html.dark:not(.glass-dark):not(.glass-vision) .app-shell input:not([type="checkbox"]):not([type="radio"]),
+html.dark:not(.glass-dark):not(.glass-vision) .app-shell select,
+html.dark:not(.glass-dark):not(.glass-vision) .app-shell textarea {
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: hsl(var(--border) / 0.45) !important;
+}
+
+html.glass-dark .app-shell input:not([type="checkbox"]):not([type="radio"]),
+html.glass-dark .app-shell select,
+html.glass-dark .app-shell textarea {
+  background-color: rgba(4, 14, 21, 0.38) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: rgba(255, 255, 255, 0.20) !important;
+}
+
+html:is(.dark, .glass-dark, .glass-vision) .app-shell input::placeholder,
+html:is(.dark, .glass-dark, .glass-vision) .app-shell textarea::placeholder {
+  color: hsl(var(--muted-foreground)) !important;
+  opacity: 0.78 !important;
+}
+
+html:is(.dark, .glass-dark, .glass-vision) .app-shell input:focus,
+html:is(.dark, .glass-dark, .glass-vision) .app-shell select:focus,
+html:is(.dark, .glass-dark, .glass-vision) .app-shell textarea:focus,
+html:is(.dark, .glass-dark, .glass-vision) .app-shell button:focus-visible,
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [role="button"]:focus-visible {
+  outline: 2px solid hsl(var(--ring)) !important;
+  outline-offset: 2px !important;
+}
+
+/* Hard-coded primary buttons use the user-selected primary token; semantic
+   destructive and success controls retain their status colors. */
+html:is(.dark, .glass-dark, .glass-vision) .app-shell :is(button, [role="button"])[class*="bg-[#6d48c7]"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell :is(button, [role="button"])[class*="bg-[#5c3bb5]"] {
+  background: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  border-color: hsl(var(--primary)) !important;
+}
+
+/* Tables, title bars, and card outlines get the same quiet contrast across
+   all dark variants; data series and severity colors are intentionally left
+   untouched. */
+html:is(.dark, .glass-dark, .glass-vision) .app-shell :is(table, th, td) {
+  color: hsl(var(--foreground)) !important;
+  border-color: hsl(var(--border) / 0.24) !important;
+}
+
+html.dark:not(.glass-dark):not(.glass-vision) .app-shell thead tr {
+  background-color: hsl(var(--muted) / 0.54) !important;
+}
+
+html.glass-dark .app-shell thead tr,
+html.glass-vision .app-shell thead tr {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="border-white"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="border-[#d"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="border-[#e"],
+html:is(.dark, .glass-dark, .glass-vision) .app-shell [class*="border-[#f"] {
+  border-color: hsl(var(--border) / 0.28) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ALL LIGHT GLASS THEME ELEMENT CONTRACT
+   Glass Light and Vision Light share the same light material language:
+   translucent white surfaces, dark readable foregrounds, token accents,
+   quiet borders, and one control/table pattern across every page.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+html:is(.glass-light, .glass-vision-light) {
+  color-scheme: light;
+}
+
+html:is(.glass-light, .glass-vision-light) .vision-page {
+  color: hsl(var(--foreground));
+}
+
+html:is(.glass-light, .glass-vision-light) .vision-page[class*="bg-[#f5f6fb]"] {
+  background-color: transparent !important;
+}
+
+/* Structural white surfaces, including opacity variants such as
+   bg-white/60 and bg-white/80, all use the same frosted material. */
+html:is(.glass-light, .glass-vision-light) .app-shell [class*="bg-white"] {
+  background-color: rgba(255, 255, 255, 0.68) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: rgba(67, 96, 113, 0.18) !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.86) inset !important;
+}
+
+/* Neutral custom fills used by QA, crawler, history, Activity, Page Groups,
+   profile, and dashboard pages become a single quiet glass surface. */
+html:is(.glass-light, .glass-vision-light) .app-shell :is(
+  [class*="bg-[#f5f6fb]"], [class*="bg-[#f7f8fd]"],
+  [class*="bg-[#f8f9fc]"], [class*="bg-[#fafafa]"],
+  [class*="bg-[#fafbfd]"], [class*="bg-[#fcfcfe]"],
+  [class*="bg-[#f0f2f8]"], [class*="bg-[#f0f2f6]"],
+  [class*="bg-[#f3f4fb]"], [class*="bg-[#eeeef3]"],
+  [class*="bg-[#eee9ff]"], [class*="bg-[#e3f0fb]"],
+  [class*="bg-[#e4f7f0]"], [class*="bg-[#fff0ed]"],
+  [class*="bg-[#fff4e4]"], [class*="bg-[#fff8e1]"],
+  [class*="bg-[#fce4ec]"], [class*="bg-[#fdf0f0]"]
+) {
+  background-color: rgba(255, 255, 255, 0.54) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: rgba(67, 96, 113, 0.16) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .app-shell :is(
+  [class*="bg-violet-100"], [class*="bg-amber-50"], [class*="bg-teal-50"],
+  [class*="bg-violet-50"], [class*="bg-blue-50"], [class*="bg-sky-50"]
+) {
+  background-color: rgba(255, 255, 255, 0.54) !important;
+  border-color: rgba(67, 96, 113, 0.14) !important;
+}
+
+/* Convert the pre-theme navy/slate text palette without changing semantic
+   red, amber, green, teal, blue, or purple data/status colors. */
+html:is(.glass-light, .glass-vision-light) .app-shell :is(
+  [class*="text-[#172b4d]"], [class*="text-[#263650]"],
+  [class*="text-[#334665]"], [class*="text-[#374151]"],
+  [class*="text-[#405575]"], [class*="text-[#52627e]"],
+  [class*="text-[#53647f]"], [class*="text-[#596981]"],
+  [class*="text-[#5a6e87]"]
+) {
+  color: hsl(var(--foreground)) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .app-shell :is(
+  [class*="text-[#555555]"], [class*="text-[#667085]"],
+  [class*="text-[#667788]"], [class*="text-[#7a8899]"],
+  [class*="text-[#7b8aaa]"], [class*="text-[#8a97ac]"],
+  [class*="text-[#8b98af]"], [class*="text-[#98a4b8]"],
+  [class*="text-[#9aabb8]"], [class*="text-[#9aa8bf]"],
+  [class*="text-[#9eadca]"], [class*="text-[#a0afc2]"],
+  [class*="text-[#b8c1cf]"], [class*="text-[#cccccc]"]
+) {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .app-shell :is(
+  [class*="text-[#6d48c7]"], [class*="text-[#5c3bb5]"]
+) {
+  color: hsl(var(--primary)) !important;
+}
+
+/* Light forms and menus use the same translucent control well. */
+html:is(.glass-light, .glass-vision-light) .app-shell input:not([type="checkbox"]):not([type="radio"]),
+html:is(.glass-light, .glass-vision-light) .app-shell select,
+html:is(.glass-light, .glass-vision-light) .app-shell textarea {
+  background-color: rgba(255, 255, 255, 0.66) !important;
+  color: hsl(var(--foreground)) !important;
+  caret-color: hsl(var(--foreground)) !important;
+  border-color: rgba(67, 96, 113, 0.28) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .app-shell input::placeholder,
+html:is(.glass-light, .glass-vision-light) .app-shell textarea::placeholder {
+  color: hsl(var(--muted-foreground)) !important;
+  opacity: 0.86 !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .app-shell input:focus,
+html:is(.glass-light, .glass-vision-light) .app-shell select:focus,
+html:is(.glass-light, .glass-vision-light) .app-shell textarea:focus,
+html:is(.glass-light, .glass-vision-light) .app-shell button:focus-visible,
+html:is(.glass-light, .glass-vision-light) .app-shell [role="button"]:focus-visible {
+  outline: 2px solid hsl(var(--ring)) !important;
+  outline-offset: 2px !important;
+}
+
+/* Ghost, outline, primary, and explicit white buttons share one light-theme
+   foreground and hover treatment. */
+html:is(.glass-light, .glass-vision-light) .app-shell button:not([class*="bg-"]),
+html:is(.glass-light, .glass-vision-light) .app-shell [role="button"]:not([class*="bg-"]) {
+  color: hsl(var(--foreground)) !important;
+  border-color: rgba(67, 96, 113, 0.22) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .app-shell button:not([class*="bg-"]):hover,
+html:is(.glass-light, .glass-vision-light) .app-shell [role="button"]:not([class*="bg-"]):hover {
+  background-color: rgba(255, 255, 255, 0.52) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .app-shell :is(button, [role="button"])[class*="bg-[#6d48c7]"],
+html:is(.glass-light, .glass-vision-light) .app-shell :is(button, [role="button"])[class*="bg-[#5c3bb5]"] {
+  background: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  border-color: hsl(var(--primary)) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .app-shell :is(table, th, td) {
+  color: hsl(var(--foreground)) !important;
+  border-color: rgba(67, 96, 113, 0.18) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .app-shell thead tr {
+  background-color: rgba(255, 255, 255, 0.48) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .app-shell tbody tr:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.28) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .app-shell tbody tr:hover {
+  background-color: rgba(29, 114, 147, 0.08) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .app-shell :is(
+  [class*="border-white"], [class*="border-[#d"],
+  [class*="border-[#e"], [class*="border-[#f"]
+) {
+  border-color: rgba(67, 96, 113, 0.18) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .app-shell option {
+  background: rgb(255 255 255);
+  color: hsl(var(--foreground));
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   TOOLTIP FOREGROUND CONTRACT
+   Tooltips render in a Radix portal outside .app-shell, so they must not
+   inherit page-level background or primary-foreground overrides. Give them
+   their own explicit material and let nested labels/icons inherit it.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+html:is(.dark, .glass-dark, .glass-vision) :is([role="tooltip"], [data-radix-tooltip-content]) {
+  background: linear-gradient(152deg, rgba(29, 40, 48, 0.98), rgba(10, 18, 25, 0.98)) !important;
+  color: rgb(255 255 255) !important;
+  border: 1px solid rgba(255, 255, 255, 0.20) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.16) inset,
+    0 10px 28px rgba(0, 9, 16, 0.42) !important;
+  backdrop-filter: blur(18px) saturate(125%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(125%) !important;
+}
+
+html:is(.dark, .glass-dark, .glass-vision) :is([role="tooltip"], [data-radix-tooltip-content]) :is(
+  span, p, strong, em, b, small, code, svg
+) {
+  color: inherit !important;
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+html:is(.glass-light, .glass-vision-light) :is([role="tooltip"], [data-radix-tooltip-content]) {
+  background: linear-gradient(152deg, rgba(255, 255, 255, 0.96), rgba(227, 240, 246, 0.94)) !important;
+  color: hsl(var(--foreground)) !important;
+  border: 1px solid rgba(67, 96, 113, 0.22) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.98) inset,
+    0 10px 28px rgba(62, 99, 121, 0.18) !important;
+  backdrop-filter: blur(18px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(120%) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) :is([role="tooltip"], [data-radix-tooltip-content]) :is(
+  span, p, strong, em, b, small, code, svg
+) {
+  color: inherit !important;
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   DASHBOARD CARD MATERIAL
+   The accessibility overview is a single metric family. It must never mix a
+   primary-tinted score tile with unrelated dark/white cards as the theme
+   changes. Use one geometry and material, then express selection through a
+   subtle outline only.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.dashboard-overview-card,
+.dashboard-overview-detail {
+  border-color: hsl(var(--border) / 0.45) !important;
+  background: hsl(var(--card) / 0.82) !important;
+  color: hsl(var(--card-foreground)) !important;
+  box-shadow:
+    0 1px 0 hsl(var(--foreground) / 0.08) inset,
+    0 14px 34px rgba(20, 30, 42, 0.10) !important;
+  backdrop-filter: blur(22px) saturate(118%) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(118%) !important;
+}
+
+.dashboard-overview-card:hover {
+  border-color: hsl(var(--primary) / 0.48) !important;
+  box-shadow:
+    0 1px 0 hsl(var(--foreground) / 0.12) inset,
+    0 18px 38px rgba(20, 30, 42, 0.16) !important;
+}
+
+.dashboard-overview-card-active {
+  border-color: hsl(var(--primary) / 0.58) !important;
+  box-shadow:
+    0 0 0 2px hsl(var(--primary) / 0.14),
+    0 1px 0 hsl(var(--foreground) / 0.12) inset,
+    0 14px 34px rgba(20, 30, 42, 0.13) !important;
+}
+
+html:is(.glass-dark, .glass-vision) :is(.dashboard-overview-card, .dashboard-overview-detail) {
+  background:
+    radial-gradient(128% 96% at 7% -16%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.035) 42%, transparent 70%),
+    linear-gradient(152deg, rgba(31, 40, 47, 0.78), rgba(15, 22, 28, 0.87)) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.16) inset,
+    0 14px 34px rgba(0, 10, 18, 0.28) !important;
+}
+
+html:is(.glass-dark, .glass-vision) .dashboard-overview-card:hover {
+  border-color: hsl(var(--primary) / 0.62) !important;
+}
+
+html:is(.glass-dark, .glass-vision) .dashboard-overview-card-active {
+  border-color: hsl(var(--primary) / 0.72) !important;
+  box-shadow:
+    0 0 0 2px hsl(var(--primary) / 0.18),
+    0 1px 0 rgba(255, 255, 255, 0.17) inset,
+    0 14px 34px rgba(0, 10, 18, 0.30) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) :is(.dashboard-overview-card, .dashboard-overview-detail) {
+  background:
+    radial-gradient(128% 96% at 7% -16%, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.36) 44%, transparent 72%),
+    linear-gradient(152deg, rgba(255, 255, 255, 0.68), rgba(226, 239, 245, 0.70)) !important;
+  border-color: rgba(67, 96, 113, 0.20) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.96) inset,
+    0 14px 34px rgba(62, 99, 121, 0.15) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .dashboard-overview-card-active {
+  border-color: hsl(var(--primary) / 0.52) !important;
+  box-shadow:
+    0 0 0 2px hsl(var(--primary) / 0.14),
+    0 1px 0 rgba(255, 255, 255, 0.96) inset,
+    0 14px 34px rgba(62, 99, 121, 0.16) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   GLASS INTERACTION REPAIRS
+   Keep these component selectors last: older broad Vision rules intentionally
+   make ordinary controls pill-shaped, but dashboard metric cards, tooltip
+   popovers, and navigation flyouts are not ordinary controls.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+button.dashboard-overview-card {
+  border-radius: 20px !important;
+}
+
+html:is(.dark, .glass-dark, .glass-vision) .app-tooltip {
+  border-radius: 10px !important;
+  background: linear-gradient(152deg, rgba(30, 40, 48, 0.99), rgba(10, 18, 25, 0.99)) !important;
+  color: rgb(255 255 255) !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.15) inset,
+    0 12px 30px rgba(0, 9, 16, 0.46) !important;
+  opacity: 1 !important;
+}
+
+html:is(.dark, .glass-dark, .glass-vision) .app-tooltip * {
+  color: inherit !important;
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+html:is(.glass-light, .glass-vision-light) .app-tooltip {
+  border-radius: 10px !important;
+  background: linear-gradient(152deg, rgba(255, 255, 255, 0.98), rgba(227, 240, 246, 0.98)) !important;
+  color: hsl(var(--foreground)) !important;
+  border: 1px solid rgba(67, 96, 113, 0.24) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 12px 30px rgba(62, 99, 121, 0.20) !important;
+  opacity: 1 !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .app-tooltip * {
+  color: inherit !important;
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+html:is(.glass-dark, .glass-vision) .sidebar-flyout,
+html:is(.glass-dark, .glass-vision) .sidebar-flyout-nested-menu,
+html:is(.glass-dark, .glass-vision) .sidebar-flyout-create-menu {
+  background: linear-gradient(152deg, rgba(29, 40, 48, 0.985), rgba(11, 19, 26, 0.99)) !important;
+  color: rgb(255 255 255) !important;
+  border-color: rgba(255, 255, 255, 0.20) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.16) inset,
+    0 22px 56px rgba(0, 9, 16, 0.46) !important;
+}
+
+html:is(.glass-dark, .glass-vision) .sidebar-flyout :is(
+  .sidebar-flyout-heading, .sidebar-flyout-item, .sidebar-flyout-create-item,
+  .sidebar-flyout-section-label
+) {
+  color: rgb(255 255 255) !important;
+}
+
+html:is(.glass-dark, .glass-vision) .sidebar-flyout .text-muted-foreground,
+html:is(.glass-dark, .glass-vision) .sidebar-flyout [class*="text-muted-foreground"] {
+  color: rgba(255, 255, 255, 0.72) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .sidebar-flyout,
+html:is(.glass-light, .glass-vision-light) .sidebar-flyout-nested-menu,
+html:is(.glass-light, .glass-vision-light) .sidebar-flyout-create-menu {
+  background: linear-gradient(152deg, rgba(255, 255, 255, 0.98), rgba(225, 239, 246, 0.98)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: rgba(67, 96, 113, 0.23) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 22px 56px rgba(62, 99, 121, 0.24) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .sidebar-flyout :is(
+  .sidebar-flyout-heading, .sidebar-flyout-item, .sidebar-flyout-create-item,
+  .sidebar-flyout-section-label
+) {
+  color: hsl(var(--foreground)) !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .sidebar-flyout .text-muted-foreground,
+html:is(.glass-light, .glass-vision-light) .sidebar-flyout [class*="text-muted-foreground"] {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+html:is(.glass-dark, .glass-vision, .glass-light, .glass-vision-light) .sidebar-flyout-create {
+  background: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  border-color: hsl(var(--primary)) !important;
+  opacity: 1 !important;
+}
+
+/* The accessibility trigger is a real control, not a decorative orb. Keep
+   its icon and focus surface visible even when a page has legacy text or
+   background utility overrides. */
+.accessibility-mode-control {
+  z-index: 140 !important;
+}
+
+html:is(.dark, .glass-dark, .glass-vision) .accessibility-mode-control button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 14px !important;
+  background: linear-gradient(152deg, rgba(49, 62, 72, 0.98), rgba(15, 25, 33, 0.99)) !important;
+  color: rgb(255 255 255) !important;
+  border-color: rgba(255, 255, 255, 0.34) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.18) inset,
+    0 12px 30px rgba(0, 10, 18, 0.44) !important;
+  opacity: 1 !important;
+}
+
+html:is(.dark, .glass-dark, .glass-vision) .accessibility-mode-control button :is(svg, svg *) {
+  color: rgb(255 255 255) !important;
+  stroke: currentColor !important;
+  opacity: 1 !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .accessibility-mode-control button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 14px !important;
+  background: linear-gradient(152deg, rgba(255, 255, 255, 0.98), rgba(225, 239, 246, 0.99)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: rgba(67, 96, 113, 0.30) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 12px 30px rgba(62, 99, 121, 0.24) !important;
+  opacity: 1 !important;
+}
+
+html:is(.glass-light, .glass-vision-light) .accessibility-mode-control button :is(svg, svg *) {
+  color: hsl(var(--foreground)) !important;
+  stroke: currentColor !important;
+  opacity: 1 !important;
+}
+
+html:is(.dark, .glass-dark, .glass-vision, .glass-light, .glass-vision-light) .accessibility-mode-control button:hover {
+  transform: scale(1.05) !important;
+  filter: brightness(1.08) !important;
 }

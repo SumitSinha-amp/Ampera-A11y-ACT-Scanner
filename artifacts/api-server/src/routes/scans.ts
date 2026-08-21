@@ -23,6 +23,7 @@ import {
   UpdateScanParams,
   UpdateScanBody,
 } from "@workspace/api-zod";
+import { createNotification } from "../lib/notifications";
 import {
   startScan,
   cancelScan,
@@ -41,6 +42,7 @@ import { logger } from "../lib/logger";
 import { requireAuth } from "../middlewares/authMiddleware";
 import { getEffectivePermissions, canAccessSite, getEffectiveSites } from "../lib/permissions";
 import { isUrlLikeScanName, SCAN_NAME_URL_ERROR } from "../lib/scan-name";
+import { getRulesForLevels, ALL_SCAN_LEVELS } from "../lib/scanner";
 
 const router: IRouter = Router();
 const upload = multer({
@@ -218,6 +220,24 @@ router.post("/scans", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  // Resolve wcagLevels → rules before schema validation so Zod sees a plain rules[]
+  {
+    const rawOpts = req.body?.options;
+    if (rawOpts?.wcagLevels && Array.isArray(rawOpts.wcagLevels)) {
+      const levels = rawOpts.wcagLevels as string[];
+      const isAll = ALL_SCAN_LEVELS.every((l) => levels.includes(l));
+      const existingRules: string[] = Array.isArray(rawOpts.rules) ? rawOpts.rules : [];
+      const mergedRules = isAll
+        ? existingRules
+        : [...new Set([...getRulesForLevels(levels), ...existingRules])];
+      const { wcagLevels: _drop, ...restOpts } = rawOpts;
+      req.body = {
+        ...req.body,
+        options: { ...restOpts, ...(mergedRules.length ? { rules: mergedRules } : {}) },
+      };
+    }
+  }
+
   const parsed = CreateScanBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -353,6 +373,16 @@ router.post("/scans", requireAuth, async (req, res): Promise<void> => {
   startScan(session.id, validUrls, options ?? {}).catch((err) => {
     logger.error({ scanId: session.id, err }, "Background scan failed");
   });
+
+  // Notify admins of new scan
+  createNotification({
+    type:      "scan",
+    title:     `New scan started${session.name ? `: ${session.name}` : ""}`,
+    body:      `${validUrls.length} URL${validUrls.length === 1 ? "" : "s"} queued`,
+    link:      `/scans/${session.id}`,
+    actorId:   Number(userId) || null,
+    actorName: req.session?.user?.fullName ?? req.session?.user?.username ?? null,
+  }).catch(() => {});
 
   res.status(201).json({
     ...session,
@@ -3114,6 +3144,18 @@ router.patch("/issues/:id", async (req, res): Promise<void> => {
   if (!updated) {
     res.status(404).json({ error: "Issue not found" });
     return;
+  }
+
+  // Notify admins when a false positive is flagged
+  if (falsePositive) {
+    createNotification({
+      type:      "false_positive",
+      title:     `False positive flagged`,
+      body:      typeof note === "string" && note.trim() ? note.trim() : `Issue #${id} marked as false positive`,
+      link:      `/scans`,
+      actorId:   req.session?.user?.id ?? null,
+      actorName: req.session?.user?.fullName ?? req.session?.user?.username ?? null,
+    }).catch(() => {});
   }
 
   res.json(updated);

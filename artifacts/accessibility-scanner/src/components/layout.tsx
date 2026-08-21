@@ -5,6 +5,7 @@ import {
   AlertCircle,
   AlertTriangle,
   BookOpen,
+  Bell,
   Building2,
   Check,
   ChevronDown,
@@ -22,6 +23,7 @@ import {
   History,
   KeyRound,
   Layers,
+  Loader2,
   LogOut,
   Plus,
   Search,
@@ -44,6 +46,10 @@ import {
   UserRound,
   X,
   Home,
+  Lightbulb,
+  Inbox,
+  CheckCheck,
+  ScanSearch,
 } from "lucide-react";
 import { AccessibilityModeControl } from "@/components/accessibility-mode";
 import { Button } from "@/components/ui/button";
@@ -90,6 +96,7 @@ import {
 } from "@/pages/app-updates";
 import { useAuth, isAdmin, isSuperAdmin } from "@/contexts/auth";
 import { useSite, type MySite } from "@/contexts/site";
+import { usePageGroup } from "@/contexts/page-group";
 import {
   Popover,
   PopoverContent,
@@ -101,6 +108,15 @@ import { APP_WALKTHROUGH_EVENT } from "@/lib/walkthrough";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 export const OPEN_SETTINGS_EVENT = "a11y-open-settings";
+
+function HeaderChevron({ className = "" }: { className?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`inline-block h-2 w-2 shrink-0 border-b-[1.5px] border-r-[1.5px] border-current text-muted-foreground [transform:rotate(45deg)_translate(-1px,-1px)] ${className}`}
+    />
+  );
+}
 
 const THEME_OPTIONS: { value: Theme; label: string }[] = [
   { value: "light", label: "Light" },
@@ -438,7 +454,7 @@ function SiteSelector() {
       <PopoverTrigger asChild>
         <Button
           variant="outline"
-          className="h-auto py-1.5 px-3 gap-2 w-[540px] max-w-full text-left justify-start"
+          className="ampera-site-selector-trigger h-auto w-[540px] max-w-full justify-start gap-2 rounded-xl border-border/75 bg-card/70 px-3 py-1.5 text-left shadow-sm backdrop-blur-xl transition-all hover:border-primary/35 hover:bg-card/90 data-[state=open]:border-primary/45 data-[state=open]:ring-4 data-[state=open]:ring-primary/10"
           aria-label={`Switch site. Current site: ${triggerName}`}
         >
           <Globe className="w-4 h-4 shrink-0 text-muted-foreground" />
@@ -452,14 +468,12 @@ function SiteSelector() {
               </div>
             )}
           </div>
-          <ChevronDown
-            className={`w-4 h-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
-          />
+          <HeaderChevron />
         </Button>
       </PopoverTrigger>
 
       <PopoverContent
-        className="w-[540px] p-0 shadow-xl"
+        className="w-[540px] overflow-hidden rounded-2xl border-border/80 bg-popover/95 p-0 shadow-[0_24px_70px_rgba(15,23,42,0.2)] backdrop-blur-2xl"
         align="center"
         sideOffset={8}
       >
@@ -607,6 +621,94 @@ function SiteSelector() {
             </div>
           )}
         </ScrollArea>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function PageGroupSelector() {
+  const { user } = useAuth();
+  const { activeSite } = useSite();
+  const { selectedGroup, setSelectedGroup, groups, isLoading, isError } = usePageGroup();
+  const [open, setOpen] = useState(false);
+
+  // Only show when a site is selected and the user may view the dashboard.
+  if (!activeSite) return null;
+  if (!user?.permissions?.canViewSiteAccessibilityDashboard) return null;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          disabled={isLoading}
+          className="h-auto w-[210px] max-w-full justify-start gap-2 rounded-xl border-border/75 bg-card/70 px-3 py-1.5 text-left shadow-sm backdrop-blur-xl transition-all hover:border-primary/35 hover:bg-card/90 data-[state=open]:border-primary/45 data-[state=open]:ring-4 data-[state=open]:ring-primary/10"
+          aria-label={`Filter by page group. Current: ${selectedGroup?.name ?? "All page groups"}`}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+        >
+          <Layers className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-tight">
+            {isLoading
+              ? <span className="flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />Loading…</span>
+              : (selectedGroup?.name ?? "All page groups")}
+          </span>
+          <HeaderChevron />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="center"
+        sideOffset={8}
+        className="w-[250px] rounded-2xl border-border/80 bg-popover/95 p-1.5 shadow-[0_24px_70px_rgba(15,23,42,0.2)] backdrop-blur-2xl"
+        role="listbox"
+        aria-label="Page groups"
+      >
+        <p className="px-2.5 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Page group
+        </p>
+
+        {isError ? (
+          <p className="px-2.5 py-3 text-xs text-destructive">Failed to load page groups.</p>
+        ) : isLoading ? (
+          <div className="flex items-center justify-center py-6">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
+          </div>
+        ) : (
+          <>
+            <button
+              type="button"
+              role="option"
+              aria-selected={selectedGroup === null}
+              className={`flex w-full items-center rounded-xl px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${selectedGroup === null ? "bg-primary/10 font-semibold text-primary" : ""}`}
+              onClick={() => { setSelectedGroup(null); setOpen(false); }}
+            >
+              All page groups
+              {selectedGroup === null && <Check className="ml-auto h-4 w-4" aria-hidden="true" />}
+            </button>
+            {groups.length > 0 && <div className="my-1 border-t border-border/60" aria-hidden="true" />}
+            {groups.map((group) => {
+              const isSelected = selectedGroup?.id === group.id;
+              return (
+                <button
+                  key={group.id}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  className={`flex w-full items-center rounded-xl px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${isSelected ? "bg-primary/10 font-semibold text-primary" : ""}`}
+                  onClick={() => { setSelectedGroup(group); setOpen(false); }}
+                >
+                  <span className="truncate">{group.name}</span>
+                  {isSelected && <Check className="ml-auto h-4 w-4 shrink-0" aria-hidden="true" />}
+                </button>
+              );
+            })}
+            {groups.length === 0 && (
+              <p className="px-2.5 py-3 text-xs text-muted-foreground">
+                No page groups have been configured for this site.
+              </p>
+            )}
+          </>
+        )}
       </PopoverContent>
     </Popover>
   );
@@ -1224,6 +1326,8 @@ function getShellBreadcrumb(location: string): {
   if (location === "/documentation") return { parentHref: "/welcome", parentLabel: "Home", current: "Documentation" };
   if (location === "/activity") return { parentHref: "/welcome", parentLabel: "Home", current: "Activity" };
   if (location === "/tickets") return { parentHref: "/welcome", parentLabel: "Home", current: "Tickets" };
+  if (location === "/feature-request") return { parentHref: "/tickets", parentLabel: "Support", current: "Feature request" };
+  if (location === "/admin/inbox") return { parentHref: "/admin/dashboard", parentLabel: "Admin", current: "Inbox" };
 
   if (location === "/crawler") return { parentHref: "/welcome", parentLabel: "Home", current: "Crawler" };
   if (location === "/crawler/new") return { parentHref: "/crawler", parentLabel: "Crawler", current: "New crawl" };
@@ -1668,6 +1772,11 @@ function MainMenuContent({
     : urlSiteId
       ? `/sites/${urlSiteId}`
       : "/crawler/sites";
+  const pageGroupsHref = activeSite?.id
+    ? `/sites/${activeSite.id}/page-groups`
+    : urlSiteId
+      ? `/sites/${urlSiteId}/page-groups`
+      : "/crawler/sites";
   const [activeFlyout, setActiveFlyout] = useState<string | null>(null);
   const activeFlyoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mainItems: MainMenuItem[] = [
@@ -1682,6 +1791,9 @@ function MainMenuContent({
           items: [
             { label: "Overview", href: accessibilityOverviewHref, icon: <LayoutDashboard className="h-4 w-4" /> },
             { label: "Activity", href: "/activity", icon: <Activity className="h-4 w-4" /> },
+              ...(user?.permissions?.canViewSiteAccessibilityDashboard && (activeSite?.id || urlSiteId)
+                ? [{ label: "Page Groups", href: pageGroupsHref, icon: <Layers className="h-4 w-4" /> }]
+                : []),
           ],
         },
         {
@@ -1744,6 +1856,7 @@ function MainMenuContent({
             flyoutSections: [
               {
                 items: [
+                  { label: "Inbox", href: "/admin/inbox", icon: <Inbox className="h-4 w-4" /> },
                   { label: "Dashboard", href: "/admin/dashboard", icon: <LayoutDashboard className="h-4 w-4" /> },
                   { label: "Users", href: "/admin/users", icon: <Users className="h-4 w-4" /> },
                   { label: "Groups", href: "/admin/groups", icon: <UsersRound className="h-4 w-4" /> },
@@ -1847,6 +1960,13 @@ function MainMenuContent({
         description: "Ask for help from support",
         icon: <TicketCheck className="h-4 w-4" />,
         keywords: ["new support ticket", "new ticket", "support", "help"],
+      },
+      {
+        label: "Feature request",
+        href: "/feature-request",
+        description: "Suggest a new feature or improvement",
+        icon: <Lightbulb className="h-4 w-4" />,
+        keywords: ["feature request", "suggestion", "idea", "improve"],
       },
     ],
     flyoutSections: [
@@ -2057,13 +2177,6 @@ function AccessibilitySidebarContent({
       )}
       {showSiteNav && canViewSiteAccessibilityDashboard && (
         <>
-          <NavItem
-            href={sitePageGroupsHref}
-            icon={<Layers className="w-3.5 h-3.5 shrink-0" />}
-            label="Page Groups"
-            active={onSitePageGroups}
-            collapsed={collapsed}
-          />
           <NavGroup
             id="acc-issues"
             icon={<AlertCircle className="w-3.5 h-3.5 shrink-0" />}
@@ -2140,6 +2253,15 @@ function AccessibilitySidebarContent({
         active={location === "/activity"}
         collapsed={collapsed}
       />
+      {showSiteNav && canViewSiteAccessibilityDashboard && (
+        <NavItem
+          href={sitePageGroupsHref}
+          icon={<Layers className="w-3.5 h-3.5 shrink-0" />}
+          label="Page Groups"
+          active={onSitePageGroups}
+          collapsed={collapsed}
+        />
+      )}
       <NavGroup
         id="manual-scan"
         icon={<Plus className="w-3.5 h-3.5 shrink-0" />}
@@ -2306,6 +2428,15 @@ function AdminSidebarContent({
       />
       {adminUser && (
         <NavItem
+          href="/admin/inbox"
+          icon={<Inbox className="w-4 h-4 shrink-0" />}
+          label="Inbox"
+          active={location === "/admin/inbox"}
+          collapsed={collapsed}
+        />
+      )}
+      {adminUser && (
+        <NavItem
           href="/admin/dashboard"
           icon={<ShieldCheck className="w-4 h-4 shrink-0" />}
           label="Admin Dashboard"
@@ -2389,6 +2520,29 @@ function AdminSidebarContent({
   );
 }
 
+interface AppNotif {
+  id: number;
+  type: string;
+  title: string;
+  body: string | null;
+  link: string | null;
+  actorName: string | null;
+  createdAt: string;
+  isRead: boolean;
+}
+
+function notifTimeAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location, navigate] = useLocation();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -2399,6 +2553,41 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const adminUser = isAdmin(user);
   const superAdminUser = user?.role === "super_admin";
   const canManageSites = user?.permissions?.canManageSites ?? false;
+
+  // ── Notifications (admin-only) ────────────────────────────────────
+  const [notifs, setNotifs] = useState<AppNotif[]>([]);
+  const [notifLoading, setNotifLoading] = useState(false);
+
+  useEffect(() => {
+    if (!adminUser) return;
+    async function loadNotifs(quiet = false) {
+      if (!quiet) setNotifLoading(true);
+      try {
+        const res = await fetch(`${BASE}/api/notifications`, { credentials: "include" });
+        if (res.ok) setNotifs(await res.json());
+      } catch {}
+      if (!quiet) setNotifLoading(false);
+    }
+    loadNotifs();
+    const id = setInterval(() => loadNotifs(true), 30_000);
+    return () => clearInterval(id);
+  }, [adminUser]);
+
+  async function markOneRead(id: number) {
+    try {
+      await fetch(`${BASE}/api/notifications/${id}/read`, { method: "PUT", credentials: "include" });
+      setNotifs((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+    } catch {}
+  }
+
+  async function markAllRead() {
+    try {
+      await fetch(`${BASE}/api/notifications/read-all`, { method: "PUT", credentials: "include" });
+      setNotifs((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    } catch {}
+  }
+
+  const unreadNotifs = notifs.filter((n) => !n.isRead);
   const canManageProjects =
     user != null &&
     (user.permissions?.canCreateProject !== false ||
@@ -2458,10 +2647,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
     effectiveSiteId !== undefined
       ? `/sites/${effectiveSiteId}`
       : "/crawler/sites";
-  const sitePageGroupsHref =
-    effectiveSiteId !== undefined
-      ? `/sites/${effectiveSiteId}/page-groups`
-      : "/crawler/sites";
   const siteIssuesHref =
     effectiveSiteId !== undefined
       ? `/sites/${effectiveSiteId}/issues`
@@ -2488,7 +2673,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
     location.startsWith(`/sites/${effectiveSiteId}`);
   const onSiteDashboardExact =
     onSiteDashboard && location === siteDashboardHref;
-  const onSitePageGroups = onSiteDashboard && location === sitePageGroupsHref;
   const onSiteIssues = onSiteDashboard && location === siteIssuesHref;
   const onSitePotentialIssues =
     onSiteDashboard && location === sitePotentialIssuesHref;
@@ -2543,6 +2727,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
   >([]);
   const [tourStep, setTourStep] = useState<number | null>(null);
   const [tourRect, setTourRect] = useState<DOMRect | null>(null);
+  const tourPanelRef = useRef<HTMLDivElement>(null);
+  const tourPreviousFocusRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (urlSection !== null) setSidebarSection(urlSection);
   }, [urlSection]);
@@ -2556,6 +2742,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { label: "Scan History", href: "/scans" },
     { label: "Compare Scans", href: "/compare" },
     { label: "Crawler Scan History", href: "/crawler" },
+    { label: "Documentation", href: "/documentation" },
+    { label: "App Updates", href: "/app-updates" },
+    { label: "Support", href: "/tickets" },
     ...(user?.permissions?.canViewQualityAssurance
       ? [
           { label: "Quality Assurance", href: "/quality-assurance" },
@@ -2565,7 +2754,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
       : []),
     ...(adminUser
       ? [
-          { label: "Admin Dashboard", href: "/admin/dashboard" },
+          { label: "Admin Inbox", href: "/admin/inbox" },
+    { label: "Admin Dashboard", href: "/admin/dashboard" },
           { label: "Users", href: "/admin/users" },
           { label: "Groups", href: "/admin/groups" },
           { label: "Admin Settings", href: "/admin/settings" },
@@ -2584,15 +2774,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
         item.label.toLowerCase().includes(normalizedSidebarSearch),
       )
     : [];
-
   const closeWalkthrough = () => {
+    const previousFocus = tourPreviousFocusRef.current;
     setTourStep(null);
     setTourTargets([]);
     setTourRect(null);
+    tourPreviousFocusRef.current = null;
+    window.requestAnimationFrame(() => {
+      if (previousFocus?.isConnected) previousFocus.focus();
+    });
   };
 
   useEffect(() => {
     const startWalkthrough = () => {
+      tourPreviousFocusRef.current =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
       window.requestAnimationFrame(() => {
         const seen = new Set<string>();
         const targets = Array.from(
@@ -2659,6 +2857,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [tourStep]);
 
+  useEffect(() => {
+    if (tourStep === null || !tourRect) return;
+    window.requestAnimationFrame(() => tourPanelRef.current?.focus());
+  }, [tourStep, tourRect]);
+
   const activeTourTarget = tourStep === null ? undefined : tourTargets[tourStep];
   const tourPanelStyle =
     tourRect && activeTourTarget
@@ -2681,9 +2884,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <TooltipProvider delayDuration={300}>
       <div className="app-shell min-h-screen bg-background">
-        <header className="sticky top-0 z-50 border-b border-border/70 bg-background/95 shadow-[0_1px_10px_rgba(15,23,42,0.04)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
-          <div className="min-h-14 px-3 py-1.5 md:px-5 flex items-center justify-between gap-2 overflow-visible">
-            <div className="flex min-w-0 max-w-[55%] shrink items-center gap-2 overflow-visible">
+        <header className="ampera-header sticky top-0 z-50 border-b border-border/70 bg-background/90 shadow-[0_8px_32px_rgba(76,57,133,0.06)] backdrop-blur-2xl supports-[backdrop-filter]:bg-background/75">
+          <div className="ampera-header-inner flex min-h-14 items-center justify-between gap-2 overflow-visible px-3 py-1.5 md:px-5">
+            <div className="ampera-header-brand flex min-w-0 max-w-[55%] shrink items-center gap-2 overflow-visible">
               <Link href="/scans" className="flex min-w-0 items-center">
                 <AppLogo />
               </Link>
@@ -2697,23 +2900,22 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 v{APP_UPDATES_VERSION}
               </Badge>
             </div>
-            <div className="min-w-0 flex-1 flex items-center justify-center px-1 sm:px-2">
+            <div className="ampera-header-site flex min-w-0 flex-1 items-center justify-center gap-2 px-1 sm:px-2">
               <SiteSelector />
+              <PageGroupSelector />
             </div>
-            <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
+            <div className="ampera-header-actions flex shrink-0 items-center gap-0.5 sm:gap-1">
               <HeaderThemeSwitcher />
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link href="/tickets">
+                  <Link href="/tickets" className="hidden xl:inline-flex">
                     <Button
                       data-tour="header-support"
                       data-tour-title="Support"
                       data-tour-description="Open support tickets and request help from your team."
-                      variant={
-                        location.startsWith("/tickets") ? "secondary" : "ghost"
-                      }
+                      variant="ghost"
                       size="icon"
-                      className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                      className={`h-8 w-8 rounded-lg hover:bg-muted ${location.startsWith("/tickets") ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
                       aria-label="Support"
                     >
                       <TicketCheck className="w-4 h-4" />
@@ -2726,18 +2928,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link href="/app-updates">
+                  <Link href="/app-updates" className="hidden xl:inline-flex">
                     <Button
                       data-testid="button-app-updates"
                       data-tour="header-app-updates"
                       data-tour-title="App Updates"
                       data-tour-description={`See what is new in version ${APP_UPDATES_VERSION}.`}
-                      variant={location === "/app-updates" ? "secondary" : "ghost"}
+                      variant="ghost"
                       size="icon"
-                      className="relative h-8 w-8 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                      className={`relative h-8 w-8 rounded-lg hover:bg-muted ${location === "/app-updates" ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
                       aria-label="App Updates"
                     >
-                      <Megaphone className="h-4 w-4 text-primary" />
+                      <Megaphone className="h-4 w-4" />
                       <span
                         aria-label="New updates"
                         className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-fuchsia-500 shadow-[0_0_0_2px_hsl(var(--background)),0_0_10px_rgba(217,70,239,0.9)]"
@@ -2751,38 +2953,37 @@ export function Layout({ children }: { children: React.ReactNode }) {
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link href="/app-walkthrough">
-                    <Button
-                      data-testid="button-app-walkthrough"
-                      data-tour="header-app-walkthrough"
-                      data-tour-title="App Walkthrough"
-                      data-tour-description="Start a guided tour of the platform navigation."
-                      variant={location === "/app-walkthrough" ? "secondary" : "ghost"}
-                      size="icon"
-                      className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
-                      aria-label="App Walkthrough"
-                    >
-                      <Map className="h-4 w-4" />
-                    </Button>
-                  </Link>
+                  <Button
+                    data-testid="button-app-walkthrough"
+                    data-tour="header-app-walkthrough"
+                    data-tour-title="App Walkthrough"
+                    data-tour-description="Start a guided tour of the platform navigation."
+                    variant="ghost"
+                    size="icon"
+                    className="hidden h-8 w-8 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground xl:inline-flex"
+                    aria-label="Start App Walkthrough"
+                    onClick={() =>
+                      window.dispatchEvent(new Event(APP_WALKTHROUGH_EVENT))
+                    }
+                  >
+                    <Map className="h-4 w-4" />
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="bg-slate-950 text-white shadow-lg">
-                  App walkthrough
+                  Start app walkthrough
                 </TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link href="/documentation">
+                  <Link href="/documentation" className="hidden xl:inline-flex">
                     <Button
                       data-testid="button-documentation"
                       data-tour="header-documentation"
                       data-tour-title="Documentation"
                       data-tour-description="Read scanning guidance, rule descriptions, and WCAG references."
-                      variant={
-                        location === "/documentation" ? "secondary" : "ghost"
-                      }
+                      variant="ghost"
                       size="icon"
-                      className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                      className={`h-8 w-8 rounded-lg hover:bg-muted ${location === "/documentation" ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
                       aria-label="Documentation"
                     >
                       <BookOpen className="w-4 h-4" />
@@ -2793,6 +2994,131 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   Documentation
                 </TooltipContent>
               </Tooltip>
+              <DropdownMenu modal={false}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        data-testid="button-notifications"
+                        variant="ghost"
+                        size="icon"
+                        className="relative h-8 w-8 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                        aria-label={unreadNotifs.length > 0 ? `Notifications — ${unreadNotifs.length} unread` : "Notifications"}
+                      >
+                        <Bell className="h-4 w-4" />
+                        {unreadNotifs.length > 0 && (
+                          <span className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-primary-foreground">
+                            {unreadNotifs.length > 99 ? "99+" : unreadNotifs.length}
+                          </span>
+                        )}
+                      </Button>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="bg-slate-950 text-white shadow-lg">
+                    Notifications
+                  </TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent
+                  align="end"
+                  sideOffset={8}
+                  className="w-[340px] rounded-xl border-border/80 bg-popover/95 p-0 shadow-xl backdrop-blur"
+                >
+                  {/* Header */}
+                  <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/50">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Notifications</span>
+                      {unreadNotifs.length > 0 && (
+                        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-primary-foreground">
+                          {unreadNotifs.length}
+                        </span>
+                      )}
+                    </div>
+                    {unreadNotifs.length > 0 && (
+                      <button
+                        onClick={(e) => { e.preventDefault(); markAllRead(); }}
+                        className="flex items-center gap-1 text-[11px] text-primary hover:underline underline-offset-2"
+                        aria-label="Mark all notifications as read"
+                      >
+                        <CheckCheck className="h-3 w-3" /> Mark all read
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Notification list */}
+                  <div className="max-h-[360px] overflow-y-auto divide-y divide-border/40">
+                    {notifLoading && notifs.length === 0 ? (
+                      <div className="flex justify-center py-8">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : notifs.length === 0 ? (
+                      <div className="px-3 py-8 text-center">
+                        <p className="text-sm font-semibold">No new notifications</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">You&apos;re all caught up.</p>
+                      </div>
+                    ) : (
+                      notifs.slice(0, 8).map((n) => {
+                        const icon =
+                          n.type === "feature_request" ? <Lightbulb className="h-3.5 w-3.5 text-violet-500" /> :
+                          n.type === "ticket"          ? <TicketCheck className="h-3.5 w-3.5 text-sky-500" /> :
+                          n.type === "scan"            ? <ScanSearch className="h-3.5 w-3.5 text-emerald-500" /> :
+                          n.type === "false_positive"  ? <Flag className="h-3.5 w-3.5 text-amber-500" /> :
+                                                         <Bell className="h-3.5 w-3.5 text-muted-foreground" />;
+                        return (
+                          <DropdownMenuItem
+                            key={n.id}
+                            asChild
+                            className="cursor-pointer rounded-none px-3 py-2.5 hover:bg-muted/60 focus:bg-muted/60"
+                            onClick={() => { if (!n.isRead) markOneRead(n.id); }}
+                          >
+                            <Link href={n.link ?? "/admin/inbox"}>
+                              <div className="flex items-start gap-2.5 w-full">
+                                <span className="mt-0.5 shrink-0">{icon}</span>
+                                <div className="min-w-0 flex-1">
+                                  <p className={`text-[13px] leading-tight ${n.isRead ? "font-normal text-foreground/75" : "font-semibold text-foreground"}`}>
+                                    {n.title}
+                                  </p>
+                                  {n.body && (
+                                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{n.body}</p>
+                                  )}
+                                  <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
+                                    {n.actorName && <span>{n.actorName}</span>}
+                                    {n.actorName && <span>·</span>}
+                                    <span>{notifTimeAgo(n.createdAt)}</span>
+                                  </div>
+                                </div>
+                                {!n.isRead && (
+                                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-label="Unread" />
+                                )}
+                              </div>
+                            </Link>
+                          </DropdownMenuItem>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="border-t border-border/50 p-1.5">
+                    {adminUser && (
+                      <DropdownMenuItem asChild className="rounded-lg px-3 py-2">
+                        <Link href="/admin/inbox">
+                          <Inbox className="h-4 w-4 shrink-0 text-primary" />
+                          <span className="text-[13px] font-medium">Open Admin Inbox</span>
+                        </Link>
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem asChild className="items-start rounded-lg px-3 py-2">
+                      <Link href="/app-updates">
+                        <Megaphone className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        <span>
+                          <span className="block text-[13px] font-medium">View product updates</span>
+                          <span className="block text-[11px] text-muted-foreground">v{APP_UPDATES_VERSION} release notes</span>
+                        </span>
+                      </Link>
+                    </DropdownMenuItem>
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
               {/* User menu */}
               <DropdownMenu modal={false}>
                 <DropdownMenuTrigger asChild>
@@ -2821,7 +3147,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                         className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-background bg-emerald-500"
                       />
                     </span>
-                    <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+                    <HeaderChevron />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
@@ -2857,6 +3183,43 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator className="my-1.5" />
+                  <DropdownMenuItem
+                    className="h-10 rounded-lg px-3 text-[14px] hover:bg-muted/70 hover:text-foreground focus:bg-muted/70 focus:text-foreground xl:hidden"
+                    onSelect={() =>
+                      window.dispatchEvent(new Event(APP_WALKTHROUGH_EVENT))
+                    }
+                  >
+                    <Map className="h-4 w-4 text-muted-foreground" />
+                    Start app walkthrough
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    asChild
+                    className="h-10 rounded-lg px-3 text-[14px] hover:bg-muted/70 hover:text-foreground focus:bg-muted/70 focus:text-foreground"
+                  >
+                    <Link href="/feature-request">
+                      <Lightbulb className="h-4 w-4 text-muted-foreground" />
+                      Feature request
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    asChild
+                    className="h-10 rounded-lg px-3 text-[14px] hover:bg-muted/70 hover:text-foreground focus:bg-muted/70 focus:text-foreground xl:hidden"
+                  >
+                    <Link href="/tickets">
+                      <TicketCheck className="h-4 w-4 text-muted-foreground" />
+                      Support
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    asChild
+                    className="h-10 rounded-lg px-3 text-[14px] hover:bg-muted/70 hover:text-foreground focus:bg-muted/70 focus:text-foreground xl:hidden"
+                  >
+                    <Link href="/documentation">
+                      <BookOpen className="h-4 w-4 text-muted-foreground" />
+                      Documentation
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="my-1.5 xl:hidden" />
                   <DropdownMenuItem
                     asChild
                     className="h-10 rounded-lg px-3 text-[14px] hover:bg-muted/70 hover:text-foreground focus:bg-muted/70 focus:text-foreground"
@@ -2894,7 +3257,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-         <div className="flex h-[calc(100dvh-3.5rem)] min-h-0">
+          <div className="flex h-[calc(100dvh-3.5rem)] min-h-0">
           {/* Sidebar */}
            <aside
              className={`sidebar-shell hidden md:flex ${
@@ -3076,7 +3439,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 </div>
               )}
             </div>
-          </aside>
+           </aside>
 
           <a
             href="#main-content"
@@ -3087,7 +3450,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <main
             id="main-content"
             tabIndex={-1}
-            className={`flex-1 min-w-0 ${
+              className={`flex-1 min-w-0 ${
               location === "/welcome"
                 ? "flex flex-col overflow-hidden"
                 : "overflow-auto app-scrollbar"
@@ -3098,7 +3461,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 location === "/welcome" ? "h-full min-h-0" : ""
               }`}
             >
-              {location !== "/welcome" && (() => {
+              {location !== "/welcome" &&
+                !/^\/scans\/\d+$/.test(location) &&
+                ![
+                  "/quality-assurance",
+                  "/quality-assurance/links/broken",
+                  "/quality-assurance/links/overview",
+                  "/quality-assurance/inventory/pages",
+                  "/quality-assurance/spelling/word-inventory",
+                ].includes(location) &&
+                (() => {
                 const breadcrumb = getShellBreadcrumb(location);
                 return breadcrumb ? (
                   <div className="mb-6">
@@ -3128,7 +3500,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     Back to Home
                   </Link>
                 );
-              })()}
+                })()}
               {children}
             </div>
           </main>
@@ -3140,6 +3512,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Settings</DialogTitle>
+              <DialogDescription className="sr-only">
+                Manage appearance, scan defaults, proxy configuration, and workspace tools.
+              </DialogDescription>
             </DialogHeader>
             <div className="mt-2">
               <SettingsPage />
@@ -3178,12 +3553,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {tourStep !== null && activeTourTarget && tourRect && (
           <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Application walkthrough"
-            className="fixed inset-0 z-[100] pointer-events-none"
+            className="pointer-events-auto fixed inset-0 z-[100]"
           >
-            <div className="absolute inset-0 bg-slate-950/35" />
+            <div
+              aria-hidden="true"
+              className="absolute inset-0 bg-slate-950/35"
+              onClick={closeWalkthrough}
+            />
             <div
               aria-hidden="true"
               className="fixed rounded-lg border-2 border-primary bg-transparent shadow-[0_0_0_9999px_rgba(2,6,23,0.48),0_0_24px_rgba(99,102,241,0.7)] transition-all duration-200"
@@ -3195,15 +3571,46 @@ export function Layout({ children }: { children: React.ReactNode }) {
               }}
             />
             <div
+              ref={tourPanelRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="app-walkthrough-title"
+              aria-describedby="app-walkthrough-description"
+              tabIndex={-1}
               className="pointer-events-auto fixed w-[min(320px,calc(100vw-32px))] rounded-xl border bg-background p-4 shadow-2xl transition-all duration-200"
               style={tourPanelStyle}
+              onKeyDown={(event) => {
+                if (event.key !== "Tab") return;
+                const focusable = Array.from(
+                  event.currentTarget.querySelectorAll<HTMLElement>(
+                    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+                  ),
+                );
+                if (focusable.length === 0) {
+                  event.preventDefault();
+                  return;
+                }
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (
+                  event.shiftKey &&
+                  (document.activeElement === first ||
+                    document.activeElement === event.currentTarget)
+                ) {
+                  event.preventDefault();
+                  last.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                  event.preventDefault();
+                  first.focus();
+                }
+              }}
             >
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
                     App walkthrough
                   </p>
-                  <h2 className="mt-1 text-sm font-semibold">
+                  <h2 id="app-walkthrough-title" className="mt-1 text-sm font-semibold">
                     {activeTourTarget.title}
                   </h2>
                 </div>
@@ -3218,7 +3625,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              <p className="text-xs leading-5 text-muted-foreground">
+              <p id="app-walkthrough-description" className="text-xs leading-5 text-muted-foreground">
                 {activeTourTarget.description}
               </p>
               <div className="mt-4 flex items-center justify-between gap-3">

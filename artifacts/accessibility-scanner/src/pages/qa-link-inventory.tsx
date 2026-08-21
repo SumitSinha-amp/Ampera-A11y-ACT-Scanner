@@ -15,7 +15,7 @@ import { Download, ExternalLink, Link2, Loader2 } from "lucide-react";
 import {
   useQASites,
   useQASelectedSite,
-  QASiteSelector,
+  useQAPageGroup,
   QA_BASE,
   QAListToolbar,
   QAPagination,
@@ -108,9 +108,10 @@ function LinkInventoryContent({
   const [search, setSearch] = useState("");
   const [limit, setLimit] = useState(50);
   const [type, setType] = useState("all");
+  const pageGroupId = useQAPageGroup();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["qa-link-inventory", scanId, category, page, limit, search, type],
+    queryKey: ["qa-link-inventory", scanId, category, page, limit, search, type, pageGroupId],
     queryFn: async () => {
       const params = new URLSearchParams({
         category,
@@ -119,6 +120,7 @@ function LinkInventoryContent({
       });
       if (search) params.set("search", search);
       if (category === "all" && type !== "all") params.set("type", type);
+      if (pageGroupId !== null) params.set("page_group", String(pageGroupId));
       const r = await fetch(
         `${QA_BASE}/api/scans/${scanId}/qa/link-inventory?${params}`,
         { credentials: "include" }
@@ -266,7 +268,7 @@ function LinkInventoryContent({
 
 function QALinkInventoryPage({ category }: { category: Category }) {
   const { data: sites = [], isLoading } = useQASites();
-  const [selectedSiteId, selected, setSite] = useQASelectedSite(sites);
+  const [, selected] = useQASelectedSite(sites);
   const meta = CATEGORY_META[category];
 
   return (
@@ -274,16 +276,6 @@ function QALinkInventoryPage({ category }: { category: Category }) {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{meta.title}</h1>
         <p className="text-muted-foreground text-sm mt-1">{meta.description}</p>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground shrink-0">Site:</span>
-        <QASiteSelector
-          value={selectedSiteId}
-          onChange={setSite}
-          sites={sites}
-          loading={isLoading}
-        />
       </div>
 
       {isLoading ? (

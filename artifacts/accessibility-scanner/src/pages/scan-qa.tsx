@@ -479,7 +479,15 @@ export function RedirectsTab({ scanId }: { scanId: number }) {
   );
 }
 
-export function PagesTab({ scanId }: { scanId: number }) {
+export function PagesTab({
+  scanId,
+  compact = false,
+  siteName,
+}: {
+  scanId: number;
+  compact?: boolean;
+  siteName?: string;
+}) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [limit, setLimit] = useState(50);
@@ -510,68 +518,88 @@ export function PagesTab({ scanId }: { scanId: number }) {
     "Last Modified": r.lastModified ?? "",
   }));
 
-  return (
-    <div className="space-y-3">
-      <QAListToolbar
-        search={search}
-        onSearch={(value) => { setSearch(value); setPage(1); }}
-        searchPlaceholder="Search URL or title…"
-        limit={limit}
-        onLimitChange={(value) => { setLimit(value); setPage(1); }}
-        onExport={() => exportCSV(exportData, `pages-scan-${scanId}.csv`)}
-      />
+  const toolbar = (
+    <QAListToolbar
+      search={search}
+      onSearch={(value) => { setSearch(value); setPage(1); }}
+      searchPlaceholder="Search URL or title…"
+      limit={limit}
+      onLimitChange={(value) => { setLimit(value); setPage(1); }}
+      onExport={() => exportCSV(exportData, `pages-scan-${scanId}.csv`)}
+      compact={compact}
+    />
+  );
 
-      {isLoading ? (
-        <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
-      ) : isError ? (
-        <QAQueryError error={error} onRetry={() => refetch()} />
-      ) : !rows.length ? (
-        <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
-          <FileText className="w-10 h-10" />
-          <p>{search ? "No pages match your search." : "No page inventory yet. Run a scan first."}</p>
-        </div>
-      ) : (
-        <>
-          <p className="text-sm text-muted-foreground">{total.toLocaleString()} page{total !== 1 ? "s" : ""}</p>
-            <div className={QA_TABLE_SHELL_CLASS}>
-            <Table className={QA_TABLE_CLASS}>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>URL / Title</TableHead>
-                  <TableHead className="w-32">H1</TableHead>
-                  <TableHead className="w-20 text-right">Words</TableHead>
-                  <TableHead className="w-20 text-right">Inlinks</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell>
-                      <a href={row.url} target="_blank" rel="noopener noreferrer"
-                        className={QA_URL_CLASS}>
-                        {truncate(row.url, 80)}<ExternalLink className="w-3 h-3 flex-shrink-0" />
-                      </a>
-                      {row.title && <p className="text-xs text-muted-foreground mt-0.5">{truncate(row.title, 80)}</p>}
-                      {row.metaDescription && <p className="text-xs text-muted-foreground/70 mt-0.5">{truncate(row.metaDescription, 100)}</p>}
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-xs text-muted-foreground">{row.h1 ? truncate(row.h1, 40) : <span className="text-muted-foreground/70">—</span>}</span>
-                    </TableCell>
-                    <TableCell className="text-right text-sm text-muted-foreground">
-                      {row.wordCount?.toLocaleString() ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-right text-sm text-muted-foreground">
-                      {row.inlinkCount}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          {pages > 1 && <QAPagination page={page} total={total} limit={limit} onPageChange={setPage} />}
-        </>
-      )}
+  const content = isLoading ? (
+    <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+  ) : isError ? (
+    <QAQueryError error={error} onRetry={() => refetch()} />
+  ) : !rows.length ? (
+    <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
+      <FileText className="w-10 h-10" />
+      <p>{search ? "No pages match your search." : "No page inventory yet. Run a scan first."}</p>
     </div>
+  ) : (
+    <>
+      {!compact && <p className="text-sm text-muted-foreground">{total.toLocaleString()} page{total !== 1 ? "s" : ""}</p>}
+      <div className={compact ? "overflow-x-auto" : QA_TABLE_SHELL_CLASS}>
+        <Table className={`${QA_TABLE_CLASS} ${compact ? "text-[12px]" : ""}`}>
+          <TableHeader>
+            <TableRow>
+              <TableHead className={compact ? "h-9 bg-[#f5f6fb] px-3 text-[10px] font-bold uppercase tracking-[.04em] text-[#9eadca]" : ""}>URL / Title</TableHead>
+              <TableHead className={compact ? "h-9 bg-[#f5f6fb] px-3 text-[10px] font-bold uppercase tracking-[.04em] text-[#9eadca]" : ""}>H1</TableHead>
+              <TableHead className={`w-20 text-right ${compact ? "h-9 bg-[#f5f6fb] px-3 text-[10px] font-bold uppercase tracking-[.04em] text-[#9eadca]" : ""}`}>Words</TableHead>
+              <TableHead className={`w-20 text-right ${compact ? "h-9 bg-[#f5f6fb] px-3 text-[10px] font-bold uppercase tracking-[.04em] text-[#9eadca]" : ""}`}>Inlinks</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={row.id}>
+                <TableCell className={compact ? "px-3 py-2.5" : ""}>
+                  <a href={row.url} target="_blank" rel="noopener noreferrer"
+                    className={QA_URL_CLASS}>
+                    {truncate(row.url, 80)}<ExternalLink className="w-3 h-3 flex-shrink-0" />
+                  </a>
+                  {row.title && <p className="mt-0.5 text-xs text-muted-foreground">{truncate(row.title, 80)}</p>}
+                  {row.metaDescription && <p className="mt-0.5 text-xs text-muted-foreground/70">{truncate(row.metaDescription, 100)}</p>}
+                </TableCell>
+                <TableCell className={compact ? "px-3 py-2.5" : ""}>
+                  <span className="text-xs text-muted-foreground">{row.h1 ? truncate(row.h1, 40) : <span className="text-muted-foreground/70">—</span>}</span>
+                </TableCell>
+                <TableCell className={`text-right text-sm text-muted-foreground ${compact ? "px-3 py-2.5" : ""}`}>
+                  {row.wordCount?.toLocaleString() ?? "—"}
+                </TableCell>
+                <TableCell className={`text-right text-sm text-muted-foreground ${compact ? "px-3 py-2.5" : ""}`}>
+                  {row.inlinkCount}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      {pages > 1 && <QAPagination page={page} total={total} limit={limit} onPageChange={setPage} />}
+    </>
+  );
+
+  if (!compact) {
+    return <div className="space-y-3">{toolbar}{content}</div>;
+  }
+
+  return (
+    <section className="rounded-2xl border border-white/90 bg-white/82 p-5 shadow-[0_4px_22px_rgba(0,0,0,.07)] backdrop-blur-xl">
+      <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+        <div>
+          <h2 className="text-sm font-bold text-[#172b4d]">Page Inventory</h2>
+          <p className="mt-0.5 text-xs text-[#7b8aaa]">
+            {isLoading
+              ? "Loading discovered pages…"
+              : `${total.toLocaleString()} ${total === 1 ? "page" : "pages"} discovered and indexed${siteName ? ` for ${siteName}` : ""}.`}
+          </p>
+        </div>
+        {toolbar}
+      </div>
+      <div className="space-y-3">{content}</div>
+    </section>
   );
 }
 

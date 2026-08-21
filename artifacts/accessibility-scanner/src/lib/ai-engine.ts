@@ -1,7 +1,7 @@
 /**
  * Rule-Based Accessibility Fix Engine
  * Runs entirely in the browser — no API calls, zero latency.
- * For each SIA rule violation, provides context-aware "why" + "how to fix" guidance.
+ * For each ACT rule violation, provides context-aware "why" + "how to fix" guidance.
  */
 
 export interface FixSuggestion {
@@ -44,7 +44,7 @@ function codeBlock(code: string): string {
   return code.trim();
 }
 
-type Handler = (p: { description: string; el: ParsedEl; selector: string }) => FixSuggestion;
+type Handler = (p: { ruleId: string; description: string; el: ParsedEl; selector: string }) => FixSuggestion;
 
 const HIGH: FixSuggestion["confidence"] = "high";
 const MED: FixSuggestion["confidence"] = "medium";
@@ -56,7 +56,7 @@ const handlers: Record<string, Handler> = {
 
   // ── Images ───────────────────────────────────────────────────────────────────
 
-  "SIA-R5": ({ el }) => {
+  "ACT-R5": ({ el }) => {
     const src = attr(el, "src") || attr(el, "data-src") || "image.png";
     const srcBase = src.split("/").pop()?.split("?")[0] ?? "image";
     const isDecorative = el.tag === "img" && !attr(el, "role") && !attr(el, "alt");
@@ -75,7 +75,7 @@ const handlers: Record<string, Handler> = {
     };
   },
 
-  "SIA-R6": ({ el }) => {
+  "ACT-R6": ({ el }) => {
     const currentAlt = attr(el, "alt");
     const tag = el.tag;
     const isInsideLink = el.html.includes("<a ");
@@ -92,7 +92,7 @@ const handlers: Record<string, Handler> = {
 
   // ── Links ─────────────────────────────────────────────────────────────────────
 
-  "SIA-R14": ({ el, description }) => {
+  "ACT-R14": ({ el, description }) => {
     const text = el.text || description;
     const href = attr(el, "href") || "#";
     return {
@@ -109,7 +109,7 @@ const handlers: Record<string, Handler> = {
     };
   },
 
-  "SIA-R15": ({ el }) => {
+  "ACT-R15": ({ el }) => {
     const text = el.text || attr(el, "aria-label") || "link";
     const href = attr(el, "href") || "#";
     return {
@@ -128,7 +128,7 @@ const handlers: Record<string, Handler> = {
     };
   },
 
-  "SIA-R62": ({ el }) => {
+  "ACT-R62": ({ el }) => {
     const text = el.text || "link";
     return {
       why: `The link text "${short(text, 50)}" is ambiguous without surrounding context. Screen reader users often navigate via a links list where surrounding context is stripped away.`,
@@ -148,7 +148,7 @@ const handlers: Record<string, Handler> = {
 
   // ── Forms ─────────────────────────────────────────────────────────────────────
 
-  "SIA-R13": ({ el }) => {
+  "ACT-R13": ({ el }) => {
     const inputType = attr(el, "type") || "text";
     const inputId = attr(el, "id") || "field-name";
     const placeholder = attr(el, "placeholder");
@@ -166,7 +166,7 @@ const handlers: Record<string, Handler> = {
     };
   },
 
-  "SIA-R46": ({ el }) => {
+  "ACT-R46": ({ el }) => {
     const id = attr(el, "id") || "select-id";
     return {
       why: `This <code>&lt;select&gt;</code> dropdown has no associated label. Screen readers will announce it as "combo box" with no indication of what the user is choosing.`,
@@ -181,7 +181,7 @@ const handlers: Record<string, Handler> = {
     };
   },
 
-  "SIA-R50": ({ el }) => {
+  "ACT-R50": ({ el }) => {
     return {
       why: `This form error is conveyed only through color or visual styling. Users who are colorblind or using a screen reader cannot perceive the error state.`,
       howToFix: `Identify the specific field in error with text, not just color. Use <code>aria-describedby</code> to associate the error message with the input, and <code>aria-invalid="true"</code> to signal the error state.`,
@@ -200,7 +200,7 @@ const handlers: Record<string, Handler> = {
     };
   },
 
-  "SIA-R51": ({ description }) => {
+  "ACT-R51": ({ description }) => {
     return {
       why: `Status messages (success confirmations, counts, loading states) are injected dynamically. Screen readers only announce content in focus or in ARIA live regions — this message "${short(description, 60)}" is likely missed.`,
       howToFix: `Wrap the status message in an element with <code>role="status"</code> (polite) or <code>role="alert"</code> (assertive) so screen readers announce it automatically.`,
@@ -218,7 +218,7 @@ const handlers: Record<string, Handler> = {
     };
   },
 
-  "SIA-R55": ({ el }) => {
+  "ACT-R55": ({ el }) => {
     const inputType = attr(el, "type") || "text";
     const name = attr(el, "name") || attr(el, "autocomplete") || "";
     return {
@@ -236,7 +236,7 @@ const handlers: Record<string, Handler> = {
     };
   },
 
-  "SIA-R74": ({ el }) => {
+  "ACT-R74": ({ el }) => {
     return {
       why: `When a form field has an error, the error message must suggest how to correct it (not just that an error occurred). Users with cognitive or visual disabilities rely on specific guidance to understand what's wrong and how to fix it.`,
       howToFix: `The error message should include: (1) what was wrong, (2) an example of the correct format.`,
@@ -254,7 +254,7 @@ const handlers: Record<string, Handler> = {
 
   // ── Headings ──────────────────────────────────────────────────────────────────
 
-  "SIA-R19": ({ el }) => {
+  "ACT-R19": ({ el }) => {
     const tag = el.tag || "h2";
     return {
       why: `This <code>&lt;${tag}&gt;</code> heading is empty. Screen reader users navigate pages by headings — an empty heading creates a confusing navigation landmark with no label.`,
@@ -276,7 +276,7 @@ const handlers: Record<string, Handler> = {
     };
   },
 
-  "SIA-R64": ({ description }) => {
+  "ACT-R64": ({ description }) => {
     const match = description.match(/h(\d).*h(\d)/i);
     const from = match?.[1] ?? "1";
     const to = match?.[2] ?? "3";
@@ -301,7 +301,7 @@ const handlers: Record<string, Handler> = {
 
   // ── Page Structure ────────────────────────────────────────────────────────────
 
-  "SIA-R20": ({ description }) => {
+  "ACT-R20": ({ description }) => {
     const hasTitle = description.toLowerCase().includes("empty") || description.toLowerCase().includes("missing");
     return {
       why: `${hasTitle ? "The page <code>&lt;title&gt;</code> is empty or missing." : "The page title does not adequately describe the page."} Screen reader users hear the title first when a page loads — it's their primary way of confirming they're on the right page.`,
@@ -319,7 +319,7 @@ const handlers: Record<string, Handler> = {
     };
   },
 
-  "SIA-R35": ({ el }) => {
+  "ACT-R35": ({ el }) => {
     const tag = el.tag || "div";
     return {
       why: `This content (<code>&lt;${tag}&gt;</code>) is not inside any landmark region (header, main, nav, footer, aside, section with label). Screen reader users navigate by landmarks to jump directly to sections — orphaned content is inaccessible to landmark navigation.`,
@@ -343,7 +343,7 @@ const handlers: Record<string, Handler> = {
     };
   },
 
-  "SIA-R36": ({ el }) => {
+  "ACT-R36": ({ el }) => {
     return {
       why: `The page is missing a <code>lang</code> attribute on the <code>&lt;html&gt;</code> element (or the language is incorrect). Screen readers use this to select the correct language engine for pronunciation — without it, content may be read with the wrong accent or mispronounced entirely.`,
       howToFix: `Add the correct BCP 47 language tag to the <code>&lt;html&gt;</code> element.`,
@@ -368,7 +368,7 @@ const handlers: Record<string, Handler> = {
 
   // ── ARIA / IDs ────────────────────────────────────────────────────────────────
 
-  "SIA-R3": ({ el, description }) => {
+  "ACT-R3": ({ el, description }) => {
     const id = attr(el, "id") || description.match(/id="([^"]+)"/)?.[1] || "element-id";
     return {
       why: `The ID "${short(id, 50)}" is duplicated. ARIA relationships (<code>aria-labelledby</code>, <code>aria-describedby</code>, <code>for</code>) target IDs — when an ID is duplicated, the browser uses only the first match, causing the wrong element to be referenced.`,
@@ -389,7 +389,7 @@ const handlers: Record<string, Handler> = {
     };
   },
 
-  "SIA-R58": ({ el }) => {
+  "ACT-R58": ({ el }) => {
     const id = attr(el, "id");
     return {
       why: `${id ? `The ID "${short(id, 40)}" appears more than once on this page.` : "Duplicate IDs were detected on this page."} The HTML spec requires IDs to be unique. Duplicate IDs cause unpredictable behavior with ARIA references and can break AT navigation.`,
@@ -406,7 +406,7 @@ const handlers: Record<string, Handler> = {
     };
   },
 
-  "SIA-R44": ({ el }) => {
+  "ACT-R44": ({ el }) => {
     const tag = el.tag;
     return {
       why: `This <code>&lt;${tag}&gt;</code> table element lacks proper header associations. Screen readers announce cell content together with its header — without <code>&lt;th&gt;</code> elements or <code>scope</code>/<code>aria-label</code>, data cells have no context.`,
@@ -435,7 +435,7 @@ const handlers: Record<string, Handler> = {
 
   // ── Colour / Contrast ─────────────────────────────────────────────────────────
 
-  "SIA-R30": ({ description }) => {
+  "ACT-R30": ({ description }) => {
     const ratioMatch = description.match(/(\d+\.?\d*):1/);
     const ratio = ratioMatch?.[1] ?? "3.5";
     return {
@@ -457,7 +457,7 @@ color: #595959;  /* 7.0:1 — pass AAA */
     };
   },
 
-  "SIA-R31": ({ description }) => {
+  "ACT-R31": ({ description }) => {
     const ratioMatch = description.match(/(\d+\.?\d*):1/);
     const ratio = ratioMatch?.[1] ?? "2.5";
     return {
@@ -476,34 +476,28 @@ h2 { color: #767676; font-size: 24px; }  /* 4.54:1 — pass */`),
     };
   },
 
-  "SIA-R32": ({ description }) => {
+  "ACT-R32": ({ description }) => {
     return {
-      why: `Color is used as the only visual means of conveying information, indicating an action, or distinguishing a visual element. Users who are colorblind or use monochrome displays cannot perceive this distinction.`,
-      howToFix: `Always pair color with a secondary indicator: text label, pattern, icon, border, underline, or shape. The information must be perceivable without relying on color alone.`,
-      codeExample: codeBlock(`<!-- Bad: only color indicates required field -->
-<label style="color: red">Email *</label>
-
-<!-- Good: color + text + icon -->
-<label>
-  Email
-  <span aria-hidden="true" style="color: red"> *</span>
-  <span class="sr-only"> (required)</span>
-</label>
-
-<!-- Bad: error shown only in red -->
-<input style="border-color: red" />
-
-<!-- Good: error with border AND text -->
-<input aria-invalid="true" style="border: 2px solid #d32f2f" />
-<p style="color: #d32f2f">⚠ This field is required</p>`),
-      confidence: HIGH,
+      why: `This visible video appears to have no audio and no declared audio-description track. People who cannot see the video need the visual information conveyed through an audio alternative.`,
+      howToFix: `Add an audio-description track, or provide an alternative version of the video whose audio describes the important visual information. Verify that the alternative covers meaningful actions, text, and scene changes.`,
+      codeExample: codeBlock(`<!-- Provide an audio-description track for a visual-only video -->
+<video controls>
+  <source src="/media/process-demo.mp4" type="video/mp4" />
+  <track
+    kind="descriptions"
+    src="/media/process-demo-descriptions.vtt"
+    srclang="en"
+    label="Audio descriptions"
+  />
+</video>`),
+      confidence: MED,
       needsExternalAI: false,
     };
   },
 
   // ── Text Spacing ──────────────────────────────────────────────────────────────
 
-  "SIA-R68": ({ el }) => {
+  "ACT-R68": ({ el }) => {
     const tag = el.tag || "div";
     return {
       why: `This element has a fixed height that clips its text content when user-defined spacing overrides are applied (per WCAG 1.4.12 Text Spacing). Users who override line-height or letter-spacing for readability will see truncated content.`,
@@ -531,7 +525,7 @@ h2 { color: #767676; font-size: 24px; }  /* 4.54:1 — pass */`),
     };
   },
 
-  "SIA-R91": ({ description }) => {
+  "ACT-R91": ({ description }) => {
     const match = description.match(/letter.spacing.*?([\d.]+)/i);
     const val = match?.[1] ?? "0.05em";
     return {
@@ -554,7 +548,7 @@ h2 { color: #767676; font-size: 24px; }  /* 4.54:1 — pass */`),
     };
   },
 
-  "SIA-R92": ({ description }) => {
+  "ACT-R92": ({ description }) => {
     return {
       why: `The <code>word-spacing</code> property is applied in a way that prevents user overrides. WCAG 1.4.12 requires that users can increase word-spacing to 0.16em without loss of content or functionality.`,
       howToFix: `Remove <code>!important</code> from <code>word-spacing</code> declarations and avoid inline styles.`,
@@ -572,7 +566,7 @@ h2 { color: #767676; font-size: 24px; }  /* 4.54:1 — pass */`),
     };
   },
 
-  "SIA-R93": ({ description }) => {
+  "ACT-R93": ({ description }) => {
     const match = description.match(/line.height.*?([\d.]+)/i);
     const val = match?.[1] ?? "1.2";
     return {
@@ -595,7 +589,7 @@ p { line-height: 150%; }      /* also fine */
 
   // ── Focus / Interaction ───────────────────────────────────────────────────────
 
-  "SIA-R28": ({ description }) => {
+  "ACT-R28": ({ description }) => {
     return {
       why: `The focus order does not match the visual layout, or a focus trap prevents keyboard users from moving past a component. Keyboard-only users navigate sequentially — an illogical focus order or trap makes the interface unusable without a mouse.`,
       howToFix: `(1) Ensure DOM order matches visual order. (2) Remove <code>tabindex</code> values > 0 — they create out-of-order tab sequences. (3) For modals/dialogs, implement a proper focus trap that only traps while open and releases on close.`,
@@ -616,7 +610,7 @@ p { line-height: 150%; }      /* also fine */
     };
   },
 
-  "SIA-R72": ({ el }) => {
+  "ACT-R72": ({ el }) => {
     const tag = el.tag || "button";
     return {
       why: `This <code>&lt;${tag}&gt;</code> element does not show a visible focus indicator when navigated to via keyboard. Keyboard users rely on the focus ring to know which element is active — without it, the interface is effectively unusable without a mouse.`,
@@ -642,7 +636,7 @@ button:focus-visible {
     };
   },
 
-  "SIA-R79": ({ description }) => {
+  "ACT-R79": ({ description }) => {
     const sizeMatch = description.match(/(\d+)×(\d+)|(\d+)\s*x\s*(\d+)/i);
     const w = sizeMatch?.[1] ?? sizeMatch?.[3] ?? "?";
     const h = sizeMatch?.[2] ?? sizeMatch?.[4] ?? "?";
@@ -666,7 +660,7 @@ button:focus-visible {
     };
   },
 
-  "SIA-R85": ({ el }) => {
+  "ACT-R85": ({ el }) => {
     return {
       why: `The focused element does not have sufficient contrast between the focus indicator and adjacent colors. WCAG 2.4.11 requires a 3:1 contrast ratio for the focus indicator, and a minimum area of a 2px perimeter offset around the component.`,
       howToFix: `Ensure the focus indicator: (1) has 3:1 contrast with adjacent colors, (2) covers at least a 2px border around the component, (3) is not obscured by other content.`,
@@ -688,7 +682,7 @@ button:focus-visible {
 
   // ── Video / Audio ─────────────────────────────────────────────────────────────
 
-  "SIA-R22": ({ el }) => {
+  "ACT-R22": ({ el }) => {
     const src = attr(el, "src") || attr(el, "data-src") || "video.mp4";
     return {
       why: `This <code>&lt;video&gt;</code> element does not have captions. Deaf and hard-of-hearing users cannot access audio content without captions. Also affects users watching in noisy environments or with audio off.`,
@@ -720,7 +714,7 @@ button:focus-visible {
 
   // ── Layout / Reflow ───────────────────────────────────────────────────────────
 
-  "SIA-R52": ({ description }) => {
+  "ACT-R52": ({ description }) => {
     return {
       why: `The page orientation is locked (forced portrait or landscape). Users who mount devices in fixed orientations (e.g., wheelchair-mounted tablets) cannot rotate to their preferred view.`,
       howToFix: `Remove the orientation lock from CSS and meta viewport. If a specific orientation is genuinely essential (e.g. a piano keyboard app), that's allowed — but most web content doesn't qualify.`,
@@ -740,7 +734,7 @@ button:focus-visible {
     };
   },
 
-  "SIA-R67": ({ el }) => {
+  "ACT-R67": ({ el }) => {
     const tag = el.tag || "div";
     return {
       why: `Content in this <code>&lt;${tag}&gt;</code> requires horizontal scrolling at 320px viewport width. WCAG 1.4.10 Reflow requires that content can be presented without horizontal scrolling at 320px (equivalent to 400% zoom on a 1280px screen).`,
@@ -769,7 +763,7 @@ img { max-width: 100%; height: auto; }
 
   // ── Motion / Animation ────────────────────────────────────────────────────────
 
-  "SIA-R70": ({ el }) => {
+  "ACT-R70": ({ el }) => {
     const tag = el.tag;
     return {
       why: `This <code>&lt;${tag}&gt;</code> content auto-plays animation/video that cannot be paused, stopped, or hidden. Users with vestibular disorders (motion sensitivity) or attention difficulties are harmed by uncontrolled moving content.`,
@@ -798,7 +792,7 @@ img { max-width: 100%; height: auto; }
     };
   },
 
-  "SIA-R76": ({ description }) => {
+  "ACT-R76": ({ description }) => {
     return {
       why: `This authentication step presents a cognitive function test (CAPTCHA, puzzle, memorized password) without an accessible alternative. Users with cognitive disabilities, blindness, or motor impairments may be unable to complete the authentication.`,
       howToFix: `Provide at least one of: (1) an alternative that doesn't rely on cognitive tests, (2) a mechanism to assist (e.g. copy-paste allowed for passwords), or (3) a customer support bypass option.`,
@@ -820,7 +814,7 @@ img { max-width: 100%; height: auto; }
     };
   },
 
-  "SIA-R77": ({ description }) => {
+  "ACT-R77": ({ description }) => {
     return {
       why: `This functionality requires a dragging movement and does not offer a single-pointer alternative (click, tap). Users with motor disabilities who cannot perform click-and-drag movements are excluded.`,
       howToFix: `Provide a way to perform the same action without dragging: buttons to move items, a keyboard-accessible alternative, or touch-friendly handles.`,
@@ -844,7 +838,7 @@ img { max-width: 100%; height: auto; }
 
   // ── Skip / Navigation ─────────────────────────────────────────────────────────
 
-  "SIA-R39": ({ description }) => {
+  "ACT-R39": ({ description }) => {
     return {
       why: `There is no skip navigation link or the existing one is not functional. Keyboard and screen reader users must tab through all navigation links on every page before reaching the main content.`,
       howToFix: `Add a "Skip to main content" link as the first focusable element in the page. It can be visually hidden until focused.`,
@@ -876,7 +870,7 @@ img { max-width: 100%; height: auto; }
     };
   },
 
-  "SIA-R90": ({ description }) => {
+  "ACT-R90": ({ description }) => {
     return {
       why: `Help mechanisms (contact links, chatbots, support links) appear in different locations across pages. Consistent placement helps users with cognitive disabilities find help reliably.`,
       howToFix: `Ensure help links and mechanisms appear in the same relative position on every page (e.g. always in the header, or always in the footer).`,
@@ -893,7 +887,7 @@ img { max-width: 100%; height: auto; }
     };
   },
 
-  "SIA-R99": ({ el }) => {
+  "ACT-R99": ({ el }) => {
     return {
       why: `This element uses <code>aria-hidden="true"</code> but contains focusable children (links, buttons, inputs). Screen readers will skip the container, but keyboard users can still Tab into the hidden children — creating ghost focus traps that are invisible to AT users.`,
       howToFix: `Either remove <code>aria-hidden</code>, or ensure all focusable descendants have <code>tabindex="-1"</code> or are removed from the DOM when hidden.`,
@@ -919,7 +913,7 @@ img { max-width: 100%; height: auto; }
     };
   },
 
-  "SIA-R105": ({ el }) => {
+  "ACT-R105": ({ el }) => {
     const tag = el.tag || "div";
     return {
       why: `This <code>&lt;${tag}&gt;</code> element has an interactive role (button, link, etc.) but is not keyboard operable — it responds to mouse click but not Enter/Space keypress. Keyboard-only users cannot activate it.`,
@@ -944,7 +938,7 @@ img { max-width: 100%; height: auto; }
     };
   },
 
-  "SIA-R110": ({ el }) => {
+  "ACT-R110": ({ el }) => {
     return {
       why: `This element has conflicting or invalid ARIA role/state attributes. Invalid ARIA is often worse than no ARIA — it creates false announcements that confuse screen reader users.`,
       howToFix: `Validate ARIA usage. Each role has allowed properties — check the ARIA spec for which attributes are valid with this role.`,
@@ -964,7 +958,7 @@ img { max-width: 100%; height: auto; }
     };
   },
 
-  "SIA-R111": ({ el }) => {
+  "ACT-R111": ({ el }) => {
     const tag = el.tag || "div";
     return {
       why: `This <code>&lt;${tag}&gt;</code> uses an ARIA landmark role or HTML landmark element without a unique accessible name. When multiple landmarks of the same type appear on a page, screen reader users can't distinguish between them in the landmark list.`,
@@ -986,7 +980,7 @@ img { max-width: 100%; height: auto; }
     };
   },
 
-  "SIA-R115": ({ el }) => {
+  "ACT-R115": ({ el }) => {
     return {
       why: `Content that appears on hover (tooltip, dropdown, sub-menu) cannot be dismissed, does not remain on hover, or disappears before users can read it. Users with low vision who zoom in, or with motor disabilities, need stable hover content.`,
       howToFix: `Hover content must: (1) be dismissible with Esc without moving focus, (2) remain hoverable (user can move pointer over the popup), (3) persist until hover ends or user dismisses.`,
@@ -1010,7 +1004,7 @@ document.addEventListener('keydown', (e) => {
     };
   },
 
-  "SIA-R117": ({ description }) => {
+  "ACT-R117": ({ description }) => {
     return {
       why: `This interactive component is missing keyboard accessibility support required by its ARIA pattern. Components like menus, trees, grids, and carousels have defined keyboard interaction patterns (arrow keys, Home/End, etc.) that screen reader and keyboard users expect.`,
       howToFix: `Implement the keyboard interaction pattern defined in the ARIA Authoring Practices Guide (APG) for this component type.`,
@@ -1057,13 +1051,13 @@ export function analyzeIssue(params: {
   const { ruleId, description, element, selector } = params;
   const el = parseEl(element ?? "");
   const handler = handlers[ruleId] ?? handlers["default"];
-  return handler({ description, el, selector: selector ?? "" });
+  return handler({ ruleId, description, el, selector: selector ?? "" });
 }
 
 export function ruleHasHighConfidence(ruleId: string): boolean {
   const h = handlers[ruleId];
   if (!h) return false;
-  const dummy = h({ description: "", el: { tag: "", attrs: {}, text: "", html: "" }, selector: "" });
+  const dummy = h({ ruleId, description: "", el: { tag: "", attrs: {}, text: "", html: "" }, selector: "" });
   return dummy.confidence === "high";
 }
 

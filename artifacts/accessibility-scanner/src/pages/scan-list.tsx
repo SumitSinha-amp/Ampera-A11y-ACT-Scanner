@@ -157,6 +157,48 @@ function formatElapsed(scan: { createdAt: string; completedAt?: string | null; s
   return `${hrs}h ${String(rem).padStart(2, "0")}m`;
 }
 
+const HISTORY_STATUS_CONFIG: Record<string, {
+  label: string;
+  bg: string;
+  color: string;
+  dot: string;
+}> = {
+  running: { label: "Running", bg: "#e8f5e9", color: "#2e7d32", dot: "#43a047" },
+  paused: { label: "Paused", bg: "#fff8e1", color: "#f57f17", dot: "#ffb300" },
+  pending: { label: "Pending", bg: "#e8eaf6", color: "#3949ab", dot: "#5c6bc0" },
+  completed: { label: "Completed", bg: "#e3f0fb", color: "#1565c0", dot: "#2196f3" },
+  failed: { label: "Failed", bg: "#fce4ec", color: "#c62828", dot: "#e53935" },
+  cancelled: { label: "Cancelled", bg: "#f3e5f5", color: "#6a1b9a", dot: "#9c27b0" },
+};
+
+function HistoryStatusBadge({ status }: { status: string }) {
+  const config = HISTORY_STATUS_CONFIG[status] ?? {
+    label: status || "Unknown",
+    bg: "#f3f4f6",
+    color: "#667085",
+    dot: "#98a2b3",
+  };
+
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap"
+      style={{ backgroundColor: config.bg, color: config.color }}
+    >
+      <span
+        className={`h-1.5 w-1.5 shrink-0 rounded-full ${status === "running" ? "animate-pulse" : ""}`}
+        style={{ backgroundColor: config.dot }}
+      />
+      {config.label}
+    </span>
+  );
+}
+
+function getHistoryProgress(scan: { status: string; scannedUrls: number; totalUrls: number }) {
+  if (scan.status === "completed") return 100;
+  if (scan.totalUrls <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((scan.scannedUrls / scan.totalUrls) * 100)));
+}
+
 function formatEta(scan: { createdAt: string; scannedUrls: number; totalUrls: number; status: string }) {
   if (scan.status !== "running" && scan.status !== "pending") return "—";
   if (scan.scannedUrls <= 0 || scan.totalUrls <= 0) return "unknown";
@@ -954,6 +996,20 @@ export default function ScanList() {
     nameFilter || initiatorFilter || dateFromFilter || dateToFilter ||
     statusFilter.length > 0 || rulesFilter.length > 0 || projectFilter != null;
 
+  const siteScopedScans = useMemo(
+    () => (scans ?? []).filter((scan) => {
+      const siteScan = scan as ScanItem;
+      return (
+        !scan.name?.startsWith("[Crawler]") &&
+        (!activeSite || siteScan.siteId == null || siteScan.siteId === activeSite.id)
+      );
+    }),
+    [scans, activeSite],
+  );
+  const activeScanCount = siteScopedScans.filter((scan) => ACTIVE_STATUSES.includes(scan.status)).length;
+  const completedScanCount = siteScopedScans.filter((scan) => scan.status === "completed").length;
+  const failedScanCount = siteScopedScans.filter((scan) => scan.status === "failed").length;
+
   const selectableIds = useMemo(
     () => filteredScans.filter((s) => s.status === "cancelled" || s.status === "failed").map((s) => s.id),
     [filteredScans],
@@ -1023,7 +1079,7 @@ export default function ScanList() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="vision-page vision-scan-history relative min-h-full space-y-5 overflow-hidden p-4 sm:p-6">
       {editingScan && (
         <EditScanDialog
           scan={editingScan}
@@ -1032,60 +1088,77 @@ export default function ScanList() {
         />
       )}
 
-      <div className="flex justify-between items-center">
+      <div className="relative flex w-full flex-wrap items-start justify-between gap-4 pt-1">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Manual Scan History</h1>
-          <p className="text-muted-foreground mt-2">
+          <div className="mb-1 flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[.2em] text-[#6d48c7]">
+            <FileText className="h-4 w-4" />
+            Scan history
+          </div>
+          <h1 className="text-[22px] font-bold tracking-tight text-[#172b4d]">Manual Scan History</h1>
+          <p className="mt-1 text-xs text-[#7b8aaa]">
             {activeSite
               ? <>Showing scans for <span className="font-semibold text-foreground">{activeSite.name}</span>. Select a different site in the header to switch.</>
-              : "View past manual page audits and reports."}
+              : "View past manual page audits and reports."}{" "}
+            <span className="text-[#9eadca]">· Auto-refreshes every 10s while active</span>
           </p>
         </div>
-        <Link href="/new">
-          <Button>Manual Page Check</Button>
+        <Link href="/new" className="shrink-0">
+          <Button className="h-9 rounded-[10px] bg-[#6d48c7] px-5 text-xs font-semibold text-white shadow-[0_8px_20px_rgba(109,72,199,.2)] hover:bg-[#5c3bb5]">
+            <span className="mr-1 text-base leading-none">+</span>
+            New Scan
+          </Button>
         </Link>
       </div>
 
-      <div className="p-3 border rounded-lg bg-card">
-        <div className="flex items-end gap-2 w-full">
+      <div className="relative grid w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          { label: "Total scans", value: siteScopedScans.length, icon: FileText, color: "#6d48c7", bg: "#eee9ff" },
+          { label: "Active now", value: activeScanCount, icon: Activity, color: "#198f88", bg: "#e4f7f0" },
+          { label: "Completed", value: completedScanCount, icon: CheckCircle2, color: "#3778c8", bg: "#e3f0fb" },
+          { label: "Failed scans", value: failedScanCount, icon: AlertTriangle, color: "#e84a3d", bg: "#fff0ed" },
+        ].map(({ label, value, icon: Icon, color, bg }) => (
+          <div key={label} className="flex items-center gap-3 rounded-2xl border border-white/80 bg-white/75 px-5 py-4 shadow-[0_2px_12px_rgba(0,0,0,.06)] backdrop-blur-xl">
+            <span className="grid h-10 w-10 place-items-center rounded-xl" style={{ backgroundColor: bg, color }}>
+              <Icon className="h-5 w-5" />
+            </span>
+            <div>
+              <div className="text-[22px] font-bold leading-none" style={{ color }}>{value.toLocaleString()}</div>
+              <div className="mt-1 text-xs text-[#7b8aaa]">{label}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="relative w-full rounded-[18px] border border-white/80 bg-white/80 p-4 shadow-[0_2px_12px_rgba(0,0,0,.06)] backdrop-blur-xl">
+        <div className="flex w-full flex-wrap items-end gap-2.5">
           <div className="flex-1 min-w-0 space-y-1">
-            <Label className="text-xs text-muted-foreground">Scan Title</Label>
+            <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#9eadca]">Scan title</Label>
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#9eadca]" />
               <Input
                 value={nameFilter}
                 onChange={(e) => setNameFilter(e.target.value)}
-                placeholder="Filter by scan title…"
-                className="pl-8 h-9 text-sm"
+                placeholder="Search by title…"
+                className="h-9 rounded-[10px] border-[#e8edf5] bg-[#f7f8fd] pl-8 text-xs text-[#172b4d] placeholder:text-[#9eadca] focus:border-[#8f73dc] focus:ring-0"
               />
             </div>
           </div>
 
           <div className="flex-1 min-w-0 space-y-1">
-            <Label className="text-xs text-muted-foreground">Initiator</Label>
+            <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#9eadca]">Initiator</Label>
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#9eadca]" />
               <Input
                 value={initiatorFilter}
                 onChange={(e) => setInitiatorFilter(e.target.value)}
                 placeholder="Filter by initiator…"
-                className="pl-8 h-9 text-sm"
+                className="h-9 rounded-[10px] border-[#e8edf5] bg-[#f7f8fd] pl-8 text-xs text-[#172b4d] placeholder:text-[#9eadca] focus:border-[#8f73dc] focus:ring-0"
               />
             </div>
           </div>
 
           <div className="shrink-0 space-y-1">
-            <Label className="text-xs text-muted-foreground">Status</Label>
-            <MultiSelectFilter
-              label="Status"
-              options={ALL_STATUSES}
-              selected={statusFilter}
-              onChange={setStatusFilter}
-            />
-          </div>
-
-          <div className="shrink-0 space-y-1">
-            <Label htmlFor="history-project-filter" className="text-xs text-muted-foreground">
+            <Label htmlFor="history-project-filter" className="text-[11px] font-semibold uppercase tracking-wide text-[#9eadca]">
               Project
             </Label>
             <Select
@@ -1093,7 +1166,7 @@ export default function ScanList() {
               onValueChange={(value) => setProjectFilter(value === "all" ? null : Number(value))}
               disabled={!activeSite || isLoadingProjects}
             >
-              <SelectTrigger id="history-project-filter" className="h-10 min-w-[150px] font-normal">
+              <SelectTrigger id="history-project-filter" className="h-9 min-w-[150px] rounded-[10px] border-[#e8edf5] bg-[#f7f8fd] text-xs font-normal text-[#172b4d]">
                 <SelectValue
                   placeholder={
                     !activeSite
@@ -1123,7 +1196,7 @@ export default function ScanList() {
 
           {ruleOptions.length > 0 && (
             <div className="shrink-0 space-y-1">
-              <Label className="text-xs text-muted-foreground">Rules</Label>
+              <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#9eadca]">Rules</Label>
               <MultiSelectFilter
                 label="Rules"
                 options={ruleOptions}
@@ -1134,42 +1207,42 @@ export default function ScanList() {
           )}
 
           <div className="shrink-0 space-y-1">
-            <Label className="text-xs text-muted-foreground">Date Range</Label>
+            <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#9eadca]">Date range</Label>
             <div className="flex items-center gap-1.5">
               <div
-                className="flex items-center gap-1.5 border rounded-md px-2.5 h-9 bg-background cursor-pointer hover:border-primary/50 transition-colors"
+                className="flex h-9 cursor-pointer items-center gap-1.5 rounded-[10px] border border-[#e8edf5] bg-[#f7f8fd] px-2.5 transition-colors hover:border-[#8f73dc]/60"
                 onClick={(e) => {
                   const input = e.currentTarget.querySelector("input");
                   try { input?.showPicker(); } catch { input?.focus(); }
                 }}
                 data-testid="date-from-box"
               >
-                <CalendarDays className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                <span className="text-xs text-muted-foreground shrink-0">From</span>
+                <CalendarDays className="h-3.5 w-3.5 shrink-0 text-[#9eadca]" />
+                <span className="shrink-0 text-xs text-[#7b8aaa]">From</span>
                 <input
                   type="date"
                   value={dateFromFilter}
                   onChange={(e) => setDateFromFilter(e.target.value)}
                   aria-label="From date"
-                  className="bg-transparent text-sm outline-none w-[118px] text-foreground [color-scheme:dark] cursor-pointer"
+                  className="w-[118px] cursor-pointer bg-transparent text-xs text-[#172b4d] outline-none [color-scheme:light]"
                 />
               </div>
               <div
-                className="flex items-center gap-1.5 border rounded-md px-2.5 h-9 bg-background cursor-pointer hover:border-primary/50 transition-colors"
+                className="flex h-9 cursor-pointer items-center gap-1.5 rounded-[10px] border border-[#e8edf5] bg-[#f7f8fd] px-2.5 transition-colors hover:border-[#8f73dc]/60"
                 onClick={(e) => {
                   const input = e.currentTarget.querySelector("input");
                   try { input?.showPicker(); } catch { input?.focus(); }
                 }}
                 data-testid="date-to-box"
               >
-                <CalendarDays className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                <span className="text-xs text-muted-foreground shrink-0">To</span>
+                <CalendarDays className="h-3.5 w-3.5 shrink-0 text-[#9eadca]" />
+                <span className="shrink-0 text-xs text-[#7b8aaa]">To</span>
                 <input
                   type="date"
                   value={dateToFilter}
                   onChange={(e) => setDateToFilter(e.target.value)}
                   aria-label="To date"
-                  className="bg-transparent text-sm outline-none w-[118px] text-foreground [color-scheme:dark] cursor-pointer"
+                  className="w-[118px] cursor-pointer bg-transparent text-xs text-[#172b4d] outline-none [color-scheme:light]"
                 />
               </div>
             </div>
@@ -1190,7 +1263,7 @@ export default function ScanList() {
                    setRulesFilter([]);
                    setProjectFilter(null);
                 }}
-                className="h-9 text-muted-foreground"
+                className="h-9 rounded-[10px] border border-[#e0e4ef] bg-white px-3 text-xs text-[#667085] hover:bg-[#f7f8fd]"
               >
                 <X className="w-3.5 h-3.5 mr-1.5" />
                 Clear
@@ -1198,46 +1271,69 @@ export default function ScanList() {
             </div>
           )}
         </div>
-      </div>
-
-      <div className="flex items-center justify-between -mt-2 px-1 min-h-[20px]">
-        {hasActiveFilters ? (
-          <p className="text-sm text-muted-foreground">
-            Showing {filteredScans.length} of {(scans ?? []).length} scans
-          </p>
-        ) : <span />}
-
-        <AnimatePresence>
-          {isPolling && (
-            <motion.div
-              key="live-badge"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              transition={{ duration: 0.2 }}
-              className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-500"
-              title={lastRefreshedAt ? `Last updated at ${lastRefreshedAt.toLocaleTimeString()}` : undefined}
-            >
-              <span className="relative flex h-2 w-2 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-              </span>
-              Auto-refreshing
-              {secondsSinceRefresh > 0 && (
-                <span className="text-emerald-500/70 font-normal">
-                  · updated {secondsSinceRefresh}s ago
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[#eef0f8] pt-3">
+          <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-[#9eadca]">Status</span>
+          <button
+            type="button"
+            onClick={() => setStatusFilter([])}
+            className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${statusFilter.length === 0 ? "border-[#6d48c7] bg-[#6d48c7] text-white" : "border-[#e0e4ef] bg-[#fafafa] text-[#667085] hover:border-[#bdb1ed]"}`}
+          >
+            All
+          </button>
+          {ALL_STATUSES.map((status) => {
+            const config = HISTORY_STATUS_CONFIG[status.value];
+            const active = statusFilter.includes(status.value);
+            return (
+              <button
+                key={status.value}
+                type="button"
+                onClick={() => setStatusFilter((current) => current.includes(status.value)
+                  ? current.filter((value) => value !== status.value)
+                  : [...current, status.value])}
+                className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors"
+                style={active
+                  ? { borderColor: config?.dot, backgroundColor: config?.bg, color: config?.color }
+                  : { borderColor: "#e0e4ef", backgroundColor: "#fafafa", color: "#667085" }}
+              >
+                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: config?.dot }} />
+                {status.label}
+              </button>
+            );
+          })}
+          <div className="ml-auto flex items-center gap-2 text-xs text-[#9eadca]">
+            {isPolling && (
+              <span
+                className="flex items-center gap-1.5"
+                title={lastRefreshedAt ? `Last updated at ${lastRefreshedAt.toLocaleTimeString()}` : undefined}
+              >
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#43a047] opacity-60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[#43a047]" />
                 </span>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
+                Live refresh{secondsSinceRefresh > 0 ? ` · ${secondsSinceRefresh}s ago` : ""}
+              </span>
+            )}
+            <span>{filteredScans.length} result{filteredScans.length === 1 ? "" : "s"}</span>
+          </div>
+        </div>
       </div>
 
-      <div className="border rounded-lg bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-10 pl-3">
+      <div className="relative w-full overflow-hidden rounded-[20px] border border-white/80 bg-white/75 shadow-[0_2px_16px_rgba(0,0,0,.07)] backdrop-blur-xl">
+        <Table className="min-w-[1120px] table-fixed">
+          <colgroup>
+            <col style={{ width: "4%" }} />
+            <col style={{ width: "29%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "9%" }} />
+            <col style={{ width: "10%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "12%" }} />
+          </colgroup>
+          <TableHeader className="bg-[#f5f6fb]/80">
+            <TableRow className="border-[#eef0f8] hover:bg-transparent">
+              <TableHead className="w-10 pl-4 text-[11px] font-bold uppercase tracking-[.04em] text-[#7b8aaa]">
                 <Checkbox
                   checked={allSelectableSelected}
                   data-state={someSelectableSelected && !allSelectableSelected ? "indeterminate" : undefined}
@@ -1247,14 +1343,14 @@ export default function ScanList() {
                   title={selectableIds.length === 0 ? "No cancelled/failed scans to select" : "Select all cancelled/failed scans"}
                 />
               </TableHead>
-              <TableHead>Project / Scan Title</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Progress</TableHead>
-              <TableHead>Total scan time</TableHead>
-              <TableHead>Scan rules</TableHead>
-              <TableHead>Pages with issues</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead className="text-[11px] font-bold uppercase tracking-[.04em] text-[#7b8aaa]">Scan / Project</TableHead>
+              <TableHead className="text-[11px] font-bold uppercase tracking-[.04em] text-[#7b8aaa]">Status</TableHead>
+              <TableHead className="text-[11px] font-bold uppercase tracking-[.04em] text-[#7b8aaa]">Progress</TableHead>
+              <TableHead className="text-[11px] font-bold uppercase tracking-[.04em] text-[#7b8aaa]">Duration</TableHead>
+              <TableHead className="text-[11px] font-bold uppercase tracking-[.04em] text-[#7b8aaa]">Scan rules</TableHead>
+              <TableHead className="text-[11px] font-bold uppercase tracking-[.04em] text-[#7b8aaa]">Issues</TableHead>
+              <TableHead className="text-[11px] font-bold uppercase tracking-[.04em] text-[#7b8aaa]">Date</TableHead>
+              <TableHead className="pr-4 text-right text-[11px] font-bold uppercase tracking-[.04em] text-[#7b8aaa]">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1262,7 +1358,7 @@ export default function ScanList() {
               <TableRow>
                 <TableCell
                   colSpan={9}
-                  className="text-center py-12 text-muted-foreground"
+                  className="py-14 text-center text-sm text-[#7b8aaa]"
                 >
                   No scans found.{" "}
                   {hasActiveFilters
@@ -1284,9 +1380,17 @@ export default function ScanList() {
                 const isPaused = (scan.status as string) === "paused";
                 const isSelectable = scan.status === "cancelled" || scan.status === "failed";
                 const isSelected = selectedIds.has(scan.id);
+                const progress = getHistoryProgress(scan);
+                const progressColor = isRunning
+                  ? "#6d48c7"
+                  : scan.status === "completed"
+                    ? "#198f88"
+                    : scan.status === "failed"
+                      ? "#e53935"
+                      : "#9eadca";
                 return (
-                  <TableRow key={scan.id} className={isSelected ? "bg-muted/40" : undefined}>
-                    <TableCell className="pl-3">
+                    <TableRow key={scan.id} className={`border-[#f0f2f8] transition-colors hover:bg-[#6d48c7]/[.03] ${isSelected ? "bg-[#eee9ff]/55" : ""}`}>
+                    <TableCell className="pl-4">
                       {isSelectable ? (
                         <Checkbox
                           checked={isSelected}
@@ -1297,11 +1401,11 @@ export default function ScanList() {
                         <span className="w-4 h-4 block" />
                       )}
                     </TableCell>
-                    <TableCell className="font-medium min-w-0 max-w-[42rem]">
+                    <TableCell className="min-w-0 max-w-[42rem] py-3 font-medium">
                       {s.projectName && (
-                        <div className="flex items-center gap-1 mb-0.5">
-                          <FolderOpen className="w-3 h-3 text-muted-foreground shrink-0" />
-                          <span className="text-xs text-muted-foreground truncate">
+                        <div className="mb-0.5 flex items-center gap-1">
+                          <FolderOpen className="h-3 w-3 shrink-0 text-[#9eadca]" />
+                          <span className="truncate text-[11px] text-[#9eadca]">
                             {s.projectName}
                           </span>
                         </div>
@@ -1320,13 +1424,13 @@ export default function ScanList() {
                       >
                         <Link
                           href={`/scans/${scan.id}`}
-                          className="block max-w-full line-clamp-2 break-words [overflow-wrap:anywhere] hover:underline text-primary"
+                          className="block max-w-full break-words text-[13px] font-semibold text-[#172b4d] [overflow-wrap:anywhere] hover:text-[#6d48c7] hover:underline"
                           title={scan.name || `Scan #${scan.id}`}
                         >
                           {scan.name || `Scan #${scan.id}`}
                         </Link>
                       </span>
-                      <div className="text-xs text-muted-foreground mt-0.5">
+                      <div className="mt-0.5 text-[11px] text-[#9eadca]">
                         {s.initiatorName || s.initiatorRole ? (
                           <>
                             Initiated by {s.initiatorName || "Unknown"}
@@ -1337,14 +1441,25 @@ export default function ScanList() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>{getStatusBadge(scan.status)}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {scan.scannedUrls} / {scan.totalUrls} URLs
+                    <TableCell className="py-3"><HistoryStatusBadge status={scan.status} /></TableCell>
+                    <TableCell className="min-w-0 py-3 pr-4">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[#eeeef3]">
+                          <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{ width: `${progress}%`, backgroundColor: progressColor }}
+                          />
+                        </div>
+                        <span className="w-9 shrink-0 text-right text-[11px] text-[#7b8aaa]">{progress}%</span>
+                      </div>
+                      <div className={`mt-1 truncate whitespace-nowrap text-[10px] ${isRunning ? "font-semibold text-[#6d48c7]" : "text-[#9eadca]"}`}>
+                        {scan.scannedUrls} / {scan.totalUrls} URLs
+                      </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className="py-3 text-xs text-[#667085]">
                       <span>{formatElapsed(scan)}</span>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="py-3">
                       <span
                         className="text-sm"
                         title={getScanRuleIds(historyScan).join(", ") || "This scan ran all rules"}
@@ -1352,11 +1467,7 @@ export default function ScanList() {
                         {getScanRuleIds(historyScan).length === 0 ? (
                           <Badge
                             variant="outline"
-                            className="text-[10px] leading-4 px-1.5 py-0 font-normal whitespace-nowrap border-transparent shadow-sm"
-                            style={{
-                              backgroundColor: "hsl(var(--app-accent))",
-                              color: "hsl(var(--primary-foreground))",
-                            }}
+                            className="border-[#d9d0f8] bg-[#eee9ff] px-1.5 py-0 text-[10px] leading-4 font-semibold text-[#6d48c7] whitespace-nowrap shadow-none"
                           >
                             All rules
                           </Badge>
@@ -1366,11 +1477,7 @@ export default function ScanList() {
                               <Badge
                                 key={ruleId}
                                 variant="outline"
-                                className="text-[10px] leading-4 px-1.5 py-0 font-mono font-normal whitespace-nowrap border-transparent shadow-sm"
-                                style={{
-                                  backgroundColor: "hsl(var(--app-accent))",
-                                  color: "hsl(var(--primary-foreground))",
-                                }}
+                                className="border-[#d9d0f8] bg-[#eee9ff] px-1.5 py-0 font-mono text-[10px] leading-4 font-semibold text-[#6d48c7] whitespace-nowrap shadow-none"
                               >
                                 {ruleId}
                               </Badge>
@@ -1379,20 +1486,21 @@ export default function ScanList() {
                         )}
                       </span>
                     </TableCell>
-                    <TableCell>
-                      <span className="font-mono">
-                        {(historyScan.pagesWithIssues ?? 0).toLocaleString()}
+                    <TableCell className="py-3">
+                      <span className={`font-mono text-[13px] font-bold ${(historyScan.pagesWithIssues ?? 0) > 0 ? "text-[#e84a3d]" : "text-[#b8c1cf]"}`}>
+                        {(historyScan.pagesWithIssues ?? 0) > 0 ? `${(historyScan.pagesWithIssues ?? 0).toLocaleString()} pages` : "—"}
                       </span>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className="py-3 text-xs text-[#9eadca]">
                       {formatDate(scan.createdAt)}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="py-3 pr-4 text-right">
                       <div className="flex justify-end gap-1">
                         {isRunning && (
                           <Button
                             variant="ghost"
                             size="icon"
+                            className="h-7 w-7 rounded-lg border border-[#ffe082] bg-[#fffde7] text-[#f57f17] hover:bg-[#fff8cc] hover:text-[#d46b08]"
                             title="Pause scan"
                             onClick={() => pauseScan.mutate(scan.id)}
                             disabled={pauseScan.isPending}
@@ -1408,6 +1516,7 @@ export default function ScanList() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            className="h-7 w-7 rounded-lg border border-[#c8e6c9] bg-[#f1f8f1] text-[#2e7d32] hover:bg-[#e1f4e2] hover:text-[#1f6a2a]"
                             title="Resume scan"
                             onClick={() => resumeScan.mutate(scan.id)}
                             disabled={resumeScan.isPending}
@@ -1423,6 +1532,7 @@ export default function ScanList() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            className="h-7 w-7 rounded-lg border border-[#d9d0f8] bg-[#eee9ff] text-[#6d48c7] hover:bg-[#e3dcff] hover:text-[#5c3bb5]"
                             title="View Detail"
                           >
                             <FileText className="w-4 h-4" />
@@ -1431,6 +1541,7 @@ export default function ScanList() {
                         <Button
                           variant="ghost"
                           size="icon"
+                            className="h-7 w-7 rounded-lg border border-[#e0e4ef] bg-[#fafafa] text-[#667085] hover:bg-[#f0f2f8] hover:text-[#374151]"
                           title="Edit scan details"
                           onClick={() =>
                             setEditingScan({
@@ -1450,7 +1561,7 @@ export default function ScanList() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                              className="h-7 w-7 rounded-lg border border-[#ffcdd2] bg-[#fff5f5] text-[#e53935] hover:bg-[#ffe7e7] hover:text-[#c62828]"
                               title="Delete"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -1485,18 +1596,18 @@ export default function ScanList() {
           </TableBody>
         </Table>
         {filteredScans.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3">
-            <p className="text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#eef0f8] px-4 py-3">
+            <p className="text-xs text-[#9eadca]">
               Showing {((visibleHistoryPage - 1) * historyPageSize) + 1}–{Math.min(visibleHistoryPage * historyPageSize, filteredScans.length)} of {filteredScans.length} scans
             </p>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground whitespace-nowrap">Show pages</span>
+                <span className="whitespace-nowrap text-xs text-[#9eadca]">Show pages</span>
                 <Select
                   value={String(historyPageSize)}
                   onValueChange={(value) => setHistoryPageSize(Number(value))}
                 >
-                  <SelectTrigger className="h-8 w-[78px] text-xs" aria-label="Show pages">
+                  <SelectTrigger className="h-8 w-[78px] rounded-lg border-[#e0e4ef] bg-white text-xs text-[#667085]" aria-label="Show pages">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1510,20 +1621,20 @@ export default function ScanList() {
                 <Button
                   variant="outline"
                   size="icon"
-                  className="h-8 w-8"
+                  className="h-8 w-8 rounded-lg border-[#e0e4ef] bg-white text-[#667085] hover:bg-[#f7f8fd]"
                   onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}
                   disabled={visibleHistoryPage === 1}
                   aria-label="Previous manual history page"
                 >
                   <ChevronDown className="h-4 w-4 rotate-90" />
                 </Button>
-                <span className="min-w-[72px] text-center text-xs text-muted-foreground">
+                <span className="min-w-[72px] text-center text-xs text-[#7b8aaa]">
                   Page {visibleHistoryPage} of {totalHistoryPages}
                 </span>
                 <Button
                   variant="outline"
                   size="icon"
-                  className="h-8 w-8"
+                  className="h-8 w-8 rounded-lg border-[#e0e4ef] bg-white text-[#667085] hover:bg-[#f7f8fd]"
                   onClick={() => setHistoryPage((page) => Math.min(totalHistoryPages, page + 1))}
                   disabled={visibleHistoryPage === totalHistoryPages}
                   aria-label="Next manual history page"

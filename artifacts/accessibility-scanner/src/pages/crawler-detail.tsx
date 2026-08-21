@@ -37,7 +37,6 @@ import {
   CheckCircle2,
   XIcon,
   Clock,
-  Timer,
   SkipForward,
   ChevronLeft,
   ChevronRight,
@@ -53,6 +52,7 @@ import {
   Download,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
+import { CrawlerLiveOverview } from "@/components/crawler-live-overview";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -362,7 +362,7 @@ function pageTypeBadge(type: string | null) {
   return PAGE_TYPE_COLORS[t] ?? PAGE_TYPE_COLORS["General"];
 }
 
-function fmtDurationCompact(ms: number | null): string {
+function fmtDurationCompact(ms: number | null, includeSeconds = false): string {
   if (ms === null || ms < 0) return "—";
   const seconds = Math.floor(ms / 1000);
   if (seconds < 60) return `${seconds}s`;
@@ -371,9 +371,9 @@ function fmtDurationCompact(ms: number | null): string {
   if (minutes < 60) return `${minutes}m ${secs}s`;
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
-  if (hours < 24) return `${hours}h ${mins}m`;
+  if (hours < 24) return includeSeconds ? `${hours}h ${mins}m ${secs}s` : `${hours}h ${mins}m`;
   const days = Math.floor(hours / 24);
-  return `${days}d ${hours % 24}h`;
+  return includeSeconds ? `${days}d ${hours % 24}h ${mins}m` : `${days}d ${hours % 24}h`;
 }
 
 export default function CrawlerDetailPage() {
@@ -390,6 +390,7 @@ export default function CrawlerDetailPage() {
   const [pagesLocaleFilter, setPagesLocaleFilter] = useState("");
   const [pagesExtensionFilter, setPagesExtensionFilter] = useState("");
   const [brokenPage, setBrokenPage] = useState(1);
+  const [activeTab, setActiveTab] = useState("pages");
   const [sseSession, setSseSession] = useState<CrawlerSession | null>(null);
   const [sseKey, setSseKey] = useState(0);
   // Track last known page progress so we only invalidate when something actually changed
@@ -586,15 +587,24 @@ export default function CrawlerDetailPage() {
   const isPending = displaySession?.status === "pending";
   const isDiscovering = displaySession?.status === "discovering";
   const isScanning = displaySession?.status === "scanning";
+  const isTimingStopped = ["paused", "completed", "failed", "cancelled"].includes(displaySession?.status ?? "");
+  const isDiscoveryStillRunning = Boolean(
+    displaySession
+    && !displaySession.discoveredAt
+    && !isTimingStopped
+    && (displaySession.startedAt ?? displaySession.createdAt),
+  );
+  const shouldTickClock = isActive || isDiscoveryStillRunning;
 
-  // Live clock for elapsed time and ETA — ticks every second only while active
+  // Live clock for elapsed time — continues until discovery is recorded as
+  // complete, including transient crawler statuses emitted during discovery.
   // Must be declared BEFORE any early returns to satisfy rules of hooks
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    if (!isActive) return;
+    if (!shouldTickClock) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
-  }, [isActive]);
+  }, [shouldTickClock]);
 
   if (isLoading && !sseSession) {
     return <div className="text-muted-foreground text-sm">Loading…</div>;
@@ -608,16 +618,30 @@ export default function CrawlerDetailPage() {
   const isCrawlOnly = displaySession.config?.crawlOnly === true;
   // Crawl-only sessions do not have an accessibility phase until the user
   // explicitly starts it. scanSessionId/scanStartedAt are created at that point.
-  const phase2Started = !isCrawlOnly || Boolean(displaySession.scanSessionId || displaySession.scanStartedAt);
+  // A scan session is allocated before discovery ends for standard crawls, so it
+  // does not prove that accessibility analysis has started. The live overview
+  // must keep Phase 2 in its waiting state until the server records the start.
+  const phase2Started = Boolean(displaySession.scanStartedAt)
+    || ["scanning", "completed"].includes(displaySession.status);
 
   const phase1StartRef = displaySession.startedAt ?? displaySession.createdAt;
-  const phase1ElapsedMs = (isPending || isDiscovering) && phase1StartRef
+  const phase1ElapsedMs = isDiscoveryStillRunning && phase1StartRef
     ? Math.max(0, now - new Date(phase1StartRef).getTime()) : null;
   const phase2StartRef = displaySession.scanStartedAt ?? displaySession.discoveredAt;
   const phase2ElapsedMs = isScanning && phase2StartRef
     ? Math.max(0, now - new Date(phase2StartRef).getTime()) : null;
-  const phase2EtaMs = (isScanning && phase2ElapsedMs !== null && pct > 0 && pct < 100)
-    ? (phase2ElapsedMs / pct) * (100 - pct) : null;
+  const activeElapsedMs = isScanning ? phase2ElapsedMs : phase1ElapsedMs;
+  const durationBetween = (start: string | null, end: string | null): number | null => {
+    if (!start || !end) return null;
+    const duration = new Date(end).getTime() - new Date(start).getTime();
+    return duration >= 0 ? duration : null;
+  };
+  const sessionElapsedMs = !displaySession.completedAt && displaySession.startedAt
+    ? Math.max(0, now - new Date(displaySession.startedAt).getTime())
+    : null;
+  const crawlTimeMs = phase1ElapsedMs ?? durationBetween(displaySession.startedAt, displaySession.discoveredAt);
+  const scanTimeMs = phase2ElapsedMs ?? durationBetween(displaySession.scanStartedAt ?? displaySession.discoveredAt, displaySession.completedAt);
+  const processingTimeMs = sessionElapsedMs ?? durationBetween(displaySession.startedAt, displaySession.completedAt);
 
   const pages = pagesData?.pages ?? [];
   const totalPages = pagesData?.total ?? 0;
@@ -668,7 +692,7 @@ export default function CrawlerDetailPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="vision-page vision-crawler-detail relative space-y-5">
       {/* Header */}
       <div className="flex items-start gap-4">
         <div className="flex-1 min-w-0">
@@ -772,6 +796,22 @@ export default function CrawlerDetailPage() {
         </div>
       </div>
 
+      <CrawlerLiveOverview
+        session={displaySession}
+        trueTotalPages={trueTotalPages}
+        progress={pct}
+        discoveryProgress={discPct}
+        phase2Started={phase2Started}
+        elapsedTime={activeElapsedMs === null ? null : fmtDurationCompact(activeElapsedMs, true)}
+        timeDetails={{
+          elapsed: (sessionElapsedMs ?? processingTimeMs) === null ? null : fmtDurationCompact(sessionElapsedMs ?? processingTimeMs, shouldTickClock),
+          crawl: crawlTimeMs === null ? null : fmtDurationCompact(crawlTimeMs, isDiscoveryStillRunning),
+          scan: scanTimeMs === null ? null : fmtDurationCompact(scanTimeMs, isScanning),
+          processing: processingTimeMs === null ? null : fmtDurationCompact(processingTimeMs, shouldTickClock),
+        }}
+      />
+
+      <div className="hidden">
       {/* Two-phase progress */}
       {(isActive || displaySession.status === "paused" || displaySession.status === "crawled") && (
         <Card>
@@ -841,12 +881,6 @@ export default function CrawlerDetailPage() {
                     <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
                       <Clock className="w-3 h-3" />
                       {fmtDurationCompact(phase2ElapsedMs)}
-                    </span>
-                  )}
-                  {isScanning && phase2EtaMs !== null && (
-                    <span className="flex items-center gap-1 text-blue-500 dark:text-blue-300">
-                      <Timer className="w-3 h-3" />
-                      ETA {fmtDurationCompact(phase2EtaMs)}
                     </span>
                   )}
                   <span>
@@ -941,6 +975,7 @@ export default function CrawlerDetailPage() {
           </CardContent>
         </Card>
       </div>
+      </div>
 
       {/* Timing summary (when complete) */}
       {displaySession.status === "completed" && (
@@ -978,8 +1013,8 @@ export default function CrawlerDetailPage() {
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue="pages">
-        <TabsList aria-label="Crawler detail sections">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="overflow-hidden rounded-[22px] border border-white/80 bg-white/65 p-2 shadow-[0_14px_34px_rgba(69,57,112,.06)] backdrop-blur-xl">
+        <TabsList aria-label="Crawler detail sections" className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-none border-b border-[#edf0f7] bg-transparent px-1 pb-2">
           <TabsTrigger value="pages" aria-label={`Pages${totalPages > 0 ? `, ${totalPages} total` : ""}`}>
             Pages
             {totalPages > 0 && <Badge variant="secondary" className="ml-1.5 text-xs">{totalPages}</Badge>}

@@ -15,7 +15,6 @@ import { ExternalLink, Globe, Loader2, XCircle } from "lucide-react";
 import {
   useQASites,
   useQASelectedSite,
-  QASiteSelector,
   QA_BASE,
   QA_TABLE_CLASS,
   QA_TABLE_SHELL_CLASS,
@@ -57,7 +56,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function QACheckHistoryPage() {
   const { data: sites = [], isLoading: sitesLoading } = useQASites();
-  const [selectedSiteId, selected, setSite] = useQASelectedSite(sites);
+  const [selectedSiteId] = useQASelectedSite(sites);
 
   const { data: history = [], isLoading: historyLoading } = useQuery<CrawlHistoryRow[]>({
     queryKey: ["qa-check-history", selectedSiteId],
@@ -82,17 +81,19 @@ export default function QACheckHistoryPage() {
         </p>
       </div>
 
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground shrink-0">Site:</span>
-        <QASiteSelector
-          value={selectedSiteId}
-          onChange={setSite}
-          sites={sites}
-          loading={sitesLoading}
-        />
-      </div>
-
-      {historyLoading ? (
+      {sitesLoading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : !selectedSiteId ? (
+        <Card>
+          <CardContent className="py-12 flex flex-col items-center gap-3 text-muted-foreground">
+            <Globe className="w-10 h-10" />
+            <p className="font-medium text-foreground">No site selected</p>
+            <p className="text-sm">Select a site from the header to view its check history.</p>
+          </CardContent>
+        </Card>
+      ) : historyLoading ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
         </div>

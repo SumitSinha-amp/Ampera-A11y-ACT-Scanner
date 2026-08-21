@@ -168,17 +168,17 @@ export default function ProfileSettingsPage() {
     .toUpperCase();
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6">
-      <div>
-        <p className="text-sm font-medium text-primary">My Settings</p>
-        <h1 className="mt-1 text-2xl font-bold tracking-tight">Profile settings</h1>
+    <div className="relative w-full space-y-6 pb-10">
+      <div className="relative border-b border-white/70 pb-5">
+        <p className="font-mono text-[10px] font-bold uppercase tracking-[.2em] text-[#6d48c7]">Workspace account</p>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-[#172b4d]">Profile settings</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Manage your personal information and account security.
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <Card className="h-fit">
+      <div className="relative grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <Card className="h-fit rounded-2xl border-white/80 bg-white/60 shadow-[0_10px_30px_rgba(69,57,112,.06)] backdrop-blur-xl">
           <CardHeader>
             <CardTitle className="text-base">Profile</CardTitle>
             <CardDescription>
@@ -188,9 +188,9 @@ export default function ProfileSettingsPage() {
         </Card>
 
         <div className="space-y-6">
-          <Card>
+          <Card className="rounded-2xl border-white/80 bg-white/65 shadow-[0_10px_30px_rgba(69,57,112,.06)] backdrop-blur-xl">
             <CardHeader className="flex flex-row items-center gap-4 space-y-0">
-              <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-slate-700 text-xl font-semibold text-white shadow-sm">
+              <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[#6d48c7] text-xl font-semibold text-white shadow-[0_8px_18px_rgba(109,72,199,.2)]">
                 {profileImageSrc ? (
                   <img src={profileImageSrc} alt="" className="h-full w-full rounded-full object-cover" />
                 ) : initials}
@@ -211,7 +211,7 @@ export default function ProfileSettingsPage() {
             </CardHeader>
           </Card>
 
-          <Card>
+          <Card className="rounded-2xl border-white/80 bg-white/65 shadow-[0_10px_30px_rgba(69,57,112,.06)] backdrop-blur-xl">
             <CardHeader>
               <CardTitle>Profile image</CardTitle>
               <CardDescription>
@@ -232,7 +232,7 @@ export default function ProfileSettingsPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="rounded-2xl border-white/80 bg-white/65 shadow-[0_10px_30px_rgba(69,57,112,.06)] backdrop-blur-xl">
             <CardHeader>
               <CardTitle>Account details</CardTitle>
               <CardDescription>
