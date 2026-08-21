@@ -3102,22 +3102,47 @@ export function fetchRawHtmlViaBrowser(url: string): Promise<string | null> {
       page = await browser.newPage();
       await page.setRequestInterception(true);
       page.on("request", (req) => {
-        if (req.resourceType() === "document") req.continue().catch(() => {});
-        else req.abort().catch(() => {});
+        // Cloudflare's managed challenge needs its script and same-page fetch
+        // requests to run. Keep these lightweight rendering resources while
+        // still blocking the heavy assets that are irrelevant to raw HTML.
+        if (["document", "script", "stylesheet", "xhr", "fetch"].includes(req.resourceType())) {
+          req.continue().catch(() => {});
+        } else {
+          req.abort().catch(() => {});
+        }
       });
-      const resp = await page.goto(url, {
+      await page.goto(url, {
         waitUntil: "domcontentloaded",
-        timeout: 20_000,
+        timeout: 30_000,
       });
-      if (!resp || resp.status() < 200 || resp.status() >= 300) return null;
-      const body = await resp.text();
-      const lower = body.slice(0, 4000).toLowerCase();
-      if (
-        lower.includes("just a moment") ||
-        lower.includes("verifying your connection")
-      )
-        return null;
-      return body;
+
+      // Do not treat Cloudflare's first interstitial response as final. This
+      // browser uses the durable scanner profile and may finish the challenge
+      // or reuse a clearance cookie shortly after the first document arrives.
+      const isChallenge = async (): Promise<boolean> =>
+        page!.evaluate(() => {
+          const title = document.title.toLowerCase();
+          const text = document.body?.innerText?.toLowerCase() ?? "";
+          return (
+            title.includes("just a moment") ||
+            title.includes("checking your browser") ||
+            text.includes("verifying your connection") ||
+            text.includes("checking your browser before accessing") ||
+            text.includes("enable javascript and cookies") ||
+            !!document.querySelector(
+              "#challenge-form, #cf-challenge-running, .cf-browser-verification, [id^='challenge-']",
+            )
+          );
+        }).catch(() => true);
+
+      const challengeDeadline = Date.now() + 35_000;
+      while (await isChallenge()) {
+        if (Date.now() >= challengeDeadline) return null;
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+
+      const body = await page.content();
+      return body.trim() ? body : null;
     } catch {
       return null;
     } finally {

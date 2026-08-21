@@ -29,9 +29,21 @@ import { logger } from "./logger";
 
 puppeteerExtra.use(StealthPlugin());
 
-const CRAWLER_PROFILE_DIR =
-  process.env["CRAWLER_PROFILE_DIR"] ??
-  path.join(process.env["HOME"] ?? "/tmp", ".cache", "a11y-chrome-profile-discovery");
+/**
+ * Resolve the discovery-profile root without sharing the scanner's live
+ * Chromium profile. A separate sibling profile avoids Chrome lock contention
+ * during Crawl Boost, while still putting discovery on persistent storage when
+ * CHROME_PROFILE_DIR is configured for Azure.
+ */
+export function getDiscoveryProfileDir(env: NodeJS.ProcessEnv = process.env): string {
+  if (env["CRAWLER_PROFILE_DIR"]) return env["CRAWLER_PROFILE_DIR"];
+  const scannerProfileDir =
+    env["CHROME_PROFILE_DIR"] ??
+    path.join(env["HOME"] ?? "/tmp", ".cache", "a11y-chrome-profile");
+  return `${scannerProfileDir}-discovery`;
+}
+
+const CRAWLER_PROFILE_DIR = getDiscoveryProfileDir();
 try { mkdirSync(CRAWLER_PROFILE_DIR, { recursive: true }); } catch { /* exists */ }
 
 const CRAWLER_LAUNCH_ARGS = [
@@ -99,6 +111,18 @@ async function launchDiscoveryBrowser(workerId: number): Promise<Browser> {
     // documents; keep CDP calls from expiring while the page is settling.
     protocolTimeout: 180_000,
   }) as Promise<Browser>;
+}
+
+/**
+ * A normal crawl stays in "discovering" until Phase 1 finishes. Crawl Boost
+ * intentionally changes the shared session to "scanning" before it launches
+ * both phases, so its discovery workers must accept that state too.
+ */
+export function canRunDiscoveryWorker(
+  sessionStatus: string | null | undefined,
+  crawlBoost: boolean,
+): boolean {
+  return sessionStatus === "discovering" || (crawlBoost && sessionStatus === "scanning");
 }
 
 /** Returns true when the current page looks like a Cloudflare challenge. */
@@ -740,11 +764,20 @@ async function runDiscoveryWorker(
     while (!controller.signal.aborted) {
       const [current] = await db.select({ status: crawlerSessionsTable.status })
         .from(crawlerSessionsTable).where(eq(crawlerSessionsTable.id, sessionId)).limit(1);
-      if (!current || current.status !== "discovering") break;
+      if (!canRunDiscoveryWorker(current?.status, !!config.crawlBoost)) {
+        logger.info(
+          { sessionId, workerId, status: current?.status ?? null, crawlBoost: !!config.crawlBoost },
+          "Discovery worker stopped — session is no longer accepting Phase 1 work",
+        );
+        break;
+      }
 
       // Atomically claim the next pending URL — no two workers visit the same page.
       const pendingPage = await claimNextPendingPage(sessionId);
-      if (!pendingPage) break;
+      if (!pendingPage) {
+        logger.info({ sessionId, workerId }, "Discovery worker queue drained");
+        break;
+      }
 
       // Depth check — skip over-depth pages and continue to the next URL so
       // other valid pending pages at shallower depths are not abandoned.
