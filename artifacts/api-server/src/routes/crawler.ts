@@ -729,14 +729,27 @@ router.get("/crawler/sessions/:id/progress", requireAuth, async (req: Request, r
   if (!_session) return;
 
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
+  // Disable response buffering in nginx / Azure Application Gateway so each event
+  // is forwarded to the browser immediately rather than held until the buffer fills.
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
-  const send = (data: unknown) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  const flush = () => {
     if ("flush" in res && typeof (res as any).flush === "function") (res as any).flush();
   };
+  const send = (data: unknown) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    flush();
+  };
+
+  // Keep-alive heartbeat: Azure LB closes idle TCP connections at ~4 minutes.
+  // SSE comment lines (": …") are ignored by EventSource but keep the socket alive.
+  const heartbeat = setInterval(() => {
+    res.write(": heartbeat\n\n");
+    flush();
+  }, 25_000);
 
   const ACTIVE_STATUSES = ["running", "pending", "discovering", "scanning"];
 
@@ -787,11 +800,11 @@ router.get("/crawler/sessions/:id/progress", requireAuth, async (req: Request, r
   const interval = setInterval(async () => {
     try {
       const stillRunning = await poll();
-      if (!stillRunning) { clearInterval(interval); res.end(); }
-    } catch { clearInterval(interval); res.end(); }
+      if (!stillRunning) { clearInterval(interval); clearInterval(heartbeat); res.end(); }
+    } catch { clearInterval(interval); clearInterval(heartbeat); res.end(); }
   }, 2000);
 
-  req.on("close", () => { clearInterval(interval); });
+  req.on("close", () => { clearInterval(interval); clearInterval(heartbeat); });
 });
 
 // GET /api/crawler/discovery-cache?domain=xxx — check if a discovery cache exists for a domain

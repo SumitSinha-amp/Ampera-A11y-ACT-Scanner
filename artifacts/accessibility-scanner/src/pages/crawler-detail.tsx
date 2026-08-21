@@ -395,15 +395,26 @@ export default function CrawlerDetailPage() {
   const [sseKey, setSseKey] = useState(0);
   // Track last known page progress so we only invalidate when something actually changed
   const lastPageProgressRef = useRef<number>(-1);
+  // Track the last status received via SSE so onerror can decide whether to reconnect.
+  // When the server closes the stream because the session finished it sends the terminal
+  // status first; we should NOT reconnect in that case. When Azure's load balancer kills
+  // an in-flight stream we should reconnect (last status was still active, or we never
+  // received a message at all).
+  const lastSseStatusRef = useRef<string | null>(null);
 
-  // SSE for live progress — reconnects when sseKey increments (e.g. after starting scan)
+  // SSE for live progress — reconnects when sseKey increments (e.g. after starting scan
+  // or after the connection was killed by an intermediate proxy such as Azure App Gateway).
   useEffect(() => {
     if (isNaN(sessionId)) return;
     lastPageProgressRef.current = -1;
+    lastSseStatusRef.current = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
     const es = new EventSource(`${BASE}/api/crawler/sessions/${sessionId}/progress`, { withCredentials: true });
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data) as CrawlerSession;
+        lastSseStatusRef.current = data.status;
         setSseSession(data);
         // When page-level counts change (Phase 1 crawled a page / Phase 2 scanned one),
         // immediately refresh the pages table so status badges update in near-realtime
@@ -420,8 +431,20 @@ export default function CrawlerDetailPage() {
       // Clear stale SSE snapshot so the REST polling data takes over immediately
       setSseSession(null);
       void qc.invalidateQueries({ queryKey: ["crawler-session", sessionId] });
+      // Reconnect unless the last message we received had a terminal status — which
+      // means the server intentionally closed the stream (session finished).  If we
+      // never received a message at all (Azure buffering killed it before delivery)
+      // we also reconnect so the live view isn't permanently degraded.
+      const lastStatus = lastSseStatusRef.current;
+      const sessionStillActive = !lastStatus || ACTIVE_STATUSES.includes(lastStatus);
+      if (sessionStillActive) {
+        reconnectTimer = setTimeout(() => setSseKey((k) => k + 1), 3000);
+      }
     };
-    return () => es.close();
+    return () => {
+      es.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
   }, [sessionId, sseKey]);
 
   const { data: session, isLoading } = useQuery({
