@@ -877,9 +877,12 @@ async function runDiscoveryPhase(
   seedPath: string,
   robotsRules: RobotsRules | null,
   seenHashes: Set<string>,
+  /** When provided (Crawl Boost parallel mode), reuse this controller instead of
+   *  creating a new one, and skip managing activeCrawlers here. */
+  externalController?: AbortController,
 ): Promise<void> {
-  const controller = new AbortController();
-  activeCrawlers.set(sessionId, controller);
+  const controller = externalController ?? new AbortController();
+  if (!externalController) activeCrawlers.set(sessionId, controller);
 
   // Cap at 4 workers on a single instance to stay within RAM budget.
   // Default 2 — conservative enough for a B2-class Azure plan while still
@@ -894,7 +897,7 @@ async function runDiscoveryPhase(
       ),
     );
   } finally {
-    if (activeCrawlers.get(sessionId) === controller) activeCrawlers.delete(sessionId);
+    if (!externalController && activeCrawlers.get(sessionId) === controller) activeCrawlers.delete(sessionId);
     logger.info({ sessionId, workerCount }, "Discovery phase complete");
   }
 }
@@ -908,9 +911,14 @@ async function runScanPhase(
   seedDomain: string,
   seedPath: string,
   robotsRules: RobotsRules | null,
+  /** Crawl Boost parallel mode: keep the scan loop alive while Phase 1 is still
+   *  adding pages (poll instead of exiting when the discovered queue is empty). */
+  waitForDiscovery = false,
+  /** Shared AbortController from the caller (Crawl Boost parallel mode). */
+  externalController?: AbortController,
 ): Promise<void> {
-  const controller = new AbortController();
-  activeCrawlers.set(sessionId, controller);
+  const controller = externalController ?? new AbortController();
+  if (!externalController) activeCrawlers.set(sessionId, controller);
 
   const allHrefs = new Map<string, { source: string; text: string }>();
 
@@ -963,6 +971,25 @@ async function runScanPhase(
         .limit(1);
 
       if (!page) {
+        // Crawl Boost parallel mode: Phase 1 may still be adding pages.
+        // Poll until the discovery queue drains before running end-of-scan retries.
+        if (waitForDiscovery && !controller.signal.aborted) {
+          const [{ pendingCnt }] = await db
+            .select({ pendingCnt: sql<number>`count(*)::int` })
+            .from(crawlerPagesTable)
+            .where(
+              and(
+                eq(crawlerPagesTable.sessionId, sessionId),
+                sql`${crawlerPagesTable.status} IN ('pending', 'navigating')`,
+              ),
+            );
+          if (pendingCnt > 0) {
+            // Phase 1 still working — wait briefly and check for new discovered pages
+            await new Promise((resolve) => setTimeout(resolve, 2_000));
+            continue;
+          }
+        }
+
         if (endOfScanRetryRound >= MAX_END_OF_SCAN_RETRIES) break;
 
         const failedRows = await db.select({ id: crawlerPagesTable.id, url: crawlerPagesTable.url })
@@ -1249,7 +1276,7 @@ async function runScanPhase(
       }
     }
   } finally {
-    if (activeCrawlers.get(sessionId) === controller) activeCrawlers.delete(sessionId);
+    if (!externalController && activeCrawlers.get(sessionId) === controller) activeCrawlers.delete(sessionId);
   }
 }
 
@@ -1386,6 +1413,47 @@ export async function startCrawlerJob(sessionId: number): Promise<void> {
       logger.warn({ sessionId, domain: seedDomain }, "skipDiscovery set but no cache found — running Phase 1");
     }
 
+    // ── Crawl Boost: run Phase 1 and Phase 2 truly in parallel ───────────────
+    // When crawlBoost is enabled, start accessibility scanning as pages are
+    // discovered instead of waiting for all of Phase 1 to finish first.
+    if (config.crawlBoost && config.autoScan && !config.crawlOnly && !config.skipDiscovery) {
+      logger.info({ sessionId }, "Crawl Boost: starting Phase 1 + Phase 2 in parallel");
+
+      const sharedController = new AbortController();
+      activeCrawlers.set(sessionId, sharedController);
+
+      // Jump straight to "scanning" status — Phase 2 loop requires it.
+      await db.update(crawlerSessionsTable)
+        .set({ status: "scanning", scanStartedAt: new Date() })
+        .where(eq(crawlerSessionsTable.id, sessionId));
+
+      try {
+        await Promise.all([
+          // Phase 1: discover URLs and capture pre-rendered HTML
+          runDiscoveryPhase(sessionId, config, seedDomain, seedPath, robotsRules, seenHashes, sharedController),
+          // Phase 2: scan discovered pages as they arrive (waitForDiscovery keeps
+          // the loop alive while Phase 1 is still adding pages)
+          runScanPhase(
+            sessionId, config, scanSessionId!, prevHashes,
+            seedDomain, seedPath, robotsRules,
+            /* waitForDiscovery */ true,
+            /* externalController */ sharedController,
+          ),
+        ]);
+      } finally {
+        if (activeCrawlers.get(sessionId) === sharedController) activeCrawlers.delete(sessionId);
+      }
+
+      // Save discovery cache after both phases complete (for future incremental scans)
+      if (!sharedController.signal.aborted) {
+        await saveDiscoveryCache(sessionId, seedDomain, session.seedUrl).catch((err) =>
+          logger.warn({ sessionId, err }, "Crawl Boost: discovery cache save failed — continuing"),
+        );
+      }
+      return;
+    }
+
+    // ── Sequential flow (no Crawl Boost) ────────────────────────────────────
     await runDiscoveryPhase(sessionId, config, seedDomain, seedPath, robotsRules, seenHashes);
 
     // Check if aborted (paused/cancelled)
@@ -1400,7 +1468,7 @@ export async function startCrawlerJob(sessionId: number): Promise<void> {
       .where(eq(crawlerSessionsTable.id, sessionId));
     activeCrawlers.delete(sessionId);
 
-      if (config.autoScan && !config.crawlOnly) {
+    if (config.autoScan && !config.crawlOnly) {
       logger.info({ sessionId }, "Phase 1 complete — auto-starting Phase 2 scan");
       await startScanPhase(sessionId);
     } else {
