@@ -447,11 +447,28 @@ router.get("/crawler/sessions/:id", requireAuth, async (req: Request, res: Respo
     confirmedBrokenLinks = session.brokenLinksCount ?? 0;
   }
 
+  // Count pages still waiting to be crawled in Phase 1.
+  // Included here (not just in the SSE stream) so the frontend has accurate
+  // queue depth even after SSE closes for paused / failed / cancelled sessions.
+  // Uses pool.query (raw SQL) to avoid adding an extra Drizzle chain that the
+  // test mock does not expect, while staying consistent with the other count queries above.
+  let pendingPages = 0;
+  try {
+    const pendingResult = await pool.query<{ cnt: string }>(
+      `SELECT COUNT(*)::text AS cnt FROM crawler_pages WHERE session_id = $1 AND status = 'pending'`,
+      [sessionId],
+    );
+    pendingPages = parseInt(pendingResult.rows[0]?.cnt || "0", 10);
+  } catch {
+    // Non-critical: default to 0 if the count query is unavailable.
+  }
+
   res.json({
     ...withTriggeredBy(session, triggeredByUsers),
     brokenLinksCount: confirmedBrokenLinks,
     config: safeConfig,
     pagesWithIssues,
+    pendingPages,
     crawlBoost: !!(session.config as any)?.crawlBoost,
   });
 });

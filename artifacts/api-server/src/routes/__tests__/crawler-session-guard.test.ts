@@ -217,14 +217,15 @@ describe("Crawler session IDOR guard — GET /api/crawler/sessions/:id", () => {
   });
 
   it("returns 200 for an admin user without calling canAccessSite", async () => {
-    mockDbQuery.mockResolvedValueOnce([MOCK_SESSION_SITE]);
+    mockDbQuery.mockResolvedValueOnce([MOCK_SESSION_SITE]); // resolveSession
 
     const app = await createTestApp(ADMIN_USER);
     const res = await request(app).get("/api/crawler/sessions/999");
 
     expect(mockCanAccessSite).not.toHaveBeenCalled();
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ id: 999 });
+    // pendingPages defaults to 0 when pool.query is not mocked (caught gracefully)
+    expect(res.body).toMatchObject({ id: 999, pendingPages: 0 });
   });
 });
 

@@ -2,6 +2,8 @@ import {
   Activity,
   AlertTriangle,
   Check,
+  Database,
+  GitBranch,
   Link2,
   Radar,
   ScanLine,
@@ -23,6 +25,7 @@ interface TimeDetails {
 interface LiveSession {
   status: string;
   totalDiscovered: number;
+  pendingPages?: number;
   totalScanned: number;
   totalFailed: number;
   totalSkipped: number;
@@ -33,6 +36,8 @@ interface LiveSession {
   scanSessionId: number | null;
   scanStartedAt: string | null;
   crawlBoost?: boolean;
+  /** Raw session config forwarded from the API — values read with explicit casts below */
+  config?: Record<string, unknown>;
 }
 
 interface CrawlerLiveOverviewProps {
@@ -167,6 +172,16 @@ export function CrawlerLiveOverview({
   timeDetails,
 }: CrawlerLiveOverviewProps) {
   const phase1Active = session.status === "pending" || session.status === "starting" || session.status === "discovering";
+  const queuedForDiscovery = session.pendingPages ?? 0;
+  // Phase 1 is truly complete when the session has advanced past the crawl phase, OR when an
+  // interrupted session (paused/failed/cancelled) left zero pending pages — meaning all URLs were
+  // visited before the interruption.  Sessions that never started (pending/starting) are excluded
+  // via the !phase1Active guard even if pendingPages happens to be 0.
+  const phase1Complete =
+    session.status === "crawled" ||
+    session.status === "scanning" ||
+    session.status === "completed" ||
+    (!phase1Active && queuedForDiscovery === 0 && session.totalDiscovered > 0);
   const isScanning = session.status === "scanning";
   const isLive = phase1Active || isScanning;
   const discovered = trueTotalPages || session.totalDiscovered;
@@ -174,6 +189,52 @@ export function CrawlerLiveOverview({
   const scanDetail = phase2Started
     ? `${progress}% of discovered pages`
     : "Waiting for accessibility scan";
+
+  // Phase 1 mode flags derived from session config (values are unknown — cast explicitly)
+  const cfg = session.config ?? {};
+  const isCached = cfg.skipDiscovery === true;
+  const maxPages = typeof cfg.maxPages === "number" ? cfg.maxPages : 0;
+  // Max-reached: Phase 1 finished and the discovered count meets the configured page cap
+  const isMaxReached = phase1Complete && !isCached && maxPages > 0 && discovered >= maxPages;
+  // Incremental: comparing content against a previous session (not a full cache skip)
+  const isIncremental = cfg.incremental === true && !isCached;
+  // Crawl Boost: Phase 1 crawl and Phase 2 scan run in parallel
+  const isCrawlBoost = !!(session.crawlBoost);
+  // For Crawl Boost active: how many URLs have already passed Phase 1 (been crawled)
+  const crawledSoFar = isCrawlBoost && phase1Active ? Math.max(0, discovered - queuedForDiscovery) : 0;
+
+  // Derive Phase 1 detail text for the tile
+  const phase1Detail = isCached
+    ? "Discovery cache · Phase 1 skipped"
+    : phase1Active
+      ? isCrawlBoost
+        ? `${crawledSoFar.toLocaleString()} crawled · ${queuedForDiscovery.toLocaleString()} still in crawl queue`
+        : `${discoveryProgress}% crawled · ${queuedForDiscovery.toLocaleString()} in crawl queue`
+      : phase1Complete
+        ? isMaxReached
+          ? `Capped at ${maxPages.toLocaleString()} (site max)`
+          : "Phase 1 complete"
+        : queuedForDiscovery > 0
+          ? `${discoveryProgress}% crawled · ${queuedForDiscovery.toLocaleString()} pages not yet crawled`
+          : `${discoveryProgress}% crawled — crawl stopped`;
+
+  // Derive Phase 1 pipeline sub-label (shorter, for the pipeline card)
+  const phase1PipelineLabel = isCached
+    ? "From discovery cache"
+    : phase1Active
+      ? isCrawlBoost
+        ? `${crawledSoFar.toLocaleString()} crawled · ${queuedForDiscovery.toLocaleString()} queued`
+        : `${queuedForDiscovery.toLocaleString()} pages still to crawl`
+      : phase1Complete
+        ? isMaxReached
+          ? `Capped at ${maxPages.toLocaleString()} (site max)`
+          : "All URLs crawled"
+        : queuedForDiscovery > 0
+          ? `${queuedForDiscovery.toLocaleString()} pages not yet crawled`
+          : "Crawl stopped";
+
+  // Phase 1 tile title adapts to mode
+  const phase1Title = isCached ? "URLs from cache" : "URLs found";
 
   return (
     <section className="crawler-live-overview relative space-y-5">
@@ -193,10 +254,89 @@ export function CrawlerLiveOverview({
       </div>
 
       <div className="relative grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <LiveTile eyebrow="Phase 01" title="URLs discovered" value={discovered.toLocaleString()} detail={`${discoveryProgress}% discovery complete`} kind="radar" tone="violet" status={phase1Active ? "live" : "synced"}>
-          <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-[#eee9ff]">
-            <div className="h-full rounded-full bg-[#8c72e8] transition-all duration-700" style={{ width: `${Math.min(100, discoveryProgress)}%` }} />
-          </div>
+        <LiveTile
+          eyebrow="Phase 01"
+          title={phase1Title}
+          value={discovered.toLocaleString()}
+          detail={phase1Detail}
+          kind="radar"
+          tone="violet"
+          status={phase1Active ? "live" : isCached ? "synced" : "synced"}
+        >
+          {/* ── Discovery cache: URLs loaded from a saved snapshot, Phase 1 skipped ── */}
+          {isCached ? (
+            <div className="mt-4 space-y-2">
+              <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                <Database className="mt-px h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden="true" />
+                <div>
+                  <p className="text-[11px] font-semibold text-amber-800">Discovery cache used</p>
+                  <p className="mt-0.5 text-[10px] leading-relaxed text-amber-700">
+                    URLs were loaded from a saved crawl snapshot — Phase 1 was skipped.
+                    {maxPages > 0 && discovered < maxPages
+                      ? ` Site limit is ${maxPages.toLocaleString()} pages; ${(maxPages - discovered).toLocaleString()} unused.`
+                      : maxPages > 0 && discovered >= maxPages
+                        ? ` All ${maxPages.toLocaleString()} cached URLs used (site max).`
+                        : null}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : isCrawlBoost && phase1Active ? (
+            /* ── Crawl Boost active: crawl + scan running in parallel ── */
+            <div className="mt-4 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-[11px] font-medium text-[#6d48c7]">
+                  <span className="h-2 w-2 rounded-full bg-[#8c72e8]" aria-hidden="true" />
+                  {crawledSoFar.toLocaleString()} crawled
+                </span>
+                <span className="text-[11px] text-[#77839a]">{queuedForDiscovery.toLocaleString()} in crawl queue</span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-[#eee9ff]">
+                <div
+                  className="h-full rounded-full bg-[#8c72e8] transition-all duration-700"
+                  style={{ width: `${discovered > 0 ? Math.min(100, Math.round((crawledSoFar / discovered) * 100)) : 0}%` }}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#eee9ff] px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wide text-[#6d48c7]">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#8c72e8]" aria-hidden="true" />
+                  Crawl boost
+                </span>
+                <span className="text-[10px] text-[#77839a]">Scan starting in parallel</span>
+              </div>
+            </div>
+          ) : (
+            /* ── Normal / complete / interrupted ── */
+            <div className="mt-5 space-y-2">
+              <div className="h-1.5 overflow-hidden rounded-full bg-[#eee9ff]">
+                <div className="h-full rounded-full bg-[#8c72e8] transition-all duration-700" style={{ width: `${Math.min(100, discoveryProgress)}%` }} />
+              </div>
+              {/* Max pages hit */}
+              {isMaxReached && (
+                <div className="flex items-center gap-1.5 text-[11px] text-amber-700">
+                  <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  At site page limit — some pages may not have been crawled
+                </div>
+              )}
+              {/* Incremental badge (when not at limit) */}
+              {isIncremental && phase1Complete && !isMaxReached && (
+                <div className="flex items-center gap-1.5 text-[11px] text-teal-600">
+                  <GitBranch className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  Incremental scan · comparing with previous session
+                </div>
+              )}
+              {/* Crawl Boost complete badge */}
+              {isCrawlBoost && phase1Complete && (
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#eee9ff] px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wide text-[#6d48c7]">
+                    <Check className="h-2.5 w-2.5" aria-hidden="true" />
+                    Crawl boost
+                  </span>
+                  <span className="text-[10px] text-[#77839a]">Phase 1 complete</span>
+                </div>
+              )}
+            </div>
+          )}
         </LiveTile>
         <LiveTile eyebrow="Phase 02" title="Pages scanned" value={session.totalScanned.toLocaleString()} detail={scanDetail} kind="scan" tone="blue" status={isScanning ? "live" : phase2Started ? "synced" : undefined}>
           <div className="relative mt-5 h-1.5 overflow-hidden rounded-full bg-[#e6f2ff]">
@@ -232,13 +372,15 @@ export function CrawlerLiveOverview({
               <div className="flex items-center gap-2 text-[11px] font-semibold text-[#6d48c7]">
                 {phase1Active ? (
                   <Radar className="h-4 w-4 animate-[spin_2.5s_linear_infinite] motion-reduce:animate-none" aria-label="Crawling in progress" />
-                ) : (
+                ) : phase1Complete ? (
                   <Check className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <AlertTriangle className="h-4 w-4 text-amber-500" aria-label="Crawl interrupted" />
                 )}
                 Phase 1 · URL crawl
               </div>
               <p className="mt-2 text-xl font-semibold tracking-tight text-[#172b4d]">{discovered.toLocaleString()}</p>
-              <p className="mt-0.5 text-[10px] text-[#77839a]">{phase1Active ? "URLs being captured" : "URLs captured"}</p>
+              <p className="mt-0.5 text-[10px] text-[#77839a]">{phase1PipelineLabel}</p>
             </div>
             <div className="relative hidden h-px w-12 bg-[#c7b9f3] sm:block" aria-hidden="true">
               <span className="absolute -right-0.5 -top-1 h-2.5 w-2.5 rounded-full bg-[#8c72e8] shadow-[0_0_0_5px_rgba(140,114,232,.12)]" />

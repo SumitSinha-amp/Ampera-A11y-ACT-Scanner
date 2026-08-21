@@ -159,8 +159,8 @@ function pageStatusLabel(status: string, isCrawlBoost = false) {
     if (status === "scanning")   return "Snapshot Captured";
   }
   const labels: Record<string, string> = {
-    pending:    "Queued",
-    discovered: "Discovered",
+    pending:    "Crawl queued",
+    discovered: "Crawled",
     scanning:   "Analysing",
     completed:  "Completed",
     failed:     "Failed",
@@ -183,7 +183,7 @@ const DISC_BOOST_STEPS = [
   "Capturing Snapshot", "Running Analysis", "Extracting Links", "Saving Results", "Completed",
 ];
 const DISC_NORMAL_STEPS = [
-  "Queued", "Loading Page", "Extracting Links", "Saving Results", "Completed",
+  "Awaiting crawl", "Loading Page", "Extracting Links", "Saving Results", "Crawled",
 ];
 const SCAN_STEPS_LIST = [
   "Queued for Scan", "Starting Scan", "Running Rules",
@@ -309,7 +309,7 @@ function PageStageIndicator({ info }: { info: PageStepInfo }) {
           {info.label}
         </span>
         <span className="text-[10px] text-muted-foreground">
-          {info.step + 1} / {info.total + 1}
+          {info.phase === "discovery" ? "Phase 1" : "Phase 2"} · step {info.step + 1}/{info.total + 1}
         </span>
       </div>
     </div>
@@ -1041,8 +1041,8 @@ export default function CrawlerDetailPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All</SelectItem>
-                <SelectItem value="pending">Queued</SelectItem>
-                <SelectItem value="discovered">{displaySession.crawlBoost ? "DOM Captured" : "Discovered"}</SelectItem>
+                <SelectItem value="pending">Crawl queued</SelectItem>
+                <SelectItem value="discovered">{displaySession.crawlBoost ? "DOM Captured" : "Crawled"}</SelectItem>
                 <SelectItem value="scanning">{displaySession.crawlBoost ? "Snapshot Captured" : "Analysing"}</SelectItem>
                 <SelectItem value="completed">Completed</SelectItem>
                 <SelectItem value="failed">Failed</SelectItem>
