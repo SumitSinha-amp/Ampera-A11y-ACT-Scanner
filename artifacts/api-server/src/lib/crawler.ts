@@ -191,7 +191,12 @@ async function discoverPageLinksWithPuppeteer(
           if (rawHtml) {
             const links = extractLinks(rawHtml, url);
             logger.info({ url, linkCount: links.length }, "Discovery: scanner-pool fallback extracted links");
-            if (links.length > 0) return { links, httpStatus: 200 };
+            if (links.length > 0) {
+              // The scanner-pool browser has Cloudflare clearance cookies, so rawHtml
+              // is the real rendered page — pass it as capturedHtml so Phase 2 can
+              // use page.setContent() instead of re-navigating and hitting Cloudflare again.
+              return { links, httpStatus: 200, ...(captureHtml ? { capturedHtml: rawHtml } : {}) };
+            }
           }
         } catch (poolErr) {
           logger.warn({ url, err: String(poolErr) }, "Discovery: scanner-pool fallback failed");
