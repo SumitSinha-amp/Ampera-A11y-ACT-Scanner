@@ -285,6 +285,12 @@ export interface CrawlerConfig {
    * Cloudflare/bot challenges in Phase 2.
    */
   crawlBoost?: boolean;
+  /**
+   * Number of parallel discovery browsers to use during Phase 1.
+   * Each worker claims URLs atomically so there is no double-crawling.
+   * Capped at 4 on a single instance; default 2.
+   */
+  discoveryWorkers?: number;
   /** Persisted Siteimprove-style URL policy snapshot for this crawl. */
   contentRules?: Array<{
     id?: number;
@@ -675,36 +681,58 @@ function shouldEnqueue(
   return evaluateUrlPolicy(url, seedDomain, seedPath, robotsRules, config).allowed;
 }
 
-// ── Phase 1 — Discovery loop ─────────────────────────────────────────────────
-async function runDiscoveryPhase(
+// ── Phase 1 — Discovery helpers ──────────────────────────────────────────────
+
+/**
+ * Atomically claim one pending discovery page using SELECT … FOR UPDATE SKIP
+ * LOCKED inside a transaction. Multiple workers calling this concurrently each
+ * get a different row; no URL is visited twice.  Returns null when the queue
+ * is empty or every remaining pending row is already held by another worker.
+ */
+async function claimNextPendingPage(sessionId: number) {
+  return db.transaction(async (tx) => {
+    const [row] = await tx.select()
+      .from(crawlerPagesTable)
+      .where(and(eq(crawlerPagesTable.sessionId, sessionId), eq(crawlerPagesTable.status, "pending")))
+      .orderBy(crawlerPagesTable.id)
+      .limit(1)
+      .for("update", { skipLocked: true });
+    if (!row) return null;
+    // Mark as claimed so other workers skip it immediately.
+    await tx.update(crawlerPagesTable)
+      .set({ status: "navigating" })
+      .where(eq(crawlerPagesTable.id, row.id));
+    return row;
+  });
+}
+
+// ── Phase 1 — Single discovery worker (one Chromium per worker) ──────────────
+async function runDiscoveryWorker(
+  workerId: number,
   sessionId: number,
   config: CrawlerConfig,
   seedDomain: string,
   seedPath: string,
   robotsRules: RobotsRules | null,
   seenHashes: Set<string>,
+  controller: AbortController,
 ): Promise<void> {
-  const controller = new AbortController();
-  activeCrawlers.set(sessionId, controller);
-
   let discoveryBrowser: Browser | null = null;
   try {
     discoveryBrowser = await launchDiscoveryBrowser();
+    logger.info({ sessionId, workerId }, "Discovery worker started");
 
     while (!controller.signal.aborted) {
       const [current] = await db.select({ status: crawlerSessionsTable.status })
         .from(crawlerSessionsTable).where(eq(crawlerSessionsTable.id, sessionId)).limit(1);
       if (!current || current.status !== "discovering") break;
 
-      const [pendingPage] = await db.select()
-        .from(crawlerPagesTable)
-        .where(and(eq(crawlerPagesTable.sessionId, sessionId), eq(crawlerPagesTable.status, "pending")))
-        .orderBy(crawlerPagesTable.id)
-        .limit(1);
-
+      // Atomically claim the next pending URL — no two workers visit the same page.
+      const pendingPage = await claimNextPendingPage(sessionId);
       if (!pendingPage) break;
 
-      // Depth check
+      // Depth check — skip over-depth pages and continue to the next URL so
+      // other valid pending pages at shallower depths are not abandoned.
       if (pendingPage.depth > config.maxDepth) {
         await db.update(crawlerPagesTable)
           .set({ status: "skipped", scannedAt: new Date(), errorMessage: "Max depth exceeded" })
@@ -715,7 +743,7 @@ async function runDiscoveryPhase(
           reason: "Maximum crawl depth exceeded",
         }, pendingPage.discoveredFrom ?? undefined);
         await updateCrawlerStats(sessionId);
-        return;
+        continue;
       }
 
       const pageType = classifyPageType(pendingPage.url);
@@ -732,7 +760,7 @@ async function runDiscoveryPhase(
         // A final 4xx/5xx response is a broken destination. Successful
         // redirects are followed by the browser/fetch and are not broken.
         if (httpStatus >= 400 && httpStatus !== 403) {
-          logger.info({ sessionId, url: pendingPage.url, httpStatus }, "Discovery: broken page detected");
+          logger.info({ sessionId, workerId, url: pendingPage.url, httpStatus }, "Discovery: broken page detected");
           await db.insert(brokenLinksTable).values({
             sessionId,
             sourceUrl: pendingPage.discoveredFrom ?? pendingPage.url,
@@ -752,7 +780,11 @@ async function runDiscoveryPhase(
           continue;
         }
 
-        // Enqueue newly discovered URLs
+        // Enqueue newly discovered URLs.
+        // seenHashes.add() is synchronous and runs before any await, so
+        // concurrent workers in the same Node.js event loop cannot both pass
+        // the has() check for the same URL — the DB unique constraint is a
+        // second safety net via onConflictDoNothing().
         if (config.followLinks) {
           for (const { url: linkUrl } of links) {
             const norm = normalizeUrl(linkUrl, pendingPage.url);
@@ -762,7 +794,7 @@ async function runDiscoveryPhase(
             if (!decision.allowed) continue;
             const hash = computeUrlHash(norm);
             if (seenHashes.has(hash)) continue;
-            seenHashes.add(hash);
+            seenHashes.add(hash); // synchronous — safe before first await
             const [{ cnt }] = await db.select({ cnt: sql<number>`count(*)::int` })
               .from(crawlerPagesTable).where(eq(crawlerPagesTable.sessionId, sessionId));
             if (cnt >= config.maxPages) continue;
@@ -799,7 +831,7 @@ async function runDiscoveryPhase(
             : msg.toLowerCase().includes("ssl") || msg.toLowerCase().includes("certificate")
               ? "ssl_error"
               : "network_error";
-        logger.info({ sessionId, url: pendingPage.url, err: msg }, "Discovery: link destination failed");
+        logger.info({ sessionId, workerId, url: pendingPage.url, err: msg }, "Discovery: link destination failed");
         await db.insert(brokenLinksTable).values({
           sessionId,
           sourceUrl: pendingPage.discoveredFrom ?? pendingPage.url,
@@ -820,11 +852,40 @@ async function runDiscoveryPhase(
       await updateCrawlerStats(sessionId);
     }
   } finally {
-    if (activeCrawlers.get(sessionId) === controller) activeCrawlers.delete(sessionId);
     if (discoveryBrowser) {
       await discoveryBrowser.close().catch(() => {});
-      logger.info({ sessionId }, "Discovery browser closed");
+      logger.info({ sessionId, workerId }, "Discovery worker browser closed");
     }
+  }
+}
+
+// ── Phase 1 — Discovery phase (spawns N parallel workers) ────────────────────
+async function runDiscoveryPhase(
+  sessionId: number,
+  config: CrawlerConfig,
+  seedDomain: string,
+  seedPath: string,
+  robotsRules: RobotsRules | null,
+  seenHashes: Set<string>,
+): Promise<void> {
+  const controller = new AbortController();
+  activeCrawlers.set(sessionId, controller);
+
+  // Cap at 4 workers on a single instance to stay within RAM budget.
+  // Default 2 — conservative enough for a B2-class Azure plan while still
+  // halving discovery time compared to a single browser.
+  const workerCount = Math.min(4, Math.max(1, config.discoveryWorkers ?? 2));
+  logger.info({ sessionId, workerCount }, "Discovery phase starting");
+
+  try {
+    await Promise.all(
+      Array.from({ length: workerCount }, (_, i) =>
+        runDiscoveryWorker(i + 1, sessionId, config, seedDomain, seedPath, robotsRules, seenHashes, controller),
+      ),
+    );
+  } finally {
+    if (activeCrawlers.get(sessionId) === controller) activeCrawlers.delete(sessionId);
+    logger.info({ sessionId, workerCount }, "Discovery phase complete");
   }
 }
 
@@ -1875,13 +1936,15 @@ export async function resumeOrphanedCrawlerSessions(): Promise<void> {
     for (const session of orphaned) {
       try {
         if (session.status === "discovering") {
-          // Phase 1 was in progress: reset any pages that were mid-scan back to
-          // "pending" so the discovery loop re-visits them.
+          // Phase 1 was in progress: reset any pages that were mid-discovery
+          // back to "pending" so workers re-visit them. This includes both
+          // "navigating" (atomically claimed by a parallel discovery worker
+          // but not yet finished) and "scanning" (legacy status name).
           const result = await db.update(crawlerPagesTable)
             .set({ status: "pending", errorMessage: null, scannedAt: null })
             .where(and(
               eq(crawlerPagesTable.sessionId, session.id),
-              eq(crawlerPagesTable.status, "scanning"),
+              inArray(crawlerPagesTable.status, ["navigating", "scanning"]),
             ));
 
           await db.update(crawlerSessionsTable)

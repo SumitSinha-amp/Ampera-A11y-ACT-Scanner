@@ -373,7 +373,7 @@ function fmtDurationCompact(ms: number | null, includeSeconds = false): string {
   const mins = minutes % 60;
   if (hours < 24) return includeSeconds ? `${hours}h ${mins}m ${secs}s` : `${hours}h ${mins}m`;
   const days = Math.floor(hours / 24);
-  return includeSeconds ? `${days}d ${hours % 24}h ${mins}m` : `${days}d ${hours % 24}h`;
+  return includeSeconds ? `${days}d ${hours % 24}h ${mins}m ${secs}s` : `${days}d ${hours % 24}h ${mins}m`;
 }
 
 export default function CrawlerDetailPage() {
