@@ -212,12 +212,14 @@ function getPageStepInfo(
   if (pageStatus === "skipped")
     return { label: "Unchanged", step: 0, total: 0, color: "#9ca3af", isActive: false, phase: "terminal" };
 
-  // Determine phase: scan phase when the session or page is in scan territory
+  // Determine phase: scan phase when the session or page is in scan territory.
+  // "crawled" means Phase 1 is done and the page is queued for Phase 2 — it
+  // should display as Phase 2 (Queued), not Phase 1.
   const inScanPhase =
     pageStatus === "scanning" ||
     pageStatus === "completed" ||
     (pageStatus === "discovered" &&
-      (sessionStatus === "scanning" || sessionStatus === "completed"));
+      (sessionStatus === "scanning" || sessionStatus === "completed" || sessionStatus === "crawled"));
 
   if (!inScanPhase) {
     const steps = crawlBoost ? DISC_BOOST_STEPS : DISC_NORMAL_STEPS;

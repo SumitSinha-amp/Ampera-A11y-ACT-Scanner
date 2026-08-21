@@ -1461,6 +1461,25 @@ export async function startCrawlerJob(sessionId: number): Promise<void> {
       .from(crawlerSessionsTable).where(eq(crawlerSessionsTable.id, sessionId)).limit(1);
     if (!afterDisc || afterDisc.status !== "discovering") return;
 
+    // If any pages are still in "navigating" status (a discovery worker crashed
+    // mid-navigation without updating the row), mark them broken now.  If left
+    // as "navigating", Phase 2 can never pick them up and the session silently
+    // "completes" with 0 pages scanned.
+    const stuckResult = await db.update(crawlerPagesTable)
+      .set({
+        status: "broken",
+        errorMessage: "Discovery: worker exited before navigation completed",
+        scannedAt: new Date(),
+      })
+      .where(and(
+        eq(crawlerPagesTable.sessionId, sessionId),
+        eq(crawlerPagesTable.status, "navigating"),
+      ));
+    const stuckCount = (stuckResult as unknown as { rowCount?: number }).rowCount ?? 0;
+    if (stuckCount > 0) {
+      logger.warn({ sessionId, stuckCount }, "Phase 1 cleanup: reset stuck 'navigating' pages to 'broken'");
+    }
+
     // Phase 1 complete → save cache then move to "crawled" state.
     await saveDiscoveryCache(sessionId, seedDomain, session.seedUrl);
     await db.update(crawlerSessionsTable)
