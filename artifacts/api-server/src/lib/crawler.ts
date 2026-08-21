@@ -67,23 +67,33 @@ function getDiscoveryChromiumPath(): string | undefined {
   return undefined;
 }
 
-async function launchDiscoveryBrowser(): Promise<Browser> {
+async function launchDiscoveryBrowser(workerId: number): Promise<Browser> {
+  // Each parallel discovery worker gets its own userDataDir so multiple Chrome
+  // instances can run concurrently without hitting "The browser is already
+  // running for <userDataDir>".  Worker 1 keeps the legacy unsuffixed path for
+  // backward compatibility (preserves any existing Cloudflare clearance cookies).
+  const profileDir = workerId <= 1
+    ? CRAWLER_PROFILE_DIR
+    : `${CRAWLER_PROFILE_DIR}-w${workerId}`;
+
+  try { mkdirSync(profileDir, { recursive: true }); } catch { /* exists */ }
+
   // Remove stale Chrome singleton/lock files left behind when the server was
   // killed while a crawl was in progress. Without this cleanup, Chrome refuses
   // to launch with "The browser is already running for <userDataDir>".
   for (const lockFile of ["SingletonLock", "SingletonCookie", "SingletonSocket", "DevToolsActivePort"]) {
-    const p = path.join(CRAWLER_PROFILE_DIR, lockFile);
-    try { rmSync(p); } catch { /* doesn't exist — that's fine */ }
+    const p = path.join(profileDir, lockFile);
+    try { rmSync(p); logger.info({ file: p }, "Removed stale Chrome lock file"); } catch { /* doesn't exist — that's fine */ }
   }
 
   const executablePath = getDiscoveryChromiumPath();
-  logger.info({ executablePath: executablePath ?? "(puppeteer default)" }, "Launching discovery browser");
+  logger.info({ executablePath: executablePath ?? "(puppeteer default)", workerId, profileDir }, "Launching discovery browser");
   return puppeteerExtra.launch({
     headless: true,
     executablePath,
-    // Reuse a single persistent profile so Cloudflare clearance cookies survive
+    // Per-worker persistent profile so Cloudflare clearance cookies survive
     // across pages within a session (and partly across sessions).
-    userDataDir: CRAWLER_PROFILE_DIR,
+    userDataDir: profileDir,
     args: CRAWLER_LAUNCH_ARGS,
     // Discovery also retries slow navigation and evaluates large rendered
     // documents; keep CDP calls from expiring while the page is settling.
@@ -719,7 +729,7 @@ async function runDiscoveryWorker(
 ): Promise<void> {
   let discoveryBrowser: Browser | null = null;
   try {
-    discoveryBrowser = await launchDiscoveryBrowser();
+    discoveryBrowser = await launchDiscoveryBrowser(workerId);
     logger.info({ sessionId, workerId }, "Discovery worker started");
 
     while (!controller.signal.aborted) {
