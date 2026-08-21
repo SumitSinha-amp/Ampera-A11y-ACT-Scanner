@@ -2055,24 +2055,44 @@ export async function resumeOrphanedCrawlerSessions(): Promise<void> {
             .catch((err) => logger.error({ sessionId: session.id, err }, "Startup recovery Phase 1 failed"));
 
         } else if (session.status === "scanning") {
-          // Phase 2 was in progress: reset pages stuck in "scanning" back to
-          // "discovered" so runScanPhase() picks them up again.
+          // Phase 2 was in progress: reset pages stuck mid-scan ("scanning")
+          // back to "discovered" so runScanPhase() picks them up again.
           const result = await db.update(crawlerPagesTable)
             .set({ status: "discovered", errorMessage: null, scannedAt: null })
             .where(and(
               eq(crawlerPagesTable.sessionId, session.id),
               eq(crawlerPagesTable.status, "scanning"),
             ));
+          const pagesReset = (result as unknown as { rowCount?: number }).rowCount ?? 0;
 
-          // resumeCrawlerJob requires "paused" or "failed"; set that first.
+          // Any "pending" or "navigating" pages are Phase 1 orphans — the
+          // discovery phase will NOT run again in this path, so mark them broken
+          // now. Without this, resumeCrawlerJob sees pendingCnt > 0 and
+          // re-runs Phase 1 discovery instead of Phase 2, causing an infinite
+          // restart loop on sites with Cloudflare or slow discovery.
+          const orphanResult = await db.update(crawlerPagesTable)
+            .set({
+              status: "broken",
+              errorMessage: "Phase 1 orphan: discovery did not complete before container restart",
+              scannedAt: new Date(),
+            })
+            .where(and(
+              eq(crawlerPagesTable.sessionId, session.id),
+              inArray(crawlerPagesTable.status, ["pending", "navigating"]),
+            ));
+          const orphansCleared = (orphanResult as unknown as { rowCount?: number }).rowCount ?? 0;
+
+          // startScanPhase requires the session to be in "crawled" state.
           await db.update(crawlerSessionsTable)
-            .set({ status: "paused" })
+            .set({ status: "crawled" })
             .where(eq(crawlerSessionsTable.id, session.id));
 
-          logger.info({ sessionId: session.id, pagesReset: (result as unknown as { rowCount?: number }).rowCount ?? 0 },
+          logger.info({ sessionId: session.id, pagesReset, orphansCleared },
             "Startup recovery: resuming Phase 2 (scanning)");
 
-          void resumeCrawlerJob(session.id)
+          // Call startScanPhase directly — NOT resumeCrawlerJob, which would
+          // re-run Phase 1 if any "pending" pages exist.
+          void startScanPhase(session.id)
             .catch((err) => logger.error({ sessionId: session.id, err }, "Startup recovery Phase 2 failed"));
 
         } else if (session.status === "crawled" && !(session.config as CrawlerConfig).crawlOnly) {
