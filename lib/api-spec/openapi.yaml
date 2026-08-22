@@ -1027,6 +1027,11 @@ components:
           items:
             type: string
           description: If provided, only check these rule IDs (e.g. ["ACT-R14","ACT-R35"])
+        wcagLevels:
+          type: array
+          items:
+            type: string
+          description: Accessibility scope levels selected for this scan
         proxyPacUrl:
           type: string
           description: PAC file URL to route scan traffic through a corporate proxy

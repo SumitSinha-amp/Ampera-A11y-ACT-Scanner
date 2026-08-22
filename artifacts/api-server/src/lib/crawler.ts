@@ -316,6 +316,8 @@ export interface CrawlerConfig {
   initiatorName?: string;
   initiatorRole?: string;
   rules?: string[];
+  wcagLevels?: string[];
+  selectedRules?: string[];
   skipDiscovery?: boolean;
   /**
    * Crawl Boost: when true, Phase 1 captures each page's rendered HTML

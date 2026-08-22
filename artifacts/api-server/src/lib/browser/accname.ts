@@ -1,104 +1,167 @@
-import { getSubtreeText } from "./dom-helpers";
+import { isCssHidden } from "./visibility";
 
-export function getAccessibleName(el: Element, visited?: WeakSet<Element>): string {
-  if (!visited) visited = new WeakSet();
+const NAME_FROM_CONTENTS_ROLES = new Set([
+  "button", "cell", "checkbox", "columnheader", "gridcell", "heading",
+  "link", "menuitem", "menuitemcheckbox", "menuitemradio", "option",
+  "radio", "row", "rowheader", "switch", "tab", "tooltip", "treeitem",
+]);
+
+function normalize(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function roleForName(el: Element): string {
+  const explicit = (el.getAttribute("role") || "")
+    .trim()
+    .split(/\s+/)
+    .find(Boolean);
+  if (explicit) return explicit;
+  const tag = el.tagName.toLowerCase();
+  if (tag === "a" && el.hasAttribute("href")) return "link";
+  if (tag === "button" || tag === "summary") return "button";
+  if (tag === "img") return el.getAttribute("alt") === "" ? "presentation" : "img";
+  if (/^h[1-6]$/.test(tag)) return "heading";
+  if (tag === "input") {
+    const type = (el.getAttribute("type") || "text").toLowerCase();
+    if (type === "checkbox") return "checkbox";
+    if (type === "radio") return "radio";
+    if (type === "range") return "slider";
+    if (type === "button" || type === "submit" || type === "reset" || type === "image") return "button";
+    return "textbox";
+  }
+  if (tag === "textarea") return "textbox";
+  if (tag === "select") return el.hasAttribute("multiple") ? "listbox" : "combobox";
+  return "generic";
+}
+
+function labelText(label: HTMLLabelElement, owner: Element, visited: WeakSet<Element>): string {
+  let text = "";
+  for (const child of Array.from(label.childNodes)) {
+    if (child === owner) continue;
+    text += textFromSubtree(child, visited, true);
+  }
+  return normalize(text);
+}
+
+function textFromSubtree(node: Node, visited: WeakSet<Element>, fromReference: boolean): string {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
+  if (!(node instanceof Element)) return "";
+  if (visited.has(node)) return "";
+  if (node.getAttribute("aria-hidden") === "true") return "";
+  if (!fromReference && isCssHidden(node)) return "";
+
+  if (node instanceof HTMLImageElement) return node.alt || "";
+  if (node instanceof HTMLInputElement) {
+    const type = node.type.toLowerCase();
+    if (type === "text" || type === "search" || type === "email" || type === "tel" || type === "url") {
+      return node.value || "";
+    }
+  }
+  if (node instanceof HTMLSelectElement) {
+    return Array.from(node.selectedOptions).map((option) => option.text).join(" ");
+  }
+
+  visited.add(node);
+  const pieces: string[] = [];
+  for (const child of Array.from(node.childNodes)) {
+    const value = textFromSubtree(child, visited, fromReference);
+    if (value) pieces.push(value);
+  }
+  visited.delete(node);
+  return pieces.join(" ");
+}
+
+function nativeLabel(el: Element, visited: WeakSet<Element>): string {
+  if (
+    !(el instanceof HTMLInputElement) &&
+    !(el instanceof HTMLSelectElement) &&
+    !(el instanceof HTMLTextAreaElement) &&
+    !(el instanceof HTMLMeterElement) &&
+    !(el instanceof HTMLProgressElement)
+  ) {
+    return "";
+  }
+  const labels = Array.from((el as HTMLInputElement).labels || []);
+  const text = labels
+    .map((label) => labelText(label, el, visited))
+    .filter(Boolean)
+    .join(" ");
+  return normalize(text);
+}
+
+/**
+ * AccName 1.1-compatible browser implementation used by rule applicability.
+ * Referenced aria-labelledby content is intentionally allowed to be hidden;
+ * ordinary descendant content is not.
+ */
+export function getAccessibleName(el: Element, visited: WeakSet<Element> = new WeakSet()): string {
   if (visited.has(el)) return "";
   visited.add(el);
 
-  // 1. aria-labelledby
   const labelledBy = el.getAttribute("aria-labelledby");
   if (labelledBy) {
     const name = labelledBy
       .trim()
       .split(/\s+/)
       .map((id) => {
-        const ref = document.getElementById(id);
-        if (!ref || visited!.has(ref)) return "";
-        // Referenced nodes use the same recursive name computation as their
-        // owner. This matters for nested aria-labelledby, image alt text,
-        // hidden referenced labels, and cycle protection.
-        return getAccessibleName(ref, visited);
+        const reference = document.getElementById(id);
+        if (!reference || visited.has(reference)) return "";
+        return getAccessibleName(reference, visited);
       })
       .filter(Boolean)
-      .join(" ")
-      .trim();
-    if (name) return name;
+      .join(" ");
+    if (normalize(name)) return normalize(name);
   }
 
-  // 2. aria-label
   const ariaLabel = el.getAttribute("aria-label");
-  if (ariaLabel?.trim()) return ariaLabel.trim().replace(/\s+/g, " ");
+  if (ariaLabel !== null && normalize(ariaLabel)) return normalize(ariaLabel);
 
-  // 3. Native sources by element type
   if (el instanceof HTMLInputElement) {
-    const type = el.type?.toLowerCase() || "text";
-    if (type === "image") return el.alt?.trim() || el.title?.trim() || "";
-    if (type === "submit") return el.value?.trim() || "Submit";
-    if (type === "reset") return el.value?.trim() || "Reset";
-    if (type === "button") return el.value?.trim() || "";
-    if (el.id) {
-      const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
-      if (label) return label.textContent?.trim() || "";
-    }
-    const parentLabel = el.closest("label");
-    if (parentLabel) {
-      const clone = parentLabel.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll("input,select,textarea").forEach((c) => c.remove());
-      const t = clone.textContent?.trim();
-      if (t) return t;
-    }
-    if (el.placeholder) return el.placeholder;
+    const type = el.type.toLowerCase();
+    if (type === "image") return normalize(el.alt || el.getAttribute("title") || "");
+    if (type === "submit") return normalize(el.value || "Submit");
+    if (type === "reset") return normalize(el.value || "Reset");
+    if (type === "button") return normalize(el.value || "");
   }
 
-  if (el instanceof HTMLSelectElement) {
-    if (el.id) {
-      const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
-      if (label) return label.textContent?.trim() || "";
-    }
-    const parentLabel = el.closest("label");
-    if (parentLabel) {
-      const clone = parentLabel.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll("input,select,textarea").forEach((c) => c.remove());
-      const t = clone.textContent?.trim();
-      if (t) return t;
+  if (el instanceof HTMLImageElement) return normalize(el.alt || "");
+
+  const label = nativeLabel(el, visited);
+  if (label) return label;
+
+  if (el instanceof HTMLFieldSetElement) {
+    const legend = el.querySelector(":scope > legend");
+    if (legend) {
+      const text = textFromSubtree(legend, visited, false);
+      if (normalize(text)) return normalize(text);
     }
   }
 
-  if (el instanceof HTMLTextAreaElement) {
-    if (el.id) {
-      const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
-      if (label) return label.textContent?.trim() || "";
+  if (el.tagName.toLowerCase() === "table") {
+    const caption = el.querySelector(":scope > caption");
+    if (caption) {
+      const text = textFromSubtree(caption, visited, false);
+      if (normalize(text)) return normalize(text);
     }
-    const parentLabel = el.closest("label");
-    if (parentLabel) {
-      const clone = parentLabel.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll("input,select,textarea").forEach((c) => c.remove());
-      const t = clone.textContent?.trim();
-      if (t) return t;
-    }
-    if (el.placeholder) return el.placeholder;
   }
 
-  if (el instanceof HTMLImageElement) {
-    return el.alt?.trim() || "";
-  }
-
-  // Alfa: SVG <title> as accessible name
   if (el.tagName.toLowerCase() === "svg") {
-    const titleEl = el.querySelector("title");
-    if (titleEl && titleEl.textContent?.trim()) return titleEl.textContent.trim();
+    const title = el.querySelector(":scope > title");
+    if (title) {
+      const text = textFromSubtree(title, visited, true);
+      if (normalize(text)) return normalize(text);
+    }
   }
 
-  // 4. title fallback
   const title = el.getAttribute("title");
-  if (title?.trim()) return title.trim();
+  if (title && normalize(title)) return normalize(title);
 
-  // 5. Subtree text (strips aria-hidden children, includes img alt)
-  // NOTE: el was added to `visited` above for aria-labelledby cycle detection;
-  // remove it before descending or getSubtreeText bails out immediately and
-  // every text-named element (headings, links) gets an empty name.
-  visited.delete(el);
-  return getSubtreeText(el, visited);
+  const role = roleForName(el);
+  if (NAME_FROM_CONTENTS_ROLES.has(role) || role === "generic") {
+    visited.delete(el);
+    return normalize(textFromSubtree(el, visited, false));
+  }
+  return "";
 }
 
 // ─── HELPER: getVisibleLabel (form field visible label) ──────────────────────
@@ -151,29 +214,7 @@ export function isInsideLandmark(el: Element): boolean {
 
 // Siteimprove/Alfa do not count placeholder as a valid accessible name.
 export function getFormFieldAccessibleName(el: Element): string {
-  const labelledBy = el.getAttribute("aria-labelledby");
-  if (labelledBy) {
-    const name = labelledBy.trim().split(/\s+/)
-      .map((id) => document.getElementById(id)?.textContent?.trim() || "")
-      .filter(Boolean).join(" ").trim();
-    if (name) return name;
-  }
-  const ariaLabel = el.getAttribute("aria-label");
-  if (ariaLabel?.trim()) return ariaLabel.trim();
-  if (el.id) {
-    const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
-    if (label) { const t = label.textContent?.trim(); if (t) return t; }
-  }
-  const parentLabel = el.closest("label");
-  if (parentLabel) {
-    const clone = parentLabel.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll("input,select,textarea").forEach((c) => c.remove());
-    const t = clone.textContent?.trim();
-    if (t) return t;
-  }
-  const title = el.getAttribute("title");
-  if (title?.trim()) return title.trim();
-  return "";
+  return getAccessibleName(el);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

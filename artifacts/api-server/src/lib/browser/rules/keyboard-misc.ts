@@ -1,5 +1,6 @@
 import type { ScanRawResult, PushStatFn } from "../types";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
+import { getAlfaPointerTargets, hasAlfaImageTargetSize, hasAlfaTargetSize, hasAlfaTargetSpacing } from "../alfa-helpers";
 import { isActuallyTabbable, isIncludedInAccessibilityTree, isProgrammaticallyHidden, isVisible } from "../visibility";
 
 export function runKeyboardMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: boolean, pushStat: PushStatFn): void {
@@ -162,77 +163,11 @@ export function runKeyboardMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_
   // ACT-R111: Touch target below 44×44px AAA enhanced minimum (WCAG 2.5.5)
   // ════════════════════════════════════════════════════════════════════════
   {
-    // Alfa R111 (2.5.5 AAA enhanced): ALL pointer targets below 44×44px fail —
-    // unlike R113 (AA), there is NO inline exception and NO spacing exception.
-    // Only user-agent-controlled targets (unstyled native form widgets) are exempt.
-    const WIDGET_ROLES = new Set(["button", "link", "checkbox", "radio", "switch", "tab", "menuitem", "menuitemcheckbox", "menuitemradio", "option", "searchbox", "textbox", "combobox", "slider", "spinbutton", "treeitem"]);
-    // An inline target inside a text line is sized by the surrounding line box.
-    // Alfa treats these links as outside the enhanced touch-target check.
-    const isInlineInLineContainer = (el: Element): boolean => {
-      if (window.getComputedStyle(el).display !== "inline") return false;
-      let node: HTMLElement | null = el.parentElement;
-      while (node) {
-        const disp = window.getComputedStyle(node).display;
-        if (disp === "block" || disp === "list-item" || disp === "flow-root" || disp === "table-cell") {
-          return Array.from(node.childNodes).some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent?.trim()?.length || 0) > 0);
-        }
-        node = node.parentElement;
-      }
-      return false;
-    };
-    const isNativeControl = (el: Element): boolean => el.matches("button, input, select, textarea, summary, audio[controls], video[controls], iframe");
-    // Alfa uses focusability, not tab-order membership. A target with
-    // tabindex="-1" can still be focusable and must not disappear from R111.
-    // Keep the actual-tabbable helper for the common case, then admit native
-    // or explicitly tabindexed controls that are focusable but skipped by Tab.
-    const isFocusablePointerTarget = (el: Element): boolean => {
-      if (!isIncludedInAccessibilityTree(el) || !isVisible(el)) return false;
-      if (el.matches("input[type='hidden'], :disabled, [disabled]")) return false;
-      if (isActuallyTabbable(el)) return true;
-      return el.getAttribute("tabindex") === "-1" &&
-        (isNativeControl(el) || el.matches("a[href]") || el.hasAttribute("role"));
-    };
-    const targetSelector = [
-      "a[href]",
-      "button:not([disabled])",
-      "input:not([disabled]):not([type='hidden'])",
-      "select:not([disabled])",
-      "textarea:not([disabled])",
-      "summary",
-      "audio[controls]",
-      "video[controls]",
-      "iframe",
-      "[role]",
-    ].join(", ");
-    document.querySelectorAll(targetSelector).forEach((el) => {
-      if (!isFocusablePointerTarget(el)) return;
-      // Alfa's current R111 implementation exempts user-agent-controlled
-      // inputs from the enhanced target-size expectation.
+    getAlfaPointerTargets().forEach((el) => {
       if (el.tagName === "INPUT") return;
-      // Alfa: an explicit non-widget role (e.g. role="listitem" on a link)
-      // removes the element from pointer-target applicability.
-      const role = el.getAttribute("role");
-      if (role && !WIDGET_ROLES.has(role)) return;
-      if (isInlineInLineContainer(el)) return;
-      // Alfa measures the *clickable region*: the union of the element's own
-      // box with the boxes of all its rendered descendants (e.g. a short link
-      // wrapping a tall image is as large as the image).
-      let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
-      const addRect = (r: DOMRect) => { if (r.width > 0 && r.height > 0) { left = Math.min(left, r.left); top = Math.min(top, r.top); right = Math.max(right, r.right); bottom = Math.max(bottom, r.bottom); } };
-      const ownRect = el.getBoundingClientRect();
-      addRect(ownRect);
-      // Descendant-union is only needed when the element's own box is too
-      // small — the union can only grow, so already-passing targets skip the
-      // (expensive) full-subtree rect walk.
-      if (ownRect.width < 44 || ownRect.height < 44) {
-        el.querySelectorAll("*").forEach((d) => addRect(d.getBoundingClientRect()));
-      }
-      if (!isFinite(left)) return;
-      const w = right - left, h = bottom - top;
-      // Degenerate boxes (<2px in a dimension) are not real pointer targets —
-      // typically stretched overlay links.
-      if (w < 2 || h < 2) return;
-      if (w < 44 || h < 44) {
+      if (!hasAlfaTargetSize(el, 44) && !hasAlfaImageTargetSize(el, 44)) {
+        const rect = el.getBoundingClientRect();
+        const w = rect.width, h = rect.height;
         results.push({ ruleId: "ACT-R111", type: "Best Practice", impact: "minor", description: `Interactive element is ${Math.round(w)}×${Math.round(h)}px — below the 44×44px AAA enhanced target size (WCAG 2.5.5)`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
       }
     });

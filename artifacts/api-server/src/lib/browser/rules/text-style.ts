@@ -1,4 +1,6 @@
 import type { ScanRawResult, PushStatFn } from "../types";
+import { getEffectiveAriaRole } from "../aria-data";
+import { hasAlfaFocusIndicator, isAlfaIncludedInAccessibilityTree } from "../alfa-helpers";
 import { getLuminanceFromColorString } from "../contrast";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
 import { isRendered, isVisible } from "../visibility";
@@ -6,17 +8,33 @@ import { isRendered, isVisible } from "../visibility";
 export function runTextStyleRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: boolean, pushStat: PushStatFn): void {
   // ACT-R62: Color used as only visual means to distinguish links (WCAG 1.4.1)
   // ════════════════════════════════════════════════════════════════════════
-  document.querySelectorAll("a").forEach((el) => {
-    if (!isVisible(el)) return;
+  document.querySelectorAll("a[href],area[href],[role='link']").forEach((el) => {
+    if (getEffectiveAriaRole(el) !== "link" || !isAlfaIncludedInAccessibilityTree(el)) return;
     const style = window.getComputedStyle(el);
     const parentStyle = el.parentElement ? window.getComputedStyle(el.parentElement) : null;
     if (!parentStyle) return;
     const hasUnderline = style.textDecoration.includes("underline");
     const hasBold = parseInt(style.fontWeight) > parseInt(parentStyle.fontWeight || "400") + 100;
-    const hasOutline = style.outline !== "none" && style.outline !== "";
+    const hasNonColorAffordance =
+      hasUnderline ||
+      hasBold ||
+      (style.outline !== "none" && style.outline !== "") ||
+      style.borderTopStyle !== "none" ||
+      style.borderBottomStyle !== "none" ||
+      style.boxShadow !== "none";
+    const parentHasText = Array.from(el.parentElement?.childNodes || []).some(
+      (node) => node !== el && node.nodeType === Node.TEXT_NODE && !!node.textContent?.trim(),
+    );
+    if (!parentHasText) return;
     const linkLum = getLuminanceFromColorString(style.color);
     const parentLum = getLuminanceFromColorString(parentStyle.color);
-    if (linkLum !== null && parentLum !== null && linkLum !== parentLum && !hasUnderline && !hasBold && !hasOutline) {
+    if (
+      linkLum !== null &&
+      parentLum !== null &&
+      linkLum !== parentLum &&
+      !hasNonColorAffordance &&
+      !hasAlfaFocusIndicator(el)
+    ) {
       results.push({ ruleId: "ACT-R62", type: "Issue", impact: "serious", description: "Link uses color as the only visual means to distinguish it from surrounding text", element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
     }
   });

@@ -225,6 +225,12 @@ function validateCreateCrawler(body: any): { data: any; error?: string } {
       timezone: typeof body.timezone === "string" && body.timezone.trim() ? body.timezone.trim() : undefined,
       initiatorName: body.initiatorName,
       initiatorRole: body.initiatorRole,
+      wcagLevels: Array.isArray(body.wcagLevels)
+        ? body.wcagLevels.filter((level: unknown): level is string => typeof level === "string" && level.trim().length > 0)
+        : undefined,
+      selectedRules: Array.isArray(body.rules)
+        ? body.rules.filter((rule: unknown): rule is string => typeof rule === "string" && rule.trim().length > 0)
+        : undefined,
       rules: (() => {
         const rawLevels = Array.isArray(body.wcagLevels) ? (body.wcagLevels as string[]) : [];
         const isAll = rawLevels.length === 0 || ALL_SCAN_LEVELS.every((l) => rawLevels.includes(l));
@@ -332,6 +338,8 @@ router.post("/crawler/sessions", requireAuth, async (req: Request, res: Response
     timezone: sitePolicy?.timezone ?? data.timezone,
     initiatorName: data.initiatorName,
     initiatorRole: data.initiatorRole,
+    wcagLevels: data.wcagLevels,
+    selectedRules: data.selectedRules,
     assetMode: sitePolicy?.assetMode,
     contentRules: sitePolicy
       ? await db.select().from(siteContentRulesTable)

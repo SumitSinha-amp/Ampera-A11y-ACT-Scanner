@@ -53,6 +53,16 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { CrawlerLiveOverview } from "@/components/crawler-live-overview";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  getScanRuleDisplay,
+  SCAN_LEVEL_BADGES,
+  type ScanRuleDisplayOptions,
+} from "@/lib/scan-rule-display";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -362,6 +372,62 @@ const PAGE_TYPE_COLORS: Record<string, string> = {
 function pageTypeBadge(type: string | null) {
   const t = type ?? "General";
   return PAGE_TYPE_COLORS[t] ?? PAGE_TYPE_COLORS["General"];
+}
+
+function CrawlerRuleScope({ config }: { config: Record<string, unknown> }) {
+  const display = getScanRuleDisplay(config as ScanRuleDisplayOptions);
+  const visibleValues = display.mode === "rules" ? display.values.slice(0, 6) : display.values;
+  const remainingRuleCount = display.mode === "rules"
+    ? display.values.length - visibleValues.length
+    : 0;
+
+  return (
+    <div className="space-y-0.5">
+      <p className="text-xs text-muted-foreground">Accessibility scope</p>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="flex cursor-help flex-wrap gap-1">
+            {display.mode === "all" ? (
+              <Badge variant="outline" className="text-[10px]">All rules</Badge>
+            ) : display.mode === "levels" ? (
+              visibleValues.map((level) => (
+                <Badge key={level} variant="outline" className="text-[10px]">
+                  {SCAN_LEVEL_BADGES[level] ?? level}
+                </Badge>
+              ))
+            ) : (
+              <>
+                {visibleValues.map((ruleId) => (
+                  <Badge key={ruleId} variant="outline" className="font-mono text-[10px]">
+                    {ruleId}
+                  </Badge>
+                ))}
+                {remainingRuleCount > 0 && (
+                  <Badge variant="outline" className="text-[10px]">+{remainingRuleCount}</Badge>
+                )}
+              </>
+            )}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="top" align="start" className="max-w-[24rem] p-3">
+          <p className="mb-1 text-[11px] font-semibold">
+            {display.appliedRules.length > 0
+              ? `Applied rules (${display.appliedRules.length})`
+              : "All scanner rules are applied"}
+          </p>
+          {display.appliedRules.length > 0 ? (
+            <p className="max-h-28 overflow-y-auto font-mono text-[10px] leading-4">
+              {display.appliedRules.join(", ")}
+            </p>
+          ) : (
+            <p className="text-[10px] leading-4">
+              This crawl did not store a rule subset, so all available rules were applied.
+            </p>
+          )}
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  );
 }
 
 function fmtDurationCompact(ms: number | null, includeSeconds = false): string {
@@ -1376,8 +1442,9 @@ export default function CrawlerDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                <CrawlerRuleScope config={displaySession.config ?? {}} />
                 {Object.entries(displaySession.config ?? {}).map(([key, value]) => {
-                  if (key === "authPassword") return null;
+                  if (key === "authPassword" || key === "rules" || key === "wcagLevels" || key === "selectedRules") return null;
                   const label = key.replace(/([A-Z])/g, " $1").replace(/^./, (s) => s.toUpperCase());
                   return (
                     <div key={key} className="space-y-0.5">

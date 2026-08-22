@@ -220,9 +220,24 @@ router.post("/scans", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  const rawScanOptions =
+    req.body?.options && typeof req.body.options === "object"
+      ? (req.body.options as Record<string, unknown>)
+      : null;
+  const requestedScopeLevels = Array.isArray(rawScanOptions?.wcagLevels)
+    ? rawScanOptions.wcagLevels.filter(
+        (level): level is string => typeof level === "string" && level.trim().length > 0,
+      )
+    : [];
+  const explicitlySelectedRules = Array.isArray(rawScanOptions?.rules)
+    ? rawScanOptions.rules.filter(
+        (rule): rule is string => typeof rule === "string" && rule.trim().length > 0,
+      )
+    : [];
+
   // Resolve wcagLevels → rules before schema validation so Zod sees a plain rules[]
   {
-    const rawOpts = req.body?.options;
+    const rawOpts = rawScanOptions;
     if (rawOpts?.wcagLevels && Array.isArray(rawOpts.wcagLevels)) {
       const levels = rawOpts.wcagLevels as string[];
       const isAll = ALL_SCAN_LEVELS.every((l) => levels.includes(l));
@@ -339,6 +354,27 @@ router.post("/scans", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  const storedOptions = options
+    ? {
+        ...options,
+        ...(requestedScopeLevels.length > 0
+          ? { wcagLevels: requestedScopeLevels }
+          : {}),
+        ...(explicitlySelectedRules.length > 0
+          ? { selectedRules: explicitlySelectedRules }
+          : {}),
+      }
+    : requestedScopeLevels.length > 0 || explicitlySelectedRules.length > 0
+      ? {
+          ...(requestedScopeLevels.length > 0
+            ? { wcagLevels: requestedScopeLevels }
+            : {}),
+          ...(explicitlySelectedRules.length > 0
+            ? { selectedRules: explicitlySelectedRules }
+            : {}),
+        }
+      : null;
+
   const [session] = await db
     .insert(scanSessionsTable)
     .values({
@@ -355,7 +391,7 @@ router.post("/scans", requireAuth, async (req, res): Promise<void> => {
       failedUrls: 0,
       totalIssues: 0,
       criticalIssues: 0,
-      options: options ?? null,
+      options: storedOptions,
     })
     .returning();
 
@@ -370,7 +406,7 @@ router.post("/scans", requireAuth, async (req, res): Promise<void> => {
   );
 
   // Start scan in background
-  startScan(session.id, validUrls, options ?? {}).catch((err) => {
+  startScan(session.id, validUrls, storedOptions ?? {}).catch((err) => {
     logger.error({ scanId: session.id, err }, "Background scan failed");
   });
 

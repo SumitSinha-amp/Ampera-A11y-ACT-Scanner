@@ -1,5 +1,7 @@
 import type { ScanRawResult, PushStatFn } from "../types";
 import { getAccessibleName, getFormFieldAccessibleName, getVisibleLabel } from "../accname";
+import { getEffectiveAriaRole } from "../aria-data";
+import { isAlfaFocusable } from "../alfa-helpers";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
 import { isCssHidden, isIncludedInAccessibilityTree, isProgrammaticallyHidden, isVisible, isVisibleRect } from "../visibility";
 
@@ -14,6 +16,16 @@ export function runNamesRules(results: ScanRawResult[], pushStat: PushStatFn): v
     if (img.closest("noscript")) return;
     const explicitRole = img.getAttribute("role")?.trim().split(/\s+/)[0];
     if (explicitRole === "none" || explicitRole === "presentation") return;
+    const hasAltAttribute = img.hasAttribute("alt");
+    if (
+      hasAltAttribute &&
+      !(img.getAttribute("alt") || "").trim() &&
+      !explicitRole &&
+      !img.hasAttribute("aria-label") &&
+      !img.hasAttribute("aria-labelledby") &&
+      !img.hasAttribute("title")
+    ) return;
+    if (getEffectiveAriaRole(img) !== "img") return;
     // An empty alt on an ordinary image maps it to the presentation role, so
     // it is intentionally not included in the accessibility tree. Do not
     // turn decorative images into R2 failures. An explicit image role or a
@@ -23,14 +35,7 @@ export function runNamesRules(results: ScanRawResult[], pushStat: PushStatFn): v
       img.hasAttribute("aria-label") ||
       img.hasAttribute("aria-labelledby") ||
       img.hasAttribute("title");
-    if (
-      img.hasAttribute("alt") &&
-      !(img.getAttribute("alt") || "").trim() &&
-      !explicitRole &&
-      !hasNamingAttribute
-    ) {
-      return;
-    }
+    void hasNamingAttribute;
     if (!isIncludedInAccessibilityTree(img)) return;
     if (!getAccessibleName(img)) {
       results.push({ ruleId: "ACT-R2", type: "Issue", impact: "critical", description: "Image in the accessibility tree has no accessible name", element: outerHtmlSnippet(img), elementContext: elementContextForAI(img), selector: getSelector(img) });
@@ -54,24 +59,11 @@ export function runNamesRules(results: ScanRawResult[], pushStat: PushStatFn): v
   // ACT-R8: Form field has no accessible name (WCAG 1.3.1 / 4.1.2)
   // ════════════════════════════════════════════════════════════════════════
   {
-    const r8Seen = new WeakSet<Element>();
-    const r8Targets: Element[] = [];
-    document.querySelectorAll(
-      "input:not([type='hidden']):not([type='submit']):not([type='button']):not([type='reset']):not([type='image'])," +
-      "select, textarea",
-    ).forEach((el) => { r8Seen.add(el); r8Targets.push(el); });
-    const r8AriaSelector = ["checkbox","combobox","listbox","menuitemcheckbox","menuitemradio","radio","searchbox","slider","spinbutton","switch","textbox"]
-      .map((r) => `[role="${r}"]`).join(",");
-    document.querySelectorAll(r8AriaSelector).forEach((el) => {
-      if (r8Seen.has(el)) return;
-      const tag = el.tagName.toLowerCase();
-      if (tag !== "input" && tag !== "select" && tag !== "textarea") r8Targets.push(el);
-    });
+    const r8Roles = new Set(["checkbox","combobox","listbox","menuitemcheckbox","menuitemradio","radio","searchbox","slider","spinbutton","switch","textbox"]);
+    const r8Targets = Array.from(document.querySelectorAll("*")).filter(
+      (el) => r8Roles.has(getEffectiveAriaRole(el)) && isIncludedInAccessibilityTree(el),
+    );
     for (const el of r8Targets) {
-      if (!isVisibleRect(el)) continue;
-      if (isProgrammaticallyHidden(el)) continue;
-      const explicitRole = el.getAttribute("role");
-      if (explicitRole === "none" || explicitRole === "presentation") continue;
       if (!getFormFieldAccessibleName(el)) {
         results.push({ ruleId: "ACT-R8", type: "Issue", impact: "critical", description: "Form field has no associated label, aria-label, or aria-labelledby", element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
       }
@@ -82,9 +74,9 @@ export function runNamesRules(results: ScanRawResult[], pushStat: PushStatFn): v
   // ACT-R11: Link has no accessible name (WCAG 2.4.4 / 4.1.2)
   // ════════════════════════════════════════════════════════════════════════
   const ariaLabelWasEmpty: WeakSet<Element> = (window as any).__ariaLabelWasEmpty__ ?? new WeakSet();
-  document.querySelectorAll("a[href]").forEach((link) => {
-    if (link.getAttribute("aria-hidden") === "true") return;
-    const noName = !isCssHidden(link) && !getAccessibleName(link);
+  document.querySelectorAll("a[href],area[href],[role='link']").forEach((link) => {
+    if (getEffectiveAriaRole(link) !== "link" || !isIncludedInAccessibilityTree(link)) return;
+    const noName = !getAccessibleName(link);
     const bareAriaLabel = link.hasAttribute("aria-label") && !(link.getAttribute("aria-label") ?? "").trim();
     const finalName = (link.getAttribute("aria-label") ?? "").trim();
     const isAssetIdLabel = finalName.length >= 12 && /^[A-Za-z0-9]+$/.test(finalName) && /[A-Z]/.test(finalName) && /[0-9]/.test(finalName);
@@ -117,8 +109,9 @@ export function runNamesRules(results: ScanRawResult[], pushStat: PushStatFn): v
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R12: Button has no accessible name (WCAG 4.1.2)
   // ════════════════════════════════════════════════════════════════════════
-  document.querySelectorAll("button, [role='button']").forEach((btn) => {
-    if (isCssHidden(btn)) return;
+  document.querySelectorAll("button, input, [role='button']").forEach((btn) => {
+    if (getEffectiveAriaRole(btn) !== "button" || !isIncludedInAccessibilityTree(btn)) return;
+    if (btn.matches("input[type='image']")) return;
     if (!getAccessibleName(btn)) {
       results.push({ ruleId: "ACT-R12", type: "Issue", impact: "critical", description: "Button has no accessible name", element: outerHtmlSnippet(btn), elementContext: elementContextForAI(btn), selector: getSelector(btn) });
     }
@@ -162,16 +155,11 @@ export function runNamesRules(results: ScanRawResult[], pushStat: PushStatFn): v
     // Alfa applicability: only iframes included in the accessibility tree.
     // Hidden/tracking iframes (display:none, aria-hidden, 0/1px boxes,
     // tabindex=-1) are excluded.
-    if (el.getAttribute("aria-hidden") === "true") return;
+    if (!isIncludedInAccessibilityTree(el)) return;
     if (el.getAttribute("tabindex") === "-1") return;
-    const csR13 = window.getComputedStyle(el);
-    if (csR13.display === "none" || csR13.visibility === "hidden") return;
-    const rectR13 = el.getBoundingClientRect();
-    if (rectR13.width <= 1 || rectR13.height <= 1) return;
-    const title = el.getAttribute("title")?.trim();
-    const ariaLabel = el.getAttribute("aria-label")?.trim();
-    const labelledBy = el.getAttribute("aria-labelledby");
-    if (!title && !ariaLabel && !labelledBy) {
+    const role = el.getAttribute("role");
+    if (role === "none" || role === "presentation") return;
+    if (!getAccessibleName(el)) {
       results.push({ ruleId: "ACT-R13", type: "Issue", impact: "serious", description: "Inline frame (iframe) is missing a title attribute", element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
     }
   });
@@ -213,29 +201,10 @@ export function runNamesRules(results: ScanRawResult[], pushStat: PushStatFn): v
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R14: Label in Name (WCAG 2.5.3)
   // ════════════════════════════════════════════════════════════════════════
-  document.querySelectorAll("input:not([type='hidden']), select, textarea").forEach((el) => {
-    if (!isVisibleRect(el)) return;
-    const visibleLabel = getVisibleLabel(el);
-    const accName = getAccessibleName(el);
-    if (!visibleLabel || !accName) return;
-    if (!accName.toLowerCase().includes(visibleLabel.toLowerCase())) {
-      results.push({ ruleId: "ACT-R14", type: "Issue", impact: "moderate", description: `Visible label "${visibleLabel.substring(0, 60)}" is not included in accessible name "${accName.substring(0, 60)}"`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-    }
-  });
-  document.querySelectorAll("a[href], button, [role='button'], [role='link'], [role='tab'], [role='menuitem']").forEach((el) => {
-    if (!isVisibleRect(el)) return;
-    const hasAriaLabel = el.hasAttribute("aria-label");
-    const hasAriaLabelledby = el.hasAttribute("aria-labelledby");
-    if (!hasAriaLabel && !hasAriaLabelledby) return;
-    if (hasAriaLabelledby) {
-      const ids = (el.getAttribute("aria-labelledby") || "").trim().split(/\s+/);
-      const allInternal = ids.every(function(id) {
-        if (!id) return true;
-        const target = document.getElementById(id);
-        return target ? el.contains(target) : false;
-      });
-      if (allInternal) return;
-    }
+  document.querySelectorAll("[aria-label],[aria-labelledby]").forEach((el) => {
+    if (!isAlfaFocusable(el) || !isIncludedInAccessibilityTree(el)) return;
+    const role = getEffectiveAriaRole(el);
+    if (!["button","checkbox","combobox","link","listbox","menuitem","menuitemcheckbox","menuitemradio","option","radio","searchbox","slider","spinbutton","switch","tab","textbox","treeitem"].includes(role)) return;
     const rawVisible = (el instanceof HTMLElement ? el.innerText?.replace(/\s+/g, " ")?.trim() : "") || "";
     if (!rawVisible || rawVisible.length < 2) return;
     const visibleText = (() => {
@@ -253,11 +222,7 @@ export function runNamesRules(results: ScanRawResult[], pushStat: PushStatFn): v
     const accLower = accName.toLowerCase();
     const visLower = visibleText.toLowerCase();
     const passesSubstring = accLower.includes(visLower);
-    const passesTokens = (() => {
-      const tokens = [...new Set(visLower.split(/\s+/).filter((t: string) => t.length > 0))];
-      return tokens.length > 0 && tokens.every((t: string) => accLower.includes(t));
-    })();
-    if (!passesSubstring && !passesTokens) {
+    if (!passesSubstring) {
       results.push({ ruleId: "ACT-R14", type: "Issue", impact: "moderate", description: `Visible text "${visibleText.substring(0, 60)}" is not included in accessible name "${accName.substring(0, 60)}"`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
     }
   });

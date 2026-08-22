@@ -1,5 +1,7 @@
 import type { ScanRawResult, PushStatFn } from "../types";
 import { getAccessibleName } from "../accname";
+import { getAlfaPointerTargets, hasAlfaTargetSize, hasAlfaTargetSpacing } from "../alfa-helpers";
+import { getEffectiveAriaRole } from "../aria-data";
 import { getBackgroundResolution, getContrastRatio, getLuminanceFromColorString } from "../contrast";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
 import { isProgrammaticallyHidden, isVisible } from "../visibility";
@@ -126,19 +128,9 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   // ACT-R41: Multiple links with same text to different destinations
   // ════════════════════════════════════════════════════════════════════════
   {
-    // Alfa applies this rule to elements whose effective role is "link".
-    // Explicit non-link roles (such as role="listitem" on carousel
-    // pagination controls) are not applicable, even when the element is an
-    // anchor with an href.
-    const isEffectiveLink = (el: Element): boolean => {
-      const explicitRole = el.getAttribute("role")?.trim().split(/\s+/)[0];
-      if (explicitRole) return explicitRole === "link";
-      return el.matches("a[href],area[href]");
-    };
     const groups: Map<string, { hrefs: Set<string>; first: Element }> = new Map();
     document.querySelectorAll("a[href],area[href],[role='link']").forEach((el) => {
-      if (!isEffectiveLink(el)) return;
-      if (!isVisible(el)) return;
+      if (getEffectiveAriaRole(el) !== "link") return;
       if (isProgrammaticallyHidden(el)) return;
       const text = getAccessibleName(el).trim().toLowerCase().replace(/\s+/g, " ");
       if (!text || text.length < 2) return;
@@ -178,26 +170,11 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   // ACT-R113: Touch target too small (WCAG 2.5.8)
   // ════════════════════════════════════════════════════════════════════════
   {
-    const targets = Array.from(document.querySelectorAll("a, button, [role='button'], [role='link'], input[type='checkbox'], input[type='radio'], select"))
-      .filter((el) => isVisible(el))
-      .map((el) => ({ el, rect: el.getBoundingClientRect() }))
-      .filter((t) => t.rect.width > 0 || t.rect.height > 0);
-    targets.forEach(({ el, rect }) => {
-      if (rect.width >= 24 && rect.height >= 24) return;
-      // WCAG 2.5.8 inline exception (Alfa alignment): links rendered inline
-      // within a sentence/block of text are exempt.
-      if (el.tagName === "A" && window.getComputedStyle(el).display === "inline") return;
-      // Alfa spacing exception: an undersized target still passes if a 24×24
-      // box centered on it does not intersect any other target.
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-      const box = { left: cx - 12, right: cx + 12, top: cy - 12, bottom: cy + 12 };
-      const crowded = targets.some((o) =>
-        o.el !== el &&
-        box.left < o.rect.right && box.right > o.rect.left &&
-        box.top < o.rect.bottom && box.bottom > o.rect.top
-      );
-      if (!crowded) return;
+    const targets = getAlfaPointerTargets();
+    targets.forEach((el) => {
+      if (el.tagName === "INPUT") return;
+      if (hasAlfaTargetSize(el, 24) || hasAlfaTargetSpacing(el, targets, 24)) return;
+      const rect = el.getBoundingClientRect();
       results.push({ ruleId: "ACT-R113", type: "Issue", impact: "moderate", description: `Interactive element is ${Math.round(rect.width)}×${Math.round(rect.height)}px — below the 24×24px minimum touch target (WCAG 2.5.8)`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
     });
   }

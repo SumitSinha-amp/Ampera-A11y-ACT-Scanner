@@ -334,10 +334,7 @@ export default function CrawlerNewPage() {
     if (data.skipDiscovery) {
       payload.skipDiscovery = true;
     }
-    // Level filter — omit when all levels selected (backend default = no filter)
-    if (!ALL_SCAN_LEVELS.every((l) => selectedLevels.includes(l))) {
-      payload.wcagLevels = selectedLevels;
-    }
+    payload.wcagLevels = selectedLevels;
       if (scheduledStartAt && new Date(scheduledStartAt).getTime() <= Date.now()) {
        toast({ title: "Choose a future date and time", description: "The scheduled start must be later than now.", variant: "destructive" });
        return;

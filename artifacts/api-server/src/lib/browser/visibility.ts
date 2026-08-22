@@ -1,16 +1,13 @@
-import { getSubtreeText } from "./dom-helpers";
+import {
+  isAlfaIncludedInAccessibilityTree,
+  isAlfaProgrammaticallyHidden,
+  isAlfaRendered,
+  isAlfaTabbable,
+  isAlfaVisible,
+} from "./alfa-helpers";
 
 export function isRendered(el: Element): boolean {
-  if (!(el instanceof HTMLElement)) return false;
-  let node: HTMLElement | null = el;
-  while (node) {
-    if (node.hasAttribute("hidden")) return false;
-    if (node.getAttribute("aria-hidden") === "true") return false;
-    const style = window.getComputedStyle(node);
-    if (style.display === "none" || style.visibility === "hidden") return false;
-    node = node.parentElement;
-  }
-  return true;
+  return isAlfaRendered(el);
 }
 
 // ─── HELPER: isVisible ───────────────────────────────────────────────────────
@@ -27,14 +24,7 @@ export function isVisible(el: Element): boolean {
 }
 
 function computeIsVisible(el: Element): boolean {
-  if (!(el instanceof HTMLElement)) return false;
-  if (!isRendered(el)) return false;
-  let node: HTMLElement | null = el;
-  while (node) {
-    const style = window.getComputedStyle(node);
-    if (parseFloat(style.opacity) === 0) return false;
-    node = node.parentElement;
-  }
+  if (!isAlfaVisible(el)) return false;
   const cs = window.getComputedStyle(el);
   const cp = cs.clipPath;
   if (cp && cp !== "none") {
@@ -72,19 +62,7 @@ export function isVisibleRect(el: Element): boolean {
 // ─── HELPER: isProgrammaticallyHidden ────────────────────────────────────────
 // Alfa-aligned: display:none | visibility:hidden | aria-hidden="true" | inert | content-visibility:hidden
 export function isProgrammaticallyHidden(el: Element): boolean {
-  if (el.getAttribute("aria-hidden") === "true") return true;
-  let node: Element | null = el;
-  while (node) {
-    if (node.getAttribute("aria-hidden") === "true") return true;
-    // Alfa addition: inert attribute hides from AT
-    if (node.hasAttribute("inert")) return true;
-    const cs = window.getComputedStyle(node as HTMLElement);
-    if (cs.display === "none" || cs.visibility === "hidden") return true;
-    // Alfa addition: content-visibility:hidden hides from AT
-    if ((cs as CSSStyleDeclaration & { contentVisibility?: string }).contentVisibility === "hidden") return true;
-    node = node.parentElement;
-  }
-  return false;
+  return isAlfaProgrammaticallyHidden(el);
 }
 
 /**
@@ -94,13 +72,7 @@ export function isProgrammaticallyHidden(el: Element): boolean {
  * or is not rendered at all.
  */
 export function isIncludedInAccessibilityTree(el: Element): boolean {
-  if (!(el instanceof HTMLElement) && !(el instanceof SVGElement)) return false;
-  if (isProgrammaticallyHidden(el)) return false;
-  if (el.hasAttribute("hidden")) return false;
-  const style = window.getComputedStyle(el as HTMLElement);
-  if (style.display === "none" || style.visibility === "hidden") return false;
-  if ((style as CSSStyleDeclaration & { contentVisibility?: string }).contentVisibility === "hidden") return false;
-  return true;
+  return isAlfaIncludedInAccessibilityTree(el);
 }
 
 /**
@@ -110,17 +82,7 @@ export function isIncludedInAccessibilityTree(el: Element): boolean {
  * are not tabbable.
  */
 export function isActuallyTabbable(el: Element): boolean {
-  if (!(el instanceof HTMLElement) || !isIncludedInAccessibilityTree(el)) return false;
-  if (el.getAttribute("tabindex") === "-1") return false;
-  if (el.matches("input[type='hidden'], :disabled, [disabled]")) return false;
-  const explicitTabIndex = el.getAttribute("tabindex");
-  const hasNonNegativeTabIndex = explicitTabIndex !== null && Number.isFinite(Number(explicitTabIndex)) && Number(explicitTabIndex) >= 0;
-  const hasNativeTabOrder = el.matches(
-    "a[href], area[href], button, input:not([type='hidden']), select, textarea, summary, audio[controls], video[controls], iframe",
-  );
-  if (!hasNativeTabOrder && !hasNonNegativeTabIndex) return false;
-  const rects = el.getClientRects();
-  return rects.length > 0 || el.offsetParent !== null || hasNonNegativeTabIndex;
+  return isAlfaTabbable(el);
 }
 
 // ─── HELPER: isCssHidden ─────────────────────────────────────────────────────

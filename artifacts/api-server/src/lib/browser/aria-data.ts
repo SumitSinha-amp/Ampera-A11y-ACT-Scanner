@@ -1,5 +1,3 @@
-import { getFormFieldAccessibleName } from "./accname";
-
 // ─── ARIA DATA ────────────────────────────────────────────────────────────────
 export const ARIA_PROHIBITED: Record<string, string[]> = {
   presentation: ["aria-label","aria-labelledby"],

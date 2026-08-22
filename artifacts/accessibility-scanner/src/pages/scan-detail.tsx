@@ -1,6 +1,7 @@
 import { Fragment, useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
 import { useAuth } from "@/contexts/auth";
 import { ACT_RULES, getRuleTitle } from "@/lib/actRules";
+import { getScanRuleDisplay, SCAN_LEVEL_BADGES } from "@/lib/scan-rule-display";
 import { useParams, Link, useLocation } from "wouter";
 import {
   useGetScan,
@@ -30,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Accordion,
   AccordionContent,
@@ -338,6 +340,35 @@ interface RuleInfo {
   wcagLevel: string | null;
 }
 
+function issueMatchesFilters(issue: Issue, filters: IssueFilters) {
+  if (filters.hideFalsePositives && issue.falsePositive) return false;
+  if (filters.search && !issue.description.toLowerCase().includes(filters.search.toLowerCase())) return false;
+  if (filters.ruleId !== "all" && issue.ruleId !== filters.ruleId) return false;
+  if (filters.severity !== "all" && issue.impact !== filters.severity) return false;
+  if (filters.wcag !== "all" && issue.wcagCriteria !== filters.wcag) return false;
+  if (filters.level !== "all" && issue.wcagLevel !== filters.level) return false;
+  return true;
+}
+
+function getZeroRuleIds(issues: Issue[], filters: IssueFilters, selectedRules: string[]) {
+  if (
+    selectedRules.length < 2 ||
+    filters.severity !== "all" ||
+    filters.search ||
+    filters.wcag !== "all" ||
+    filters.level !== "all"
+  ) {
+    return [];
+  }
+
+  const issueRuleIds = new Set(
+    issues.filter((issue) => issueMatchesFilters(issue, filters)).map((issue) => issue.ruleId),
+  );
+  return selectedRules.filter(
+    (ruleId) => !issueRuleIds.has(ruleId) && (filters.ruleId === "all" || filters.ruleId === ruleId),
+  );
+}
+
 const IMPACT_ORDER: Record<string, number> = {
   critical: 0,
   serious: 1,
@@ -486,8 +517,6 @@ function IssueGroupList({
   pageUrl,
   onSelectOccurrence,
   selectedIssueId,
-  selectedRules,
-  ruleInfoMap,
   onFlagIssue,
   isCrawlerScan,
   onOpenUpdateResults,
@@ -497,8 +526,6 @@ function IssueGroupList({
   pageUrl: string;
   onSelectOccurrence?: (issue: Issue, group: Issue[]) => void;
   selectedIssueId?: number;
-  selectedRules?: string[];
-  ruleInfoMap?: Record<string, RuleInfo>;
   onFlagIssue?: (issue: Issue) => void;
   isCrawlerScan?: boolean;
   onOpenUpdateResults?: (ruleId: string, desc: string) => void;
@@ -515,15 +542,7 @@ function IssueGroupList({
   };
 
   const filteredIssues = useMemo(() => {
-    return issues.filter((issue) => {
-      if (filters.hideFalsePositives && issue.falsePositive) return false;
-      if (filters.search && !issue.description.toLowerCase().includes(filters.search.toLowerCase())) return false;
-      if (filters.ruleId !== "all" && issue.ruleId !== filters.ruleId) return false;
-      if (filters.severity !== "all" && issue.impact !== filters.severity) return false;
-      if (filters.wcag !== "all" && issue.wcagCriteria !== filters.wcag) return false;
-      if (filters.level !== "all" && issue.wcagLevel !== filters.level) return false;
-      return true;
-    });
+    return issues.filter((issue) => issueMatchesFilters(issue, filters));
   }, [issues, filters]);
 
   const grouped = filteredIssues.reduce<Record<string, Issue[]>>((acc, issue) => {
@@ -538,19 +557,7 @@ function IssueGroupList({
     return ai - bi;
   });
 
-  const showZeroRows =
-    (selectedRules?.length ?? 0) >= 2 &&
-    filters.severity === "all" &&
-    !filters.search &&
-    filters.wcag === "all" &&
-    filters.level === "all";
-
-  const issueRuleIds = new Set(filteredIssues.map((i) => i.ruleId));
-  const zeroRules = showZeroRows
-    ? (selectedRules ?? []).filter((r) => !issueRuleIds.has(r) && (filters.ruleId === "all" || filters.ruleId === r))
-    : [];
-
-  if (groups.length === 0 && zeroRules.length === 0) {
+  if (groups.length === 0) {
     return (
       <div className="p-8 text-center text-muted-foreground border rounded-md border-dashed bg-muted/10 mt-4">
         <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
@@ -782,35 +789,81 @@ function IssueGroupList({
           );
         })}
       </Accordion>
+    </div>
+  );
+}
 
-      {zeroRules.length > 0 && (
-        <div className="space-y-2 mt-2">
-          {zeroRules.map((ruleId) => {
-            const info = ruleInfoMap?.[ruleId];
-            return (
-              <div key={ruleId} className="border rounded-md bg-green-50/40 dark:bg-green-950/10 border-green-200/60 dark:border-green-900/40 px-4 py-3 flex items-start gap-3">
-                <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-foreground/80 break-words">
+function ZeroOccurrenceGroup({
+  issues,
+  filters,
+  selectedRules,
+  ruleInfoMap,
+}: {
+  issues: Issue[];
+  filters: IssueFilters;
+  selectedRules: string[];
+  ruleInfoMap?: Record<string, RuleInfo>;
+}) {
+  const zeroRules = useMemo(
+    () => getZeroRuleIds(issues, filters, selectedRules),
+    [issues, filters, selectedRules],
+  );
+  const showZeroRows =
+    selectedRules.length >= 2 &&
+    filters.severity === "all" &&
+    !filters.search &&
+    filters.wcag === "all" &&
+    filters.level === "all";
+
+  if (zeroRules.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-green-200/70 bg-green-50/30 px-4 py-6 text-center text-sm text-muted-foreground dark:border-green-900/40 dark:bg-green-950/10">
+        {showZeroRows
+          ? "All selected rules have occurrences on this page."
+          : "No zero-occurrence rules match the current filters."}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 overflow-hidden rounded-[10px] border-[1.5px] border-green-200/70 bg-green-50/30 dark:border-green-900/40 dark:bg-green-950/10">
+      <div className="flex min-w-0 items-center gap-2.5 border-b border-green-200/60 px-3.5 py-2.5 dark:border-green-900/40">
+        <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-green-800 dark:text-green-300">
+          No occurrences
+        </span>
+        <Badge variant="secondary" className="shrink-0 bg-green-100 text-[10px] text-green-700 dark:bg-green-900/30 dark:text-green-400">
+          {zeroRules.length} rule{zeroRules.length !== 1 ? "s" : ""}
+        </Badge>
+      </div>
+      <div className="space-y-2 px-3.5 pb-3 pt-2.5">
+        {zeroRules.map((ruleId) => {
+          const info = ruleInfoMap?.[ruleId];
+          return (
+            <div key={ruleId} className="rounded-md border border-green-200/60 bg-white/70 px-4 py-3 dark:border-green-900/40 dark:bg-slate-950/40">
+              <div className="flex items-start gap-3">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
+                <div className="min-w-0 flex-1">
+                  <p className="break-words text-sm text-foreground/80">
                     {getRuleTitle(ruleId, info?.ruleType, info?.description) ?? "No issues detected for this rule on this page."}
                   </p>
                   {ACT_RULES[ruleId]?.detail && (
-                    <p className="text-xs text-muted-foreground mt-0.5 break-words">{ACT_RULES[ruleId].detail}</p>
+                    <p className="mt-0.5 break-words text-xs text-muted-foreground">{ACT_RULES[ruleId].detail}</p>
                   )}
-                  <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                    <Badge variant="secondary" className="text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 font-mono">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary" className="bg-green-100 font-mono text-green-700 dark:bg-green-900/30 dark:text-green-400">
                       0 occurrences
                     </Badge>
-                    <Badge variant="outline" className="font-mono text-xs bg-background">{ruleId}</Badge>
-                    {info?.wcagCriteria && <Badge variant="secondary" className="text-xs font-mono">WCAG {info.wcagCriteria}</Badge>}
+                    <Badge variant="outline" className="bg-background font-mono text-xs">{ruleId}</Badge>
+                    {info?.wcagCriteria && <Badge variant="secondary" className="font-mono text-xs">WCAG {info.wcagCriteria}</Badge>}
                     {info?.wcagLevel && <Badge variant="outline" className="text-xs">Level {info.wcagLevel}</Badge>}
                   </div>
                 </div>
               </div>
-            );
-          })}
-        </div>
-      )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1058,8 +1111,29 @@ function ExportButtons({
 }
 
 // ── Scan-level utility components & helpers ───────────────────────────────────
-function RulesBadges({ selectedRules }: { selectedRules: string[] }) {
-  if (selectedRules.length === 0) return null;
+function RulesBadges({ options }: { options?: unknown }) {
+  const display = getScanRuleDisplay(options as { rules?: unknown; selectedRules?: unknown; wcagLevels?: unknown });
+
+  if (display.mode === "levels") {
+    const ruleCount = new Set(display.appliedRules).size || Object.keys(ACT_RULES).length;
+    return (
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold text-[#667] dark:text-slate-300">Accessibility Scope</span>
+        {display.values.map((level) => (
+          <Badge key={level} variant="outline" className="text-xs font-semibold">
+            {SCAN_LEVEL_BADGES[level] ?? level}
+          </Badge>
+        ))}
+        <Badge variant="secondary" className="text-xs">
+          {ruleCount} rules
+        </Badge>
+      </div>
+    );
+  }
+
+  if (display.mode === "all") return null;
+
+  const selectedRules = display.values;
   const allRules = selectedRules.length === Object.keys(ACT_RULES).length;
   return (
     <div className="flex flex-wrap gap-2 mt-2">
@@ -3041,7 +3115,7 @@ export default function ScanDetail() {
             {initiatorText && <span>{initiatorText}</span>}
             {elapsedText && <span>{isRunning || isPaused ? "Elapsed" : "Time taken"} {elapsedText}</span>}
           </div>
-          <RulesBadges selectedRules={selectedRules} />
+          <RulesBadges options={scan.options} />
           <div className="mt-1 flex flex-wrap gap-1.5">
             {scan.status === "running" ||
             scan.status === "pending" ||
@@ -3340,6 +3414,9 @@ export default function ScanDetail() {
                   const override = fpOverrides[issue.id];
                   return override !== undefined ? { ...issue, ...override } : issue;
                 });
+                const filteredPageIssues = pageIssues.filter((issue) => issueMatchesFilters(issue, filters));
+                const occurrenceRuleCount = new Set(filteredPageIssues.map((issue) => issue.ruleId)).size;
+                const zeroOccurrenceRuleCount = getZeroRuleIds(pageIssues, filters, selectedRules).length;
                 return (
                   <AccordionItem
                     key={page.id}
@@ -3610,66 +3687,82 @@ export default function ScanDetail() {
                               )}
                             </div>
                           )}
-                          {/* Issues section */}
-                          {visibleCats.has("Issue") && pageIssues.filter((i) => !i.ruleType || i.ruleType === "Issue").length > 0 && (
-                            <IssueGroupList
-                              issues={pageIssues.filter((i) => !i.ruleType || i.ruleType === "Issue")}
-                              filters={filters}
-                              pageUrl={page.url}
-                              selectedRules={selectedRules}
-                              ruleInfoMap={ruleInfoMap}
-                              selectedIssueId={undefined}
-                              onFlagIssue={handleOpenFlagDialog}
-                              onSelectOccurrence={(issue, group) => handleSelectOccurrence(issue, group, page.url, page.id)}
-                              isCrawlerScan={isCrawlerScan}
-                              onOpenUpdateResults={handleOpenUpdateResults}
-                            />
-                          )}
-                          {/* Potential issues section */}
-                          {visibleCats.has("Potential Issue") && pageIssues.filter((i) => i.ruleType === "Potential Issue").length > 0 && (
-                            <IssueGroupList
-                              issues={pageIssues.filter((i) => i.ruleType === "Potential Issue")}
-                              filters={filters}
-                              pageUrl={page.url}
-                              selectedRules={selectedRules}
-                              ruleInfoMap={ruleInfoMap}
-                              selectedIssueId={undefined}
-                              onFlagIssue={handleOpenFlagDialog}
-                              onSelectOccurrence={(issue, group) => handleSelectOccurrence(issue, group, page.url, page.id)}
-                              isCrawlerScan={isCrawlerScan}
-                              onOpenUpdateResults={handleOpenUpdateResults}
-                            />
-                          )}
-                          {/* Best practices section */}
-                          {visibleCats.has("Best Practice") && pageIssues.filter((i) => i.ruleType === "Best Practice").length > 0 && (
-                            <IssueGroupList
-                              issues={pageIssues.filter((i) => i.ruleType === "Best Practice")}
-                              filters={filters}
-                              pageUrl={page.url}
-                              selectedRules={selectedRules}
-                              ruleInfoMap={ruleInfoMap}
-                              selectedIssueId={undefined}
-                              onFlagIssue={handleOpenFlagDialog}
-                              onSelectOccurrence={(issue, group) => handleSelectOccurrence(issue, group, page.url, page.id)}
-                              isCrawlerScan={isCrawlerScan}
-                              onOpenUpdateResults={handleOpenUpdateResults}
-                            />
-                          )}
-                          {/* WAI-ARIA section */}
-                          {visibleCats.has("WAI-ARIA") && pageIssues.filter((i) => i.ruleType === "WAI-ARIA").length > 0 && (
-                            <IssueGroupList
-                              issues={pageIssues.filter((i) => i.ruleType === "WAI-ARIA")}
-                              filters={filters}
-                              pageUrl={page.url}
-                              selectedRules={selectedRules}
-                              ruleInfoMap={ruleInfoMap}
-                              selectedIssueId={undefined}
-                              onFlagIssue={handleOpenFlagDialog}
-                              onSelectOccurrence={(issue, group) => handleSelectOccurrence(issue, group, page.url, page.id)}
-                              isCrawlerScan={isCrawlerScan}
-                              onOpenUpdateResults={handleOpenUpdateResults}
-                            />
-                          )}
+                          <Tabs defaultValue="with-occurrences" className="w-full">
+                            <TabsList className="h-9 w-full justify-start gap-1 rounded-lg bg-[#f1f3f9] p-1 dark:bg-slate-900">
+                              <TabsTrigger value="with-occurrences" className="h-7 gap-1.5 px-3 text-xs data-[state=active]:bg-white data-[state=active]:text-[#172b4d] data-[state=active]:shadow-sm dark:data-[state=active]:bg-slate-800 dark:data-[state=active]:text-slate-100">
+                                With occurrences ({occurrenceRuleCount} rule{occurrenceRuleCount !== 1 ? "s" : ""})
+                              </TabsTrigger>
+                              {selectedRules.length >= 2 && (
+                                <TabsTrigger value="no-occurrences" className="h-7 gap-1.5 px-3 text-xs data-[state=active]:bg-white data-[state=active]:text-green-700 data-[state=active]:shadow-sm dark:data-[state=active]:bg-slate-800 dark:data-[state=active]:text-green-400">
+                                  No occurrences ({zeroOccurrenceRuleCount} rule{zeroOccurrenceRuleCount !== 1 ? "s" : ""})
+                                </TabsTrigger>
+                              )}
+                            </TabsList>
+                            <TabsContent value="with-occurrences" className="mt-2">
+                              {/* Issues section */}
+                              {visibleCats.has("Issue") && pageIssues.filter((i) => !i.ruleType || i.ruleType === "Issue").length > 0 && (
+                                <IssueGroupList
+                                  issues={pageIssues.filter((i) => !i.ruleType || i.ruleType === "Issue")}
+                                  filters={filters}
+                                  pageUrl={page.url}
+                                  selectedIssueId={undefined}
+                                  onFlagIssue={handleOpenFlagDialog}
+                                  onSelectOccurrence={(issue, group) => handleSelectOccurrence(issue, group, page.url, page.id)}
+                                  isCrawlerScan={isCrawlerScan}
+                                  onOpenUpdateResults={handleOpenUpdateResults}
+                                />
+                              )}
+                              {/* Potential issues section */}
+                              {visibleCats.has("Potential Issue") && pageIssues.filter((i) => i.ruleType === "Potential Issue").length > 0 && (
+                                <IssueGroupList
+                                  issues={pageIssues.filter((i) => i.ruleType === "Potential Issue")}
+                                  filters={filters}
+                                  pageUrl={page.url}
+                                  selectedIssueId={undefined}
+                                  onFlagIssue={handleOpenFlagDialog}
+                                  onSelectOccurrence={(issue, group) => handleSelectOccurrence(issue, group, page.url, page.id)}
+                                  isCrawlerScan={isCrawlerScan}
+                                  onOpenUpdateResults={handleOpenUpdateResults}
+                                />
+                              )}
+                              {/* Best practices section */}
+                              {visibleCats.has("Best Practice") && pageIssues.filter((i) => i.ruleType === "Best Practice").length > 0 && (
+                                <IssueGroupList
+                                  issues={pageIssues.filter((i) => i.ruleType === "Best Practice")}
+                                  filters={filters}
+                                  pageUrl={page.url}
+                                  selectedIssueId={undefined}
+                                  onFlagIssue={handleOpenFlagDialog}
+                                  onSelectOccurrence={(issue, group) => handleSelectOccurrence(issue, group, page.url, page.id)}
+                                  isCrawlerScan={isCrawlerScan}
+                                  onOpenUpdateResults={handleOpenUpdateResults}
+                                />
+                              )}
+                              {/* WAI-ARIA section */}
+                              {visibleCats.has("WAI-ARIA") && pageIssues.filter((i) => i.ruleType === "WAI-ARIA").length > 0 && (
+                                <IssueGroupList
+                                  issues={pageIssues.filter((i) => i.ruleType === "WAI-ARIA")}
+                                  filters={filters}
+                                  pageUrl={page.url}
+                                  selectedIssueId={undefined}
+                                  onFlagIssue={handleOpenFlagDialog}
+                                  onSelectOccurrence={(issue, group) => handleSelectOccurrence(issue, group, page.url, page.id)}
+                                  isCrawlerScan={isCrawlerScan}
+                                  onOpenUpdateResults={handleOpenUpdateResults}
+                                />
+                              )}
+                            </TabsContent>
+                            {selectedRules.length >= 2 && (
+                              <TabsContent value="no-occurrences" className="mt-2">
+                                <ZeroOccurrenceGroup
+                                  issues={pageIssues}
+                                  filters={filters}
+                                  selectedRules={selectedRules}
+                                  ruleInfoMap={ruleInfoMap}
+                                />
+                              </TabsContent>
+                            )}
+                          </Tabs>
                         </div>
                       ) : page.status === "completed" ? (
                         <div className="p-8 text-center text-muted-foreground border rounded-md mt-4 border-dashed bg-muted/10">

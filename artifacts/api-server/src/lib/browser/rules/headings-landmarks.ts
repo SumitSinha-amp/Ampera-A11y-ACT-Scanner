@@ -1,5 +1,6 @@
 import type { ScanRawResult, PushStatFn } from "../types";
-import { getAccessibleName, isInsideLandmark } from "../accname";
+import { getAccessibleName } from "../accname";
+import { getAlfaTabOrder, hasAlfaFocusIndicator, isInsideAlfaLandmarkOrDialog } from "../alfa-helpers";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
 import { isProgrammaticallyHidden, isRendered, isVisible } from "../visibility";
 
@@ -105,8 +106,7 @@ export function runHeadingsLandmarksRules(results: ScanRawResult[], EMIT_MANUAL_
   // ACT-R35 is reserved for Siteimprove's visual-only video alternative rule.
   // ════════════════════════════════════════════════════════════════════════
   {
-    const seenR35Parents = new Set<Element>();
-    let r35Count = 0;
+    const firstTabbable = getAlfaTabOrder()[0];
     function checkTextNodes(node: Node): void {
       if (node.nodeType === Node.TEXT_NODE) {
         const text = node.textContent?.trim() || "";
@@ -116,9 +116,8 @@ export function runHeadingsLandmarksRules(results: ScanRawResult[], EMIT_MANUAL_
         const parent = node.parentElement;
         if (!parent) return;
         if (!isRendered(parent)) return;
-        if (!isInsideLandmark(parent)) {
-          seenR35Parents.add(parent);
-          r35Count++;
+        const isInFirstFocusable = !!firstTabbable && firstTabbable.contains(parent);
+        if (!isInsideAlfaLandmarkOrDialog(parent) && !isInFirstFocusable) {
           results.push({ ruleId: "ACT-R57", type: "WAI-ARIA", impact: "minor", description: `Text "${text.substring(0, 80)}" is not contained within a landmark region`, element: outerHtmlSnippet(parent), elementContext: elementContextForAI(parent), selector: getSelector(parent) });
         }
       } else if (node.nodeType === Node.ELEMENT_NODE) {
@@ -385,26 +384,10 @@ export function runHeadingsLandmarksRules(results: ScanRawResult[], EMIT_MANUAL_
   // ACT-R65: Focus indicator not visible (WCAG 2.4.7)
   // ════════════════════════════════════════════════════════════════════════
   {
-    let hasFocusOutlineRemoved = false;
-    let hasFocusReplacement = false;
-    try {
-      Array.from(document.styleSheets).forEach((sheet) => {
-        try {
-          Array.from(sheet.cssRules || []).forEach((rule) => {
-            const text = rule.cssText || "";
-            if ((text.includes(":focus") || text.includes(":focus-visible")) && (text.includes("outline: none") || text.includes("outline:none") || text.includes("outline: 0") || text.includes("outline:0"))) {
-              hasFocusOutlineRemoved = true;
-              if (text.includes("box-shadow") || text.includes("border") || text.includes("background") || text.includes("text-decoration") || text.includes("filter") || text.includes("ring")) {
-                hasFocusReplacement = true;
-              }
-            }
-          });
-        } catch { /* cross-origin */ }
-      });
-    } catch { /* ignore */ }
-    if (hasFocusOutlineRemoved && !hasFocusReplacement) {
-      results.push({ ruleId: "ACT-R65", type: "Issue", impact: "serious", description: "CSS removes focus outline without providing a visible replacement focus indicator", element: null, selector: null });
-    }
+    getAlfaTabOrder().forEach((el) => {
+      if (hasAlfaFocusIndicator(el)) return;
+      results.push({ ruleId: "ACT-R65", type: "Issue", impact: "serious", description: "CSS removes focus outline without providing a visible replacement focus indicator", element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
+    });
   }
 
   // ── Scoring stats: total elements / pages checked per rule ────────────────
@@ -432,7 +415,8 @@ export function runHeadingsLandmarksRules(results: ScanRawResult[], EMIT_MANUAL_
   pushStat("ACT-R102", 1, "page");
   const expandableEls = document.querySelectorAll("[aria-expanded]").length;
   if (expandableEls > 0) pushStat("ACT-R97", expandableEls, "element");
-  pushStat("ACT-R65", 1, "page");
+  const focusableEls = getAlfaTabOrder().length;
+  if (focusableEls > 0) pushStat("ACT-R65", focusableEls, "element");
 
   // ════════════════════════════════════════════════════════════════════════
 }

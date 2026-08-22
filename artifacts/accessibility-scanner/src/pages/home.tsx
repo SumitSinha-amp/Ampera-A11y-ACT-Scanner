@@ -1521,6 +1521,7 @@ export default function Home() {
     }
 
     if (parsedUrls.length === 0) {
+      setWizardStep("target");
       toast({
         title: "No URLs",
         description: "Please provide at least one URL to scan.",
@@ -1616,10 +1617,7 @@ export default function Home() {
             ...(resolvedProxy ? { proxyPacUrl: resolvedProxy } : {}),
             ...(disableJavascript ? { disableJavascript: true } : {}),
             ...(incremental ? { incremental: true } : {}),
-            // Level filter — omit when all levels selected (backend default = no filter)
-            ...(!ALL_SCAN_LEVELS.every((l) => selectedLevels.includes(l))
-              ? { wcagLevels: selectedLevels }
-              : {}),
+            wcagLevels: selectedLevels,
           },
           initiatorName: initiatorName.trim() || undefined,
           initiatorRole: initiatorRole || undefined,
@@ -1729,37 +1727,46 @@ export default function Home() {
             value={wizardStep}
             onValueChange={(v) => setWizardStep(v as ScanWizardTab)}
           >
-            <div className="overflow-x-auto pb-1">
+            <div className="w-full overflow-x-auto pb-1">
               <TabsList className="grid min-w-[480px] w-full grid-cols-4 rounded-xl border border-border/50 bg-muted/50 p-1 h-auto gap-0.5">
-                {SCAN_WIZARD_TABS.map((tab, i) => {
-                  const icons: Record<typeof tab, React.ReactNode> = {
-                    target: <Globe className="w-3.5 h-3.5" />,
-                    scope: <Shield className="w-3.5 h-3.5" />,
-                    settings: <Settings className="w-3.5 h-3.5" />,
-                    details: <FileText className="w-3.5 h-3.5" />,
+                {(() => {
+                  const stepComplete: Record<ScanWizardTab, boolean> = {
+                    target: parsedUrls.length > 0,
+                    scope: true,
+                    settings: true,
+                    details: projectId != null && scanName.trim().length > 0,
                   };
-                  return (
-                    <TabsTrigger
-                      key={tab}
-                      value={tab}
-                      className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-foreground text-muted-foreground"
-                    >
-                      <span
-                        className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold shrink-0 ${
-                          i < wizardStepIndex
-                            ? "bg-teal-500 text-white"
-                            : i === wizardStepIndex
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted-foreground/20 text-muted-foreground"
-                        }`}
+                  return SCAN_WIZARD_TABS.map((tab, i) => {
+                    const icons: Record<typeof tab, React.ReactNode> = {
+                      target: <Globe className="w-3.5 h-3.5" />,
+                      scope: <Shield className="w-3.5 h-3.5" />,
+                      settings: <Settings className="w-3.5 h-3.5" />,
+                      details: <FileText className="w-3.5 h-3.5" />,
+                    };
+                    const isComplete = stepComplete[tab];
+                    return (
+                      <TabsTrigger
+                        key={tab}
+                        value={tab}
+                        className="flex min-h-[44px] items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-foreground text-muted-foreground"
                       >
-                        {i < wizardStepIndex ? "✓" : i + 1}
-                      </span>
-                      <span className="hidden sm:inline">{SCAN_WIZARD_LABELS[tab]}</span>
-                      <span className="sm:hidden">{icons[tab]}</span>
-                    </TabsTrigger>
-                  );
-                })}
+                        <span
+                          className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold shrink-0 ${
+                            isComplete
+                              ? "bg-teal-500 text-white"
+                              : i === wizardStepIndex
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-muted-foreground/20 text-muted-foreground"
+                          }`}
+                        >
+                          {isComplete ? "✓" : i + 1}
+                        </span>
+                        <span className="hidden sm:inline">{SCAN_WIZARD_LABELS[tab]}</span>
+                        <span className="sm:hidden">{icons[tab]}</span>
+                      </TabsTrigger>
+                    );
+                  });
+                })()}
               </TabsList>
             </div>
 
@@ -2397,11 +2404,7 @@ export default function Home() {
               <Button
                 type="button"
                 onClick={startScan}
-                disabled={
-                  createScan.isPending ||
-                  startingScan ||
-                  parsedUrls.length === 0
-                }
+                disabled={createScan.isPending || startingScan}
                 className="rounded-xl font-bold h-10 px-6 bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_4px_14px_rgba(0,0,0,0.15)]"
               >
                 {createScan.isPending || startingScan ? (
