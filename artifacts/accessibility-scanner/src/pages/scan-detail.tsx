@@ -97,9 +97,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  DropdownMenuCheckboxItem,
-  DropdownMenuSeparator,
-  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { getStatusBadge } from "@/lib/status-badge";
 import { useQueryClient } from "@tanstack/react-query";
@@ -1214,9 +1211,6 @@ export default function ScanDetail() {
     level: "all",
     hideFalsePositives: true,
   });
-
-  const ALL_CATS = ["Issue", "Potential Issue", "Best Practice", "WAI-ARIA"] as const;
-  const [visibleCats, setVisibleCats] = useState<Set<string>>(() => new Set(ALL_CATS));
 
   const [pageStatusFilter, setPageStatusFilter] = useState<string>("all");
   const [pageUrlFilter, setPageUrlFilter] = useState("");
@@ -3415,8 +3409,25 @@ export default function ScanDetail() {
                   return override !== undefined ? { ...issue, ...override } : issue;
                 });
                 const filteredPageIssues = pageIssues.filter((issue) => issueMatchesFilters(issue, filters));
-                const occurrenceRuleCount = new Set(filteredPageIssues.map((issue) => issue.ruleId)).size;
                 const zeroOccurrenceRuleCount = getZeroRuleIds(pageIssues, filters, selectedRules).length;
+                const categoryIssues = {
+                  issues: pageIssues.filter((issue) => !issue.ruleType || issue.ruleType === "Issue"),
+                  potentialIssues: pageIssues.filter((issue) => issue.ruleType === "Potential Issue"),
+                  bestPractices: pageIssues.filter((issue) => issue.ruleType === "Best Practice"),
+                  waiAria: pageIssues.filter((issue) => issue.ruleType === "WAI-ARIA"),
+                };
+                const categoryTabs = [
+                  { value: "issues", label: "Issues", issues: categoryIssues.issues },
+                  { value: "potential-issues", label: "Potential Issues", issues: categoryIssues.potentialIssues },
+                  { value: "best-practices", label: "Best Practices", issues: categoryIssues.bestPractices },
+                  { value: "wai-aria", label: "WAI-ARIA", issues: categoryIssues.waiAria },
+                ]
+                  .filter((category) => category.issues.length > 0)
+                  .map((category) => ({
+                    ...category,
+                    ruleCount: new Set(category.issues.filter((issue) => issueMatchesFilters(issue, filters)).map((issue) => issue.ruleId)).size,
+                  }));
+                const firstTabValue = categoryTabs[0]?.value ?? (selectedRules.length >= 2 ? "no-occurrences" : "issues");
                 return (
                   <AccordionItem
                     key={page.id}
@@ -3628,7 +3639,7 @@ export default function ScanDetail() {
 
                       {pageIssues.length > 0 || selectedRules.length >= 2 ? (
                         <div className="space-y-3">
-                          {/* Filter bar + Category visibility dropdown */}
+                          {/* Issue filters */}
                           {(pageIssues.length > 0 || selectedRules.length >= 2) && (
                             <div className="min-w-0 flex-1">
                               <IssueFilterBar
@@ -3638,37 +3649,6 @@ export default function ScanDetail() {
                                 singleRule={selectedRules.length === 1}
                                 selectedRules={selectedRules}
                                 ruleInfoMap={ruleInfoMap}
-                                trailingControl={
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <Button variant="outline" size="sm" className="h-8 shrink-0 gap-1 rounded-lg border-[#e0e4ef] bg-[#f7f8fd] px-2.5 text-xs font-normal text-[#172b4d] shadow-none dark:border-slate-800 dark:bg-slate-950">
-                                        <Filter className="h-3 w-3" />
-                                        Categories ({visibleCats.size})
-                                      </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end" className="w-52">
-                                      <DropdownMenuLabel className="text-xs text-muted-foreground">Show categories</DropdownMenuLabel>
-                                      <DropdownMenuSeparator />
-                                      {([
-                                        { key: "Issue", label: "Issues", cls: "text-red-600" },
-                                        { key: "Potential Issue", label: "Potential Issues", cls: "text-amber-600" },
-                                        { key: "Best Practice", label: "Best Practices", cls: "text-blue-600" },
-                                        { key: "WAI-ARIA", label: "WAI-ARIA", cls: "text-purple-600" },
-                                      ] as const).map(({ key, label, cls }) => (
-                                        <DropdownMenuCheckboxItem
-                                          key={key}
-                                          checked={visibleCats.has(key)}
-                                          onCheckedChange={(checked) =>
-                                            setVisibleCats(prev => { const n = new Set(prev); checked ? n.add(key) : n.delete(key); return n; })
-                                          }
-                                          className={`text-xs ${cls}`}
-                                        >
-                                          {label}
-                                        </DropdownMenuCheckboxItem>
-                                      ))}
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                }
                               />
                             </div>
                           )}
@@ -3687,22 +3667,27 @@ export default function ScanDetail() {
                               )}
                             </div>
                           )}
-                          <Tabs defaultValue="with-occurrences" className="w-full">
-                            <TabsList className="h-9 w-full justify-start gap-1 rounded-lg bg-[#f1f3f9] p-1 dark:bg-slate-900">
-                              <TabsTrigger value="with-occurrences" className="h-7 gap-1.5 px-3 text-xs data-[state=active]:bg-white data-[state=active]:text-[#172b4d] data-[state=active]:shadow-sm dark:data-[state=active]:bg-slate-800 dark:data-[state=active]:text-slate-100">
-                                With occurrences ({occurrenceRuleCount} rule{occurrenceRuleCount !== 1 ? "s" : ""})
-                              </TabsTrigger>
+                          <Tabs defaultValue={firstTabValue} className="w-full">
+                            <TabsList className="flex h-auto min-h-9 w-full flex-wrap justify-start gap-1 rounded-lg bg-[#f1f3f9] p-1 dark:bg-slate-900">
+                              {categoryTabs.map((category) => (
+                                <TabsTrigger
+                                  key={category.value}
+                                  value={category.value}
+                                  className="h-7 gap-1.5 px-3 text-xs data-[state=active]:bg-white data-[state=active]:text-[#172b4d] data-[state=active]:shadow-sm dark:data-[state=active]:bg-slate-800 dark:data-[state=active]:text-slate-100"
+                                >
+                                  {category.label} ({category.ruleCount})
+                                </TabsTrigger>
+                              ))}
                               {selectedRules.length >= 2 && (
                                 <TabsTrigger value="no-occurrences" className="h-7 gap-1.5 px-3 text-xs data-[state=active]:bg-white data-[state=active]:text-green-700 data-[state=active]:shadow-sm dark:data-[state=active]:bg-slate-800 dark:data-[state=active]:text-green-400">
                                   No occurrences ({zeroOccurrenceRuleCount} rule{zeroOccurrenceRuleCount !== 1 ? "s" : ""})
                                 </TabsTrigger>
                               )}
                             </TabsList>
-                            <TabsContent value="with-occurrences" className="mt-2">
-                              {/* Issues section */}
-                              {visibleCats.has("Issue") && pageIssues.filter((i) => !i.ruleType || i.ruleType === "Issue").length > 0 && (
+                            {categoryTabs.map((category) => (
+                              <TabsContent key={category.value} value={category.value} className="mt-2">
                                 <IssueGroupList
-                                  issues={pageIssues.filter((i) => !i.ruleType || i.ruleType === "Issue")}
+                                  issues={category.issues}
                                   filters={filters}
                                   pageUrl={page.url}
                                   selectedIssueId={undefined}
@@ -3711,47 +3696,8 @@ export default function ScanDetail() {
                                   isCrawlerScan={isCrawlerScan}
                                   onOpenUpdateResults={handleOpenUpdateResults}
                                 />
-                              )}
-                              {/* Potential issues section */}
-                              {visibleCats.has("Potential Issue") && pageIssues.filter((i) => i.ruleType === "Potential Issue").length > 0 && (
-                                <IssueGroupList
-                                  issues={pageIssues.filter((i) => i.ruleType === "Potential Issue")}
-                                  filters={filters}
-                                  pageUrl={page.url}
-                                  selectedIssueId={undefined}
-                                  onFlagIssue={handleOpenFlagDialog}
-                                  onSelectOccurrence={(issue, group) => handleSelectOccurrence(issue, group, page.url, page.id)}
-                                  isCrawlerScan={isCrawlerScan}
-                                  onOpenUpdateResults={handleOpenUpdateResults}
-                                />
-                              )}
-                              {/* Best practices section */}
-                              {visibleCats.has("Best Practice") && pageIssues.filter((i) => i.ruleType === "Best Practice").length > 0 && (
-                                <IssueGroupList
-                                  issues={pageIssues.filter((i) => i.ruleType === "Best Practice")}
-                                  filters={filters}
-                                  pageUrl={page.url}
-                                  selectedIssueId={undefined}
-                                  onFlagIssue={handleOpenFlagDialog}
-                                  onSelectOccurrence={(issue, group) => handleSelectOccurrence(issue, group, page.url, page.id)}
-                                  isCrawlerScan={isCrawlerScan}
-                                  onOpenUpdateResults={handleOpenUpdateResults}
-                                />
-                              )}
-                              {/* WAI-ARIA section */}
-                              {visibleCats.has("WAI-ARIA") && pageIssues.filter((i) => i.ruleType === "WAI-ARIA").length > 0 && (
-                                <IssueGroupList
-                                  issues={pageIssues.filter((i) => i.ruleType === "WAI-ARIA")}
-                                  filters={filters}
-                                  pageUrl={page.url}
-                                  selectedIssueId={undefined}
-                                  onFlagIssue={handleOpenFlagDialog}
-                                  onSelectOccurrence={(issue, group) => handleSelectOccurrence(issue, group, page.url, page.id)}
-                                  isCrawlerScan={isCrawlerScan}
-                                  onOpenUpdateResults={handleOpenUpdateResults}
-                                />
-                              )}
-                            </TabsContent>
+                              </TabsContent>
+                            ))}
                             {selectedRules.length >= 2 && (
                               <TabsContent value="no-occurrences" className="mt-2">
                                 <ZeroOccurrenceGroup
