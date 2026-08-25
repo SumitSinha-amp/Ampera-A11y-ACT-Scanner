@@ -23,6 +23,7 @@ import AdminDashboardPage from "@/pages/admin/dashboard";
 import AdminPermissionsPage from "@/pages/admin/permissions";
 import AdminSettingsPage from "@/pages/admin/settings";
 import TicketsPage from "@/pages/tickets";
+import IssuesPage from "@/pages/issues";
 import FeatureRequestPage from "@/pages/feature-request";
 import AdminInboxPage from "@/pages/admin/inbox";
 import CrawlerListPage from "@/pages/crawler-list";
@@ -128,7 +129,8 @@ function PermissionGuard({
     | "canViewQualityAssurance"
     | "canViewSiteAccessibilityDashboard"
     | "canManageSites"
-    | "canManageSiteTargetScore";
+    | "canManageSiteTargetScore"
+    | "canViewIssues";
   children: React.ReactNode;
 }) {
   const { user } = useAuth();
@@ -237,6 +239,9 @@ function Router() {
       </Route>
       <Route path="/app-updates">
         <AuthGuard><Layout><AppUpdates /></Layout></AuthGuard>
+      </Route>
+      <Route path="/issues">
+        <AuthGuard><PermissionGuard permission="canViewIssues"><Layout><IssuesPage /></Layout></PermissionGuard></AuthGuard>
       </Route>
       <Route path="/app-walkthrough">
         <AuthGuard><Redirect to="/app-updates" /></AuthGuard>

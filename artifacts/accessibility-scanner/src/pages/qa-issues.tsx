@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Link } from "wouter";
+import { useAuth } from "@/contexts/auth";
 import { useQuery } from "@tanstack/react-query";
 import {
   Table,
@@ -235,14 +237,18 @@ function IssuesContent({ scanId }: { scanId: number }) {
 export default function QAIssuesPage() {
   const { data: sites = [], isLoading } = useQASites();
   const [, selected] = useQASelectedSite(sites);
+  const { user } = useAuth();
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Issues</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Content quality issues detected across all crawled pages — missing titles, H1 headings, meta descriptions, thin content, and HTTP errors.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Issues</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Content quality issues detected across all crawled pages — missing titles, H1 headings, meta descriptions, thin content, and HTTP errors.
+          </p>
+        </div>
+        {user?.permissions.canCreateIssue && selected?.scanId && <Link href={`/issues?${new URLSearchParams({ create: "1", type: "bug", scanId: String(selected.scanId), title: "Resolve quality assurance finding", source: "Quality assurance finding" })}`}><Button variant="outline">Create issue</Button></Link>}
       </div>
 
       {isLoading ? (

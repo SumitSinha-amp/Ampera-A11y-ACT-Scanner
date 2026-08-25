@@ -5425,6 +5425,48 @@ html:is(.glass-dark, .glass-vision, .glass-light, .glass-vision-light) .sidebar-
   z-index: 140 !important;
 }
 
+/* AI contextual assessments get a subtle "Edge" treatment while work is
+   queued or running: the animated conic rim stays readable at small sizes,
+   while the blurred halo gives the card a visible live-processing state. */
+.ai-assessment-processing {
+  position: relative;
+  isolation: isolate;
+  border-color: transparent !important;
+  background:
+    linear-gradient(hsl(var(--card)), hsl(var(--card))) padding-box,
+    conic-gradient(from 90deg, #8b5cf6, #06b6d4, #22c55e, #f59e0b, #ec4899, #8b5cf6) border-box !important;
+  animation: ai-assessment-edge 4s linear infinite;
+}
+
+.ai-assessment-processing::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -10px;
+  border-radius: inherit;
+  background: conic-gradient(from 90deg, rgba(139, 92, 246, .55), rgba(6, 182, 212, .45), rgba(34, 197, 94, .42), rgba(245, 158, 11, .45), rgba(236, 72, 153, .55), rgba(139, 92, 246, .55));
+  filter: blur(16px);
+  opacity: .42;
+  animation: ai-assessment-halo 3.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes ai-assessment-edge {
+  to { background-position: 200% 50%, 0 0; }
+}
+
+@keyframes ai-assessment-halo {
+  0%, 100% { transform: scale(.96); opacity: .28; }
+  50% { transform: scale(1.03); opacity: .58; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-assessment-processing,
+  .ai-assessment-processing::before {
+    animation: none;
+  }
+}
+
 html:is(.dark, .glass-dark, .glass-vision) .accessibility-mode-control button {
   display: inline-flex !important;
   align-items: center !important;

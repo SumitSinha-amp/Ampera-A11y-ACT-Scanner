@@ -20,6 +20,11 @@ export interface UserPermissions {
   canViewSiteAccessibilityDashboard: boolean;
   canManageSites: boolean;
   canManageSiteTargetScore: boolean;
+  canViewIssues: boolean;
+  canCreateIssue: boolean;
+  canEditIssue: boolean;
+  canCommentIssue: boolean;
+  canManageIssues: boolean;
 }
 
 const DEFAULT_PERMISSIONS: UserPermissions = {
@@ -41,6 +46,11 @@ const DEFAULT_PERMISSIONS: UserPermissions = {
   canViewSiteAccessibilityDashboard: true,
   canManageSites: false,
   canManageSiteTargetScore: false,
+  canViewIssues: true,
+  canCreateIssue: true,
+  canEditIssue: true,
+  canCommentIssue: true,
+  canManageIssues: true,
 };
 
 export interface AuthUser {

@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useAuth } from "@/contexts/auth";
-import { APP_RULE_MAPPING_RELEASE, APP_VERSION } from "@/lib/app-version";
+import { APP_VERSION } from "@/lib/app-version";
 import { useEffect, useState } from "react";
 import { DEFAULT_LOGO_SUBTITLE, DEFAULT_LOGO_TEXT } from "@/pages/settings";
 
@@ -124,21 +124,22 @@ export default function WelcomePage() {
               </div>
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-base font-semibold">
-                    Guided scan setup and scoped accessibility checks in {APP_VERSION}
+                    <h2 className="text-base font-semibold">
+                    Issue tracking for accessibility work in {APP_VERSION}
                   </h2>
                   <Badge variant="outline" className="text-[10px]">
-                    Version {APP_RULE_MAPPING_RELEASE}
+                    New
                   </Badge>
                 </div>
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                  Build a scan in four focused steps, choose the WCAG levels and
-                  rules you need, and see what is ready before you start. The
-                  release also keeps the workspace updates and release history in sync.
+                  Turn accessibility findings and team requests into Content, Epic,
+                  Test, Task, Story, Request, or Bug issues. Follow work from To Do
+                  through review and verification with rich comments, mentions, and
+                  private evidence attachments.
                 </p>
                 <Link href="/app-updates">
                   <Button variant="link" className="h-auto px-0 text-xs text-cyan-700 dark:text-cyan-300">
-                    Explore the latest update
+                    Explore issue tracking
                     <ArrowRight className="ml-1 h-3 w-3" />
                   </Button>
                 </Link>

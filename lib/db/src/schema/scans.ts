@@ -84,6 +84,29 @@ export const accessibilityIssuesTable = pgTable("accessibility_issues", {
   index("accessibility_issues_page_id_idx").on(t.pageId),
 ]);
 
+export const aiIssueAssessmentsTable = pgTable("ai_issue_assessments", {
+  id: serial("id").primaryKey(),
+  issueId: integer("issue_id").notNull().references(() => accessibilityIssuesTable.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("queued"),
+  decision: text("decision"),
+  confidence: text("confidence"),
+  rationale: text("rationale"),
+  evidence: jsonb("evidence").$type<string[]>().notNull().default([]),
+  engine: text("engine").notNull().default("Alfa/custom browser"),
+  provider: text("provider"),
+  model: text("model"),
+  attempts: integer("attempts").notNull().default(0),
+  requestContext: jsonb("request_context").$type<Record<string, unknown>>().notNull(),
+  errorMessage: text("error_message"),
+  queuedAt: timestamp("queued_at").defaultNow().notNull(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("ai_issue_assessments_issue_unique").on(t.issueId),
+  index("ai_issue_assessments_status_idx").on(t.status),
+]);
+
 export const qaPagesTable = pgTable("qa_pages", {
   id: serial("id").primaryKey(),
   scanId: integer("scan_id").notNull().references(() => scanSessionsTable.id, { onDelete: "cascade" }),

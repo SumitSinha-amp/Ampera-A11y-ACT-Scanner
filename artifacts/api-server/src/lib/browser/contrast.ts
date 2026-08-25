@@ -47,6 +47,79 @@ export function getEffectiveBackground(el: HTMLElement): string {
   return composited;
 }
 
+/**
+ * Try to resolve a CSS gradient's representative (midpoint) colour by rendering
+ * it onto an offscreen canvas and sampling the centre pixel.
+ *
+ * Handles linear-gradient, radial-gradient, and conic-gradient with solid
+ * colour stops (rgb/rgba/hex/named colours).  Returns null when the gradient
+ * cannot be parsed or the Canvas API is unavailable.
+ */
+export function sampleGradientColor(gradientString: string, width: number, height: number): string | null {
+  try {
+    const w = Math.max(2, Math.min(100, Math.round(width)));
+    const h = Math.max(2, Math.min(100, Math.round(height)));
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    // Strip the outer gradient function wrapper.
+    const inner = gradientString
+      .replace(/^(?:linear|radial|conic)-gradient\s*\(\s*/i, "")
+      .replace(/\s*\)\s*$/, "");
+
+    // Split on top-level commas (not inside parentheses).
+    const parts: string[] = [];
+    let depth = 0;
+    let cur = "";
+    for (const ch of inner) {
+      if (ch === "(") { depth++; cur += ch; }
+      else if (ch === ")") { depth--; cur += ch; }
+      else if (ch === "," && depth === 0) { parts.push(cur.trim()); cur = ""; }
+      else { cur += ch; }
+    }
+    if (cur.trim()) parts.push(cur.trim());
+
+    // Skip direction / angle tokens (appear before colour stops).
+    const stops: string[] = [];
+    for (const p of parts) {
+      if (/^(?:to\s+|[\d.]+(?:deg|grad|rad|turn)|at\s+)/i.test(p)) continue;
+      // Strip optional trailing percentage/length position from each stop.
+      const color = p.replace(/\s+[\d.]+(?:%|px|em|rem|ch|vw|vh|fr)\s*$/, "").trim();
+      if (color) stops.push(color);
+    }
+    if (stops.length < 2) return null;
+
+    // Render a horizontal linear gradient and sample the centre pixel.
+    // The direction is irrelevant for colour accuracy — we want the midpoint hue.
+    const grad = ctx.createLinearGradient(0, 0, w, 0);
+    let validStops = 0;
+    stops.forEach((color, i) => {
+      try {
+        grad.addColorStop(i / (stops.length - 1), color);
+        validStops++;
+      } catch { /* skip malformed colour string */ }
+    });
+    if (validStops < 2) return null;
+
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    const [r, g, b, a] = ctx.getImageData(Math.floor(w / 2), Math.floor(h / 2), 1, 1).data;
+    if (a === 0) return null;
+    return `rgb(${r},${g},${b})`;
+  } catch { return null; }
+}
+
+/**
+ * Resolve the effective background colour of an element by walking the ancestor
+ * chain and compositing background colours.
+ *
+ * Gradient backgrounds (linear/radial/conic) are resolved to their midpoint
+ * colour via Canvas sampling so they no longer cause blanket "indeterminate"
+ * classifications.  Only true background images (url(...)) remain indeterminate.
+ */
 export function getBackgroundResolution(el: HTMLElement): { kind: "solid" | "indeterminate"; color: string } {
   let composited = "rgb(255,255,255)";
   let hasIndeterminateLayer = false;
@@ -54,28 +127,41 @@ export function getBackgroundResolution(el: HTMLElement): { kind: "solid" | "ind
   let node: HTMLElement | null = el;
   while (node) { chain.push(node); node = node.parentElement; }
   chain.reverse();
+
   for (const n of chain) {
     const cs = window.getComputedStyle(n);
     const bg = cs.backgroundColor;
-    // A background image makes the final color unknowable until an opaque
-    // descendant background covers it. Keep walking instead of returning
-    // immediately so a text wrapper with a solid background can restore a
-    // determinable contrast result.
-    if (cs.backgroundImage && cs.backgroundImage !== "none") {
-      hasIndeterminateLayer = true;
+    const bgImg = cs.backgroundImage;
+
+    if (bgImg && bgImg !== "none") {
+      if (/^(?:linear|radial|conic)-gradient/i.test(bgImg)) {
+        // Gradient: attempt canvas sampling of the midpoint colour.
+        const rect = n.getBoundingClientRect();
+        const resolved = sampleGradientColor(bgImg, rect.width || 100, rect.height || 100);
+        if (resolved) {
+          composited = alphaComposite(resolved, composited);
+          // Gradient resolved → treated as a covered background layer.
+          hasIndeterminateLayer = false;
+        } else {
+          // Gradient uses CSS variables or an unsupported syntax.
+          hasIndeterminateLayer = true;
+        }
+      } else {
+        // background-image: url(…) — an arbitrary image; truly indeterminate.
+        hasIndeterminateLayer = true;
+      }
     }
-    const hasImageLayer = cs.backgroundImage && cs.backgroundImage !== "none";
+
     if (bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)") {
       composited = alphaComposite(bg, composited);
-      // Computed background colors are normally rgb()/rgba(). Treat an
-      // opaque color as covering all visual layers behind this element, but
-      // not an image painted on the same element (background images paint
-      // above the background color).
+      // An opaque solid colour with no concurrent image layer conclusively
+      // covers everything behind it.
       const alphaMatch = bg.match(/rgba?\([^)]*,\s*([0-9.]+)\s*\)$/i);
       const alpha = alphaMatch ? parseFloat(alphaMatch[1]) : 1;
-      if (alpha >= 1 && !hasImageLayer) hasIndeterminateLayer = false;
+      if (alpha >= 1 && (!bgImg || bgImg === "none")) hasIndeterminateLayer = false;
     }
   }
+
   return hasIndeterminateLayer
     ? { kind: "indeterminate", color: composited }
     : { kind: "solid", color: composited };
@@ -107,4 +193,3 @@ export function isImportantBlocked(el: HTMLElement, prop: string, testValue: str
   const origComputed = parseFloat(window.getComputedStyle(el).getPropertyValue(prop));
   return Math.abs(testComputed - origComputed) < 50;
 }
-

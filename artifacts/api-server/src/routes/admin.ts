@@ -265,6 +265,7 @@ router.post("/admin/groups", requireAdmin, async (req, res): Promise<void> => {
     canSmartAnalysis, canSwitchSite, canCreateCrawl, canDeleteCrawl,
     canViewCrawlHistory, canViewQualityAssurance,
     canViewSiteAccessibilityDashboard, canManageSites, canManageSiteTargetScore,
+    canViewIssues, canCreateIssue, canEditIssue, canCommentIssue, canManageIssues,
   } = req.body ?? {};
   if (!name) { res.status(400).json({ error: "Group name is required" }); return; }
 
@@ -291,6 +292,11 @@ router.post("/admin/groups", requireAdmin, async (req, res): Promise<void> => {
       canViewSiteAccessibilityDashboard: typeof canViewSiteAccessibilityDashboard === "boolean" ? canViewSiteAccessibilityDashboard : false,
       canManageSites: typeof canManageSites === "boolean" ? canManageSites : false,
       canManageSiteTargetScore: typeof canManageSiteTargetScore === "boolean" ? canManageSiteTargetScore : false,
+      canViewIssues: typeof canViewIssues === "boolean" ? canViewIssues : false,
+      canCreateIssue: typeof canCreateIssue === "boolean" ? canCreateIssue : false,
+      canEditIssue: typeof canEditIssue === "boolean" ? canEditIssue : false,
+      canCommentIssue: typeof canCommentIssue === "boolean" ? canCommentIssue : false,
+      canManageIssues: typeof canManageIssues === "boolean" ? canManageIssues : false,
     }).returning();
     res.status(201).json({ ...group, createdAt: group.createdAt.toISOString(), members: [] });
   } catch (err: any) {
@@ -310,6 +316,7 @@ router.put("/admin/groups/:id", requireAdmin, async (req, res): Promise<void> =>
     canSmartAnalysis, canSwitchSite, canCreateCrawl, canDeleteCrawl,
     canViewCrawlHistory, canViewQualityAssurance,
     canViewSiteAccessibilityDashboard, canManageSites, canManageSiteTargetScore,
+    canViewIssues, canCreateIssue, canEditIssue, canCommentIssue, canManageIssues,
   } = req.body ?? {};
   const updates: Partial<typeof userGroupsTable.$inferInsert> = {};
   if (name) updates.name = name;
@@ -321,6 +328,7 @@ router.put("/admin/groups/:id", requireAdmin, async (req, res): Promise<void> =>
     canSmartAnalysis, canSwitchSite, canCreateCrawl, canDeleteCrawl,
     canViewCrawlHistory, canViewQualityAssurance,
     canViewSiteAccessibilityDashboard, canManageSites, canManageSiteTargetScore,
+    canViewIssues, canCreateIssue, canEditIssue, canCommentIssue, canManageIssues,
   } as const;
   for (const [key, value] of Object.entries(permissionFields)) {
     if (typeof value === "boolean") {
@@ -406,6 +414,11 @@ router.get("/admin/permissions", requireSuperAdmin, async (_req, res): Promise<v
       canViewSiteAccessibilityDashboard: true,
       canManageSites: false,
       canManageSiteTargetScore: false,
+      canViewIssues: true,
+      canCreateIssue: true,
+      canEditIssue: true,
+      canCommentIssue: true,
+      canManageIssues: true,
       allowedRules: null,
     },
   })));
@@ -421,7 +434,8 @@ router.put("/admin/permissions/:userId", requireSuperAdmin, async (req, res): Pr
     canManageScan, canCreateProject, canDeleteProject, canDisableJs,
     canSmartAnalysis, canSwitchSite, canCreateCrawl, canDeleteCrawl,
     canViewCrawlHistory, canViewQualityAssurance,
-    canViewSiteAccessibilityDashboard, canManageSites, canManageSiteTargetScore, allowedRules,
+    canViewSiteAccessibilityDashboard, canManageSites, canManageSiteTargetScore,
+    canViewIssues, canCreateIssue, canEditIssue, canCommentIssue, canManageIssues, allowedRules,
   } = req.body ?? {};
   const updatedBy = req.session!.user!.id;
 
@@ -447,6 +461,11 @@ router.put("/admin/permissions/:userId", requireSuperAdmin, async (req, res): Pr
     canViewSiteAccessibilityDashboard: bool(canViewSiteAccessibilityDashboard, true),
     canManageSites: bool(canManageSites, false),
     canManageSiteTargetScore: bool(canManageSiteTargetScore, false),
+    canViewIssues: bool(canViewIssues, true),
+    canCreateIssue: bool(canCreateIssue, true),
+    canEditIssue: bool(canEditIssue, true),
+    canCommentIssue: bool(canCommentIssue, true),
+    canManageIssues: bool(canManageIssues, true),
     allowedRules: Array.isArray(allowedRules) ? allowedRules : null,
     updatedAt: new Date(),
     updatedBy,
@@ -476,6 +495,11 @@ router.put("/admin/permissions/:userId", requireSuperAdmin, async (req, res): Pr
         canViewSiteAccessibilityDashboard: values.canViewSiteAccessibilityDashboard,
         canManageSites: values.canManageSites,
         canManageSiteTargetScore: values.canManageSiteTargetScore,
+        canViewIssues: values.canViewIssues,
+        canCreateIssue: values.canCreateIssue,
+        canEditIssue: values.canEditIssue,
+        canCommentIssue: values.canCommentIssue,
+        canManageIssues: values.canManageIssues,
         allowedRules: values.allowedRules,
         updatedAt: values.updatedAt,
         updatedBy: values.updatedBy,

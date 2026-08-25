@@ -6,6 +6,7 @@ import { mkdirSync, rmSync, existsSync, readdirSync } from "fs";
 import path from "path";
 import os from "os";
 import { logger } from "./logger";
+import { runPixelContrastPass } from "./pixel-contrast.js";
 
 puppeteerExtra.use(StealthPlugin());
 
@@ -2771,6 +2772,61 @@ async function _scanPageInternal(
           { url, withBbox: bboxes.filter(Boolean).length },
           "Final-layout bounding boxes captured",
         );
+      }
+
+      // ── 1b. Pixel-contrast pass — resolve url()-background elements ────
+      // Elements whose background is a CSS image (url()) were classified as
+      // "indeterminate" by the DOM rule and optionally emitted as Potential
+      // Issues.  This pass takes a single full-page PNG, samples the rendered
+      // pixel colours at each candidate's bounding box, and emits confirmed
+      // Issues for elements whose actual contrast fails the WCAG threshold.
+      try {
+        const pixelIssues = await runPixelContrastPass(page, logger);
+        if (pixelIssues.length > 0) {
+          // Remove Potential Issue stubs for the same selectors — the pixel
+          // pass either promotes them to confirmed or dismisses them.
+          const pixelSelectors = new Set(pixelIssues.map((pi) => pi.selector));
+          const PIXEL_RULE_IDS = new Set(["ACT-R69", "ACT-R66", "ACT-R88", "ACT-R89"]);
+          issues = issues.filter(
+            (issue) =>
+              !(
+                PIXEL_RULE_IDS.has(issue.ruleId) &&
+                issue.type === "Potential Issue" &&
+                issue.selector != null &&
+                pixelSelectors.has(issue.selector)
+              ),
+          );
+
+          // Merge pixel issues as confirmed Issues, enriched with WCAG metadata.
+          for (const pi of pixelIssues) {
+            const wcag = WCAG_MAPPING[pi.ruleId];
+            const desc = RULE_DESCRIPTIONS[pi.ruleId];
+            issues.push({
+              ruleId: pi.ruleId,
+              type: "Issue",
+              impact: pi.impact,
+              description: pi.description,
+              element: null,
+              elementContext: null,
+              selector: pi.selector,
+              remediation: desc?.remediation ?? null,
+              wcagCriteria: wcag?.sc?.join(", ") || null,
+              wcagLevel: wcag?.level?.join(", ") || null,
+              legal: getLegalCompliance(wcag?.level || []),
+              bboxX: pi.bboxX,
+              bboxY: pi.bboxY,
+              bboxWidth: pi.bboxW,
+              bboxHeight: pi.bboxH,
+              falsePositive: false,
+            });
+          }
+          logger.info(
+            { url, pixelIssues: pixelIssues.length },
+            "Pixel contrast pass added confirmed issues",
+          );
+        }
+      } catch (pixelErr) {
+        logger.warn({ url, err: pixelErr }, "Pixel contrast pass failed — continuing without it");
       }
 
       // ── 2. Full-page screenshot with fallback to viewport-only ─────────

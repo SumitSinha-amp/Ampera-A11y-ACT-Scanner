@@ -1,0 +1,357 @@
+import { Router, type IRouter } from "express";
+import { and, asc, desc, eq, gt, ilike, inArray, or, sql } from "drizzle-orm";
+import {
+  db, appIssuesTable, appIssueCommentsTable, appIssueActivityTable, appIssueAttachmentsTable,
+  usersTable, sitesTable, projectsTable,
+} from "@workspace/db";
+import { requireAuth } from "../middlewares/authMiddleware";
+import { canAccessSite, getEffectivePermissions, getEffectiveSites } from "../lib/permissions";
+import {
+  ALL_ISSUE_STATUSES,
+  ISSUE_TYPES,
+  canTransitionIssue,
+  isIssueStatus,
+  isIssueType,
+  type IssueType,
+} from "../lib/issue-workflow";
+import { ObjectStorageService } from "../lib/objectStorage";
+
+const router: IRouter = Router();
+const statuses = ALL_ISSUE_STATUSES;
+const priorities = ["lowest", "low", "medium", "high", "highest"];
+const objectStorageService = new ObjectStorageService();
+const MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024;
+const ACCEPTED_ATTACHMENT_TYPES = new Set([
+  "image/jpeg", "image/png", "image/webp", "image/gif",
+  "video/mp4", "video/webm",
+  "application/pdf", "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/plain", "text/csv",
+]);
+
+async function hasIssuePermission(req: any, permission: "canViewIssues" | "canCreateIssue" | "canEditIssue" | "canCommentIssue" | "canManageIssues") {
+  const user = req.session!.user;
+  const permissions = await getEffectivePermissions(Number(user.id), user.role);
+  return permissions[permission];
+}
+
+async function requireIssuePermission(req: any, res: any, permission: "canViewIssues" | "canCreateIssue" | "canEditIssue" | "canCommentIssue" | "canManageIssues") {
+  if (await hasIssuePermission(req, permission)) return true;
+  res.status(403).json({ error: "You do not have permission to use this issue feature" });
+  return false;
+}
+
+async function canUploadIssueAttachment(req: any) {
+  return (await hasIssuePermission(req, "canEditIssue")) || (await hasIssuePermission(req, "canCommentIssue"));
+}
+
+async function visibleWhere(req: any) {
+  const user = req.session!.user;
+  const sites = await getEffectiveSites(Number(user.id), String(user.id), user.role);
+  const siteIds = sites.map((s) => s.id);
+  return siteIds.length
+    ? or(eq(appIssuesTable.reporterId, Number(user.id)), sql`${appIssuesTable.siteId} IN (${sql.join(siteIds.map((id) => sql`${id}`), sql`, `)})`)
+    : eq(appIssuesTable.reporterId, Number(user.id));
+}
+
+async function canSeeIssue(req: any, id: number) {
+  const [issue] = await db.select().from(appIssuesTable).where(and(eq(appIssuesTable.id, id), await visibleWhere(req))).limit(1);
+  return issue;
+}
+
+function cleanBody(body: any) {
+  const value = (key: string, fallback: string | null = null) => typeof body?.[key] === "string" ? body[key].trim() : fallback;
+  const richValue = (key: string) => {
+    const field = value(key);
+    return field === null ? null : sanitizeRichText(field);
+  };
+  return {
+    type: isIssueType(body?.type) ? body.type : "task",
+    title: value("title", "") ?? "",
+    description: sanitizeRichText(value("description", "") ?? ""),
+    status: typeof body?.status === "string" ? body.status.trim() : "todo",
+    priority: priorities.includes(body?.priority) ? body.priority : "medium",
+    severity: value("severity"),
+    projectId: Number.isInteger(Number(body?.projectId)) && Number(body.projectId) > 0 ? Number(body.projectId) : null,
+    siteId: Number.isInteger(Number(body?.siteId)) && Number(body.siteId) > 0 ? Number(body.siteId) : null,
+    scanId: Number.isInteger(Number(body?.scanId)) && Number(body.scanId) > 0 ? Number(body.scanId) : null,
+    pageId: Number.isInteger(Number(body?.pageId)) && Number(body.pageId) > 0 ? Number(body.pageId) : null,
+    ruleId: value("ruleId"), selector: value("selector"), sourceDescription: value("sourceDescription"),
+    assigneeId: Number.isInteger(Number(body?.assigneeId)) && Number(body.assigneeId) > 0 ? Number(body.assigneeId) : null,
+    labels: Array.isArray(body?.labels) ? body.labels.filter((x: unknown) => typeof x === "string").slice(0, 20) : [],
+    checklist: Array.isArray(body?.checklist) ? body.checklist.filter((x: any) => x && typeof x.text === "string").map((x: any) => ({ text: x.text.slice(0, 300), done: Boolean(x.done) })) : [],
+    acceptanceCriteria: richValue("acceptanceCriteria"), environment: value("environment"),
+    stepsToReproduce: richValue("stepsToReproduce"), expectedResult: richValue("expectedResult"), actualResult: richValue("actualResult"),
+    dueDate: value("dueDate"), sprint: value("sprint"),
+    relatedIssueIds: Array.isArray(body?.relatedIssueIds) ? body.relatedIssueIds.filter((x: unknown) => Number.isInteger(x)) : [],
+    customFields: cleanCustomFields(body?.customFields),
+  };
+}
+
+function cleanCustomFields(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key, item]) => /^[a-z][a-zA-Z0-9_]{0,48}$/.test(key) && typeof item === "string")
+    .slice(0, 20)
+    .map(([key, item]) => [key, String(item).trim().slice(0, 1_500)]));
+}
+
+function sanitizeRichText(input: string): string {
+  const allowedTags = new Set(["p", "br", "strong", "b", "em", "i", "u", "s", "ul", "ol", "li", "a", "code", "pre", "blockquote", "h3", "h4"]);
+  return input.slice(0, 50_000)
+    .replace(/<!--[\s\S]*?-->|<(script|style|iframe|object|embed|svg|math)[\s\S]*?<\/\1\s*>/gi, "")
+    .replace(/<(\/?)([a-z0-9]+)(?:\s[^>]*)?>/gi, (tag, closing: string, name: string) => {
+      const tagName = name.toLowerCase();
+      if (!allowedTags.has(tagName)) return "";
+      if (closing) return `</${tagName}>`;
+      if (tagName !== "a") return `<${tagName}>`;
+      const href = tag.match(/\bhref\s*=\s*["']?([^"'\s>]+)/i)?.[1] ?? "";
+      return /^(https?:|mailto:)/i.test(href) ? `<a href="${href.replace(/"/g, "%22")}">` : "<a>";
+    });
+}
+
+function sanitizeIssueRichTextFields<T extends Record<string, any>>(issue: T): T {
+  return {
+    ...issue,
+    description: sanitizeRichText(issue.description ?? ""),
+    acceptanceCriteria: issue.acceptanceCriteria ? sanitizeRichText(issue.acceptanceCriteria) : issue.acceptanceCriteria,
+    stepsToReproduce: issue.stepsToReproduce ? sanitizeRichText(issue.stepsToReproduce) : issue.stepsToReproduce,
+    expectedResult: issue.expectedResult ? sanitizeRichText(issue.expectedResult) : issue.expectedResult,
+    actualResult: issue.actualResult ? sanitizeRichText(issue.actualResult) : issue.actualResult,
+  };
+}
+
+function plainRichText(value: string): string {
+  return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function cleanMentionIds(value: unknown): number[] {
+  return Array.isArray(value)
+    ? [...new Set(value.filter((id) => Number.isInteger(Number(id)) && Number(id) > 0).map(Number))].slice(0, 25)
+    : [];
+}
+
+function cleanAttachmentMetadata(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Record<string, unknown>;
+  const objectPath = typeof item.objectPath === "string" ? item.objectPath : "";
+  const filename = typeof item.filename === "string" ? item.filename.replace(/[\/\\]/g, "_").trim().slice(0, 255) : "";
+  const contentType = typeof item.contentType === "string" ? item.contentType : "";
+  const size = Number(item.size);
+  if (!objectPath.startsWith("/objects/") || !filename || !ACCEPTED_ATTACHMENT_TYPES.has(contentType) || !Number.isInteger(size) || size <= 0 || size > MAX_ATTACHMENT_SIZE) return null;
+  return { objectPath, filename, contentType, size };
+}
+
+async function saveAttachments(issueId: number, userId: number, attachments: unknown, commentId?: number) {
+  const clean = Array.isArray(attachments) ? attachments.map(cleanAttachmentMetadata).filter(Boolean).slice(0, 8) : [];
+  if (Array.isArray(attachments) && attachments.length > 0 && clean.length === 0) {
+    throw new Error("Attachment metadata is invalid");
+  }
+  if (!clean.length) return [];
+  const paths = clean.map((attachment) => attachment!.objectPath);
+  const pending = await db.select().from(appIssueAttachmentsTable).where(and(
+    eq(appIssueAttachmentsTable.issueId, issueId),
+    eq(appIssueAttachmentsTable.uploadedBy, userId),
+    eq(appIssueAttachmentsTable.pending, true),
+    gt(appIssueAttachmentsTable.expiresAt, new Date()),
+    inArray(appIssueAttachmentsTable.objectPath, paths),
+  ));
+  if (pending.length !== paths.length) throw new Error("Attachment upload was not issued for this user and issue");
+  for (const attachment of pending) await objectStorageService.getObjectEntityFile(attachment.objectPath);
+  const saved = await Promise.all(pending.map(async (attachment) => {
+    const [updated] = await db.update(appIssueAttachmentsTable)
+      .set({ commentId: commentId ?? null, pending: false, expiresAt: null })
+      .where(and(eq(appIssueAttachmentsTable.id, attachment.id), eq(appIssueAttachmentsTable.pending, true)))
+      .returning();
+    if (!updated) throw new Error("Attachment has already been consumed");
+    return updated;
+  }));
+  return saved;
+}
+
+router.get("/issues/people", requireAuth, async (_req, res) => {
+  if (!(await requireIssuePermission(_req, res, "canViewIssues"))) return;
+  const people = await db.select({ id: usersTable.id, name: usersTable.fullName, email: usersTable.email })
+    .from(usersTable).where(eq(usersTable.isActive, true)).orderBy(asc(usersTable.fullName));
+  res.json(people);
+});
+
+router.get("/issues", requireAuth, async (req, res) => {
+  if (!(await requireIssuePermission(req, res, "canViewIssues"))) return;
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  const siteId = Number(req.query.siteId);
+  const conditions = [await visibleWhere(req), eq(appIssuesTable.archived, false)];
+  if (q) conditions.push(or(ilike(appIssuesTable.title, `%${q}%`), ilike(appIssuesTable.issueKey, `%${q}%`), ilike(appIssuesTable.description, `%${q}%`))!);
+  if (statuses.includes(String(req.query.status))) conditions.push(eq(appIssuesTable.status, String(req.query.status)));
+  if (isIssueType(String(req.query.type))) conditions.push(eq(appIssuesTable.type, String(req.query.type)));
+  if (Number.isInteger(siteId) && siteId > 0) conditions.push(eq(appIssuesTable.siteId, siteId));
+  const issues = await db.select({
+    issue: appIssuesTable,
+    reporterName: usersTable.fullName,
+    assigneeName: sql<string | null>`(SELECT full_name FROM users WHERE users.id = ${appIssuesTable.assigneeId})`,
+    siteName: sitesTable.name,
+    projectName: projectsTable.name,
+  }).from(appIssuesTable)
+    .innerJoin(usersTable, eq(usersTable.id, appIssuesTable.reporterId))
+    .leftJoin(sitesTable, eq(sitesTable.id, appIssuesTable.siteId))
+    .leftJoin(projectsTable, eq(projectsTable.id, appIssuesTable.projectId))
+    .where(and(...conditions)).orderBy(desc(appIssuesTable.updatedAt));
+  const metrics = {
+    total: issues.length,
+    open: issues.filter((x) => !["complete", "closed"].includes(x.issue.status)).length,
+    inProgress: issues.filter((x) => x.issue.status === "in_progress").length,
+    done: issues.filter((x) => ["complete", "closed"].includes(x.issue.status)).length,
+    bugs: issues.filter((x) => x.issue.type === "bug").length,
+  };
+  res.json({ issues: issues.map((x) => ({ ...x.issue, reporterName: x.reporterName, assigneeName: x.assigneeName, siteName: x.siteName, projectName: x.projectName })), metrics });
+});
+
+router.post("/issues", requireAuth, async (req, res) => {
+  if (!(await requireIssuePermission(req, res, "canCreateIssue"))) return;
+  const data = { ...cleanBody(req.body), status: "todo" };
+  if (!data.title || data.title.length > 300) { res.status(400).json({ error: "A title is required (max 300 characters)" }); return; }
+  if (data.siteId && !(await canAccessSite(Number(req.session!.user!.id), String(req.session!.user!.id), req.session!.user!.role, data.siteId))) {
+    res.status(403).json({ error: "You do not have access to this site" }); return;
+  }
+  const userId = Number(req.session!.user!.id);
+  const [created] = await db.insert(appIssuesTable).values({ ...data, issueKey: "PENDING", reporterId: userId }).returning();
+  const issueKey = `AMP-${String(created.id).padStart(4, "0")}`;
+  const [issue] = await db.update(appIssuesTable).set({ issueKey }).where(eq(appIssuesTable.id, created.id)).returning();
+  await db.insert(appIssueActivityTable).values({ issueId: issue.id, actorId: userId, action: "created", details: { title: issue.title } });
+  res.status(201).json(issue);
+});
+
+router.get("/issues/:id", requireAuth, async (req, res) => {
+  if (!(await requireIssuePermission(req, res, "canViewIssues"))) return;
+  const issue = await canSeeIssue(req, Number(req.params.id));
+  if (!issue) { res.status(404).json({ error: "Issue not found" }); return; }
+  const [comments, attachments] = await Promise.all([
+    db.select({ comment: appIssueCommentsTable, authorName: usersTable.fullName }).from(appIssueCommentsTable)
+      .innerJoin(usersTable, eq(usersTable.id, appIssueCommentsTable.authorId)).where(eq(appIssueCommentsTable.issueId, issue.id)).orderBy(asc(appIssueCommentsTable.createdAt)),
+    db.select().from(appIssueAttachmentsTable).where(eq(appIssueAttachmentsTable.issueId, issue.id)).orderBy(asc(appIssueAttachmentsTable.createdAt)),
+  ]);
+  const activity = await db.select({ event: appIssueActivityTable, actorName: usersTable.fullName }).from(appIssueActivityTable)
+    .innerJoin(usersTable, eq(usersTable.id, appIssueActivityTable.actorId)).where(eq(appIssueActivityTable.issueId, issue.id)).orderBy(desc(appIssueActivityTable.createdAt));
+  const toAttachment = (attachment: typeof attachments[number]) => ({
+    ...attachment,
+    url: `/api/issues/${issue.id}/attachments/${attachment.id}`,
+  });
+  res.json({
+    issue: sanitizeIssueRichTextFields(issue),
+    attachments: attachments.filter((attachment) => !attachment.pending && attachment.commentId === null).map(toAttachment),
+    comments: comments.map((x) => ({
+      ...x.comment,
+      body: sanitizeRichText(x.comment.body),
+      authorName: x.authorName,
+      attachments: attachments.filter((attachment) => !attachment.pending && attachment.commentId === x.comment.id).map(toAttachment),
+    })),
+    activity: activity.map((x) => ({ ...x.event, actorName: x.actorName })),
+  });
+});
+
+router.patch("/issues/:id", requireAuth, async (req, res) => {
+  if (!(await requireIssuePermission(req, res, "canEditIssue"))) return;
+  const issue = await canSeeIssue(req, Number(req.params.id));
+  if (!issue) { res.status(404).json({ error: "Issue not found" }); return; }
+  const data = cleanBody({ ...issue, ...req.body });
+  if (!data.title) { res.status(400).json({ error: "A title is required" }); return; }
+  if (data.type !== issue.type) { res.status(400).json({ error: "An issue's type cannot be changed after creation" }); return; }
+  if (data.siteId && !(await canAccessSite(Number(req.session!.user!.id), String(req.session!.user!.id), req.session!.user!.role, data.siteId))) {
+    res.status(403).json({ error: "You do not have access to this site" }); return;
+  }
+  if (!isIssueStatus(data.status)) { res.status(400).json({ error: "Unknown issue status" }); return; }
+  if (!canTransitionIssue(issue.type as IssueType, issue.status, data.status)) {
+    res.status(400).json({ error: `The issue cannot move directly from ${issue.status} to ${data.status}` }); return;
+  }
+  const [updated] = await db.update(appIssuesTable).set({ ...data, updatedAt: new Date() }).where(eq(appIssuesTable.id, issue.id)).returning();
+  await db.insert(appIssueActivityTable).values({
+    issueId: issue.id,
+    actorId: Number(req.session!.user!.id),
+    action: data.status !== issue.status ? `moved from ${issue.status} to ${data.status}` : "updated",
+    details: { fields: Object.keys(req.body ?? {}) },
+  });
+  res.json(updated);
+});
+
+router.post("/issues/:id/attachments/upload-url", requireAuth, async (req, res) => {
+  if (!(await requireIssuePermission(req, res, "canViewIssues"))) return;
+  const issue = await canSeeIssue(req, Number(req.params.id));
+  if (!issue) { res.status(404).json({ error: "Issue not found" }); return; }
+  if (!(await canUploadIssueAttachment(req))) { res.status(403).json({ error: "You do not have permission to upload issue evidence" }); return; }
+  const attachment = cleanAttachmentMetadata({ ...req.body, objectPath: "/objects/pending" });
+  if (!attachment) { res.status(400).json({ error: "Use a supported image, video, or document no larger than 50 MB." }); return; }
+  try {
+    const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+    const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+    const [pending] = await db.insert(appIssueAttachmentsTable).values({
+      issueId: issue.id,
+      uploadedBy: Number(req.session!.user!.id),
+      ...attachment,
+      objectPath,
+      pending: true,
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+    }).returning();
+    const responseAttachment = { id: pending.id, objectPath, filename: pending.filename, contentType: pending.contentType, size: pending.size };
+    res.json({ uploadURL, attachment: responseAttachment, objectPath });
+  } catch {
+    res.status(500).json({ error: "Unable to prepare the upload." });
+  }
+});
+
+router.get("/issues/:issueId/attachments/:attachmentId", requireAuth, async (req, res) => {
+  if (!(await requireIssuePermission(req, res, "canViewIssues"))) return;
+  const issue = await canSeeIssue(req, Number(req.params.issueId));
+  if (!issue) { res.status(404).end(); return; }
+  const [attachment] = await db.select().from(appIssueAttachmentsTable)
+    .where(and(eq(appIssueAttachmentsTable.id, Number(req.params.attachmentId)), eq(appIssueAttachmentsTable.issueId, issue.id), eq(appIssueAttachmentsTable.pending, false))).limit(1);
+  if (!attachment) { res.status(404).end(); return; }
+  try {
+    const file = await objectStorageService.getObjectEntityFile(attachment.objectPath);
+    const response = await objectStorageService.downloadObject(file, 300, attachment.contentType);
+    res.status(response.status);
+    response.headers.forEach((value, key) => res.setHeader(key, value));
+    res.setHeader("Content-Disposition", `inline; filename="${attachment.filename.replace(/"/g, "")}"`);
+    if (response.body) {
+      const { Readable } = await import("stream");
+      Readable.fromWeb(response.body as any).pipe(res);
+    } else res.end();
+  } catch {
+    res.status(404).end();
+  }
+});
+
+router.post("/issues/:id/comments", requireAuth, async (req, res) => {
+  if (!(await requireIssuePermission(req, res, "canCommentIssue"))) return;
+  const issue = await canSeeIssue(req, Number(req.params.id));
+  const body = sanitizeRichText(typeof req.body?.body === "string" ? req.body.body : "");
+  if (!issue) { res.status(404).json({ error: "Issue not found" }); return; }
+  const hasAttachments = Array.isArray(req.body?.attachments) && req.body.attachments.length > 0;
+  if (!plainRichText(body) && !hasAttachments) { res.status(400).json({ error: "Comment cannot be empty" }); return; }
+  const userId = Number(req.session!.user!.id);
+  const mentions = cleanMentionIds(req.body?.mentionIds);
+  const [comment] = await db.insert(appIssueCommentsTable).values({ issueId: issue.id, authorId: userId, body, mentions }).returning();
+  let attachments;
+  try {
+    attachments = await saveAttachments(issue.id, userId, req.body?.attachments, comment.id);
+  } catch {
+    await db.delete(appIssueCommentsTable).where(eq(appIssueCommentsTable.id, comment.id));
+    res.status(400).json({ error: "One or more uploaded files could not be verified." });
+    return;
+  }
+  await db.update(appIssuesTable).set({ updatedAt: new Date() }).where(eq(appIssuesTable.id, issue.id));
+  await db.insert(appIssueActivityTable).values({ issueId: issue.id, actorId: userId, action: "commented", details: { mentions, attachmentCount: attachments.length } });
+  const [author] = await db.select({ authorName: usersTable.fullName }).from(usersTable).where(eq(usersTable.id, userId));
+  res.status(201).json({ ...comment, authorName: author?.authorName, attachments: attachments.map((attachment) => ({ ...attachment, url: `/api/issues/${issue.id}/attachments/${attachment.id}` })) });
+});
+
+router.delete("/issues/:id", requireAuth, async (req, res) => {
+  if (req.session!.user!.role !== "super_admin" && !(await requireIssuePermission(req, res, "canManageIssues"))) return;
+  const issue = await canSeeIssue(req, Number(req.params.id));
+  if (!issue) { res.status(404).json({ error: "Issue not found" }); return; }
+  await db.update(appIssuesTable).set({ archived: true, updatedAt: new Date() }).where(eq(appIssuesTable.id, issue.id));
+  res.status(204).send();
+});
+
+export default router;

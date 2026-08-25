@@ -10,6 +10,7 @@ import {
   projectSitesTable,
   appSettingsTable,
   sitesTable,
+  aiIssueAssessmentsTable,
 } from "@workspace/db";
 import { eq, and, desc, sql, inArray, isNull, or } from "drizzle-orm";
 import {
@@ -43,6 +44,7 @@ import { requireAuth } from "../middlewares/authMiddleware";
 import { getEffectivePermissions, canAccessSite, getEffectiveSites } from "../lib/permissions";
 import { isUrlLikeScanName, SCAN_NAME_URL_ERROR } from "../lib/scan-name";
 import { getRulesForLevels, ALL_SCAN_LEVELS } from "../lib/scanner";
+import { retryAIAssessment, serializeAssessment } from "../lib/ai-assessment";
 
 const router: IRouter = Router();
 const upload = multer({
@@ -269,6 +271,27 @@ router.post("/scans", requireAuth, async (req, res): Promise<void> => {
     initiatorName,
     initiatorRole,
   } = parsed.data;
+
+  const requestedAIContextualAssessment = options?.aiContextualAssessment === true;
+  const hasAutomatedScanMarker =
+    rawScanOptions?.source === "crawler" ||
+    rawScanOptions?.crawlerSessionId != null ||
+    rawScanOptions?.crawlBoost === true;
+  if (requestedAIContextualAssessment && hasAutomatedScanMarker) {
+    res.status(400).json({ error: "AI contextual assessment is available for direct manual scans only." });
+    return;
+  }
+  if (requestedAIContextualAssessment) {
+    const aiConfigRows = await db
+      .select({ key: appSettingsTable.key, value: appSettingsTable.value })
+      .from(appSettingsTable)
+      .where(inArray(appSettingsTable.key, ["ai_external_enabled", "ai_external_api_key"]));
+    const aiConfig = Object.fromEntries(aiConfigRows.map((item) => [item.key, item.value]));
+    if (aiConfig.ai_external_enabled !== "true" || !aiConfig.ai_external_api_key) {
+      res.status(503).json({ error: "AI contextual assessment requires an enabled server-side AI provider." });
+      return;
+    }
+  }
 
   if (name && isUrlLikeScanName(name)) {
     res.status(400).json({ error: SCAN_NAME_URL_ERROR });
@@ -960,6 +983,7 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
 
   type IssueRow = typeof accessibilityIssuesTable.$inferSelect;
   const issuesByPageId = new Map<number, IssueRow[]>();
+  const assessmentByIssueId = new Map<number, ReturnType<typeof serializeAssessment>>();
 
   if (!scanIsActive && pages.length > 0) {
     const allIssues = await db
@@ -971,6 +995,16 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
           pages.map((p) => p.id),
         ),
       );
+
+    if (allIssues.length > 0) {
+      const assessments = await db
+        .select()
+        .from(aiIssueAssessmentsTable)
+        .where(inArray(aiIssueAssessmentsTable.issueId, allIssues.map((issue) => issue.id)));
+      for (const assessment of assessments) {
+        assessmentByIssueId.set(assessment.issueId, serializeAssessment(assessment));
+      }
+    }
 
     for (const issue of allIssues) {
       const list = issuesByPageId.get(issue.pageId) ?? [];
@@ -986,7 +1020,10 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
     return {
       ...page,
       scannedAt: page.scannedAt?.toISOString() ?? null,
-      issues: issuesByPageId.get(page.id) ?? [],
+      issues: (issuesByPageId.get(page.id) ?? []).map((issue) => ({
+        ...issue,
+        aiAssessment: assessmentByIssueId.get(issue.id) ?? null,
+      })),
       wafToken,
     };
   });
@@ -1051,7 +1088,24 @@ router.get("/scans/:scanId/pages/:pageId/report-data", requireAuth, async (req, 
             'bboxY', ai.bbox_y,
             'bboxWidth', ai.bbox_width,
             'bboxHeight', ai.bbox_height,
-            'falsePositive', ai.false_positive
+            'falsePositive', ai.false_positive,
+            'aiAssessment', CASE WHEN aia.id IS NULL THEN NULL ELSE jsonb_build_object(
+              'id', aia.id,
+              'issueId', aia.issue_id,
+              'status', aia.status,
+              'decision', aia.decision,
+              'confidence', aia.confidence,
+              'rationale', aia.rationale,
+              'evidence', aia.evidence,
+              'engine', aia.engine,
+              'provider', aia.provider,
+              'model', aia.model,
+              'attempts', aia.attempts,
+              'errorMessage', aia.error_message,
+              'queuedAt', aia.queued_at,
+              'startedAt', aia.started_at,
+              'completedAt', aia.completed_at
+            ) END
           ) ORDER BY ai.id
         ) FILTER (WHERE ai.id IS NOT NULL),
         '[]'::jsonb
@@ -1059,6 +1113,7 @@ router.get("/scans/:scanId/pages/:pageId/report-data", requireAuth, async (req, 
     FROM scan_sessions ss
     JOIN page_results pr ON pr.scan_id = ss.id
     LEFT JOIN accessibility_issues ai ON ai.page_id = pr.id
+    LEFT JOIN ai_issue_assessments aia ON aia.issue_id = ai.id
     WHERE ss.id = ${scanId} AND pr.id = ${pageId}
     GROUP BY ss.id, ss.options, pr.id
   `);
@@ -1086,6 +1141,39 @@ router.get("/scans/:scanId/pages/:pageId/report-data", requireAuth, async (req, 
       issues: row.issues ?? [],
     },
   });
+});
+
+// Retry only a failed contextual assessment. This never reruns the
+// deterministic accessibility scan or changes the issue/score.
+router.post("/scans/:scanId/issues/:issueId/ai-assessment/retry", requireAuth, async (req, res): Promise<void> => {
+  const scanId = parseInt(req.params.scanId as string, 10);
+  const issueId = parseInt(req.params.issueId as string, 10);
+  if (!Number.isInteger(scanId) || !Number.isInteger(issueId)) {
+    res.status(400).json({ error: "Invalid scan or issue ID" });
+    return;
+  }
+  if (!(await canAccessScan(req, scanId))) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  const [assessment] = await db
+    .select({ id: aiIssueAssessmentsTable.id })
+    .from(aiIssueAssessmentsTable)
+    .innerJoin(accessibilityIssuesTable, eq(accessibilityIssuesTable.id, aiIssueAssessmentsTable.issueId))
+    .innerJoin(pageResultsTable, eq(pageResultsTable.id, accessibilityIssuesTable.pageId))
+    .where(and(
+      eq(aiIssueAssessmentsTable.issueId, issueId),
+      eq(pageResultsTable.scanId, scanId),
+    ));
+  if (!assessment) {
+    res.status(404).json({ error: "AI assessment not found for this issue" });
+    return;
+  }
+  if (!(await retryAIAssessment(assessment.id))) {
+    res.status(409).json({ error: "Only failed AI assessments can be retried" });
+    return;
+  }
+  res.json({ status: "queued" });
 });
 
 router.patch("/scans/:id", async (req, res): Promise<void> => {
@@ -2135,7 +2223,10 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
     0,
   );
 
-  const opts = (original.options ?? {}) as Record<string, unknown>;
+  const opts = { ...((original.options ?? {}) as Record<string, unknown>) };
+  // A retry is a new scan operation. Automatic AI assessment is intentionally
+  // not carried into it, even when the source scan was a manual scan.
+  delete opts.aiContextualAssessment;
 
   // Create new scan session (carries over project association and initiator)
   const [newSession] = await db
@@ -2150,7 +2241,7 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
       failedUrls: 0,
       totalIssues: preTotalIssues,
       criticalIssues: preCriticalIssues,
-      options: original.options ?? null,
+       options: opts,
       initiatorName: original.initiatorName ?? null,
       initiatorRole: original.initiatorRole ?? null,
       ...(pendingPages.length === 0 ? { completedAt: new Date() } : {}),

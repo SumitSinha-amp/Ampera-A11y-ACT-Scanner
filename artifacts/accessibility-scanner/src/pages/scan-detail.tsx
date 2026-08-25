@@ -318,6 +318,22 @@ interface Issue {
   bboxHeight?: number | null;
   falsePositive?: boolean;
   falsePositiveNote?: string | null;
+  aiAssessment?: AIIssueAssessment | null;
+}
+
+interface AIIssueAssessment {
+  id: number;
+  issueId: number;
+  status: "queued" | "analyzing" | "completed" | "failed";
+  decision: "confirmed_issue" | "potential_issue" | "not_an_issue" | "needs_review" | null;
+  confidence: "low" | "medium" | "high" | null;
+  rationale: string | null;
+  evidence: string[];
+  engine: string;
+  provider: string | null;
+  model: string | null;
+  attempts: number;
+  errorMessage: string | null;
 }
 
 interface IssueFilters {
@@ -395,6 +411,98 @@ function ImpactBadge({ impact, className = "" }: { impact: string; className?: s
     default:
       return <Badge className={compactClass}>{impact}</Badge>;
   }
+}
+
+function AIContextAssessmentPanel({
+  assessment,
+  enabled,
+  onRetry,
+  retrying = false,
+}: {
+  assessment?: AIIssueAssessment | null;
+  enabled?: boolean;
+  onRetry?: () => void;
+  retrying?: boolean;
+}) {
+  if (!enabled && !assessment) return null;
+  const pending = !assessment || assessment.status === "queued" || assessment.status === "analyzing";
+  const decisionLabel: Record<NonNullable<AIIssueAssessment["decision"]>, string> = {
+    confirmed_issue: "Likely confirmed",
+    potential_issue: "Potential issue",
+    not_an_issue: "Likely not an issue",
+    needs_review: "Needs review",
+  };
+  const decisionStyle: Record<NonNullable<AIIssueAssessment["decision"]>, string> = {
+    confirmed_issue: "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300",
+    potential_issue: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
+    not_an_issue: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
+    needs_review: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200",
+  };
+
+  return (
+    <section className={`rounded-lg border border-violet-200/80 bg-violet-50/50 p-3 dark:border-violet-800/60 dark:bg-violet-950/20 ${pending ? "ai-assessment-processing" : ""}`}>
+      <div className="flex items-center gap-2">
+        <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-600 dark:text-violet-400" />
+        <h4 className="flex-1 text-xs font-semibold text-violet-800 dark:text-violet-200">AI Assessment</h4>
+        {assessment?.status === "completed" && assessment.decision && (
+          <Badge className={`h-5 border-0 px-2 text-[10px] ${decisionStyle[assessment.decision]}`}>
+            {decisionLabel[assessment.decision]}
+          </Badge>
+        )}
+      </div>
+
+      {pending && (
+        <div className="mt-2 flex items-center gap-2 text-xs text-violet-700 dark:text-violet-300" aria-live="polite">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <span>{assessment?.status === "analyzing" ? "Reviewing the occurrence with AI…" : "Assessment queued for background review…"}</span>
+        </div>
+      )}
+
+      {assessment?.status === "failed" && (
+        <div className="mt-2 flex items-start gap-2 text-xs text-muted-foreground" role="status">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+          <span className="flex-1">
+            Assessment could not be completed{assessment.errorMessage ? `: ${assessment.errorMessage}` : "."} The original scanner finding is unchanged.
+          </span>
+          {onRetry && (
+            <Button type="button" variant="outline" size="sm" className="h-7 shrink-0 gap-1 px-2 text-[11px]" onClick={onRetry} disabled={retrying}>
+              {retrying ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+              {retrying ? "Retrying…" : "Retry"}
+            </Button>
+          )}
+        </div>
+      )}
+
+      {assessment?.status === "completed" && (
+        <div className="mt-2 space-y-2 text-xs">
+          <p className="leading-relaxed text-foreground/85">{assessment.rationale}</p>
+          <div className="flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
+            <span className="rounded-full bg-white/70 px-2 py-0.5 dark:bg-slate-900/60">
+              {assessment.engine} · {assessment.confidence ?? "unrated"} confidence
+            </span>
+            {assessment.provider && (
+              <span className="rounded-full bg-white/70 px-2 py-0.5 dark:bg-slate-900/60">
+                {assessment.provider}{assessment.model ? ` · ${assessment.model}` : ""}
+              </span>
+            )}
+          </div>
+          {assessment.evidence.length > 0 && (
+            <div>
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700/70 dark:text-violet-300/80">Evidence reviewed</p>
+              <ul className="space-y-1">
+                {assessment.evidence.map((item, index) => (
+                  <li key={`${index}-${item.slice(0, 20)}`} className="flex gap-1.5 leading-relaxed text-foreground/80">
+                    <span aria-hidden="true" className="text-violet-500">•</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
 }
 
 function IssueFilterBar({
@@ -517,6 +625,9 @@ function IssueGroupList({
   onFlagIssue,
   isCrawlerScan,
   onOpenUpdateResults,
+  aiContextualAssessmentEnabled,
+  onRetryAssessment,
+  retryingAssessmentId,
 }: {
   issues: Issue[];
   filters: IssueFilters;
@@ -526,6 +637,9 @@ function IssueGroupList({
   onFlagIssue?: (issue: Issue) => void;
   isCrawlerScan?: boolean;
   onOpenUpdateResults?: (ruleId: string, desc: string) => void;
+  aiContextualAssessmentEnabled?: boolean;
+  onRetryAssessment?: (issueId: number) => void;
+  retryingAssessmentId?: number | null;
 }) {
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
@@ -754,6 +868,12 @@ function IssueGroupList({
                                           )}
                                         </div>
                                       )}
+                                      <AIContextAssessmentPanel
+                                        assessment={issue.aiAssessment}
+                                        enabled={aiContextualAssessmentEnabled}
+                                        onRetry={onRetryAssessment ? () => onRetryAssessment(issue.id) : undefined}
+                                        retrying={retryingAssessmentId === issue.id}
+                                      />
                                       <FixSuggestionPanel
                                         ruleId={issue.ruleId}
                                         description={issue.description}
@@ -1788,6 +1908,20 @@ export default function ScanDetail() {
     },
   });
 
+  const hasPendingAIAssessments = (scan?.pages ?? []).some((page) =>
+    (page.issues ?? []).some((issue) =>
+      issue.aiAssessment?.status === "queued" || issue.aiAssessment?.status === "analyzing",
+    ),
+  );
+
+  useEffect(() => {
+    if (!scanId || !hasPendingAIAssessments) return;
+    const timer = window.setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: getGetScanQueryKey(scanId) });
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [hasPendingAIAssessments, queryClient, scanId]);
+
   // useGetScan has no refetchInterval — it fetches once and stops.
   // When the scan finishes, liveStatus transitions to "completed" but scan.pages
   // is never populated because nothing re-triggers useGetScan.
@@ -1805,6 +1939,23 @@ export default function ScanDetail() {
   }, [liveStatus?.status, isUpdatingResults]);
 
   const cancelScan = useCancelScan();
+  const [retryingAssessmentId, setRetryingAssessmentId] = useState<number | null>(null);
+  const retryAssessment = useCallback(async (issueId: number) => {
+    setRetryingAssessmentId(issueId);
+    try {
+      const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+      const response = await fetch(`${BASE}/api/scans/${scanId}/issues/${issueId}/ai-assessment/retry`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Unable to retry this assessment");
+      await queryClient.invalidateQueries({ queryKey: getGetScanQueryKey(scanId) });
+    } catch {
+      toast({ title: "Assessment retry failed", description: "The assessment could not be queued again.", variant: "destructive" });
+    } finally {
+      setRetryingAssessmentId(null);
+    }
+  }, [queryClient, scanId, toast]);
 
   const retryClone = useMutation({
     mutationFn: async () => {
@@ -3695,6 +3846,11 @@ export default function ScanDetail() {
                                   onSelectOccurrence={(issue, group) => handleSelectOccurrence(issue, group, page.url, page.id)}
                                   isCrawlerScan={isCrawlerScan}
                                   onOpenUpdateResults={handleOpenUpdateResults}
+                                  aiContextualAssessmentEnabled={
+                                    (scan.options as { aiContextualAssessment?: boolean } | null | undefined)?.aiContextualAssessment === true
+                                  }
+                                  onRetryAssessment={(issueId) => void retryAssessment(issueId)}
+                                  retryingAssessmentId={retryingAssessmentId}
                                 />
                               </TabsContent>
                             ))}

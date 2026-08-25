@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAutoActiveSite } from "@/pages/site/shared";
 import { usePageGroup } from "@/contexts/page-group";
+import { useAuth } from "@/contexts/auth";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -210,6 +211,7 @@ interface Props { siteId: number; ruleId: string }
 
 export default function SiteIssueDetail({ siteId, ruleId }: Props) {
   useAutoActiveSite(siteId);
+  const { user } = useAuth();
   const { selectedGroup } = usePageGroup();
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
@@ -299,13 +301,28 @@ export default function SiteIssueDetail({ siteId, ruleId }: Props) {
       <div className="space-y-4">
         <div className="flex items-start gap-3">
           <ImpactIcon impact={rule.impact} size="lg" />
-          <div>
+          <div className="min-w-0 flex-1">
             <h1 className="text-xl font-bold leading-snug">{rule.description}</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               {rule.rule_id}
               {rule.wcag_criteria && <> · WCAG {rule.wcag_criteria}</>}
             </p>
           </div>
+          {user?.permissions.canCreateIssue && <Button size="sm" variant="outline" asChild>
+            <Link
+              href={`/issues?${new URLSearchParams({
+                create: "1",
+                type: "bug",
+                siteId: String(siteId),
+                ruleId: rule.rule_id,
+                title: `Fix: ${rule.description}`,
+                description: rule.remediation ?? rule.legal_text ?? rule.description,
+                source: `Accessibility finding ${rule.rule_id} on ${siteQ.data?.name ?? `Site ${siteId}`}`,
+              })}`}
+            >
+              Track as issue
+            </Link>
+          </Button>}
         </div>
 
         {/* Stats row */}

@@ -21,6 +21,11 @@ export interface EffectivePermissions {
   canViewSiteAccessibilityDashboard: boolean;
   canManageSites: boolean;
   canManageSiteTargetScore: boolean;
+  canViewIssues: boolean;
+  canCreateIssue: boolean;
+  canEditIssue: boolean;
+  canCommentIssue: boolean;
+  canManageIssues: boolean;
   allowedRules: string[] | null;
 }
 
@@ -43,6 +48,11 @@ const FULL_ACCESS: EffectivePermissions = {
   canViewSiteAccessibilityDashboard: true,
   canManageSites: true,
   canManageSiteTargetScore: true,
+  canViewIssues: true,
+  canCreateIssue: true,
+  canEditIssue: true,
+  canCommentIssue: true,
+  canManageIssues: true,
   allowedRules: null,
 };
 
@@ -257,6 +267,11 @@ export async function getEffectivePermissions(
       canViewSiteAccessibilityDashboard: userGroupsTable.canViewSiteAccessibilityDashboard,
       canManageSites: userGroupsTable.canManageSites,
       canManageSiteTargetScore: userGroupsTable.canManageSiteTargetScore,
+      canViewIssues: userGroupsTable.canViewIssues,
+      canCreateIssue: userGroupsTable.canCreateIssue,
+      canEditIssue: userGroupsTable.canEditIssue,
+      canCommentIssue: userGroupsTable.canCommentIssue,
+      canManageIssues: userGroupsTable.canManageIssues,
     })
     .from(userGroupMembersTable)
     .innerJoin(userGroupsTable, eq(userGroupMembersTable.groupId, userGroupsTable.id))
@@ -272,6 +287,7 @@ export async function getEffectivePermissions(
       eq(userGroupsTable.canManageSiteTargetScore, true),
     ))
     .limit(1);
+  const canViewIssues = Boolean(perm?.canViewIssues ?? true) || groupGrants("canViewIssues");
 
   return {
     canScan: Boolean(perm?.canScan ?? true) || groupGrants("canScan"),
@@ -292,6 +308,11 @@ export async function getEffectivePermissions(
     canViewSiteAccessibilityDashboard: Boolean(perm?.canViewSiteAccessibilityDashboard ?? true) || groupGrants("canViewSiteAccessibilityDashboard"),
     canManageSites: Boolean(perm?.canManageSites ?? false) || groupGrants("canManageSites"),
     canManageSiteTargetScore: Boolean(perm?.canManageSiteTargetScore || targetScoreGroup?.enabled || groupGrants("canManageSiteTargetScore")),
+    canViewIssues,
+    canCreateIssue: canViewIssues && (Boolean(perm?.canCreateIssue ?? true) || groupGrants("canCreateIssue")),
+    canEditIssue: canViewIssues && (Boolean(perm?.canEditIssue ?? true) || groupGrants("canEditIssue")),
+    canCommentIssue: canViewIssues && (Boolean(perm?.canCommentIssue ?? true) || groupGrants("canCommentIssue")),
+    canManageIssues: canViewIssues && (Boolean(perm?.canManageIssues ?? true) || groupGrants("canManageIssues")),
     allowedRules: (perm?.allowedRules as string[] | null) ?? null,
   };
 }

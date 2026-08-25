@@ -32,6 +32,7 @@ import {
   Sparkles,
   Star,
   TicketCheck,
+  ListTodo,
   Users,
   UsersRound,
   XCircle,
@@ -1208,6 +1209,7 @@ function QASidebarContent({
 
 type Section =
   | "accessibility"
+  | "issues"
   | "quality-assurance"
   | "seo"
   | "admin"
@@ -1820,6 +1822,19 @@ function MainMenuContent({
         },
       ],
     },
+    ...(user?.permissions?.canViewIssues ? [{
+      label: "Issues",
+      icon: <ListTodo className="w-5 h-5 shrink-0" />,
+      href: "/issues",
+      color: "text-amber-500",
+      section: "issues" as Section,
+      flyoutSections: [{
+        items: [
+          { label: "All issues", href: "/issues", icon: <ListTodo className="h-4 w-4" /> },
+          { label: "Create issue", href: "/issues?create=1", icon: <Plus className="h-4 w-4" /> },
+        ],
+      }],
+    }] : []),
     ...(user?.permissions?.canViewQualityAssurance ? [{
       label: "Quality Assurance",
       icon: <ClipboardCheck className="w-5 h-5 shrink-0" />,
@@ -1954,6 +1969,13 @@ function MainMenuContent({
             },
           ]
         : []),
+      ...(user?.permissions?.canCreateIssue ? [{
+        label: "New issue",
+        href: "/issues?create=1",
+        description: "Create a task, story, or bug for your team",
+        icon: <ListTodo className="h-4 w-4" />,
+        keywords: ["new issue", "task", "story", "bug", "work item"],
+      }] : []),
       {
         label: "New support ticket",
         href: "/tickets?create=1",
@@ -2744,6 +2766,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { label: "Crawler Scan History", href: "/crawler" },
     { label: "Documentation", href: "/documentation" },
     { label: "App Updates", href: "/app-updates" },
+    ...(user?.permissions?.canViewIssues ? [{ label: "Issues", href: "/issues" }] : []),
     { label: "Support", href: "/tickets" },
     ...(user?.permissions?.canViewQualityAssurance
       ? [

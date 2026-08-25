@@ -7,11 +7,13 @@ import { ArrowLeft, ArrowUpRight, FileDown, Loader2, Sparkles } from "lucide-rea
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/auth";
 
 export default function ScanReport() {
   const { id } = useParams();
   const scanId = Number(id);
   const { toast } = useToast();
+  const { user } = useAuth();
   const [isExporting, setIsExporting] = useState(false);
   const { data: scan } = useGetScan(scanId, { query: { enabled: !!scanId, queryKey: getGetScanQueryKey(scanId) } });
   const { data: report, isLoading, isError, refetch } = useGetScanReport(scanId, { query: { enabled: !!scanId, queryKey: getGetScanReportQueryKey(scanId) } });
@@ -59,7 +61,12 @@ export default function ScanReport() {
       <header className="relative flex flex-wrap items-start gap-4">
         <Link href={`/scans/${scanId}`}><Button variant="outline" size="icon" className="rounded-xl bg-white/70" data-testid="link-report-back"><ArrowLeft className="h-4 w-4" /></Button></Link>
         <div className="min-w-0 flex-1"><div className="mb-2 flex flex-wrap items-center gap-2"><Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">Executive view</Badge><span className="font-mono text-xs text-muted-foreground">SCAN-{scanId}</span></div><h1 className="text-3xl font-semibold tracking-tight text-[#172b4d]">Scan intelligence report</h1><p className="mt-1 text-sm text-muted-foreground">{scan?.name || `Scan #${scanId}`} <span className="mx-2 text-border">·</span> WCAG 2.2 AA</p></div>
-        <Button variant="outline" className="rounded-xl bg-white/70" onClick={exportCsv} disabled={isExporting} data-testid="button-export-report">{isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}{isExporting ? "Exporting…" : "Export CSV"}</Button>
+        <div className="flex flex-wrap gap-2">
+          {user?.permissions.canCreateIssue && <Link href={`/issues?${new URLSearchParams({ create: "1", type: "bug", scanId: String(scanId), title: `Follow up: ${scan?.name || `Scan ${scanId}`}`, source: `Accessibility scan ${scan?.name || `SCAN-${scanId}`}` })}`}>
+            <Button variant="outline" className="rounded-xl bg-white/70">Create issue</Button>
+          </Link>}
+          <Button variant="outline" className="rounded-xl bg-white/70" onClick={exportCsv} disabled={isExporting} data-testid="button-export-report">{isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}{isExporting ? "Exporting…" : "Export CSV"}</Button>
+        </div>
       </header>
       <section className="relative grid gap-4 md:grid-cols-4">
         {[["Total issues", report.totalIssues, "Across all scanned pages", "text-[#6d48c7]"], ["Scanned pages", report.scannedPages, `${report.failedPages} failed or unavailable`, "text-[#198f88]"], ["Critical issues", report.issuesByImpact.critical, "Needs immediate attention", "text-red-600"], ["Issues / page", average, "Average issue density", "text-[#3778c8]"]].map(([label, value, hint, color]) => (

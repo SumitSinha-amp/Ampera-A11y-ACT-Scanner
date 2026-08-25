@@ -75,6 +75,21 @@ export const updateGroups: UpdateGroup[] = [
   },
   {
     icon: Workflow,
+    title: "Jira-style issue tracking",
+    description: "Turn accessibility findings and team requests into visible, accountable work.",
+    category: "Platform",
+    features: [
+      "Create Content, Epic, Test, Task, Story, Request, and Bug issues from the workspace, including direct context from accessibility findings",
+      "Type-aware forms capture the fields each work item needs, while issue types stay stable after creation",
+      "Switch between a searchable list and Kanban board with filters for type, status, priority, assignee, and site",
+      "Task, Story, Content, Epic, Test, and Request work through To Do, In Progress, Deployed, Review, Release to Retest, Verified, and Complete",
+      "Bug work follows the tested Fixed and Closed path, with Reopen returning work to In Progress",
+      "Rich descriptions and comments support formatting, user mentions, and private screenshot, video, and document evidence",
+      "Issue visibility, comments, archive controls, and Super Admin access follow the existing permission boundaries",
+    ],
+  },
+  {
+    icon: Workflow,
     title: "Guided manual scan setup",
     description: "New scans now move through a focused four-step setup instead of one long form.",
     category: "Scanning",
@@ -346,7 +361,7 @@ const release141ProductGroups: UpdateGroup[] = [
       "Theme, flyout, tooltip, account-menu, navigation, contrast, and responsive-layout fixes keep the redesigned shell usable across modes",
     ],
   },
-  ...updateGroups.slice(1),
+  ...updateGroups.slice(2),
   ...ruleMappingReleaseGroups,
 ];
 
@@ -363,8 +378,8 @@ export const releaseHistory: ReleaseHistoryEntry[] = [
     version: APP_UPDATES_VERSION,
     month: APP_UPDATES_MONTH,
     label: "Current release",
-    summary: "A clearer manual scan setup, scoped accessibility checks, and patch release continuity for the 1.4 minor release line.",
-    groups: [updateGroups[0], updateGroups[1], updateGroups[2]],
+    summary: "A complete issue workflow for accessibility teams, alongside clearer scan setup and scoped checks.",
+    groups: [updateGroups[0], updateGroups[1], updateGroups[2], updateGroups[3]],
   },
   {
     version: APP_RULE_MAPPING_RELEASE,

@@ -4,7 +4,17 @@ import { getAlfaPointerTargets, hasAlfaTargetSize, hasAlfaTargetSpacing } from "
 import { getEffectiveAriaRole } from "../aria-data";
 import { getBackgroundResolution, getContrastRatio, getLuminanceFromColorString } from "../contrast";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
-import { isProgrammaticallyHidden, isVisible } from "../visibility";
+import { isProgrammaticallyHidden, isRendered, isVisible } from "../visibility";
+
+/** Shape stored in window.__amperaContrastCandidates for the Node.js pixel pass. */
+export interface ContrastCandidate {
+  selector: string;
+  textColor: string;
+  bboxX: number;
+  bboxY: number;
+  bboxW: number;
+  bboxH: number;
+}
 
 export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: boolean, pushStat: PushStatFn): void {
   // ACT-R69 / ACT-R66: Text contrast (WCAG 1.4.3 AA / 1.4.6 AAA)
@@ -24,6 +34,9 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
       if (!parent || seenParents.has(parent)) continue;
       // Alfa: nonDisabledTexts excludes text inside disabled groups/widgets
       if (parent.closest("[disabled], fieldset:disabled, [aria-disabled='true']")) continue;
+      // Alfa: text inside aria-hidden subtrees is invisible to AT — skip it.
+      // This is a key source of false positives vs Siteimprove.
+      if (parent.closest("[aria-hidden='true']")) continue;
       seenParents.add(parent);
       textLeafEls.push(parent);
       if (textLeafEls.length >= 3000) break;
@@ -39,23 +52,48 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
       const cs = window.getComputedStyle(el);
       return (cs.clipPath !== "none" && cs.clipPath !== "") || (cs.clip !== "auto" && cs.clip !== "");
     };
+
+    // Collect indeterminate candidates for the Node.js pixel-sampling pass.
+    // Only url()-backed backgrounds remain indeterminate after the gradient
+    // resolution improvement in contrast.ts.
+    const pixelCandidates: ContrastCandidate[] = [];
+
     for (const el of textLeafEls) {
       if (!(el instanceof HTMLElement)) continue;
-      if (!isVisible(el)) continue;
+      // Use isRendered (display:none / visibility:hidden) instead of isVisible so
+      // that off-screen carousel slides are included.  isVisible also checks whether
+      // the element is within its overflow-hidden ancestor's viewport bounds, which
+      // correctly excludes off-slide content for most rules but causes false
+      // negatives for contrast: Siteimprove/Alfa check contrast for all rendered
+      // text regardless of scroll position.  The isVisuallyClipped check below
+      // still excludes sr-only (1×1 clip-path) elements.
+      if (!isRendered(el)) continue;
       if (isVisuallyClipped(el)) continue;
       const bgResolution = getBackgroundResolution(el);
       if (bgResolution.kind === "indeterminate") {
+        // Always collect for the Node.js pixel-sampling pass so url()-backed
+        // backgrounds can be resolved and confirmed without EMIT_MANUAL_ONLY_RULES.
+        const sel = getSelector(el);
+        if (sel) {
+          const rect = el.getBoundingClientRect();
+          pixelCandidates.push({
+            selector: sel,
+            textColor: window.getComputedStyle(el).color,
+            bboxX: Math.round(rect.left + window.scrollX),
+            bboxY: Math.round(rect.top + window.scrollY),
+            bboxW: Math.round(rect.width),
+            bboxH: Math.round(rect.height),
+          });
+        }
         // Alfa/Siteimprove treats unresolved visual-state contrast as a
-        // question, not an automatic failure. The browser bundle runs with
-        // manual-only findings disabled, so do not turn every text node inside
-        // an image-backed banner into an R69/R66 occurrence. Resolved solid
-        // backgrounds continue through the normal ratio check below.
+        // question, not an automatic failure. Do not promote url()-backed text
+        // to an Issue automatically — let the pixel pass decide.
         if (!EMIT_MANUAL_ONLY_RULES) continue;
         const isLinkText = !!el.closest("a[href]");
         const evidence = {
           type: "Potential Issue" as const,
           impact: "serious" as const,
-          description: "Text contrast cannot be determined because the background uses an image or gradient — review the contrast at all visual states",
+          description: "Text contrast cannot be determined because the background uses an image — review the contrast at all visual states",
           element: outerHtmlSnippet(el),
           elementContext: elementContextForAI(el),
           selector: getSelector(el),
@@ -90,6 +128,10 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
         results.push({ ruleId: enhancedRuleId, type: "Issue", impact: "minor", description: `Text contrast ratio ${ratio.toFixed(2)}:1 is below AAA enhanced minimum (${aaaMin}:1)`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
       }
     }
+
+    // Expose candidates for the Node.js pixel-sampling post-processor.
+    (window as any).__amperaContrastCandidates = pixelCandidates;
+
     // Border/outline (non-text 1.4.11) contrast check removed — Alfa treats
     // UI-component contrast as "can't tell" (border colors alone don't prove a
     // visible boundary requirement), so Siteimprove never auto-fails it.

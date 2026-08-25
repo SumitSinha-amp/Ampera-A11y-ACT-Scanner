@@ -52,6 +52,7 @@ import {
   SlidersHorizontal,
   FileText,
   ChevronLeft,
+  Sparkles,
 } from "lucide-react";
 import {
   getActiveProxy,
@@ -69,6 +70,7 @@ import { ALL_SCAN_LEVELS } from "@/lib/scanLevels";
 import { FieldMessage } from "@/components/ui/field-message";
 import { useSite } from "@/contexts/site";
 import { ProjectSelector } from "@/components/project-selector";
+import { getAIConfig } from "@/components/ai-config-cache";
 import {
   Accordion,
   AccordionContent,
@@ -1295,6 +1297,10 @@ export default function Home() {
   const [activeProxyPac, setActiveProxyPac] = useState<string>("");
   const [disableJavascript, setDisableJavascript] = useState(false);
   const [incremental, setIncremental] = useState(false);
+  const [aiContextualAssessment, setAiContextualAssessment] = useState(false);
+  const [aiConfigLoaded, setAiConfigLoaded] = useState(false);
+  const [aiProviderLabel, setAiProviderLabel] = useState("");
+  const [externalAIAvailable, setExternalAIAvailable] = useState(false);
 
   // URL limit state — toggled/configured in Settings
   const [urlLimitOn, setUrlLimitOn] = useState(false);
@@ -1322,6 +1328,20 @@ export default function Home() {
       window.removeEventListener("storage", onStorage);
       window.removeEventListener(ACTIVE_PROXY_CHANGED_EVENT, onActiveProxyChanged);
       window.removeEventListener("a11y-url-limit-changed", onLimitChanged);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    getAIConfig().then((config) => {
+      if (!active) return;
+      setExternalAIAvailable(config.externalEnabled);
+      setAiProviderLabel(config.provider === "openai" ? "OpenAI" : "Gemini");
+      setAiConfigLoaded(true);
+      if (!config.externalEnabled) setAiContextualAssessment(false);
+    });
+    return () => {
+      active = false;
     };
   }, []);
 
@@ -1617,6 +1637,7 @@ export default function Home() {
             ...(resolvedProxy ? { proxyPacUrl: resolvedProxy } : {}),
             ...(disableJavascript ? { disableJavascript: true } : {}),
             ...(incremental ? { incremental: true } : {}),
+            ...(aiContextualAssessment ? { aiContextualAssessment: true } : {}),
             wcagLevels: selectedLevels,
           },
           initiatorName: initiatorName.trim() || undefined,
@@ -1648,6 +1669,7 @@ export default function Home() {
     setScanNameError(null);
     setProjectId(null);
     setProjectError(null);
+    setAiContextualAssessment(false);
     setSelectedRules([]);
     // Re-apply auto-select if user is in exactly one group
     if (myGroups.length === 1) {
@@ -2047,7 +2069,7 @@ export default function Home() {
                     Scan Options
                   </CardTitle>
                   <CardDescription className="text-[12px]">
-                    Control JavaScript, incremental mode, and proxy settings.
+                    Control scan behavior, AI assessment, and proxy settings.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3 px-6 pb-8 lg:px-8">
@@ -2141,6 +2163,62 @@ export default function Home() {
                         />
                       </button>
                     </div>
+                  </div>
+
+                  {/* AI contextual assessment — direct manual scans only */}
+                  <div
+                    className={`border-2 rounded-xl p-3 transition-colors ${
+                      aiContextualAssessment
+                        ? "bg-violet-50/60 border-violet-300 dark:bg-violet-950/20 dark:border-violet-800"
+                        : "bg-muted/20 border-border/60"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <Sparkles
+                          className={`mt-0.5 h-4 w-4 shrink-0 ${
+                            aiContextualAssessment ? "text-violet-600 dark:text-violet-400" : "text-muted-foreground"
+                          }`}
+                        />
+                        <div>
+                          <p className="m-0 text-[13px] font-semibold text-foreground">
+                            AI contextual assessment
+                          </p>
+                          <p id="ai-contextual-assessment-help" className="m-0 mt-0.5 max-w-xl text-[11px] text-muted-foreground">
+                            {externalAIAvailable
+                              ? `For each detected occurrence, send the rule, affected HTML, bounded page context, and URL to ${aiProviderLabel} for a background review. It never changes scores or hides the scanner finding.`
+                              : aiConfigLoaded
+                                ? "Unavailable because no server-side external AI provider is enabled. Configure one in Settings to use this manual-scan option."
+                                : "Checking whether a server-side AI provider is available…"}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={aiContextualAssessment}
+                        aria-describedby="ai-contextual-assessment-help"
+                        disabled={!externalAIAvailable}
+                        onClick={() => setAiContextualAssessment((enabled) => !enabled)}
+                        className={`relative h-5 w-9 shrink-0 rounded-full border-none transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
+                          aiContextualAssessment ? "bg-violet-600" : "bg-muted-foreground/30"
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-[3px] h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-all ${
+                            aiContextualAssessment ? "left-[19px]" : "left-[3px]"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    {aiContextualAssessment && (
+                      <div className="mt-3 flex items-start gap-2 border-t border-violet-200/70 pt-3 text-[11px] text-violet-800 dark:border-violet-800/70 dark:text-violet-300">
+                        <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          Page content can contain sensitive information. Enable this only when you are allowed to send the relevant scan evidence to your configured AI provider.
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Proxy Settings */}

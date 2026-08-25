@@ -4,6 +4,7 @@ import { pool, db, scanSessionsTable, pageResultsTable, usersTable } from "@work
 import { inArray, eq, and, lt } from "drizzle-orm";
 import { startScan, startScanWatchdog } from "./lib/scanQueue";
 import { resumeOrphanedCrawlerSessions, runScheduledCrawls, runDueCrawlerSessions } from "./lib/crawler";
+import { recoverAIAssessments } from "./lib/ai-assessment";
 import bcrypt from "bcryptjs";
 import { execSync } from "child_process";
 import { existsSync, readdirSync } from "fs";
@@ -145,7 +146,12 @@ async function runStartupMigrations(): Promise<void> {
         ADD COLUMN IF NOT EXISTS can_view_crawl_history BOOLEAN NOT NULL DEFAULT FALSE,
         ADD COLUMN IF NOT EXISTS can_view_quality_assurance BOOLEAN NOT NULL DEFAULT FALSE,
         ADD COLUMN IF NOT EXISTS can_view_site_accessibility_dashboard BOOLEAN NOT NULL DEFAULT FALSE,
-        ADD COLUMN IF NOT EXISTS can_manage_sites BOOLEAN NOT NULL DEFAULT FALSE
+        ADD COLUMN IF NOT EXISTS can_manage_sites BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_view_issues BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_create_issue BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_edit_issue BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_comment_issue BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS can_manage_issues BOOLEAN NOT NULL DEFAULT FALSE
     `);
 
     // 7. Create user_group_members table
@@ -183,6 +189,100 @@ async function runStartupMigrations(): Promise<void> {
       )
     `);
 
+    // 9b. In-app issue tracking
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS app_issues (
+        id SERIAL PRIMARY KEY,
+        issue_key TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL DEFAULT 'task',
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'todo',
+        priority TEXT NOT NULL DEFAULT 'medium',
+        severity TEXT,
+        project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+        site_id INTEGER,
+        scan_id INTEGER REFERENCES scan_sessions(id) ON DELETE SET NULL,
+        page_id INTEGER REFERENCES page_results(id) ON DELETE SET NULL,
+        rule_id TEXT,
+        selector TEXT,
+        source_description TEXT,
+        assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        reporter_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        labels JSONB NOT NULL DEFAULT '[]',
+        checklist JSONB NOT NULL DEFAULT '[]',
+        acceptance_criteria TEXT,
+        environment TEXT,
+        steps_to_reproduce TEXT,
+        expected_result TEXT,
+        actual_result TEXT,
+        due_date DATE,
+        sprint TEXT,
+        related_issue_ids JSONB NOT NULL DEFAULT '[]',
+        archived BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS app_issues_site_idx ON app_issues(site_id);
+      CREATE INDEX IF NOT EXISTS app_issues_project_idx ON app_issues(project_id);
+      CREATE INDEX IF NOT EXISTS app_issues_status_idx ON app_issues(status);
+      CREATE INDEX IF NOT EXISTS app_issues_assignee_idx ON app_issues(assignee_id);
+      CREATE TABLE IF NOT EXISTS app_issue_comments (
+        id SERIAL PRIMARY KEY,
+        issue_id INTEGER NOT NULL REFERENCES app_issues(id) ON DELETE CASCADE,
+        author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        body TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS app_issue_comments_issue_idx ON app_issue_comments(issue_id);
+      CREATE TABLE IF NOT EXISTS app_issue_activity (
+        id SERIAL PRIMARY KEY,
+        issue_id INTEGER NOT NULL REFERENCES app_issues(id) ON DELETE CASCADE,
+        actor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        action TEXT NOT NULL,
+        details JSONB NOT NULL DEFAULT '{}',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS app_issue_activity_issue_idx ON app_issue_activity(issue_id);
+      CREATE TABLE IF NOT EXISTS app_issue_attachments (
+        id SERIAL PRIMARY KEY,
+        issue_id INTEGER NOT NULL REFERENCES app_issues(id) ON DELETE CASCADE,
+        comment_id INTEGER REFERENCES app_issue_comments(id) ON DELETE CASCADE,
+        uploaded_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        object_path TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS app_issue_attachments_issue_idx ON app_issue_attachments(issue_id);
+      CREATE INDEX IF NOT EXISTS app_issue_attachments_comment_idx ON app_issue_attachments(comment_id);
+    `);
+    await client.query(`ALTER TABLE app_issue_attachments ADD COLUMN IF NOT EXISTS pending BOOLEAN NOT NULL DEFAULT FALSE`);
+    await client.query(`ALTER TABLE app_issue_attachments ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP`);
+    await client.query(`CREATE INDEX IF NOT EXISTS app_issue_attachments_pending_idx ON app_issue_attachments(pending, expires_at)`);
+    await client.query(`DELETE FROM app_issue_attachments WHERE pending = TRUE AND expires_at < NOW()`);
+    // Replace the legacy shared issue workflow with the type-specific lifecycle.
+    // Completed task/story records and closed bug records remain terminal; legacy
+    // cancellations are retained as archived records rather than active statuses.
+    await client.query(`
+      ALTER TABLE app_issues ALTER COLUMN status SET DEFAULT 'todo';
+       ALTER TABLE app_issues ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '{}';
+       ALTER TABLE app_issue_comments ADD COLUMN IF NOT EXISTS mentions JSONB NOT NULL DEFAULT '[]';
+      UPDATE app_issues SET status = 'todo' WHERE status = 'backlog';
+      UPDATE app_issues SET status = 'review' WHERE status = 'in_review';
+       UPDATE app_issues SET status = 'deployed'
+       WHERE type IN ('task', 'story') AND status = 'fixed';
+      UPDATE app_issues
+      SET status = CASE WHEN type = 'bug' THEN 'closed' ELSE 'complete' END
+      WHERE status = 'done';
+      UPDATE app_issues
+      SET status = CASE WHEN type = 'bug' THEN 'closed' ELSE 'complete' END,
+          archived = TRUE
+      WHERE status = 'cancelled';
+    `);
+
     // 10. Add group_id to scan_sessions
     await client.query(`
       DO $$
@@ -210,6 +310,14 @@ async function runStartupMigrations(): Promise<void> {
         updated_at          TIMESTAMP NOT NULL DEFAULT NOW(),
         updated_by          INTEGER REFERENCES users(id) ON DELETE SET NULL
       )
+    `);
+    await client.query(`
+      ALTER TABLE user_permissions
+        ADD COLUMN IF NOT EXISTS can_view_issues BOOLEAN NOT NULL DEFAULT TRUE,
+        ADD COLUMN IF NOT EXISTS can_create_issue BOOLEAN NOT NULL DEFAULT TRUE,
+        ADD COLUMN IF NOT EXISTS can_edit_issue BOOLEAN NOT NULL DEFAULT TRUE,
+        ADD COLUMN IF NOT EXISTS can_comment_issue BOOLEAN NOT NULL DEFAULT TRUE,
+        ADD COLUMN IF NOT EXISTS can_manage_issues BOOLEAN NOT NULL DEFAULT TRUE
     `);
 
     // 12. Add role_label to user_groups
@@ -841,6 +949,32 @@ async function runStartupMigrations(): Promise<void> {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS qa_word_inventory_scan_id_idx ON qa_word_inventory(scan_id)`);
 
+    // 37. Per-occurrence contextual AI assessments. The request context stores
+    // bounded evidence only, so interrupted workers can safely resume after a
+    // process restart without retaining raw provider output or credentials.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ai_issue_assessments (
+        id              SERIAL PRIMARY KEY,
+        issue_id        INTEGER NOT NULL UNIQUE REFERENCES accessibility_issues(id) ON DELETE CASCADE,
+        status          TEXT NOT NULL DEFAULT 'queued',
+        decision        TEXT,
+        confidence      TEXT,
+        rationale       TEXT,
+        evidence        JSONB NOT NULL DEFAULT '[]'::jsonb,
+        engine          TEXT NOT NULL DEFAULT 'Alfa/custom browser',
+        provider        TEXT,
+        model           TEXT,
+        attempts        INTEGER NOT NULL DEFAULT 0,
+        request_context JSONB NOT NULL,
+        error_message   TEXT,
+        queued_at       TIMESTAMP NOT NULL DEFAULT NOW(),
+        started_at      TIMESTAMP,
+        completed_at    TIMESTAMP,
+        updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS ai_issue_assessments_status_idx ON ai_issue_assessments(status)`);
+
     // issue_decisions — false positive / can't-fix decisions per occurrence
     await client.query(`
       CREATE TABLE IF NOT EXISTS issue_decisions (
@@ -1133,6 +1267,19 @@ async function runStartupMigrations(): Promise<void> {
           CHECK (target_wcag_level IN ('A','AA','AAA','All'));
       END
       $$
+    `);
+
+    // 49. Documentation screenshot storage
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS doc_screenshots (
+        key          TEXT PRIMARY KEY,
+        image_data   BYTEA        NOT NULL,
+        content_type TEXT         NOT NULL DEFAULT 'image/jpeg',
+        captured_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        captured_by  INTEGER      REFERENCES users(id) ON DELETE SET NULL,
+        width        INTEGER,
+        height       INTEGER
+      )
     `);
 
     await client.query("COMMIT");
@@ -1444,6 +1591,7 @@ runStartupMigrations()
   .then(() => checkDatabaseWritable())
   .then(() => Promise.all([seedDefaultAdmin(), ensureChromeDependencies()]))
   .then(() => recoverOrphanedScans())
+  .then(() => recoverAIAssessments())
   .then(() => resumeOrphanedCrawlerSessions())
   .then(() => startListening(port))
   .catch((err) => {

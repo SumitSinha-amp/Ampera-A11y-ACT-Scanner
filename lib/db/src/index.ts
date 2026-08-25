@@ -34,6 +34,7 @@ export {
   scanSessionsTable,
   pageResultsTable,
   accessibilityIssuesTable,
+  aiIssueAssessmentsTable,
   qaPagesTable,
   qaLinksTable,
   qaImagesTable,
@@ -81,3 +82,15 @@ export { appSettingsTable } from "./schema/users";
 export { issueDecisionsTable, type IssueDecision, type InsertIssueDecision } from "./schema/scans";
 export { siteUserAccessTable, siteGroupAccessTable, type SiteUserAccess, type SiteGroupAccess } from "./schema/site-access";
 export { notificationsTable, notificationReadsTable, type Notification, type NotificationRead } from "./schema/notifications";
+export {
+  appIssuesTable,
+  appIssueCommentsTable,
+  appIssueActivityTable,
+  appIssueAttachmentsTable,
+  insertAppIssueSchema,
+  type AppIssue,
+  type InsertAppIssue,
+  type AppIssueComment,
+  type AppIssueActivity,
+  type AppIssueAttachment,
+} from "./schema/issues";

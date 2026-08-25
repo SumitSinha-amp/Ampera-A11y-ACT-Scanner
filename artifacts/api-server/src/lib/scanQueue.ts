@@ -14,6 +14,7 @@ import { scanPage, resetBrowserInstance, setScanConcurrency, fetchRawHtmlViaBrow
 import { runQALinkChecker } from "./qaLinkChecker";
 import { logger } from "./logger";
 import { randomBytes, createHash } from "crypto";
+import { enqueueIssueAssessments, shouldQueueAIAssessments } from "./ai-assessment";
 
 // ── WAF token store ───────────────────────────────────────────────────────────
 // Keyed by pageId → token data. Tokens expire after 10 minutes.
@@ -38,6 +39,11 @@ interface ScanOptions {
   /** Incremental scan: skip pages whose raw HTML is unchanged since the last
    *  completed scan of the same URL, carrying the previous issues forward. */
   incremental?: boolean;
+  /** Ask the configured external AI provider to assess each detected occurrence. Manual scans only. */
+  aiContextualAssessment?: boolean;
+  /** Internal crawler marker; never enable automatic assessments for these scans. */
+  crawlerSessionId?: number;
+  source?: string;
 }
 
 // ── Incremental scan helpers ─────────────────────────────────────────────────
@@ -114,6 +120,7 @@ async function tryCarryForward(
   pageId: number,
   url: string,
   rawHash: string,
+  options: ScanOptions,
 ): Promise<boolean> {
   const variants = urlVariants(url);
   const [prev] = await db
@@ -146,12 +153,16 @@ async function tryCarryForward(
     .where(eq(accessibilityIssuesTable.pageId, prev.id));
 
   if (prevIssues.length > 0) {
-    await db.insert(accessibilityIssuesTable).values(
+    const copiedIssues = await db.insert(accessibilityIssuesTable).values(
       prevIssues.map(({ id: _id, pageId: _pageId, ...rest }) => ({
         ...rest,
         pageId,
       })),
-    );
+    ) .returning({ id: accessibilityIssuesTable.id });
+    if (shouldQueueAIAssessments(options)) {
+      void enqueueIssueAssessments(copiedIssues.map((issue) => issue.id), url, prev.pageHtml)
+        .catch((err) => logger.warn({ scanId, pageId, err }, "AI assessments could not be queued for carried-forward issues"));
+    }
   }
 
   await db
@@ -896,7 +907,7 @@ async function scanSinglePage(
         const body = await fetchRawHtmlViaBrowser(url);
         if (body) rawHash = hashRawHtml(body);
       }
-      if (rawHash && (await tryCarryForward(scanId, pageId, url, rawHash))) {
+    if (rawHash && (await tryCarryForward(scanId, pageId, url, rawHash, options))) {
         return;
       }
     }
@@ -1068,7 +1079,7 @@ async function scanSinglePage(
     logger.info({ scanId, url, pageId, issueCount }, "Inserting issues into DB");
     if (result.issues.length > 0) {
       try {
-        await db.insert(accessibilityIssuesTable).values(
+        const insertedIssues = await db.insert(accessibilityIssuesTable).values(
           result.issues.map((issue) => ({
             pageId,
             ruleId: issue.ruleId,
@@ -1087,8 +1098,12 @@ async function scanSinglePage(
             bboxWidth: issue.bboxWidth ?? null,
             bboxHeight: issue.bboxHeight ?? null,
           })),
-        );
+        ).returning({ id: accessibilityIssuesTable.id });
         logger.info({ scanId, url, pageId, issueCount }, "Issues inserted successfully");
+        if (shouldQueueAIAssessments(options)) {
+          void enqueueIssueAssessments(insertedIssues.map((issue) => issue.id), url, result.pageHtml ?? null)
+            .catch((err) => logger.warn({ scanId, url, pageId, err }, "AI assessments could not be queued"));
+        }
       } catch (insertErr) {
         logger.error({ scanId, url, pageId, issueCount, err: insertErr }, "ISSUE INSERT FAILED");
         throw insertErr;

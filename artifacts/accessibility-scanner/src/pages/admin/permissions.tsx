@@ -26,7 +26,12 @@ type PermissionKey =
   | "canViewQualityAssurance"
   | "canViewSiteAccessibilityDashboard"
   | "canManageSites"
-  | "canManageSiteTargetScore";
+  | "canManageSiteTargetScore"
+  | "canViewIssues"
+  | "canCreateIssue"
+  | "canEditIssue"
+  | "canCommentIssue"
+  | "canManageIssues";
 
 type PermissionSet = Record<PermissionKey, boolean>;
 
@@ -60,6 +65,18 @@ const PERMISSION_GROUPS: {
   note?: string;
   items: { key: PermissionKey; label: string; shortLabel: string; desc: string }[];
 }[] = [
+  {
+    id: "issues",
+    label: "Issue management",
+    note: "View issues is required before the other issue actions take effect, and issue access still respects the sites a person can access.",
+    items: [
+      { key: "canViewIssues", label: "View issues", shortLabel: "View", desc: "See issues for accessible sites" },
+      { key: "canCreateIssue", label: "Create issues", shortLabel: "Create", desc: "Raise tasks, stories, and bugs from findings" },
+      { key: "canEditIssue", label: "Edit issues", shortLabel: "Edit", desc: "Update issue fields, status, and checklists" },
+      { key: "canCommentIssue", label: "Comment", shortLabel: "Comment", desc: "Add comments and updates to issues" },
+      { key: "canManageIssues", label: "Manage issues", shortLabel: "Manage", desc: "Archive issues when they are no longer needed" },
+    ],
+  },
   {
     id: "scanning",
     label: "Scanning",
@@ -132,6 +149,11 @@ const DEFAULT_PERMISSION: PermissionSet = {
   canViewSiteAccessibilityDashboard: true,
   canManageSites: false,
   canManageSiteTargetScore: false,
+  canViewIssues: true,
+  canCreateIssue: true,
+  canEditIssue: true,
+  canCommentIssue: true,
+  canManageIssues: true,
 };
 
 function getInitials(name: string) {

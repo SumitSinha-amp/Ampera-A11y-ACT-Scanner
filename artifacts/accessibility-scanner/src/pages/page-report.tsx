@@ -27,6 +27,8 @@ import {
   CheckCircle2,
   Clock,
   Undo2,
+  Sparkles,
+  RotateCcw,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import {
@@ -61,6 +63,14 @@ interface ReportIssue {
   bboxWidth?: number | null;
   bboxHeight?: number | null;
   falsePositive?: boolean;
+  aiAssessment?: {
+    status: "queued" | "analyzing" | "completed" | "failed";
+    decision: "confirmed_issue" | "potential_issue" | "not_an_issue" | "needs_review" | null;
+    confidence: "low" | "medium" | "high" | null;
+    rationale: string | null;
+    evidence: string[];
+    errorMessage: string | null;
+  } | null;
 }
 
 function ImpactDot({ impact }: { impact: string }) {
@@ -135,6 +145,15 @@ export default function PageReport() {
   } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // True while at least one occurrence has a pending AI assessment — triggers
+  // a silent background poll so the spinner resolves without a manual refresh.
+  const [pollPending, setPollPending] = useState(false);
+
+  /** Whether any issue in the given report data has a pending AI assessment. */
+  const hasPendingAssessments = (data: typeof reportData) =>
+    (data?.page?.issues ?? []).some(
+      (iss) => iss.aiAssessment?.status === "queued" || iss.aiAssessment?.status === "analyzing",
+    );
 
   const loadReport = useCallback(() => {
     if (!scanId || !pageId) return () => {};
@@ -162,6 +181,7 @@ export default function PageReport() {
         if (!cancelled) {
           setReportData(data);
           setIsLoading(false);
+          setPollPending(hasPendingAssessments(data));
         }
       })
       .catch((error) => {
@@ -175,6 +195,7 @@ export default function PageReport() {
                 : "Unable to load this page report. Please try again.",
           );
           setIsLoading(false);
+          setPollPending(false);
         }
       })
       .finally(() => window.clearTimeout(timeout));
@@ -186,6 +207,33 @@ export default function PageReport() {
   }, [scanId, pageId]);
 
   useEffect(() => loadReport(), [loadReport]);
+
+  // Silent background poll — re-fetches report data every 4 s while any AI
+  // assessment is still queued or analyzing, without triggering the full-page
+  // loading spinner.  Stops automatically once all assessments settle.
+  useEffect(() => {
+    if (!pollPending || !scanId || !pageId) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      fetch(`${BASE}/api/scans/${scanId}/pages/${pageId}/report-data`, {
+        credentials: "include",
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (cancelled || !data) return;
+          setReportData(data);
+          setPollPending(hasPendingAssessments(data));
+        })
+        .catch(() => {
+          if (!cancelled) setPollPending(false);
+        });
+    }, 4_000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [pollPending, scanId, pageId]);
 
   const scan = reportData;
 
@@ -199,6 +247,31 @@ export default function PageReport() {
     () => ((page?.issues ?? []) as ReportIssue[]).filter((i) => !i.falsePositive),
     [page],
   );
+  const hasPendingAIAssessments = issues.some((issue) =>
+    issue.aiAssessment?.status === "queued" || issue.aiAssessment?.status === "analyzing",
+  );
+  const [retryingAssessmentId, setRetryingAssessmentId] = useState<number | null>(null);
+  const retryAssessment = useCallback(async (issueId: number) => {
+    setRetryingAssessmentId(issueId);
+    try {
+      const response = await fetch(`${BASE}/api/scans/${scanId}/issues/${issueId}/ai-assessment/retry`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error();
+      await loadReport();
+    } catch {
+      setLoadError("Unable to retry this AI assessment. Please try again.");
+    } finally {
+      setRetryingAssessmentId(null);
+    }
+  }, [loadReport, scanId]);
+
+  useEffect(() => {
+    if (!hasPendingAIAssessments) return;
+    const timer = window.setInterval(loadReport, 2500);
+    return () => window.clearInterval(timer);
+  }, [hasPendingAIAssessments, loadReport]);
 
   const impactOrder: Record<string, number> = { critical: 0, serious: 1, moderate: 2, minor: 3 };
 
@@ -337,8 +410,8 @@ export default function PageReport() {
 
   const selectedIssue = issues.find((i) => i.id === selectedIssueId) ?? null;
   const allGroups = useMemo(
-    () => [...ruleGroups, ...potentialGroups, ...bestPracticeGroups],
-    [ruleGroups, potentialGroups, bestPracticeGroups],
+    () => [...ruleGroups, ...potentialGroups, ...bestPracticeGroups, ...waiAriaGroups],
+    [ruleGroups, potentialGroups, bestPracticeGroups, waiAriaGroups],
   );
   const selectedGroup = selectedIssue
     ? (allGroups.find(([r]) => r === selectedIssue.ruleId)?.[1] ?? [])
@@ -455,6 +528,9 @@ export default function PageReport() {
             <ExternalLink className="w-3 h-3 shrink-0" />
           </a>
         </div>
+        {user?.permissions.canCreateIssue && <Link href={`/issues?${new URLSearchParams({ create: "1", type: "bug", scanId: String(scanId), pageId: String(pageId), title: "Fix accessibility issue on page", source: `Accessibility page finding: ${page.url}` })}`}>
+          <Button variant="outline" size="sm" className="text-xs">Create issue</Button>
+        </Link>}
         {/* View toggle */}
         <div className="flex shrink-0 rounded-md overflow-hidden border border-gray-200 text-xs">
           <button
@@ -800,6 +876,39 @@ export default function PageReport() {
                                   </span>
                                 )}
                               </div>
+                              {((scan?.options as Record<string, unknown> | null)?.aiContextualAssessment === true || occ.aiAssessment) && (
+                                <div className="rounded border border-violet-200 bg-violet-50/60 p-2 text-[11px]">
+                                  <div className="flex items-center gap-1.5 font-semibold text-violet-800">
+                                    <Sparkles className="h-3 w-3" /> AI Assessment
+                                  </div>
+                                  {!occ.aiAssessment || occ.aiAssessment.status === "queued" || occ.aiAssessment.status === "analyzing" ? (
+                                    <p className="mt-1 flex items-center gap-1.5 text-violet-700">
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      {occ.aiAssessment?.status === "analyzing" ? "Reviewing this occurrence…" : "Assessment queued for background review…"}
+                                    </p>
+                                  ) : occ.aiAssessment.status === "failed" ? (
+                                    <div className="mt-1 flex items-start gap-2 text-gray-600">
+                                      <p className="flex-1">
+                                      Assessment could not be completed{occ.aiAssessment.errorMessage ? `: ${occ.aiAssessment.errorMessage}` : "."} The scanner finding is unchanged.
+                                      </p>
+                                      <Button type="button" variant="outline" size="sm" className="h-6 shrink-0 gap-1 px-2 text-[10px]" onClick={() => void retryAssessment(occ.id)} disabled={retryingAssessmentId === occ.id}>
+                                        {retryingAssessmentId === occ.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+                                        {retryingAssessmentId === occ.id ? "Retrying…" : "Retry"}
+                                      </Button>
+                                    </div>
+                                  ) : (
+                                    <div className="mt-1 space-y-1 text-gray-700">
+                                      <p><span className="font-medium">{(occ.aiAssessment.decision ?? "needs_review").replaceAll("_", " ")}</span> · {occ.aiAssessment.confidence ?? "unrated"} confidence</p>
+                                      <p>{occ.aiAssessment.rationale}</p>
+                                      {occ.aiAssessment.evidence.length > 0 && (
+                                        <ul className="list-disc space-y-0.5 pl-4 text-gray-600">
+                                          {occ.aiAssessment.evidence.map((item, index) => <li key={`${index}-${item.slice(0, 16)}`}>{item}</li>)}
+                                        </ul>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                               {/* Decision panel */}
                               {showPanel && (
                                 <div className="mt-1.5 rounded border border-violet-200 bg-violet-50/70 p-3 space-y-2.5">

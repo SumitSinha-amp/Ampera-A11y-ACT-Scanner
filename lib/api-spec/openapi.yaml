@@ -404,6 +404,41 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /scans/{scanId}/issues/{issueId}/ai-assessment/retry:
+    post:
+      operationId: retryAIAssessment
+      tags: [scans]
+      summary: Retry a failed manual-scan AI assessment
+      parameters:
+        - name: scanId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: issueId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Assessment requeued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [queued]
+                required: [status]
+        "403":
+          description: Forbidden
+        "404":
+          description: Assessment not found
+        "409":
+          description: Assessment is not failed
+
   /sites/my-sites:
     get:
       operationId: getMySites
@@ -806,6 +841,10 @@ components:
           type: ["string", "null"]
         remediation:
           type: ["string", "null"]
+        aiAssessment:
+          oneOf:
+            - $ref: "#/components/schemas/AIIssueAssessment"
+            - type: "null"
       required:
         - id
         - pageId
@@ -818,6 +857,62 @@ components:
         - wcagLevel
         - selector
         - remediation
+        - aiAssessment
+
+    AIIssueAssessment:
+      type: object
+      properties:
+        id:
+          type: integer
+        issueId:
+          type: integer
+        status:
+          type: string
+          enum: [queued, analyzing, completed, failed]
+        decision:
+          type: ["string", "null"]
+          enum: [confirmed_issue, potential_issue, not_an_issue, needs_review, null]
+        confidence:
+          type: ["string", "null"]
+          enum: [low, medium, high, null]
+        rationale:
+          type: ["string", "null"]
+        evidence:
+          type: array
+          items:
+            type: string
+        engine:
+          type: string
+        provider:
+          type: ["string", "null"]
+        model:
+          type: ["string", "null"]
+        attempts:
+          type: integer
+        errorMessage:
+          type: ["string", "null"]
+        queuedAt:
+          type: ["string", "null"]
+        startedAt:
+          type: ["string", "null"]
+        completedAt:
+          type: ["string", "null"]
+      required:
+        - id
+        - issueId
+        - status
+        - decision
+        - confidence
+        - rationale
+        - evidence
+        - engine
+        - provider
+        - model
+        - attempts
+        - errorMessage
+        - queuedAt
+        - startedAt
+        - completedAt
 
     ScanStatus:
       type: object
@@ -1038,6 +1133,9 @@ components:
         incremental:
           type: boolean
           description: Skip pages whose raw HTML is unchanged since the last completed scan, carrying previous issues forward
+        aiContextualAssessment:
+          type: boolean
+          description: For direct manual scans only, ask the configured server-side AI provider to assess each detected issue occurrence
       required: []
 
     UpdateScanBody:

@@ -42,6 +42,11 @@ export const userGroupsTable = pgTable("user_groups", {
   canViewSiteAccessibilityDashboard: boolean("can_view_site_accessibility_dashboard").notNull().default(false),
   canManageSites: boolean("can_manage_sites").notNull().default(false),
   canManageSiteTargetScore: boolean("can_manage_site_target_score").notNull().default(false),
+  canViewIssues: boolean("can_view_issues").notNull().default(false),
+  canCreateIssue: boolean("can_create_issue").notNull().default(false),
+  canEditIssue: boolean("can_edit_issue").notNull().default(false),
+  canCommentIssue: boolean("can_comment_issue").notNull().default(false),
+  canManageIssues: boolean("can_manage_issues").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -73,6 +78,11 @@ export const userPermissionsTable = pgTable("user_permissions", {
   canViewSiteAccessibilityDashboard: boolean("can_view_site_accessibility_dashboard").notNull().default(true),
   canManageSites: boolean("can_manage_sites").notNull().default(false),
   canManageSiteTargetScore: boolean("can_manage_site_target_score").notNull().default(false),
+  canViewIssues: boolean("can_view_issues").notNull().default(true),
+  canCreateIssue: boolean("can_create_issue").notNull().default(true),
+  canEditIssue: boolean("can_edit_issue").notNull().default(true),
+  canCommentIssue: boolean("can_comment_issue").notNull().default(true),
+  canManageIssues: boolean("can_manage_issues").notNull().default(true),
   allowedRules: jsonb("allowed_rules"), // null = all rules; string[] = restricted list
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   updatedBy: integer("updated_by"),
