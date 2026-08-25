@@ -26,12 +26,13 @@ export function IssueList({ issues, onSelect, selectedId }: IssueListProps) {
   }
 
   return (
-    <div className="divide-y divide-border h-full overflow-y-auto bg-card">
+    <div aria-label="Issues" className="divide-y divide-border h-full overflow-y-auto bg-card">
       {issues.map((issue) => (
         <button
           key={issue.id}
           onClick={() => onSelect(issue.id)}
-          className={`w-full text-left p-4 hover:bg-muted/50 transition-colors focus-visible:bg-muted/50 outline-none ${
+          aria-current={selectedId === issue.id ? "true" : undefined}
+          className={`w-full text-left p-4 hover:bg-muted/50 transition-colors focus-visible:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary focus-visible:outline-none ${
             selectedId === issue.id ? "bg-primary/5 border-l-2 border-l-primary" : "border-l-2 border-l-transparent"
           }`}
         >

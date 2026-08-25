@@ -1,6 +1,6 @@
 import React from "react";
 import { Issue, TYPE_COLORS, STATUS_COLORS, STATUS_LABELS } from "../../lib/issue-types";
-import { Card, CardContent } from "@/components/ui/card";
+import { CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 interface IssueBoardProps {
@@ -12,7 +12,7 @@ interface IssueBoardProps {
 
 export function IssueBoard({ issues, statuses, onSelect, selectedId }: IssueBoardProps) {
   return (
-    <div className="flex h-full gap-4 overflow-x-auto p-4 bg-muted/10 items-start">
+    <div aria-label="Issue board" className="flex h-full gap-4 overflow-x-auto p-4 bg-muted/10 items-start">
       {statuses.map((status) => {
         const columnIssues = issues.filter((x) => x.status === status);
         return (
@@ -24,9 +24,12 @@ export function IssueBoard({ issues, statuses, onSelect, selectedId }: IssueBoar
             
             <div className="p-2 space-y-2 overflow-y-auto flex-1">
               {columnIssues.map((issue) => (
-                <Card 
+                <button
                   key={issue.id} 
-                  className={`cursor-pointer transition-all hover:border-primary/50 hover:shadow-md ${selectedId === issue.id ? "ring-2 ring-primary border-transparent" : "shadow-sm"}`}
+                  type="button"
+                  aria-current={selectedId === issue.id ? "true" : undefined}
+                  aria-label={`Open ${issue.issueKey}: ${issue.title}`}
+                  className={`w-full rounded-lg border bg-card text-left cursor-pointer transition-all hover:border-primary/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${selectedId === issue.id ? "ring-2 ring-primary border-transparent" : "shadow-sm"}`}
                   onClick={() => onSelect(issue.id)}
                 >
                   <CardContent className="p-3">
@@ -58,7 +61,7 @@ export function IssueBoard({ issues, statuses, onSelect, selectedId }: IssueBoar
                       </div>
                     </div>
                   </CardContent>
-                </Card>
+                </button>
               ))}
               
               {columnIssues.length === 0 && (

@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { and, asc, desc, eq, gt, ilike, inArray, or, sql } from "drizzle-orm";
 import {
-  db, appIssuesTable, appIssueCommentsTable, appIssueActivityTable, appIssueAttachmentsTable,
+  db, appIssuesTable, appIssueCommentsTable, appIssueActivityTable, appIssueAttachmentsTable, appIssueLinksTable,
   usersTable, sitesTable, projectsTable,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/authMiddleware";
@@ -15,6 +15,13 @@ import {
   type IssueType,
 } from "../lib/issue-workflow";
 import { ObjectStorageService } from "../lib/objectStorage";
+import {
+  canonicalizeIssueLink,
+  isIssueLinkType,
+  relationshipIdentity,
+  wouldCreateParentCycle,
+  type IssueLinkType,
+} from "../lib/issue-relations";
 
 const router: IRouter = Router();
 const statuses = ALL_ISSUE_STATUSES;
@@ -61,6 +68,49 @@ async function canSeeIssue(req: any, id: number) {
   return issue;
 }
 
+function positiveInteger(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+async function visibleIssueSummaries(req: any, ids: number[]) {
+  const uniqueIds = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
+  if (!uniqueIds.length) return [];
+  return db.select({
+    id: appIssuesTable.id,
+    issueKey: appIssuesTable.issueKey,
+    title: appIssuesTable.title,
+    type: appIssuesTable.type,
+    status: appIssuesTable.status,
+  }).from(appIssuesTable).where(and(
+    await visibleWhere(req),
+    eq(appIssuesTable.archived, false),
+    inArray(appIssuesTable.id, uniqueIds),
+  ));
+}
+
+async function validateEpicAssignment(req: any, issueType: IssueType, epicId: number | null, issueId?: number): Promise<string | null> {
+  if (!epicId) return null;
+  if (issueType === "epic") return "Epic issues cannot belong to another Epic";
+  if (issueId && issueId === epicId) return "An issue cannot be its own Epic";
+  const epic = await canSeeIssue(req, epicId);
+  if (!epic || epic.archived || epic.type !== "epic") return "Choose an Epic that you can access";
+  return null;
+}
+
+function inverseLinkType(linkType: IssueLinkType): IssueLinkType {
+  const inverse: Record<IssueLinkType, IssueLinkType> = {
+    parent: "child",
+    child: "parent",
+    blocks: "blocked_by",
+    blocked_by: "blocks",
+    relates_to: "relates_to",
+    duplicates: "duplicated_by",
+    duplicated_by: "duplicates",
+  };
+  return inverse[linkType];
+}
+
 function cleanBody(body: any) {
   const value = (key: string, fallback: string | null = null) => typeof body?.[key] === "string" ? body[key].trim() : fallback;
   const richValue = (key: string) => {
@@ -86,6 +136,7 @@ function cleanBody(body: any) {
     stepsToReproduce: richValue("stepsToReproduce"), expectedResult: richValue("expectedResult"), actualResult: richValue("actualResult"),
     dueDate: value("dueDate"), sprint: value("sprint"),
     relatedIssueIds: Array.isArray(body?.relatedIssueIds) ? body.relatedIssueIds.filter((x: unknown) => Number.isInteger(x)) : [],
+    epicId: positiveInteger(body?.epicId),
     customFields: cleanCustomFields(body?.customFields),
   };
 }
@@ -212,6 +263,8 @@ router.post("/issues", requireAuth, async (req, res) => {
   if (!(await requireIssuePermission(req, res, "canCreateIssue"))) return;
   const data = { ...cleanBody(req.body), status: "todo" };
   if (!data.title || data.title.length > 300) { res.status(400).json({ error: "A title is required (max 300 characters)" }); return; }
+  const epicError = await validateEpicAssignment(req, data.type, data.epicId);
+  if (epicError) { res.status(400).json({ error: epicError }); return; }
   if (data.siteId && !(await canAccessSite(Number(req.session!.user!.id), String(req.session!.user!.id), req.session!.user!.role, data.siteId))) {
     res.status(403).json({ error: "You do not have access to this site" }); return;
   }
@@ -227,10 +280,25 @@ router.get("/issues/:id", requireAuth, async (req, res) => {
   if (!(await requireIssuePermission(req, res, "canViewIssues"))) return;
   const issue = await canSeeIssue(req, Number(req.params.id));
   if (!issue) { res.status(404).json({ error: "Issue not found" }); return; }
-  const [comments, attachments] = await Promise.all([
+  const [comments, attachments, rawLinks, epicIssues] = await Promise.all([
     db.select({ comment: appIssueCommentsTable, authorName: usersTable.fullName }).from(appIssueCommentsTable)
       .innerJoin(usersTable, eq(usersTable.id, appIssueCommentsTable.authorId)).where(eq(appIssueCommentsTable.issueId, issue.id)).orderBy(asc(appIssueCommentsTable.createdAt)),
     db.select().from(appIssueAttachmentsTable).where(eq(appIssueAttachmentsTable.issueId, issue.id)).orderBy(asc(appIssueAttachmentsTable.createdAt)),
+    db.select().from(appIssueLinksTable).where(or(
+      eq(appIssueLinksTable.sourceIssueId, issue.id),
+      eq(appIssueLinksTable.targetIssueId, issue.id),
+    )),
+    db.select({
+      id: appIssuesTable.id,
+      issueKey: appIssuesTable.issueKey,
+      title: appIssuesTable.title,
+      type: appIssuesTable.type,
+      status: appIssuesTable.status,
+    }).from(appIssuesTable).where(and(
+      await visibleWhere(req),
+      eq(appIssuesTable.archived, false),
+      eq(appIssuesTable.epicId, issue.id),
+    )),
   ]);
   const activity = await db.select({ event: appIssueActivityTable, actorName: usersTable.fullName }).from(appIssueActivityTable)
     .innerJoin(usersTable, eq(usersTable.id, appIssueActivityTable.actorId)).where(eq(appIssueActivityTable.issueId, issue.id)).orderBy(desc(appIssueActivityTable.createdAt));
@@ -238,8 +306,27 @@ router.get("/issues/:id", requireAuth, async (req, res) => {
     ...attachment,
     url: `/api/issues/${issue.id}/attachments/${attachment.id}`,
   });
+  const relatedIssueIds = [
+    ...(issue.epicId ? [issue.epicId] : []),
+    ...rawLinks.map((link) => link.sourceIssueId === issue.id ? link.targetIssueId : link.sourceIssueId),
+  ];
+  const relationshipIssues = await visibleIssueSummaries(req, relatedIssueIds);
+  const relationshipIssueById = new Map(relationshipIssues.map((related) => [related.id, related]));
+  const links = rawLinks.flatMap((link) => {
+    const otherIssueId = link.sourceIssueId === issue.id ? link.targetIssueId : link.sourceIssueId;
+    const relatedIssue = relationshipIssueById.get(otherIssueId);
+    if (!relatedIssue || !isIssueLinkType(link.linkType)) return [];
+    return [{
+      id: link.id,
+      linkType: link.sourceIssueId === issue.id ? link.linkType : inverseLinkType(link.linkType),
+      issue: relatedIssue,
+    }];
+  });
   res.json({
     issue: sanitizeIssueRichTextFields(issue),
+    epic: issue.epicId ? relationshipIssueById.get(issue.epicId) ?? null : null,
+    epicIssues,
+    links,
     attachments: attachments.filter((attachment) => !attachment.pending && attachment.commentId === null).map(toAttachment),
     comments: comments.map((x) => ({
       ...x.comment,
@@ -247,7 +334,12 @@ router.get("/issues/:id", requireAuth, async (req, res) => {
       authorName: x.authorName,
       attachments: attachments.filter((attachment) => !attachment.pending && attachment.commentId === x.comment.id).map(toAttachment),
     })),
-    activity: activity.map((x) => ({ ...x.event, actorName: x.actorName })),
+    activity: activity.map((x) => {
+      const details = x.event.details && typeof x.event.details === "object" && !Array.isArray(x.event.details)
+        ? Object.fromEntries(Object.entries(x.event.details as Record<string, unknown>).filter(([key]) => key !== "targetIssueId"))
+        : x.event.details;
+      return { ...x.event, details, actorName: x.actorName };
+    }),
   });
 });
 
@@ -258,6 +350,8 @@ router.patch("/issues/:id", requireAuth, async (req, res) => {
   const data = cleanBody({ ...issue, ...req.body });
   if (!data.title) { res.status(400).json({ error: "A title is required" }); return; }
   if (data.type !== issue.type) { res.status(400).json({ error: "An issue's type cannot be changed after creation" }); return; }
+  const epicError = await validateEpicAssignment(req, issue.type as IssueType, data.epicId, issue.id);
+  if (epicError) { res.status(400).json({ error: epicError }); return; }
   if (data.siteId && !(await canAccessSite(Number(req.session!.user!.id), String(req.session!.user!.id), req.session!.user!.role, data.siteId))) {
     res.status(403).json({ error: "You do not have access to this site" }); return;
   }
@@ -273,6 +367,86 @@ router.patch("/issues/:id", requireAuth, async (req, res) => {
     details: { fields: Object.keys(req.body ?? {}) },
   });
   res.json(updated);
+});
+
+router.post("/issues/:id/links", requireAuth, async (req, res) => {
+  if (!(await requireIssuePermission(req, res, "canEditIssue"))) return;
+  const issue = await canSeeIssue(req, Number(req.params.id));
+  const targetIssueId = positiveInteger(req.body?.targetIssueId);
+  const linkType = req.body?.linkType;
+  if (!issue) { res.status(404).json({ error: "Issue not found" }); return; }
+  if (!targetIssueId || !isIssueLinkType(linkType)) {
+    res.status(400).json({ error: "Choose an issue and a supported relationship type" });
+    return;
+  }
+  if (targetIssueId === issue.id) { res.status(400).json({ error: "An issue cannot link to itself" }); return; }
+  const target = await canSeeIssue(req, targetIssueId);
+  if (!target || target.archived) { res.status(404).json({ error: "The linked issue is not available" }); return; }
+
+  const proposedLink = { sourceIssueId: issue.id, targetIssueId, linkType };
+  const canonicalLink = canonicalizeIssueLink(proposedLink);
+  const result = await db.transaction(async (tx) => {
+    // Serializes relationship writes so concurrent hierarchy edits cannot form a cycle.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(289105)`);
+    const rawExistingLinks = await tx.select().from(appIssueLinksTable);
+    const existingLinks = rawExistingLinks.filter((link) => isIssueLinkType(link.linkType)).map((link) => ({
+      sourceIssueId: link.sourceIssueId,
+      targetIssueId: link.targetIssueId,
+      linkType: link.linkType as IssueLinkType,
+    }));
+    const proposedIdentity = relationshipIdentity(linkType, issue.id, targetIssueId);
+    if (existingLinks.some((link) => relationshipIdentity(link.linkType, link.sourceIssueId, link.targetIssueId) === proposedIdentity)) {
+      return { error: "duplicate" as const };
+    }
+    if (wouldCreateParentCycle(existingLinks, proposedLink)) {
+      return { error: "cycle" as const };
+    }
+    const [created] = await tx.insert(appIssueLinksTable).values({
+      ...canonicalLink,
+      createdBy: Number(req.session!.user!.id),
+    }).returning();
+    return { created };
+  });
+  if ("error" in result) {
+    res.status(result.error === "duplicate" ? 409 : 400).json({
+      error: result.error === "duplicate" ? "That relationship already exists" : "This parent-child relationship would create a cycle",
+    });
+    return;
+  }
+  await db.update(appIssuesTable).set({ updatedAt: new Date() }).where(eq(appIssuesTable.id, issue.id));
+  await db.insert(appIssueActivityTable).values({
+    issueId: issue.id,
+    actorId: Number(req.session!.user!.id),
+    action: `linked as ${linkType.replace(/_/g, " ")}`,
+    details: { linkType },
+  });
+  res.status(201).json({
+    id: result.created.id,
+    linkType,
+    issue: { id: target.id, issueKey: target.issueKey, title: target.title, type: target.type, status: target.status },
+  });
+});
+
+router.delete("/issues/:id/links/:linkId", requireAuth, async (req, res) => {
+  if (!(await requireIssuePermission(req, res, "canEditIssue"))) return;
+  const issue = await canSeeIssue(req, Number(req.params.id));
+  if (!issue) { res.status(404).json({ error: "Issue not found" }); return; }
+  const [link] = await db.select().from(appIssueLinksTable).where(and(
+    eq(appIssueLinksTable.id, Number(req.params.linkId)),
+    or(eq(appIssueLinksTable.sourceIssueId, issue.id), eq(appIssueLinksTable.targetIssueId, issue.id)),
+  )).limit(1);
+  if (!link) { res.status(404).json({ error: "Relationship not found" }); return; }
+  const otherIssueId = link.sourceIssueId === issue.id ? link.targetIssueId : link.sourceIssueId;
+  if (!(await canSeeIssue(req, otherIssueId))) { res.status(404).json({ error: "Relationship not found" }); return; }
+  await db.delete(appIssueLinksTable).where(eq(appIssueLinksTable.id, link.id));
+  await db.update(appIssuesTable).set({ updatedAt: new Date() }).where(eq(appIssuesTable.id, issue.id));
+  await db.insert(appIssueActivityTable).values({
+    issueId: issue.id,
+    actorId: Number(req.session!.user!.id),
+    action: "removed issue relationship",
+    details: { linkId: link.id },
+  });
+  res.status(204).send();
 });
 
 router.post("/issues/:id/attachments/upload-url", requireAuth, async (req, res) => {

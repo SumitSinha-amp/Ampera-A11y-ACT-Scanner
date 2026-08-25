@@ -152,7 +152,7 @@ export default function IssuesPage() {
         </div>
         <div className="flex items-center gap-2 w-full md:w-auto">
           <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-full md:w-[140px] font-medium bg-muted/50 border-transparent">
+            <SelectTrigger aria-label="Filter by issue type" className="w-full md:w-[140px] font-medium bg-muted/50 border-transparent">
               <SelectValue placeholder="Type" />
             </SelectTrigger>
             <SelectContent>
@@ -161,7 +161,7 @@ export default function IssuesPage() {
             </SelectContent>
           </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full md:w-[160px] font-medium bg-muted/50 border-transparent">
+            <SelectTrigger aria-label="Filter by issue status" className="w-full md:w-[160px] font-medium bg-muted/50 border-transparent">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -172,7 +172,7 @@ export default function IssuesPage() {
             </SelectContent>
           </Select>
           <Tabs value={view} onValueChange={(value) => { setView(value as "list" | "board"); setSelectedIssueId(null); }} className="w-auto">
-            <TabsList className="h-10 bg-muted/50 p-1">
+            <TabsList aria-label="Issue view" className="h-10 bg-muted/50 p-1">
               <TabsTrigger value="list" aria-label="List view" className="px-3"><List className="h-4 w-4" /></TabsTrigger>
               <TabsTrigger value="board" aria-label="Board view" className="px-3"><Columns3 className="h-4 w-4" /></TabsTrigger>
             </TabsList>
@@ -211,10 +211,12 @@ export default function IssuesPage() {
                 <IssueDetail 
                   id={selectedIssueId} 
                   people={people} 
+                  issues={issues}
                   canEdit={canEdit} 
                   canComment={canComment} 
                   canManage={canManage} 
                   onClose={() => setSelectedIssueId(null)}
+                  onSelectIssue={setSelectedIssueId}
                 />
               </div>
             ) : (
@@ -238,6 +240,7 @@ export default function IssuesPage() {
         draft={draft} 
         setField={setDraftField} 
         people={people} 
+        issues={issues}
         onSave={handleCreateSave} 
       />
     </div>

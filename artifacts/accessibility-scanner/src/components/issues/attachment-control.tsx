@@ -39,6 +39,7 @@ export function AttachmentControl({ issueId, onUploaded, className }: Attachment
         type="file"
         ref={fileInputRef}
         className="hidden"
+        aria-label="Choose file attachment"
         onChange={handleFileChange}
         accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
       />
@@ -104,8 +105,9 @@ export function AttachmentPreview({
           type="button"
           variant="ghost"
           size="icon"
-          className="h-7 w-7 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+          className="h-7 w-7 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity"
           onClick={onRemove}
+          aria-label={`Remove ${attachment.filename}`}
         >
           <X className="h-4 w-4" />
         </Button>

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ISSUE_TYPES, PRIORITIES, Person } from "../../lib/issue-types";
+import { ISSUE_TYPES, PRIORITIES, Person, Issue } from "../../lib/issue-types";
 import { RichTextEditor } from "./rich-text-editor";
 
 interface IssueFormProps {
@@ -13,14 +13,16 @@ interface IssueFormProps {
   draft: Record<string, any>;
   setField: (key: string, value: any) => void;
   people: Person[];
+  issues: Issue[];
   onSave: () => void;
 }
 
-export function IssueForm({ open, onOpenChange, draft, setField, people, onSave }: IssueFormProps) {
+export function IssueForm({ open, onOpenChange, draft, setField, people, issues, onSave }: IssueFormProps) {
   const showBug = draft.type === "bug";
   const showStory = draft.type === "story";
   const showTask = draft.type === "task";
   const customFields = draft.customFields || {};
+  const epics = issues.filter((issue) => issue.type === "epic");
   const setCustom = (key: string, value: string) => setField("customFields", { ...customFields, [key]: value });
 
   return (
@@ -35,9 +37,12 @@ export function IssueForm({ open, onOpenChange, draft, setField, people, onSave 
         
         <div className="grid gap-6 py-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-wider font-semibold">Issue Type</Label>
-            <Select value={draft.type} onValueChange={(value) => setField("type", value)}>
-              <SelectTrigger className="font-medium uppercase tracking-wide">
+            <Label htmlFor="issue-type" className="text-xs uppercase tracking-wider font-semibold">Issue Type</Label>
+            <Select value={draft.type} onValueChange={(value) => {
+              setField("type", value);
+              if (value === "epic") setField("epicId", null);
+            }}>
+              <SelectTrigger id="issue-type" className="font-medium uppercase tracking-wide">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -51,9 +56,9 @@ export function IssueForm({ open, onOpenChange, draft, setField, people, onSave 
           </div>
           
           <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-wider font-semibold">Priority</Label>
+            <Label htmlFor="issue-priority" className="text-xs uppercase tracking-wider font-semibold">Priority</Label>
             <Select value={draft.priority} onValueChange={(value) => setField("priority", value)}>
-              <SelectTrigger className="capitalize font-medium">
+              <SelectTrigger id="issue-priority" className="capitalize font-medium">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -84,14 +89,37 @@ export function IssueForm({ open, onOpenChange, draft, setField, people, onSave 
               people={people}
             />
           </div>
+
+          {draft.type !== "epic" && (
+            <div className="space-y-2">
+              <Label htmlFor="issue-epic" className="text-xs uppercase tracking-wider font-semibold">Epic <span className="normal-case font-normal text-muted-foreground">(optional)</span></Label>
+              <Select
+                value={draft.epicId ? String(draft.epicId) : "no-epic"}
+                onValueChange={(value) => setField("epicId", value === "no-epic" ? null : Number(value))}
+              >
+                <SelectTrigger id="issue-epic">
+                  <SelectValue placeholder="No Epic" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="no-epic">No Epic</SelectItem>
+                  {epics.map((epic) => (
+                    <SelectItem key={epic.id} value={String(epic.id)}>
+                      {epic.issueKey} — {epic.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Group this work under an Epic you can access.</p>
+            </div>
+          )}
           
           <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-wider font-semibold">Assignee</Label>
+            <Label htmlFor="issue-assignee" className="text-xs uppercase tracking-wider font-semibold">Assignee</Label>
             <Select 
               value={draft.assigneeId ? String(draft.assigneeId) : "unassigned"} 
               onValueChange={(value) => setField("assigneeId", value === "unassigned" ? null : Number(value))}
             >
-              <SelectTrigger>
+              <SelectTrigger id="issue-assignee">
                 <SelectValue placeholder="Unassigned" />
               </SelectTrigger>
               <SelectContent>
@@ -104,8 +132,9 @@ export function IssueForm({ open, onOpenChange, draft, setField, people, onSave 
           </div>
           
           <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-wider font-semibold">Labels</Label>
+            <Label htmlFor="issue-labels" className="text-xs uppercase tracking-wider font-semibold">Labels</Label>
             <Input 
+              id="issue-labels"
               value={(draft.labels || []).join(", ")} 
               onChange={(e) => setField("labels", e.target.value.split(",").map((x) => x.trim()).filter(Boolean))} 
               placeholder="e.g. accessibility, high-impact" 

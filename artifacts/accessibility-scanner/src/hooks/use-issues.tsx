@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Issue, IssueDetailData, Person, IssueAttachment } from "../lib/issue-types";
+import { Issue, IssueDetailData, Person, IssueAttachment, IssueLinkType, IssueRelationship } from "../lib/issue-types";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -73,6 +73,29 @@ export function useArchiveIssue() {
   return useMutation({
     mutationFn: (id: number) => api<any>(`/api/issues/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["issues"] }),
+  });
+}
+
+export function useAddIssueLink(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { targetIssueId: number; linkType: IssueLinkType }) =>
+      api<IssueRelationship>(`/api/issues/${id}/links`, { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["issues"] });
+      qc.invalidateQueries({ queryKey: ["issues", id] });
+    },
+  });
+}
+
+export function useRemoveIssueLink(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (linkId: number) => api<void>(`/api/issues/${id}/links/${linkId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["issues"] });
+      qc.invalidateQueries({ queryKey: ["issues", id] });
+    },
   });
 }
 

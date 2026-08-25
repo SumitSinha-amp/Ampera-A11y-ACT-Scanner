@@ -65,6 +65,18 @@ export function getStatusTransitions(type: string, status: string) {
 }
 
 export const PRIORITIES = ["lowest", "low", "medium", "high", "highest"] as const;
+export const ISSUE_LINK_TYPES = ["parent", "child", "blocks", "blocked_by", "relates_to", "duplicates", "duplicated_by"] as const;
+export type IssueLinkType = typeof ISSUE_LINK_TYPES[number];
+
+export const ISSUE_LINK_LABELS: Record<IssueLinkType, string> = {
+  parent: "Parent of",
+  child: "Child of",
+  blocks: "Blocks",
+  blocked_by: "Blocked by",
+  relates_to: "Relates to",
+  duplicates: "Duplicates",
+  duplicated_by: "Duplicated by",
+};
 
 export interface IssueAttachment {
   id?: number;
@@ -128,6 +140,7 @@ export interface Issue {
   assigneeName?: string | null;
   reporterName?: string;
   labels: string[];
+  epicId?: number | null;
   dueDate?: string | null;
   sprint?: string | null;
   customFields?: Record<string, any>;
@@ -135,6 +148,20 @@ export interface Issue {
   
   createdAt: string;
   updatedAt: string;
+}
+
+export interface IssueReference {
+  id: number;
+  issueKey: string;
+  title: string;
+  type: IssueType;
+  status: string;
+}
+
+export interface IssueRelationship {
+  id: number;
+  linkType: IssueLinkType;
+  issue: IssueReference;
 }
 
 export interface Comment {
@@ -154,6 +181,9 @@ export interface Activity {
 
 export interface IssueDetailData {
   issue: Issue;
+  epic?: IssueReference | null;
+  epicIssues?: IssueReference[];
+  links?: IssueRelationship[];
   comments: Comment[];
   activity: Activity[];
   attachments?: IssueAttachment[];

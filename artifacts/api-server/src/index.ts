@@ -219,6 +219,7 @@ async function runStartupMigrations(): Promise<void> {
         due_date DATE,
         sprint TEXT,
         related_issue_ids JSONB NOT NULL DEFAULT '[]',
+        epic_id INTEGER REFERENCES app_issues(id) ON DELETE SET NULL,
         archived BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -227,6 +228,20 @@ async function runStartupMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS app_issues_project_idx ON app_issues(project_id);
       CREATE INDEX IF NOT EXISTS app_issues_status_idx ON app_issues(status);
       CREATE INDEX IF NOT EXISTS app_issues_assignee_idx ON app_issues(assignee_id);
+      CREATE TABLE IF NOT EXISTS app_issue_links (
+        id SERIAL PRIMARY KEY,
+        source_issue_id INTEGER NOT NULL REFERENCES app_issues(id) ON DELETE CASCADE,
+        target_issue_id INTEGER NOT NULL REFERENCES app_issues(id) ON DELETE CASCADE,
+        link_type TEXT NOT NULL,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        CONSTRAINT app_issue_links_unique UNIQUE (source_issue_id, target_issue_id, link_type),
+        CONSTRAINT app_issue_links_not_self CHECK (source_issue_id <> target_issue_id),
+        CONSTRAINT app_issue_links_canonical_type CHECK (link_type IN ('parent', 'blocks', 'relates_to', 'duplicates')),
+        CONSTRAINT app_issue_links_relates_order CHECK (link_type <> 'relates_to' OR source_issue_id < target_issue_id)
+      );
+      CREATE INDEX IF NOT EXISTS app_issue_links_source_idx ON app_issue_links(source_issue_id);
+      CREATE INDEX IF NOT EXISTS app_issue_links_target_idx ON app_issue_links(target_issue_id);
       CREATE TABLE IF NOT EXISTS app_issue_comments (
         id SERIAL PRIMARY KEY,
         issue_id INTEGER NOT NULL REFERENCES app_issues(id) ON DELETE CASCADE,
@@ -263,6 +278,100 @@ async function runStartupMigrations(): Promise<void> {
     await client.query(`ALTER TABLE app_issue_attachments ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP`);
     await client.query(`CREATE INDEX IF NOT EXISTS app_issue_attachments_pending_idx ON app_issue_attachments(pending, expires_at)`);
     await client.query(`DELETE FROM app_issue_attachments WHERE pending = TRUE AND expires_at < NOW()`);
+    await client.query(`
+      ALTER TABLE app_issues
+        ADD COLUMN IF NOT EXISTS epic_id INTEGER REFERENCES app_issues(id) ON DELETE SET NULL;
+      CREATE INDEX IF NOT EXISTS app_issues_epic_idx ON app_issues(epic_id);
+      CREATE TABLE IF NOT EXISTS app_issue_links (
+        id SERIAL PRIMARY KEY,
+        source_issue_id INTEGER NOT NULL REFERENCES app_issues(id) ON DELETE CASCADE,
+        target_issue_id INTEGER NOT NULL REFERENCES app_issues(id) ON DELETE CASCADE,
+        link_type TEXT NOT NULL,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        CONSTRAINT app_issue_links_unique UNIQUE (source_issue_id, target_issue_id, link_type)
+      );
+      CREATE INDEX IF NOT EXISTS app_issue_links_source_idx ON app_issue_links(source_issue_id);
+      CREATE INDEX IF NOT EXISTS app_issue_links_target_idx ON app_issue_links(target_issue_id);
+      DELETE FROM app_issue_links
+      WHERE source_issue_id = target_issue_id
+        OR link_type NOT IN ('parent', 'child', 'blocks', 'blocked_by', 'relates_to', 'duplicates', 'duplicated_by');
+
+      DELETE FROM app_issue_links older
+      USING app_issue_links newer
+      WHERE older.id > newer.id
+        AND (CASE older.link_type
+          WHEN 'child' THEN 'parent'
+          WHEN 'blocked_by' THEN 'blocks'
+          WHEN 'duplicated_by' THEN 'duplicates'
+          ELSE older.link_type
+        END) = (CASE newer.link_type
+          WHEN 'child' THEN 'parent'
+          WHEN 'blocked_by' THEN 'blocks'
+          WHEN 'duplicated_by' THEN 'duplicates'
+          ELSE newer.link_type
+        END)
+        AND (CASE
+          WHEN older.link_type IN ('child', 'blocked_by', 'duplicated_by') THEN older.target_issue_id
+          WHEN older.link_type = 'relates_to' AND older.source_issue_id > older.target_issue_id THEN older.target_issue_id
+          ELSE older.source_issue_id
+        END) = (CASE
+          WHEN newer.link_type IN ('child', 'blocked_by', 'duplicated_by') THEN newer.target_issue_id
+          WHEN newer.link_type = 'relates_to' AND newer.source_issue_id > newer.target_issue_id THEN newer.target_issue_id
+          ELSE newer.source_issue_id
+        END)
+        AND (CASE
+          WHEN older.link_type IN ('child', 'blocked_by', 'duplicated_by') THEN older.source_issue_id
+          WHEN older.link_type = 'relates_to' AND older.source_issue_id > older.target_issue_id THEN older.source_issue_id
+          ELSE older.target_issue_id
+        END) = (CASE
+          WHEN newer.link_type IN ('child', 'blocked_by', 'duplicated_by') THEN newer.source_issue_id
+          WHEN newer.link_type = 'relates_to' AND newer.source_issue_id > newer.target_issue_id THEN newer.source_issue_id
+          ELSE newer.target_issue_id
+        END);
+
+      UPDATE app_issue_links
+      SET source_issue_id = CASE
+            WHEN link_type IN ('child', 'blocked_by', 'duplicated_by') THEN target_issue_id
+            WHEN link_type = 'relates_to' AND source_issue_id > target_issue_id THEN target_issue_id
+            ELSE source_issue_id
+          END,
+          target_issue_id = CASE
+            WHEN link_type IN ('child', 'blocked_by', 'duplicated_by') THEN source_issue_id
+            WHEN link_type = 'relates_to' AND source_issue_id > target_issue_id THEN source_issue_id
+            ELSE target_issue_id
+          END,
+          link_type = CASE link_type
+            WHEN 'child' THEN 'parent'
+            WHEN 'blocked_by' THEN 'blocks'
+            WHEN 'duplicated_by' THEN 'duplicates'
+            ELSE link_type
+          END;
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'app_issue_links_not_self') THEN
+          ALTER TABLE app_issue_links ADD CONSTRAINT app_issue_links_not_self CHECK (source_issue_id <> target_issue_id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'app_issue_links_canonical_type') THEN
+          ALTER TABLE app_issue_links ADD CONSTRAINT app_issue_links_canonical_type CHECK (link_type IN ('parent', 'blocks', 'relates_to', 'duplicates'));
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'app_issue_links_relates_order') THEN
+          ALTER TABLE app_issue_links ADD CONSTRAINT app_issue_links_relates_order CHECK (link_type <> 'relates_to' OR source_issue_id < target_issue_id);
+        END IF;
+      END $$;
+
+      INSERT INTO app_issue_links (source_issue_id, target_issue_id, link_type, created_by)
+      SELECT LEAST(issue.id, legacy.target_id), GREATEST(issue.id, legacy.target_id), 'relates_to', issue.reporter_id
+      FROM app_issues issue
+      CROSS JOIN LATERAL (
+        SELECT value::integer AS target_id
+        FROM jsonb_array_elements_text(issue.related_issue_ids)
+        WHERE value ~ '^[0-9]+$'
+      ) legacy
+      WHERE issue.id <> legacy.target_id
+      ON CONFLICT (source_issue_id, target_issue_id, link_type) DO NOTHING;
+    `);
     // Replace the legacy shared issue workflow with the type-specific lifecycle.
     // Completed task/story records and closed bug records remain terminal; legacy
     // cancellations are retained as archived records rather than active statuses.

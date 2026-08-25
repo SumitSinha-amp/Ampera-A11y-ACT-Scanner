@@ -365,6 +365,12 @@ const release141ProductGroups: UpdateGroup[] = [
   ...ruleMappingReleaseGroups,
 ];
 
+const release142ProductGroups: UpdateGroup[] = [
+  updateGroups[0],
+  updateGroups[2],
+  updateGroups[3],
+];
+
 type ReleaseHistoryEntry = {
   version: string;
   month: string;
@@ -380,6 +386,13 @@ export const releaseHistory: ReleaseHistoryEntry[] = [
     label: "Current release",
     summary: "A complete issue workflow for accessibility teams, alongside clearer scan setup and scoped checks.",
     groups: [updateGroups[0], updateGroups[1], updateGroups[2], updateGroups[3]],
+  },
+  {
+    version: "1.4.2",
+    month: "August 2026",
+    label: "Previous release",
+    summary: "A clearer manual scan setup, scoped accessibility checks, and patch release continuity for the 1.4 minor release line.",
+    groups: release142ProductGroups,
   },
   {
     version: APP_RULE_MAPPING_RELEASE,

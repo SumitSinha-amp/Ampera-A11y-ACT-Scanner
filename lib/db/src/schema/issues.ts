@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, timestamp, date, boolean, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { AnyPgColumn, pgTable, serial, integer, text, timestamp, date, boolean, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { projectsTable, scanSessionsTable, pageResultsTable } from "./scans";
 import { sitesTable } from "./crawler";
 import { usersTable } from "./users";
@@ -33,6 +33,7 @@ export const appIssuesTable = pgTable("app_issues", {
   dueDate: date("due_date"),
   sprint: text("sprint"),
   relatedIssueIds: jsonb("related_issue_ids").$type<number[]>().notNull().default([]),
+  epicId: integer("epic_id").references((): AnyPgColumn => appIssuesTable.id, { onDelete: "set null" }),
   customFields: jsonb("custom_fields").$type<Record<string, string>>().notNull().default({}),
   archived: boolean("archived").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -43,6 +44,20 @@ export const appIssuesTable = pgTable("app_issues", {
   index("app_issues_project_idx").on(t.projectId),
   index("app_issues_status_idx").on(t.status),
   index("app_issues_assignee_idx").on(t.assigneeId),
+  index("app_issues_epic_idx").on(t.epicId),
+]);
+
+export const appIssueLinksTable = pgTable("app_issue_links", {
+  id: serial("id").primaryKey(),
+  sourceIssueId: integer("source_issue_id").notNull().references(() => appIssuesTable.id, { onDelete: "cascade" }),
+  targetIssueId: integer("target_issue_id").notNull().references(() => appIssuesTable.id, { onDelete: "cascade" }),
+  linkType: text("link_type").notNull(),
+  createdBy: integer("created_by").references(() => usersTable.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("app_issue_links_unique").on(t.sourceIssueId, t.targetIssueId, t.linkType),
+  index("app_issue_links_source_idx").on(t.sourceIssueId),
+  index("app_issue_links_target_idx").on(t.targetIssueId),
 ]);
 
 export const appIssueCommentsTable = pgTable("app_issue_comments", {
@@ -90,3 +105,4 @@ export type InsertAppIssue = z.infer<typeof insertAppIssueSchema>;
 export type AppIssueComment = typeof appIssueCommentsTable.$inferSelect;
 export type AppIssueActivity = typeof appIssueActivityTable.$inferSelect;
 export type AppIssueAttachment = typeof appIssueAttachmentsTable.$inferSelect;
+export type AppIssueLink = typeof appIssueLinksTable.$inferSelect;
