@@ -1,6 +1,26 @@
 #!/bin/bash
 set -e
-
+SERVER_BUNDLE="/app/artifacts/api-server/dist/index.mjs"
+if [ ! -s "$SERVER_BUNDLE" ]; then
+  echo "=== FATAL: API server bundle is missing: $SERVER_BUNDLE ===" >&2
+  exit 1
+fi
+if ! grep -q "issues-attachments-azure-v2" "$SERVER_BUNDLE"; then
+  echo "=== FATAL: API build marker issues-attachments-azure-v2 is missing ===" >&2
+  echo "=== Azure issue attachment support is not included in the API artifact ===" >&2
+  exit 1
+fi
+if ! grep -q "issues-create-route-v2" "$SERVER_BUNDLE"; then
+  echo "=== FATAL: API build marker issues-create-route-v2 is missing ===" >&2
+  echo "=== The POST /api/issues route is not included in the API artifact ===" >&2
+  exit 1
+fi
+if ! grep -q "issues-router-app-mount-v2" "$SERVER_BUNDLE"; then
+  echo "=== FATAL: API build marker issues-router-app-mount-v2 is missing ===" >&2
+  echo "=== The Issue router is not mounted directly by the Express application ===" >&2
+  exit 1
+fi
+echo "=== API Issue routes verified in $SERVER_BUNDLE ==="
 # ── Install Chrome system dependencies ────────────────────────────────────────
 # Puppeteer downloads its own Chrome binary but the Azure/Ubuntu deployment
 # container ships without the graphics/sandbox libraries Chrome needs.

@@ -93,7 +93,7 @@ RUN pnpm --filter @workspace/api-server run build && \
     ! grep -q "projectSitesTable3" artifacts/api-server/dist/index.mjs && \
     grep -q "issues-attachments-azure-v2" artifacts/api-server/dist/index.mjs && \
     grep -q "issues-create-route-v2" artifacts/api-server/dist/index.mjs && \
-    grep -q "issues-router-app-mount-v2" artifacts/api-server/dist/index.mjs 
+    grep -q "issues-router-app-mount-v2" artifacts/api-server/dist/index.mjs && echo mount
 
 RUN BASE_PATH=/ pnpm --filter @workspace/accessibility-scanner build
 RUN mkdir -p artifacts/api-server/dist/public && \
