@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { File as FileIcon, Image as ImageIcon, Loader2, Paperclip, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,10 +15,14 @@ interface IssueFormProps {
   setField: (key: string, value: any) => void;
   people: Person[];
   issues: Issue[];
-  onSave: () => void;
+  onSave: (attachments: File[]) => void;
+  isSaving?: boolean;
 }
 
-export function IssueForm({ open, onOpenChange, draft, setField, people, issues, onSave }: IssueFormProps) {
+export function IssueForm({ open, onOpenChange, draft, setField, people, issues, onSave, isSaving = false }: IssueFormProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [attachmentError, setAttachmentError] = useState("");
   const showBug = draft.type === "bug";
   const showStory = draft.type === "story";
   const showTask = draft.type === "task";
@@ -25,8 +30,30 @@ export function IssueForm({ open, onOpenChange, draft, setField, people, issues,
   const epics = issues.filter((issue) => issue.type === "epic");
   const setCustom = (key: string, value: string) => setField("customFields", { ...customFields, [key]: value });
 
+  useEffect(() => {
+    if (!open) {
+      setAttachments([]);
+      setAttachmentError("");
+    }
+  }, [open]);
+
+  const addAttachments = (files: FileList | null) => {
+    if (!files) return;
+    const selected = Array.from(files);
+    const tooLarge = selected.find((file) => file.size > 50 * 1024 * 1024);
+    if (tooLarge) {
+      setAttachmentError(`${tooLarge.name} is larger than 50 MB.`);
+      return;
+    }
+    setAttachmentError("");
+    setAttachments((current) => {
+      const seen = new Set(current.map((file) => `${file.name}:${file.size}:${file.lastModified}`));
+      return [...current, ...selected.filter((file) => !seen.has(`${file.name}:${file.size}:${file.lastModified}`))];
+    });
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(nextOpen) => !isSaving && onOpenChange(nextOpen)}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl bg-card border-border">
         <DialogHeader className="pb-4 border-b">
           <DialogTitle className="text-xl">Create Issue</DialogTitle>
@@ -88,6 +115,56 @@ export function IssueForm({ open, onOpenChange, draft, setField, people, issues,
               placeholder="Provide context, impact, and links..."
               people={people}
             />
+          </div>
+
+          <div className="space-y-3 rounded-lg border border-dashed bg-muted/15 p-3 sm:col-span-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <Label className="text-xs font-semibold uppercase tracking-wider">Attachments</Label>
+                <p className="mt-1 text-xs text-muted-foreground">Add images or documents to support the summary and description. Maximum 50 MB per file.</p>
+              </div>
+              <input
+                ref={fileInputRef}
+                className="sr-only"
+                type="file"
+                multiple
+                accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
+                aria-label="Choose issue attachments"
+                onChange={(event) => {
+                  addAttachments(event.target.files);
+                  event.currentTarget.value = "";
+                }}
+              />
+              <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isSaving}>
+                <Paperclip className="h-4 w-4" />
+                Add files or images
+              </Button>
+            </div>
+            {attachmentError && <p role="alert" className="text-xs font-medium text-destructive">{attachmentError}</p>}
+            {attachments.length > 0 && (
+              <ul className="grid gap-2 sm:grid-cols-2" aria-label="Files to upload">
+                {attachments.map((file, index) => (
+                  <li key={`${file.name}-${file.lastModified}`} className="flex min-w-0 items-center gap-2 rounded-md border bg-background px-2.5 py-2">
+                    {file.type.startsWith("image/") ? <ImageIcon className="h-4 w-4 shrink-0 text-violet-600" /> : <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-medium">{file.name}</p>
+                      <p className="text-[10px] text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0"
+                      onClick={() => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                      aria-label={`Remove ${file.name}`}
+                      disabled={isSaving}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           {draft.type !== "epic" && (
@@ -234,8 +311,11 @@ export function IssueForm({ open, onOpenChange, draft, setField, people, issues,
         </div>
         
         <DialogFooter className="pt-4 border-t">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={onSave} disabled={!draft.title?.trim()}>Create Issue</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>Cancel</Button>
+          <Button onClick={() => onSave(attachments)} disabled={!draft.title?.trim() || isSaving}>
+            {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+            {isSaving ? "Creating…" : "Create Issue"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

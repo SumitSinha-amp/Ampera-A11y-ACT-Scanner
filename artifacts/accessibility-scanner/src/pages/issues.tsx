@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { CheckCircle2, Columns3, List, Loader2, Plus, Search, Filter } from "lucide-react";
+import { CheckCircle2, GripVertical, List, Loader2, PanelRight, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,15 +9,21 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
 
-import { useIssues, usePeople, useCreateIssue } from "../hooks/use-issues";
+import { uploadIssueAttachment, useIssues, usePeople, useCreateIssue } from "../hooks/use-issues";
 import { ISSUE_TYPES, STATUS_LABELS } from "../lib/issue-types";
 import { IssueList } from "../components/issues/issue-list";
-import { IssueBoard } from "../components/issues/issue-board";
 import { IssueDetail } from "../components/issues/issue-detail";
 import { IssueForm } from "../components/issues/issue-form";
+import { IssueExportActions } from "../components/issues/issue-export-actions";
+import { IssueSortSelect, type IssueSort } from "../components/issues/issue-sort-select";
 
-// We'll use simple flex/grid layouts instead of resizable panels to ensure stability
-// since we don't have absolute certainty the Resizable component is complete in shadcn setup.
+const PRIORITY_RANK: Record<string, number> = {
+  highest: 5,
+  high: 4,
+  medium: 3,
+  low: 2,
+  lowest: 1,
+};
 
 export default function IssuesPage() {
   const [location, navigate] = useLocation();
@@ -27,12 +33,17 @@ export default function IssuesPage() {
   const { toast } = useToast();
   const { user } = useAuth();
 
-  const [view, setView] = useState<"list" | "board">("list");
+  const [view, setView] = useState<"list" | "details">("list");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [sort, setSort] = useState<IssueSort>("updated_desc");
   const [selectedIssueId, setSelectedIssueId] = useState<number | null>(null);
+  const [leftPaneWidth, setLeftPaneWidth] = useState(30);
   const [createOpen, setCreateOpen] = useState(false);
+  const [createSaving, setCreateSaving] = useState(false);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const draggingDivider = useRef(false);
   
   const [draft, setDraft] = useState<Record<string, any>>({ 
     type: "bug", priority: "medium", status: "todo", title: "", description: "", labels: [], checklist: [] 
@@ -76,21 +87,49 @@ export default function IssuesPage() {
     (statusFilter === "all" || issue.status === statusFilter)
   ), [issues, search, typeFilter, statusFilter]);
 
+  const sortedIssues = useMemo(() => {
+    const next = [...filtered];
+    next.sort((a, b) => {
+      if (sort === "updated_desc") return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      if (sort === "updated_asc") return new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+      if (sort === "created_desc") return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      if (sort === "priority_desc") return (PRIORITY_RANK[b.priority] ?? 0) - (PRIORITY_RANK[a.priority] ?? 0);
+      if (sort === "key_asc") return a.issueKey.localeCompare(b.issueKey, undefined, { numeric: true });
+      return a.title.localeCompare(b.title);
+    });
+    return next;
+  }, [filtered, sort]);
+
   const allStatuses = Array.from(new Set(issues.map(i => i.status)));
 
-  const handleCreateSave = () => {
-    createIssue.mutate(draft, {
-      onSuccess: (saved) => {
-        setCreateOpen(false);
-        toast({ title: "Issue created", description: saved.issueKey });
-        if (view === "list") {
-          setSelectedIssueId(saved.id);
-        }
-      },
-      onError: (err) => {
-        toast({ title: "Couldn't save issue", description: err.message, variant: "destructive" });
+  const handleCreateSave = async (attachments: File[]) => {
+    setCreateSaving(true);
+    try {
+      const saved = await createIssue.mutateAsync(draft);
+      const uploads = await Promise.allSettled(attachments.map((file) => uploadIssueAttachment(saved.id, file, true)));
+      const failedUploads = uploads.filter((result) => result.status === "rejected").length;
+      setCreateOpen(false);
+      setSelectedIssueId(saved.id);
+      setView("details");
+      if (failedUploads > 0) {
+        toast({
+          title: "Issue created with attachment errors",
+          description: `${saved.issueKey} was created, but ${failedUploads} file${failedUploads === 1 ? "" : "s"} could not be uploaded.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Issue created",
+          description: attachments.length > 0
+            ? `${saved.issueKey} created with ${attachments.length} attachment${attachments.length === 1 ? "" : "s"}.`
+            : saved.issueKey,
+        });
       }
-    });
+    } catch (err) {
+      toast({ title: "Couldn't save issue", description: err instanceof Error ? err.message : "Please try again.", variant: "destructive" });
+    } finally {
+      setCreateSaving(false);
+    }
   };
 
   const setDraftField = (key: string, value: any) => setDraft((current) => ({ ...current, [key]: value }));
@@ -98,6 +137,55 @@ export default function IssuesPage() {
     if (!canCreate) return; 
     setDraft({ type: "bug", priority: "medium", status: "todo", title: "", description: "", labels: [], checklist: [] }); 
     setCreateOpen(true); 
+  };
+
+  useEffect(() => {
+    if (selectedIssueId != null && !filtered.some((issue) => issue.id === selectedIssueId)) {
+      setSelectedIssueId(filtered[0]?.id ?? null);
+    }
+  }, [filtered, selectedIssueId]);
+
+  const updatePaneWidth = useCallback((clientX: number) => {
+    const bounds = workspaceRef.current?.getBoundingClientRect();
+    if (!bounds) return;
+    const nextWidth = ((clientX - bounds.left) / bounds.width) * 100;
+    setLeftPaneWidth(Math.min(48, Math.max(24, nextWidth)));
+  }, []);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      if (draggingDivider.current) updatePaneWidth(event.clientX);
+    };
+    const stopDragging = () => {
+      if (!draggingDivider.current) return;
+      draggingDivider.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopDragging);
+    window.addEventListener("pointercancel", stopDragging);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopDragging);
+      window.removeEventListener("pointercancel", stopDragging);
+    };
+  }, [updatePaneWidth]);
+
+  const handleDividerKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      setLeftPaneWidth((value) => Math.max(24, value - 2));
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      setLeftPaneWidth((value) => Math.min(48, value + 2));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setLeftPaneWidth(24);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setLeftPaneWidth(48);
+    }
   };
 
   if (issuesLoading || peopleLoading) {
@@ -113,11 +201,14 @@ export default function IssuesPage() {
           <p className="text-xs font-bold tracking-widest uppercase text-primary mb-1">Work Management</p>
           <h1 className="text-3xl font-extrabold tracking-tight">Issues</h1>
         </div>
-        {canCreate && (
-          <Button onClick={openNewIssue} size="lg" className="font-semibold shadow-sm">
-            <Plus className="h-5 w-5 mr-2" /> Create Issue
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <IssueExportActions issues={sortedIssues} />
+          {canCreate && (
+            <Button onClick={openNewIssue} size="lg" className="font-semibold shadow-sm">
+              <Plus className="h-5 w-5 mr-2" /> Create Issue
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Metrics Row */}
@@ -150,7 +241,7 @@ export default function IssuesPage() {
             placeholder="Search keywords or keys..." 
           />
         </div>
-        <div className="flex items-center gap-2 w-full md:w-auto">
+        <div className="grid w-full grid-cols-2 items-center gap-2 md:flex md:w-auto">
           <Select value={typeFilter} onValueChange={setTypeFilter}>
             <SelectTrigger aria-label="Filter by issue type" className="w-full md:w-[140px] font-medium bg-muted/50 border-transparent">
               <SelectValue placeholder="Type" />
@@ -171,10 +262,16 @@ export default function IssuesPage() {
               ))}
             </SelectContent>
           </Select>
-          <Tabs value={view} onValueChange={(value) => { setView(value as "list" | "board"); setSelectedIssueId(null); }} className="w-auto">
+          <Tabs value={view} onValueChange={(value) => setView(value as "list" | "details")} className="w-full md:w-auto">
             <TabsList aria-label="Issue view" className="h-10 bg-muted/50 p-1">
-              <TabsTrigger value="list" aria-label="List view" className="px-3"><List className="h-4 w-4" /></TabsTrigger>
-              <TabsTrigger value="board" aria-label="Board view" className="px-3"><Columns3 className="h-4 w-4" /></TabsTrigger>
+              <TabsTrigger value="list" aria-label="List view" className="gap-2 px-3">
+                <List className="h-4 w-4" />
+                <span className="hidden lg:inline">List</span>
+              </TabsTrigger>
+              <TabsTrigger value="details" aria-label="Details view" className="gap-2 px-3">
+                <PanelRight className="h-4 w-4" />
+                <span className="hidden lg:inline">Details</span>
+              </TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -182,51 +279,92 @@ export default function IssuesPage() {
 
       {/* Main Workspace */}
       <div className="flex-1 min-h-0 relative">
-        {view === "board" ? (
-          <div className="absolute inset-0 border rounded-lg overflow-hidden bg-card shadow-sm">
-            <IssueBoard 
-              issues={filtered} 
-              statuses={typeFilter === "bug" ? ["todo", "in_progress", "fixed", "review", "release_to_retest", "reopen", "verified", "closed"] : 
-                       (typeFilter === "task" || typeFilter === "story" ? ["todo", "in_progress", "deployed", "review", "release_to_retest", "reopen", "verified", "complete"] : 
-                       Array.from(new Set(Object.keys(STATUS_LABELS))))} 
-              onSelect={(id) => {
-                setSelectedIssueId(id);
-                // In board view, we switch to list view to show details, or we could use a Sheet.
-                // Switching to list view is a dense, fast way to handle it without external Sheet dependencies.
-                setView("list");
-              }} 
-              selectedId={selectedIssueId}
-            />
+        {view === "list" ? (
+          <div className="absolute inset-0 flex flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
+            <div className="flex flex-none flex-col gap-2 border-b bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">All issues</p>
+                <p className="mt-0.5 text-sm font-medium">{sortedIssues.length} issue{sortedIssues.length === 1 ? "" : "s"} shown</p>
+              </div>
+              <IssueSortSelect value={sort} onChange={setSort} className="w-full sm:w-auto" />
+            </div>
+            <div className="min-h-0 flex-1">
+              <IssueList
+                issues={sortedIssues}
+                onSelect={(id) => {
+                  setSelectedIssueId(id);
+                  setView("details");
+                }}
+                selectedId={selectedIssueId}
+                variant="table"
+              />
+            </div>
           </div>
         ) : (
-          <div className="absolute inset-0 flex border rounded-lg overflow-hidden bg-card shadow-sm">
-            {/* Sidebar List */}
-            <div className={`flex flex-col border-r bg-muted/10 transition-all duration-300 ${selectedIssueId ? 'w-1/3 hidden md:flex' : 'w-full'}`}>
-              <IssueList issues={filtered} onSelect={setSelectedIssueId} selectedId={selectedIssueId} />
+          <div ref={workspaceRef} className="absolute inset-0 flex border rounded-lg overflow-hidden bg-card shadow-sm">
+            <div
+              className={`flex flex-col border-r bg-muted/10 ${selectedIssueId ? "hidden md:flex" : "flex"}`}
+              style={{ width: selectedIssueId ? `${leftPaneWidth}%` : "100%", flex: "0 0 auto" }}
+            >
+              <div className="flex-none flex items-center justify-between gap-3 border-b bg-card px-4 py-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Issue navigator</p>
+                  <p className="mt-0.5 text-sm font-medium">{sortedIssues.length} issue{sortedIssues.length === 1 ? "" : "s"} shown</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <IssueSortSelect value={sort} onChange={setSort} className="min-w-0 flex-1 sm:flex-none" />
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setView("list")} className="md:hidden">
+                    <List className="h-4 w-4" /> List
+                  </Button>
+                </div>
+              </div>
+              <IssueList issues={sortedIssues} onSelect={setSelectedIssueId} selectedId={selectedIssueId} variant="compact" />
             </div>
-            
-            {/* Detail Pane */}
+
+            {selectedIssueId && (
+              <div
+                role="separator"
+                aria-label="Resize issue navigator"
+                aria-orientation="vertical"
+                aria-valuemin={24}
+                aria-valuemax={48}
+                aria-valuenow={Math.round(leftPaneWidth)}
+                tabIndex={0}
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  draggingDivider.current = true;
+                  document.body.style.cursor = "col-resize";
+                  document.body.style.userSelect = "none";
+                }}
+                onKeyDown={handleDividerKeyDown}
+                className="group hidden w-2 shrink-0 cursor-col-resize items-center justify-center bg-border/40 outline-none transition-colors hover:bg-primary/20 focus-visible:bg-primary/30 md:flex"
+                style={{ touchAction: "none" }}
+              >
+                <GripVertical className="h-5 w-5 text-muted-foreground/60 transition-colors group-hover:text-primary group-focus-visible:text-primary" aria-hidden="true" />
+              </div>
+            )}
+
             {selectedIssueId ? (
-              <div className="flex-1 w-full md:w-2/3 min-w-0 bg-background relative z-10">
-                <IssueDetail 
-                  id={selectedIssueId} 
-                  people={people} 
+              <div className="min-w-0 flex-1 bg-background">
+                <IssueDetail
+                  id={selectedIssueId}
+                  people={people}
                   issues={issues}
-                  canEdit={canEdit} 
-                  canComment={canComment} 
-                  canManage={canManage} 
+                  canEdit={canEdit}
+                  canComment={canComment}
+                  canManage={canManage}
                   onClose={() => setSelectedIssueId(null)}
                   onSelectIssue={setSelectedIssueId}
                 />
               </div>
             ) : (
-              <div className="hidden md:flex flex-1 flex-col items-center justify-center text-center p-8 bg-muted/5">
-                <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
+              <div className="hidden flex-1 flex-col items-center justify-center bg-muted/5 p-8 text-center md:flex">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
                   <CheckCircle2 className="h-8 w-8 text-muted-foreground" />
                 </div>
                 <h3 className="text-xl font-bold tracking-tight">Select an issue</h3>
-                <p className="text-muted-foreground mt-2 max-w-sm">
-                  Choose an issue from the list to view its details, update its status, or add comments.
+                <p className="mt-2 max-w-sm text-muted-foreground">
+                  Choose an issue from the navigator to view its details, update its status, or add comments.
                 </p>
               </div>
             )}
@@ -241,7 +379,8 @@ export default function IssuesPage() {
         setField={setDraftField} 
         people={people} 
         issues={issues}
-        onSave={handleCreateSave} 
+        onSave={handleCreateSave}
+        isSaving={createSaving}
       />
     </div>
   );

@@ -474,7 +474,32 @@ router.post("/issues/:id/attachments/upload-url", requireAuth, async (req, res) 
     res.status(500).json({ error: "Unable to prepare the upload." });
   }
 });
-
+router.post("/issues/:id/attachments/confirm", requireAuth, async (req, res) => {
+  if (!(await requireIssuePermission(req, res, "canViewIssues"))) return;
+  const issue = await canSeeIssue(req, Number(req.params.id));
+  if (!issue) { res.status(404).json({ error: "Issue not found" }); return; }
+  if (!(await canUploadIssueAttachment(req))) { res.status(403).json({ error: "You do not have permission to upload issue evidence" }); return; }
+  const userId = Number(req.session!.user!.id);
+  try {
+    const attachments = await saveAttachments(issue.id, userId, req.body?.attachments);
+    if (!attachments.length) { res.status(400).json({ error: "At least one uploaded file is required." }); return; }
+    await db.update(appIssuesTable).set({ updatedAt: new Date() }).where(eq(appIssuesTable.id, issue.id));
+    await db.insert(appIssueActivityTable).values({
+      issueId: issue.id,
+      actorId: userId,
+      action: "attached files",
+      details: { attachmentCount: attachments.length },
+    });
+    res.status(201).json({
+      attachments: attachments.map((attachment) => ({
+        ...attachment,
+        url: `/api/issues/${issue.id}/attachments/${attachment.id}`,
+      })),
+    });
+  } catch {
+    res.status(400).json({ error: "One or more uploaded files could not be verified." });
+  }
+});
 router.get("/issues/:issueId/attachments/:attachmentId", requireAuth, async (req, res) => {
   if (!(await requireIssuePermission(req, res, "canViewIssues"))) return;
   const issue = await canSeeIssue(req, Number(req.params.issueId));

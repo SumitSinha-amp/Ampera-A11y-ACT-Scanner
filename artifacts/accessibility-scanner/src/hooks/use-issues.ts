@@ -148,27 +148,38 @@ export function useRemoveIssueLink(id: number) {
 
 export function useUploadAttachment(issueId: number) {
   return useMutation({
-    mutationFn: async (file: File): Promise<IssueAttachment> => {
-      // 1. Get upload URL
-      const { uploadURL, attachment } = await api<{ uploadURL: string; attachment: IssueAttachment }>(
-        `/api/issues/${issueId}/attachments/upload-url`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            filename: file.name,
-            contentType: file.type,
-            size: file.size,
-          }),
-        }
-      );
-      // 2. Upload file bytes directly
-      const putRes = await fetch(uploadURL, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!putRes.ok) throw new Error("Failed to upload file bytes");
-      return attachment;
-    },
+    mutationFn: (file: File) => uploadIssueAttachment(issueId, file),
   });
+}
+
+export async function uploadIssueAttachment(issueId: number, file: File, finalize = false): Promise<IssueAttachment> {
+  const { uploadURL, attachment } = await api<{ uploadURL: string; attachment: IssueAttachment }>(
+    `/api/issues/${issueId}/attachments/upload-url`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        filename: file.name,
+        contentType: file.type,
+        size: file.size,
+      }),
+    }
+  );
+  const putRes = await fetch(uploadURL, {
+    method: "PUT",
+    headers: { "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  if (!putRes.ok) throw new Error(`Failed to upload ${file.name}`);
+  if (finalize) {
+    const confirmed = await api<{ attachments: IssueAttachment[] }>(
+      `/api/issues/${issueId}/attachments/confirm`,
+      {
+        method: "POST",
+        body: JSON.stringify({ attachments: [attachment] }),
+      }
+    );
+    if (!confirmed.attachments[0]) throw new Error(`Failed to confirm ${file.name}`);
+    return confirmed.attachments[0];
+  }
+  return attachment;
 }
