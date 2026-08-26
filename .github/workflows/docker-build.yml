@@ -26,7 +26,7 @@ jobs:
 
       - name: Build image
         run: |
-          docker build -t ghcr.io/sumitsinha-amp/ampera-act-scanner:latest .
+          docker build --no-cache -t ghcr.io/sumitsinha-amp/ampera-act-scanner:latest .
 
       - name: Push image
         run: |
