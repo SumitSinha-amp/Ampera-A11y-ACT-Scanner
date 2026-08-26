@@ -5,7 +5,7 @@ import {
   usersTable, sitesTable, projectsTable,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/authMiddleware";
-import { canAccessSite, getEffectivePermissions, getEffectiveSites } from "../lib/permissions";
+import { canAccessSite, getEffectivePermissions } from "../lib/permissions";
 import {
   ALL_ISSUE_STATUSES,
   ISSUE_TYPES,
@@ -28,7 +28,7 @@ import {
 
 const router: IRouter = Router();
 export const ISSUE_CREATE_ROUTE_MARKER = "issues-create-route-v2";
-//export const ISSUE_ATTACHMENT_ROUTE_MARKER = "issues-attachments-azure-v2"; 
+//export const ISSUE_ATTACHMENT_ROUTE_MARKER = "issues-attachments-r2-v1";
 const statuses = ALL_ISSUE_STATUSES;
 const priorities = ["lowest", "low", "medium", "high", "highest"];
 const issueAttachmentStorage = new IssueAttachmentStorageService();
@@ -59,13 +59,11 @@ async function canUploadIssueAttachment(req: any) {
   return (await hasIssuePermission(req, "canEditIssue")) || (await hasIssuePermission(req, "canCommentIssue"));
 }
 
-async function visibleWhere(req: any) {
-  const user = req.session!.user;
-  const sites = await getEffectiveSites(Number(user.id), String(user.id), user.role);
-  const siteIds = sites.map((s) => s.id);
-  return siteIds.length
-    ? or(eq(appIssuesTable.reporterId, Number(user.id)), sql`${appIssuesTable.siteId} IN (${sql.join(siteIds.map((id) => sql`${id}`), sql`, `)})`)
-    : eq(appIssuesTable.reporterId, Number(user.id));
+async function visibleWhere(_req: any) {
+  // Issue visibility is workspace-wide for users who pass canViewIssues.
+  // Keep this separate from site access: site access still controls whether
+  // a user may create or associate an issue with a specific site.
+  return sql`TRUE`;
 }
 
 async function canSeeIssue(req: any, id: number) {
@@ -196,7 +194,10 @@ function cleanAttachmentMetadata(value: unknown) {
   const filename = typeof item.filename === "string" ? item.filename.replace(/[\/\\]/g, "_").trim().slice(0, 255) : "";
   const contentType = typeof item.contentType === "string" ? item.contentType : "";
   const size = Number(item.size);
-  const supportedObjectPath = objectPath.startsWith("/objects/") || objectPath.startsWith("/azure-objects/");
+  const supportedObjectPath =
+    objectPath.startsWith("/objects/") ||
+    objectPath.startsWith("/azure-objects/") ||
+    objectPath.startsWith("/r2-objects/");
   if (!supportedObjectPath || !filename || !ACCEPTED_ATTACHMENT_TYPES.has(contentType) || !Number.isInteger(size) || size <= 0 || size > MAX_ATTACHMENT_SIZE) return null;
   return { objectPath, filename, contentType, size };
 }
@@ -216,7 +217,7 @@ async function saveAttachments(issueId: number, userId: number, attachments: unk
     inArray(appIssueAttachmentsTable.objectPath, paths),
   ));
   if (pending.length !== paths.length) throw new Error("Attachment upload was not issued for this user and issue");
-  for (const attachment of pending) await issueAttachmentStorage.verifyObject(attachment.objectPath);
+  for (const attachment of pending) await issueAttachmentStorage.verifyObject(attachment.objectPath, attachment.size);
   const saved = await Promise.all(pending.map(async (attachment) => {
     const [updated] = await db.update(appIssueAttachmentsTable)
       .set({ commentId: commentId ?? null, pending: false, expiresAt: null })
@@ -474,13 +475,47 @@ router.post("/issues/:id/attachments/upload-url", requireAuth, async (req, res) 
       expiresAt: new Date(Date.now() + 15 * 60 * 1000),
     }).returning();
     const responseAttachment = { id: pending.id, objectPath, filename: pending.filename, contentType: pending.contentType, size: pending.size };
-    res.json({ uploadURL, uploadHeaders, attachment: responseAttachment, objectPath });
+    const clientUploadURL = uploadURL ?? `/api/issues/${issue.id}/attachments/${pending.id}/upload`;
+    res.json({ uploadURL: clientUploadURL, uploadHeaders, attachment: responseAttachment, objectPath });
   } catch (error) {
     (req as any).log?.error({ err: error }, "Unable to prepare issue attachment upload");
     const configurationError = error instanceof AttachmentStorageConfigurationError;
     res.status(configurationError ? 503 : 500).json({
       error: configurationError ? error.message : "Unable to prepare the attachment upload.",
     });
+  }
+});
+
+router.put("/issues/:issueId/attachments/:attachmentId/upload", requireAuth, async (req, res) => {
+  if (!(await requireIssuePermission(req, res, "canViewIssues"))) return;
+  const issue = await canSeeIssue(req, Number(req.params.issueId));
+  if (!issue) { res.status(404).json({ error: "Issue not found" }); return; }
+  if (!(await canUploadIssueAttachment(req))) { res.status(403).json({ error: "You do not have permission to upload issue evidence" }); return; }
+  const userId = Number(req.session!.user!.id);
+  const [pending] = await db.select().from(appIssueAttachmentsTable).where(and(
+    eq(appIssueAttachmentsTable.id, Number(req.params.attachmentId)),
+    eq(appIssueAttachmentsTable.issueId, issue.id),
+    eq(appIssueAttachmentsTable.uploadedBy, userId),
+    eq(appIssueAttachmentsTable.pending, true),
+    gt(appIssueAttachmentsTable.expiresAt, new Date()),
+  )).limit(1);
+  const isServerProxiedObject = pending?.objectPath.startsWith("/azure-objects/") || pending?.objectPath.startsWith("/r2-objects/");
+  if (!pending || !isServerProxiedObject) {
+    res.status(404).json({ error: "Pending attachment upload not found" });
+    return;
+  }
+  const contentLength = Number(req.headers["content-length"]);
+  const contentType = String(req.headers["content-type"] ?? "").split(";")[0].trim();
+  if (contentLength !== pending.size || contentType !== pending.contentType) {
+    res.status(400).json({ error: "Attachment size or content type does not match the upload request" });
+    return;
+  }
+  try {
+    await issueAttachmentStorage.uploadObject(pending.objectPath, req, pending.size, pending.contentType);
+    res.status(204).end();
+  } catch (error) {
+    (req as any).log?.error({ err: error }, "Unable to upload issue attachment to object storage");
+    res.status(502).json({ error: "Unable to store the attachment in object storage." });
   }
 });
 
