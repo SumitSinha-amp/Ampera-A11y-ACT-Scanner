@@ -321,6 +321,12 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
       "The Issue Management routes or health marker were not included in the build.",
     );
   }
+   if (!serverBundleContents.includes("issues-create-route-v2")) {
+    throw new Error(
+      "Invalid API bundle: issues-create-route-v2 build marker is missing. " +
+      "The POST /api/issues route was not included in the build.",
+    );
+  }
 }
 
 buildAll().catch((err) => {

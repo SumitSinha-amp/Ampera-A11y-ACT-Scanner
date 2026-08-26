@@ -24,6 +24,7 @@ import {
 } from "../lib/issue-relations";
 
 const router: IRouter = Router();
+export const ISSUE_CREATE_ROUTE_MARKER = "issues-create-route-v2";
 const statuses = ALL_ISSUE_STATUSES;
 const priorities = ["lowest", "low", "medium", "high", "highest"];
 const objectStorageService = new ObjectStorageService();
