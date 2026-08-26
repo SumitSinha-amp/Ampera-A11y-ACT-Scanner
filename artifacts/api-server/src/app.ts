@@ -101,6 +101,13 @@ app.use(
 
 app.use("/api", router);
 
+// API requests must never fall through to the frontend (or Express's HTML
+// default error page). Returning JSON keeps every client error actionable and
+// makes a missing production route immediately visible.
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "API endpoint not found" });
+});
+
 // ── Serve React frontend (production only) ─────────────────────────────────
 // The production build copies the Vite output into dist/public/ next to this
 // bundle.  In development, the Vite dev server handles the frontend separately.

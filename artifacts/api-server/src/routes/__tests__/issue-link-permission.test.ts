@@ -72,6 +72,14 @@ describe("issue relationship permission guard", () => {
     vi.clearAllMocks();
   });
 
+  it("registers issue creation and requires authentication", async () => {
+    const app = await createTestApp();
+    const response = await request(app).post("/api/issues").send({ title: "Route registration check" });
+
+    expect(response.status).toBe(401);
+    expect(response.body.error).toBe("Unauthorized");
+  });
+
   it("requires authentication before a relationship can be created", async () => {
     const app = await createTestApp();
     const response = await request(app).post("/api/issues/1/links").send({ targetIssueId: 2, linkType: "blocks" });

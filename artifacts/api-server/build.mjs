@@ -315,10 +315,10 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
       `Generated bundle context: ${context ?? "(context unavailable)"}`,
     );
   }
-  if (!serverBundleContents.includes("projects-route-v2")) {
+  if (!serverBundleContents.includes("issues-route-v1")) {
     throw new Error(
-      "Invalid API bundle: projects-route-v2 build marker is missing. " +
-      "The projects route or health marker was not included in the build.",
+      "Invalid API bundle: issues-route-v1 build marker is missing. " +
+      "The Issue Management routes or health marker were not included in the build.",
     );
   }
 }

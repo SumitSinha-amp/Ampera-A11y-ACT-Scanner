@@ -13,8 +13,36 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   if (response.status === 204) return undefined as T;
-  const body = await response.json();
-  if (!response.ok) throw new Error(body?.error ?? "Something went wrong");
+
+  const contentType = response.headers.get("content-type") ?? "";
+  const responseText = await response.text();
+  let body: unknown = null;
+
+  if (responseText && contentType.includes("application/json")) {
+    try {
+      body = JSON.parse(responseText);
+    } catch {
+      throw new Error("The Issue Management service returned invalid JSON. Please try again.");
+    }
+  }
+
+  if (!response.ok) {
+    if (!contentType.includes("application/json")) {
+      throw new Error(
+        `Issue Management API is unavailable (HTTP ${response.status}). Please deploy the current API server and try again.`,
+      );
+    }
+    const message =
+      body && typeof body === "object" && "error" in body && typeof body.error === "string"
+        ? body.error
+        : "Something went wrong";
+    throw new Error(message);
+  }
+
+  if (!contentType.includes("application/json")) {
+    throw new Error("The Issue Management service returned an unexpected response. Please try again.");
+  }
+
   return body as T;
 }
 
