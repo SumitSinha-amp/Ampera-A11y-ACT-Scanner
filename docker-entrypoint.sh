@@ -13,6 +13,23 @@
 #      multi-location scan and retries if Chrome is temporarily unavailable.
 set -e
 
+SERVER_BUNDLE="/app/artifacts/api-server/dist/index.mjs"
+if [ ! -s "$SERVER_BUNDLE" ]; then
+  echo "=== FATAL: API server bundle is missing: $SERVER_BUNDLE ===" >&2
+  exit 1
+fi
+if ! grep -q "issues-route-v2" "$SERVER_BUNDLE"; then
+  echo "=== FATAL: API build marker issues-route-v2 is missing ===" >&2
+  echo "=== The container is not running the current API artifact ===" >&2
+  exit 1
+fi
+if ! grep -q "issues-create-route-v2" "$SERVER_BUNDLE"; then
+  echo "=== FATAL: API build marker issues-create-route-v2 is missing ===" >&2
+  echo "=== The POST /api/issues route is not included in the API artifact ===" >&2
+  exit 1
+fi
+echo "=== API Issue routes verified in $SERVER_BUNDLE ==="
+
 CHROME=$(
   find /ms-playwright -type f \( -name "chrome" -o -name "chromium" -o -name "chromium-browser" \) \
        -perm /u+x 2>/dev/null \
