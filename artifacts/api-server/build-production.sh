@@ -5,6 +5,11 @@ if [ ! -s "$SERVER_BUNDLE" ]; then
   echo "=== FATAL: API server bundle is missing: $SERVER_BUNDLE ===" >&2
   exit 1
 fi
+if ! grep -q "issues-route-v2" "$SERVER_BUNDLE"; then
+  echo "=== FATAL: API build marker issues-route-v2 is missing ===" >&2
+  echo "=== Issue management routes are not included in the API artifact ===" >&2
+  exit 1
+fi
 if ! grep -q "issues-attachments-azure-v2" "$SERVER_BUNDLE"; then
   echo "=== FATAL: API build marker issues-attachments-azure-v2 is missing ===" >&2
   echo "=== Azure issue attachment support is not included in the API artifact ===" >&2

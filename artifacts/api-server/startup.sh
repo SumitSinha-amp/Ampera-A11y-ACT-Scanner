@@ -15,11 +15,6 @@ if [ ! -s "$BROWSER_BUNDLE" ] && ! grep -q "window.__ampera" "$SERVER_BUNDLE" 2>
   echo "=== Rebuild and redeploy with: pnpm --filter @workspace/api-server run build ===" >&2
   exit 1
 fi
-if ! grep -q "issues-attachments-azure-v2" "$SERVER_BUNDLE" 2>/dev/null; then
-  echo "=== FATAL: API build marker issues-attachments-azure-v2 is missing ===" >&2
-  echo "=== Azure issue attachment support is not included in the API artifact ===" >&2
-  exit 1
-fi
 if ! grep -q "issues-create-route-v2" "$SERVER_BUNDLE" 2>/dev/null; then
   echo "=== FATAL: API build marker issues-create-route-v2 is missing ===" >&2
   echo "=== The POST /api/issues route is not included in the Azure API artifact ===" >&2

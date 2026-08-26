@@ -28,7 +28,7 @@ import {
 
 const router: IRouter = Router();
 export const ISSUE_CREATE_ROUTE_MARKER = "issues-create-route-v2";
-export const ISSUE_ATTACHMENT_ROUTE_MARKER = "issues-attachments-azure-v2"; 
+//export const ISSUE_ATTACHMENT_ROUTE_MARKER = "issues-attachments-azure-v2"; 
 const statuses = ALL_ISSUE_STATUSES;
 const priorities = ["lowest", "low", "medium", "high", "highest"];
 const issueAttachmentStorage = new IssueAttachmentStorageService();
