@@ -22,6 +22,15 @@ export function useIssues() {
   return useQuery({
     queryKey: ["issues"],
     queryFn: () => api<{ issues: Issue[]; metrics: any }>("/api/issues"),
+    // Issue Management is user-driven rather than a live dashboard. Keep the
+    // current list stable while the user works and let mutations invalidate it
+    // when an explicit change has been made. A full browser refresh still
+    // fetches the latest server state.
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
 
@@ -30,6 +39,11 @@ export function useIssue(id: number | null) {
     queryKey: ["issues", id],
     queryFn: () => api<IssueDetailData>(`/api/issues/${id}`),
     enabled: !!id,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
 
@@ -37,6 +51,11 @@ export function usePeople() {
   return useQuery({
     queryKey: ["issues-people"],
     queryFn: () => api<Person[]>("/api/issues/people"),
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
 
