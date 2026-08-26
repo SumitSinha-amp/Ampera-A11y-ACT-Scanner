@@ -5,7 +5,6 @@ import projectsRouter from "./projects";
 import authRouter from "./auth";
 import adminRouter from "./admin";
 import ticketsRouter from "./tickets";
-import issuesRouter, { ISSUE_CREATE_ROUTE_MARKER } from "./issues";
 import advancedRouter from "./advanced";
 import aiRouter from "./ai";
 import crawlerRouter from "./crawler";
@@ -13,6 +12,7 @@ import sitesRouter from "./sites";
 import qaRouter from "./qa";
 import decisionsRouter from "./decisions";
 import notificationsRouter from "./notifications";
+import docsRouter from "./docs";
 
 const router: IRouter = Router();
 
@@ -20,12 +20,6 @@ router.use(healthRouter);
 router.use(authRouter);
 router.use(adminRouter);
 router.use(ticketsRouter);
-router.use((req, res, next) => {
-  if (req.method === "POST" && req.path === "/issues") {
-    res.setHeader("X-Ampera-Issue-Route", ISSUE_CREATE_ROUTE_MARKER);
-  }
-  next();
-});
 router.use(projectsRouter);
 router.use(scansRouter);
 router.use(advancedRouter);
@@ -35,5 +29,6 @@ router.use(sitesRouter);
 router.use(qaRouter);
 router.use(decisionsRouter);
 router.use(notificationsRouter);
+router.use(docsRouter);
 
 export default router;

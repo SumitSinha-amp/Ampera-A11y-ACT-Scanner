@@ -8,11 +8,13 @@ import { dirname, join } from "path";
 import { existsSync } from "fs";
 import { pool } from "@workspace/db";
 import router from "./routes";
+import issuesRouter, { ISSUE_CREATE_ROUTE_MARKER } from "./routes/issues";
 import { logger } from "./lib/logger";
 
 const PgStore = connectPgSimple(session);
 
 const app: Express = express();
+export const ISSUE_ROUTER_APP_MOUNT_MARKER = "issues-router-app-mount-v2";
 
 app.use(
   pinoHttp({
@@ -99,6 +101,19 @@ app.use(
   })
 );
 
+// Issue Management is mounted directly at the application boundary. This keeps
+// its routes independent of the aggregate router and makes /api/issues
+// unambiguous in production deployments.
+app.use("/api", (req, res, next) => {
+  if (req.path === "/issues" || req.path.startsWith("/issues/")) {
+    res.setHeader("X-Ampera-Issue-Router-Mount", ISSUE_ROUTER_APP_MOUNT_MARKER);
+    if (req.method === "POST" && req.path === "/issues") {
+      res.setHeader("X-Ampera-Issue-Route", ISSUE_CREATE_ROUTE_MARKER);
+    }
+  }
+  next();
+});
+app.use("/api", issuesRouter);
 app.use("/api", router);
 
 // API requests must never fall through to the frontend (or Express's HTML
@@ -126,3 +141,4 @@ if (existsSync(publicDir)) {
 }
 
 export default app;
+  
