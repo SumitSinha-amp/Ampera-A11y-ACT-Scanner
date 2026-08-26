@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@azure/storage-blob": "^12.33.0",
     "@clerk/express": "^2.1.9",
     "@google-cloud/storage": "^7.21.0",
     "@workspace/api-zod": "workspace:*",

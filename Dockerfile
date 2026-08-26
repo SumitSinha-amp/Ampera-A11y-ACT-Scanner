@@ -91,6 +91,7 @@ RUN pnpm --filter @workspace/api-server build
 RUN test -s artifacts/api-server/dist/index.mjs && \
     test -s artifacts/api-server/dist/browser-bundle.js && \
     ! grep -q "projectSitesTable3" artifacts/api-server/dist/index.mjs && \
+    grep -q "issues-attachments-azure-v2" artifacts/api-server/dist/index.mjs && \
     grep -q "issues-route-v2" artifacts/api-server/dist/index.mjs && \
     grep -q "issues-create-route-v2" artifacts/api-server/dist/index.mjs
 

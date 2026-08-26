@@ -14,7 +14,10 @@ import {
   isIssueType,
   type IssueType,
 } from "../lib/issue-workflow";
-import { ObjectStorageService } from "../lib/objectStorage";
+import {
+  AttachmentStorageConfigurationError,
+  IssueAttachmentStorageService,
+} from "../lib/issueAttachmentStorage";
 import {
   canonicalizeIssueLink,
   isIssueLinkType,
@@ -25,9 +28,10 @@ import {
 
 const router: IRouter = Router();
 export const ISSUE_CREATE_ROUTE_MARKER = "issues-create-route-v2";
+export const ISSUE_ATTACHMENT_ROUTE_MARKER = "issues-attachments-azure-v2"; 
 const statuses = ALL_ISSUE_STATUSES;
 const priorities = ["lowest", "low", "medium", "high", "highest"];
-const objectStorageService = new ObjectStorageService();
+const issueAttachmentStorage = new IssueAttachmentStorageService();
 const MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024;
 const ACCEPTED_ATTACHMENT_TYPES = new Set([
   "image/jpeg", "image/png", "image/webp", "image/gif",
@@ -192,7 +196,8 @@ function cleanAttachmentMetadata(value: unknown) {
   const filename = typeof item.filename === "string" ? item.filename.replace(/[\/\\]/g, "_").trim().slice(0, 255) : "";
   const contentType = typeof item.contentType === "string" ? item.contentType : "";
   const size = Number(item.size);
-  if (!objectPath.startsWith("/objects/") || !filename || !ACCEPTED_ATTACHMENT_TYPES.has(contentType) || !Number.isInteger(size) || size <= 0 || size > MAX_ATTACHMENT_SIZE) return null;
+  const supportedObjectPath = objectPath.startsWith("/objects/") || objectPath.startsWith("/azure-objects/");
+  if (!supportedObjectPath || !filename || !ACCEPTED_ATTACHMENT_TYPES.has(contentType) || !Number.isInteger(size) || size <= 0 || size > MAX_ATTACHMENT_SIZE) return null;
   return { objectPath, filename, contentType, size };
 }
 
@@ -211,7 +216,7 @@ async function saveAttachments(issueId: number, userId: number, attachments: unk
     inArray(appIssueAttachmentsTable.objectPath, paths),
   ));
   if (pending.length !== paths.length) throw new Error("Attachment upload was not issued for this user and issue");
-  for (const attachment of pending) await objectStorageService.getObjectEntityFile(attachment.objectPath);
+  for (const attachment of pending) await issueAttachmentStorage.verifyObject(attachment.objectPath);
   const saved = await Promise.all(pending.map(async (attachment) => {
     const [updated] = await db.update(appIssueAttachmentsTable)
       .set({ commentId: commentId ?? null, pending: false, expiresAt: null })
@@ -458,8 +463,8 @@ router.post("/issues/:id/attachments/upload-url", requireAuth, async (req, res) 
   const attachment = cleanAttachmentMetadata({ ...req.body, objectPath: "/objects/pending" });
   if (!attachment) { res.status(400).json({ error: "Use a supported image, video, or document no larger than 50 MB." }); return; }
   try {
-    const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-    const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+    const prepared = await issueAttachmentStorage.prepareUpload(attachment.contentType);
+    const { uploadURL, objectPath, uploadHeaders } = prepared;
     const [pending] = await db.insert(appIssueAttachmentsTable).values({
       issueId: issue.id,
       uploadedBy: Number(req.session!.user!.id),
@@ -469,11 +474,16 @@ router.post("/issues/:id/attachments/upload-url", requireAuth, async (req, res) 
       expiresAt: new Date(Date.now() + 15 * 60 * 1000),
     }).returning();
     const responseAttachment = { id: pending.id, objectPath, filename: pending.filename, contentType: pending.contentType, size: pending.size };
-    res.json({ uploadURL, attachment: responseAttachment, objectPath });
-  } catch {
-    res.status(500).json({ error: "Unable to prepare the upload." });
+    res.json({ uploadURL, uploadHeaders, attachment: responseAttachment, objectPath });
+  } catch (error) {
+    (req as any).log?.error({ err: error }, "Unable to prepare issue attachment upload");
+    const configurationError = error instanceof AttachmentStorageConfigurationError;
+    res.status(configurationError ? 503 : 500).json({
+      error: configurationError ? error.message : "Unable to prepare the attachment upload.",
+    });
   }
 });
+
 router.post("/issues/:id/attachments/confirm", requireAuth, async (req, res) => {
   if (!(await requireIssuePermission(req, res, "canViewIssues"))) return;
   const issue = await canSeeIssue(req, Number(req.params.id));
@@ -496,10 +506,12 @@ router.post("/issues/:id/attachments/confirm", requireAuth, async (req, res) => 
         url: `/api/issues/${issue.id}/attachments/${attachment.id}`,
       })),
     });
-  } catch {
+  } catch (error) {
+    (req as any).log?.warn({ err: error }, "Unable to verify issue attachment upload");
     res.status(400).json({ error: "One or more uploaded files could not be verified." });
   }
 });
+
 router.get("/issues/:issueId/attachments/:attachmentId", requireAuth, async (req, res) => {
   if (!(await requireIssuePermission(req, res, "canViewIssues"))) return;
   const issue = await canSeeIssue(req, Number(req.params.issueId));
@@ -508,8 +520,7 @@ router.get("/issues/:issueId/attachments/:attachmentId", requireAuth, async (req
     .where(and(eq(appIssueAttachmentsTable.id, Number(req.params.attachmentId)), eq(appIssueAttachmentsTable.issueId, issue.id), eq(appIssueAttachmentsTable.pending, false))).limit(1);
   if (!attachment) { res.status(404).end(); return; }
   try {
-    const file = await objectStorageService.getObjectEntityFile(attachment.objectPath);
-    const response = await objectStorageService.downloadObject(file, 300, attachment.contentType);
+    const response = await issueAttachmentStorage.downloadObject(attachment.objectPath, attachment.contentType);
     res.status(response.status);
     response.headers.forEach((value, key) => res.setHeader(key, value));
     res.setHeader("Content-Disposition", `inline; filename="${attachment.filename.replace(/"/g, "")}"`);

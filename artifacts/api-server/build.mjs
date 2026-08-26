@@ -315,9 +315,9 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
       `Generated bundle context: ${context ?? "(context unavailable)"}`,
     );
   }
-  if (!serverBundleContents.includes("issues-route-v2")) {
+  if (!serverBundleContents.includes("issues-attachments-azure-v2")) {
     throw new Error(
-      "Invalid API bundle: issues-route-v2 build marker is missing. " +
+      "Invalid API bundle: issues-attachments-azure-v2 build marker is missing. " +
       "The Issue Management routes or health marker were not included in the build.",
     );
   }

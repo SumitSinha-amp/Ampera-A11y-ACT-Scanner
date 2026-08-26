@@ -107,14 +107,15 @@ export default function IssuesPage() {
     try {
       const saved = await createIssue.mutateAsync(draft);
       const uploads = await Promise.allSettled(attachments.map((file) => uploadIssueAttachment(saved.id, file, true)));
-      const failedUploads = uploads.filter((result) => result.status === "rejected").length;
+      const failures = uploads.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+      const failedUploads = failures.length;
       setCreateOpen(false);
       setSelectedIssueId(saved.id);
       setView("details");
       if (failedUploads > 0) {
         toast({
           title: "Issue created with attachment errors",
-          description: `${saved.issueKey} was created, but ${failedUploads} file${failedUploads === 1 ? "" : "s"} could not be uploaded.`,
+          description: `${saved.issueKey} was created, but ${failedUploads} file${failedUploads === 1 ? "" : "s"} could not be uploaded. ${failures[0]?.reason instanceof Error ? failures[0].reason.message : ""}`.trim(),
           variant: "destructive",
         });
       } else {
