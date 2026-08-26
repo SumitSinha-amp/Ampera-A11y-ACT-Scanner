@@ -87,13 +87,19 @@ RUN pnpm rebuild esbuild puppeteer core-js @clerk/shared
 # The scanner injects this browser-side rule engine into Puppeteer pages at
 # runtime. Keep it beside index.mjs and fail the image build if packaging ever
 # drops it.
+# ── Copy source and build ─────────────────────────────────────────────────────
+COPY lib/         ./lib/
+COPY scripts/     ./scripts/
+COPY artifacts/api-server/            ./artifacts/api-server/
+COPY artifacts/accessibility-scanner/ ./artifacts/accessibility-scanner/
+
 RUN pnpm --filter @workspace/api-server run build && \
     test -s artifacts/api-server/dist/index.mjs && \
     test -s artifacts/api-server/dist/browser-bundle.js && \
     ! grep -q "projectSitesTable3" artifacts/api-server/dist/index.mjs && \
     grep -q "issues-attachments-azure-v2" artifacts/api-server/dist/index.mjs && \
     grep -q "issues-create-route-v2" artifacts/api-server/dist/index.mjs && \
-    grep -q "issues-router-app-mount-v2" artifacts/api-server/dist/index.mjs && echo mount
+    grep -q "issues-router-app-mount-v2" artifacts/api-server/dist/index.mjs
 
 RUN BASE_PATH=/ pnpm --filter @workspace/accessibility-scanner build
 RUN mkdir -p artifacts/api-server/dist/public && \
