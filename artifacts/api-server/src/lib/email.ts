@@ -43,9 +43,60 @@ async function createTransport() {
     port,
     secure,
     requireTLS: !secure,
-    tls: { rejectUnauthorized: false },
+    tls: { rejectUnauthorized: true },
     auth: { user, pass },
   });
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character] ?? character);
+}
+
+export async function sendIssueNotificationEmail(opts: {
+  to: string;
+  fullName: string;
+  issueKey: string;
+  issueTitle: string;
+  eventTitle: string;
+  eventSummary: string;
+  issueUrl: string;
+}): Promise<boolean> {
+  const { from } = await getSmtpConfig();
+  const transport = await createTransport();
+  if (!transport) {
+    logger.warn({ issueKey: opts.issueKey }, "SMTP not configured — issue notification email not sent");
+    return false;
+  }
+
+  const subject = `[${opts.issueKey}] ${opts.eventTitle}`;
+  const text = [
+    `Hi ${opts.fullName},`,
+    "",
+    opts.eventSummary,
+    "",
+    `${opts.issueKey}: ${opts.issueTitle}`,
+    opts.issueUrl,
+  ].join("\n");
+  const html = `
+    <p>Hi ${escapeHtml(opts.fullName)},</p>
+    <p>${escapeHtml(opts.eventSummary)}</p>
+    <p><strong>${escapeHtml(opts.issueKey)}:</strong> ${escapeHtml(opts.issueTitle)}</p>
+    <p><a href="${escapeHtml(opts.issueUrl)}">Open issue</a></p>
+  `;
+
+  try {
+    await transport.sendMail({ from, to: opts.to, subject, text, html });
+    return true;
+  } catch (err) {
+    logger.error({ err, issueKey: opts.issueKey }, "Failed to send issue notification email");
+    return false;
+  }
 }
 
 export async function sendInviteEmail(opts: {

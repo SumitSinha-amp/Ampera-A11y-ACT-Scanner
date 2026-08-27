@@ -56,6 +56,18 @@ export default function IssuesPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(location.split("?")[1] ?? "");
+    const linkedIssueId = Number(params.get("issueId"));
+    if (Number.isInteger(linkedIssueId) && linkedIssueId > 0) {
+      setSearch("");
+      setTypeFilter("all");
+      setStatusFilter("all");
+      setSelectedIssueId(linkedIssueId);
+      setView("details");
+      params.delete("issueId");
+      const remaining = params.toString();
+      navigate(`/issues${remaining ? `?${remaining}` : ""}`, { replace: true });
+      return;
+    }
     if (params.get("create") === "1") {
       setDraft({
         type: params.get("type") ?? "bug", 
@@ -141,10 +153,11 @@ export default function IssuesPage() {
   };
 
   useEffect(() => {
+    if (issuesLoading) return;
     if (selectedIssueId == null || !sortedIssues.some((issue) => issue.id === selectedIssueId)) {
       setSelectedIssueId(sortedIssues[0]?.id ?? null);
     }
-  }, [selectedIssueId, sortedIssues]);
+  }, [issuesLoading, selectedIssueId, sortedIssues]);
 
   const updatePaneWidth = useCallback((clientX: number) => {
     const bounds = workspaceRef.current?.getBoundingClientRect();

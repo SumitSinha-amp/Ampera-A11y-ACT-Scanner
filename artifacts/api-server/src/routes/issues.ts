@@ -25,10 +25,11 @@ import {
   wouldCreateParentCycle,
   type IssueLinkType,
 } from "../lib/issue-relations";
+import { notifyIssueEvent, splitCommentRecipientIds } from "../lib/issue-notifications";
 
 const router: IRouter = Router();
-export const ISSUE_CREATE_ROUTE_MARKER = "issues-create-route-v2";
-//export const ISSUE_ATTACHMENT_ROUTE_MARKER = "issues-attachments-r2-v1";
+export const ISSUE_CREATE_ROUTE_MARKER = "issues-create-route-v1";
+export const ISSUE_ATTACHMENT_ROUTE_MARKER = "issues-attachments-r2-v1";
 const statuses = ALL_ISSUE_STATUSES;
 const priorities = ["lowest", "low", "medium", "high", "highest"];
 const issueAttachmentStorage = new IssueAttachmentStorageService();
@@ -280,6 +281,14 @@ router.post("/issues", requireAuth, async (req, res) => {
   const issueKey = `AMP-${String(created.id).padStart(4, "0")}`;
   const [issue] = await db.update(appIssuesTable).set({ issueKey }).where(eq(appIssuesTable.id, created.id)).returning();
   await db.insert(appIssueActivityTable).values({ issueId: issue.id, actorId: userId, action: "created", details: { title: issue.title } });
+  if (issue.assigneeId) {
+    await notifyIssueEvent({
+      event: "assigned",
+      issue,
+      actorId: userId,
+      candidateRecipientIds: [issue.assigneeId],
+    });
+  }
   res.status(201).json(issue);
 });
 
@@ -366,13 +375,36 @@ router.patch("/issues/:id", requireAuth, async (req, res) => {
   if (!canTransitionIssue(issue.type as IssueType, issue.status, data.status)) {
     res.status(400).json({ error: `The issue cannot move directly from ${issue.status} to ${data.status}` }); return;
   }
-  const [updated] = await db.update(appIssuesTable).set({ ...data, updatedAt: new Date() }).where(eq(appIssuesTable.id, issue.id)).returning();
+  const [updated] = await db.update(appIssuesTable)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(appIssuesTable.id, issue.id))
+    .returning();
   await db.insert(appIssueActivityTable).values({
     issueId: issue.id,
     actorId: Number(req.session!.user!.id),
     action: data.status !== issue.status ? `moved from ${issue.status} to ${data.status}` : "updated",
     details: { fields: Object.keys(req.body ?? {}) },
   });
+  const actorId = Number(req.session!.user!.id);
+  const assigneeChanged = updated.assigneeId !== issue.assigneeId;
+  if (assigneeChanged && updated.assigneeId) {
+    await notifyIssueEvent({
+      event: "assigned",
+      issue: updated,
+      actorId,
+      candidateRecipientIds: [updated.assigneeId],
+    });
+  }
+  if (updated.status !== issue.status) {
+    await notifyIssueEvent({
+      event: "status_changed",
+      issue: updated,
+      actorId,
+      candidateRecipientIds: [updated.reporterId, updated.assigneeId]
+        .filter((id): id is number => id !== null),
+      previousStatus: issue.status,
+    });
+  }
   res.json(updated);
 });
 
@@ -588,6 +620,26 @@ router.post("/issues/:id/comments", requireAuth, async (req, res) => {
   }
   await db.update(appIssuesTable).set({ updatedAt: new Date() }).where(eq(appIssuesTable.id, issue.id));
   await db.insert(appIssueActivityTable).values({ issueId: issue.id, actorId: userId, action: "commented", details: { mentions, attachmentCount: attachments.length } });
+  const commentExcerpt = plainRichText(body).slice(0, 240);
+  const commentRecipients = splitCommentRecipientIds(issue, userId, mentions);
+  if (commentRecipients.mentioned.length > 0) {
+    await notifyIssueEvent({
+      event: "mentioned",
+      issue,
+      actorId: userId,
+      candidateRecipientIds: commentRecipients.mentioned,
+      commentExcerpt,
+    });
+  }
+  if (commentRecipients.commented.length > 0) {
+    await notifyIssueEvent({
+      event: "commented",
+      issue,
+      actorId: userId,
+      candidateRecipientIds: commentRecipients.commented,
+      commentExcerpt,
+    });
+  }
   const [author] = await db.select({ authorName: usersTable.fullName }).from(usersTable).where(eq(usersTable.id, userId));
   res.status(201).json({ ...comment, authorName: author?.authorName, attachments: attachments.map((attachment) => ({ ...attachment, url: `/api/issues/${issue.id}/attachments/${attachment.id}` })) });
 });

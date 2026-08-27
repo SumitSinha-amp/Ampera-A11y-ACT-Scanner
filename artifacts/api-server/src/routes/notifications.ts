@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { db, pool } from "@workspace/db";
-import { notificationsTable, notificationReadsTable } from "@workspace/db";
-import { desc, eq, and, sql } from "drizzle-orm";
+import { notificationsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/authMiddleware";
+import { getEffectivePermissions } from "../lib/permissions";
 
 const router = Router();
 
@@ -10,15 +11,30 @@ function isAdmin(role?: string) {
   return role === "super_admin" || role === "admin";
 }
 
+async function getNotificationAccess(userId: number) {
+  const result = await pool.query<{ role: string; is_active: boolean }>(
+    "SELECT role, is_active FROM users WHERE id = $1 LIMIT 1",
+    [userId],
+  );
+  const currentUser = result.rows[0];
+  if (!currentUser?.is_active) return null;
+  const permissions = await getEffectivePermissions(userId, currentUser.role);
+  return {
+    isAdmin: isAdmin(currentUser.role),
+    canViewIssues: permissions.canViewIssues,
+  };
+}
+
 // GET /api/notifications
-// Admins: all system notifications with per-user read state
-// Regular users: not authorised (404)
+// Every user receives targeted notifications. Admins additionally receive
+// legacy/global notifications that have no explicit recipients.
 router.get("/notifications", requireAuth, async (req, res): Promise<void> => {
   const user = req.session?.user;
   if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
-  if (!isAdmin(user.role)) { res.status(403).json({ error: "Admins only" }); return; }
 
   try {
+    const access = await getNotificationAccess(user.id);
+    if (!access) { res.status(403).json({ error: "Account is inactive" }); return; }
     const rows = await pool.query<{
       id: number;
       type: string;
@@ -35,9 +51,21 @@ router.get("/notifications", requireAuth, async (req, res): Promise<void> => {
        FROM notifications n
        LEFT JOIN notification_reads nr
          ON nr.notification_id = n.id AND nr.user_id = $1
+       WHERE EXISTS (
+         SELECT 1 FROM notification_recipients target
+         WHERE target.notification_id = n.id AND target.user_id = $1
+           AND (n.type <> 'issue' OR $3::boolean = TRUE)
+       )
+       OR (
+         $2::boolean = TRUE
+         AND NOT EXISTS (
+           SELECT 1 FROM notification_recipients any_target
+           WHERE any_target.notification_id = n.id
+         )
+       )
        ORDER BY n.created_at DESC
        LIMIT 60`,
-      [user.id],
+      [user.id, access.isAdmin, access.canViewIssues],
     );
 
     res.json(
@@ -62,20 +90,31 @@ router.get("/notifications", requireAuth, async (req, res): Promise<void> => {
 router.put("/notifications/read-all", requireAuth, async (req, res): Promise<void> => {
   const user = req.session?.user;
   if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
-  if (!isAdmin(user.role)) { res.status(403).json({ error: "Admins only" }); return; }
 
   try {
-    // Insert read records for all notifications not yet read by this user
+    const access = await getNotificationAccess(user.id);
+    if (!access) { res.status(403).json({ error: "Account is inactive" }); return; }
+    // Insert read records only for notifications visible to this user.
     await pool.query(
       `INSERT INTO notification_reads (notification_id, user_id)
        SELECT n.id, $1
        FROM notifications n
-       WHERE NOT EXISTS (
-         SELECT 1 FROM notification_reads nr
-         WHERE nr.notification_id = n.id AND nr.user_id = $1
+       WHERE (
+         EXISTS (
+           SELECT 1 FROM notification_recipients target
+           WHERE target.notification_id = n.id AND target.user_id = $1
+             AND (n.type <> 'issue' OR $3::boolean = TRUE)
+         )
+         OR (
+           $2::boolean = TRUE
+           AND NOT EXISTS (
+             SELECT 1 FROM notification_recipients any_target
+             WHERE any_target.notification_id = n.id
+           )
+         )
        )
        ON CONFLICT DO NOTHING`,
-      [user.id],
+      [user.id, access.isAdmin, access.canViewIssues],
     );
     res.json({ ok: true });
   } catch {
@@ -87,16 +126,41 @@ router.put("/notifications/read-all", requireAuth, async (req, res): Promise<voi
 router.put("/notifications/:id/read", requireAuth, async (req, res): Promise<void> => {
   const user = req.session?.user;
   if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
-  if (!isAdmin(user.role)) { res.status(403).json({ error: "Admins only" }); return; }
 
   const id = parseInt(req.params["id"] as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid notification ID" }); return; }
 
   try {
-    await db
-      .insert(notificationReadsTable)
-      .values({ notificationId: id, userId: user.id })
-      .onConflictDoNothing();
+    const access = await getNotificationAccess(user.id);
+    if (!access) { res.status(403).json({ error: "Account is inactive" }); return; }
+    const result = await pool.query(
+      `INSERT INTO notification_reads (notification_id, user_id)
+       SELECT n.id, $1
+       FROM notifications n
+       WHERE n.id = $2
+         AND (
+           EXISTS (
+             SELECT 1 FROM notification_recipients target
+             WHERE target.notification_id = n.id AND target.user_id = $1
+               AND (n.type <> 'issue' OR $4::boolean = TRUE)
+           )
+           OR (
+             $3::boolean = TRUE
+             AND NOT EXISTS (
+               SELECT 1 FROM notification_recipients any_target
+               WHERE any_target.notification_id = n.id
+             )
+           )
+         )
+       ON CONFLICT (notification_id, user_id)
+       DO UPDATE SET user_id = EXCLUDED.user_id
+       RETURNING notification_id`,
+      [user.id, id, access.isAdmin, access.canViewIssues],
+    );
+    if (result.rowCount === 0) {
+      res.status(404).json({ error: "Notification not found" });
+      return;
+    }
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: "Failed to mark as read" });

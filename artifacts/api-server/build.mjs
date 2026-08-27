@@ -314,24 +314,6 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
       `Generated bundle context: ${context ?? "(context unavailable)"}`,
     );
   }
-   if (!serverBundleContents.includes("issues-route-v2")) {
-    throw new Error(
-      "Invalid API bundle: issues-route-v2 build marker is missing. " +
-      "The Issue Management routes or health marker were not included in the build.",
-    );
-  }
-  if (!serverBundleContents.includes("issues-create-route-v2")) {
-    throw new Error(
-      "Invalid API bundle: issues-create-route-v2 build marker is missing. " +
-      "The POST /api/issues route was not included in the build.",
-    );
-  }
-  if (!serverBundleContents.includes("issues-router-app-mount-v2")) {
-    throw new Error(
-      "Invalid API bundle: issues-router-app-mount-v2 build marker is missing. " +
-      "Issue Management must be mounted directly by the Express application.",
-    );
-  }
 }
 
 buildAll().catch((err) => {

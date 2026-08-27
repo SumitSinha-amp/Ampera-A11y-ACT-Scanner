@@ -2576,12 +2576,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const superAdminUser = user?.role === "super_admin";
   const canManageSites = user?.permissions?.canManageSites ?? false;
 
-  // ── Notifications (admin-only) ────────────────────────────────────
+  // ── Notifications ─────────────────────────────────────────────────
   const [notifs, setNotifs] = useState<AppNotif[]>([]);
   const [notifLoading, setNotifLoading] = useState(false);
 
   useEffect(() => {
-    if (!adminUser) return;
+    if (!user) {
+      setNotifs([]);
+      return;
+    }
     async function loadNotifs(quiet = false) {
       if (!quiet) setNotifLoading(true);
       try {
@@ -2593,7 +2596,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     loadNotifs();
     const id = setInterval(() => loadNotifs(true), 30_000);
     return () => clearInterval(id);
-  }, [adminUser]);
+  }, [user?.id]);
 
   async function markOneRead(id: number) {
     try {
@@ -3085,6 +3088,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                           n.type === "ticket"          ? <TicketCheck className="h-3.5 w-3.5 text-sky-500" /> :
                           n.type === "scan"            ? <ScanSearch className="h-3.5 w-3.5 text-emerald-500" /> :
                           n.type === "false_positive"  ? <Flag className="h-3.5 w-3.5 text-amber-500" /> :
+                          n.type === "issue"           ? <ListTodo className="h-3.5 w-3.5 text-indigo-500" /> :
                                                          <Bell className="h-3.5 w-3.5 text-muted-foreground" />;
                         return (
                           <DropdownMenuItem
