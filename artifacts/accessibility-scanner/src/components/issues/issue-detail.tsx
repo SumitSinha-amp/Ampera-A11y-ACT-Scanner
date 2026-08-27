@@ -49,7 +49,25 @@ export function IssueDetail({ id, people, issues, canEdit, canComment, canManage
   const linkTargets = issues.filter((candidate) => candidate.id !== issue.id);
 
   const handleStatusChange = (newStatus: string) => {
-    updateIssue.mutate({ status: newStatus });
+    if (newStatus === issue.status || updateIssue.isPending) return;
+    updateIssue.mutate(
+      { status: newStatus },
+      {
+        onSuccess: () => {
+          toast({
+            title: "Status updated",
+            description: `${STATUS_LABELS[newStatus] ?? newStatus} selected for ${issue.issueKey}.`,
+          });
+        },
+        onError: (error) => {
+          toast({
+            title: "Couldn't update status",
+            description: error.message,
+            variant: "destructive",
+          });
+        },
+      },
+    );
   };
 
   const handleAssigneeChange = (assigneeId: string) => {
@@ -411,7 +429,11 @@ export function IssueDetail({ id, people, issues, canEdit, canComment, canManage
               
               <div className="space-y-1.5">
                 <Label htmlFor="issue-status" className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Status</Label>
-                <Select value={issue.status} onValueChange={handleStatusChange} disabled={!canEdit}>
+                <Select
+                  value={issue.status}
+                  onValueChange={handleStatusChange}
+                  disabled={!canEdit || updateIssue.isPending}
+                >
                   <SelectTrigger id="issue-status" className={`w-full ${STATUS_COLORS[issue.status]} font-semibold tracking-wide border-0`}>
                     <SelectValue />
                   </SelectTrigger>

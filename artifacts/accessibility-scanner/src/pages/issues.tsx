@@ -33,7 +33,7 @@ export default function IssuesPage() {
   const { toast } = useToast();
   const { user } = useAuth();
 
-  const [view, setView] = useState<"list" | "details">("list");
+  const [view, setView] = useState<"list" | "details">("details");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -141,10 +141,10 @@ export default function IssuesPage() {
   };
 
   useEffect(() => {
-    if (selectedIssueId != null && !filtered.some((issue) => issue.id === selectedIssueId)) {
-      setSelectedIssueId(filtered[0]?.id ?? null);
+    if (selectedIssueId == null || !sortedIssues.some((issue) => issue.id === selectedIssueId)) {
+      setSelectedIssueId(sortedIssues[0]?.id ?? null);
     }
-  }, [filtered, selectedIssueId]);
+  }, [selectedIssueId, sortedIssues]);
 
   const updatePaneWidth = useCallback((clientX: number) => {
     const bounds = workspaceRef.current?.getBoundingClientRect();
