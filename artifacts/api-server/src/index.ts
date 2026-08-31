@@ -1357,6 +1357,15 @@ async function runStartupMigrations(): Promise<void> {
         PRIMARY KEY (notification_id, user_id)
       )
     `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notification_recipients (
+        notification_id INTEGER NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+        user_id         INTEGER NOT NULL REFERENCES users(id)         ON DELETE CASCADE,
+        PRIMARY KEY (notification_id, user_id)
+      );
+      CREATE INDEX IF NOT EXISTS notification_recipients_user_idx
+        ON notification_recipients(user_id, notification_id);
+    `);
 
     // 48. Expand target_wcag_level CHECK constraint to allow 'All' level
     await client.query(`
@@ -1695,14 +1704,13 @@ async function checkDatabaseWritable(): Promise<void> {
     client.release();
   }
 }
-
+startListening(port);
 runStartupMigrations()
   .then(() => checkDatabaseWritable())
   .then(() => Promise.all([seedDefaultAdmin(), ensureChromeDependencies()]))
   .then(() => recoverOrphanedScans())
   .then(() => recoverAIAssessments())
   .then(() => resumeOrphanedCrawlerSessions())
-  .then(() => startListening(port))
   .catch((err) => {
     logger.error({ err }, "Startup failed");
     process.exit(1);
