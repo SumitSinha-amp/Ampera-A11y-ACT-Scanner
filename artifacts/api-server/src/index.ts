@@ -1631,12 +1631,18 @@ function startListening(port: number, remainingRetries = 8, retryDelayMs = 2000)
   server.on("listening", () => {
     logger.info({ port }, "Server listening");
     startScanWatchdog();
+
     const scheduleTick = () => {
       void Promise.all([runScheduledCrawls(), runDueCrawlerSessions()]).catch((err) =>
         logger.error({ err }, "Scheduled crawler tick failed"),
       );
     };
-    scheduleTick();
+
+    // Give Azure's health probe time to receive a fast response before the
+    // first scheduler tick starts database and crawler work.
+    const initialTimer = setTimeout(scheduleTick, 30_000);
+    initialTimer.unref();
+
     const timer = setInterval(scheduleTick, 60_000);
     timer.unref();
   });
@@ -1704,7 +1710,9 @@ async function checkDatabaseWritable(): Promise<void> {
     client.release();
   }
 }
+
 startListening(port);
+
 runStartupMigrations()
   .then(() => checkDatabaseWritable())
   .then(() => Promise.all([seedDefaultAdmin(), ensureChromeDependencies()]))
@@ -1712,6 +1720,5 @@ runStartupMigrations()
   .then(() => recoverAIAssessments())
   .then(() => resumeOrphanedCrawlerSessions())
   .catch((err) => {
-    logger.error({ err }, "Startup failed");
-    process.exit(1);
+    logger.error({ err }, "Post-listen startup failed");
   });
