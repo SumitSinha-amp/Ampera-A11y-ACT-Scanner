@@ -10,7 +10,7 @@
 
 export type { ScanRawResult } from "./types";
 import type { PushStatFn } from "./types";
-import { runDocumentLanguageRules } from "./rules/document-language";
+import { LANGUAGE_DETECTOR_BUILD_MARKER,runDocumentLanguageRules,verifyLanguageDetectorBundle, } from "./rules/document-language";
 import { runNamesRules } from "./rules/names";
 import { runAriaRules } from "./rules/aria";
 import { runMediaRules } from "./rules/media";
@@ -67,4 +67,8 @@ function runAllRules(
 }
 
 // ─── Expose on window for Puppeteer injection ─────────────────────────────────
-(window as any).__ampera = { runAllRules };
+(window as any).__ampera = {
+  runAllRules,
+  verifyLanguageDetectorBundle,
+  buildMarkers: [LANGUAGE_DETECTOR_BUILD_MARKER],
+};

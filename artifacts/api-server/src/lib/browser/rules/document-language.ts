@@ -1,7 +1,11 @@
+import { franc } from "franc-min";
 import type { ScanRawResult, PushStatFn } from "../types";
 import { VALID_ROLES } from "../aria-data";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
 import { isProgrammaticallyHidden } from "../visibility";
+
+export const LANGUAGE_DETECTOR_BUILD_MARKER =
+  "language-detector-franc-min-v1";
 
 const ISO_639_3_TO_PRIMARY: Record<string, string> = {
   ara: "ar",
@@ -77,6 +81,14 @@ export function detectPrimaryLanguage(text: string): string | null {
 
   const detected = franc(normalized, { minLength: 40 });
   return ISO_639_3_TO_PRIMARY[detected] ?? null;
+}
+
+export function verifyLanguageDetectorBundle(): boolean {
+  return (
+    detectPrimaryLanguage(
+      "This accessibility scanner verifies that English language detection is fully bundled and available in the browser runtime.",
+    ) === "en"
+  );
 }
 
 function directVisibleText(el: Element): string {

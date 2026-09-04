@@ -3750,6 +3750,7 @@ async function runACTRules(
   page: Page,
   emitManualOnlyRules = false,
 ): Promise<{ issues: ScanIssue[]; stats: RuleCheckStat[] }> {
+  const languageDetectorBuildMarker = "language-detector-franc-min-v1";
   // Production embeds the browser rule bundle in index.mjs so Azure and zip
   // deployments cannot lose it as a sibling asset. Keep the standalone-file
   // path as a development/backwards-compatible fallback.
@@ -3758,6 +3759,33 @@ async function runACTRules(
   } else {
     const bundlePath = path.join(__dirname, "browser-bundle.js");
     await page.addScriptTag({ path: bundlePath });
+  }
+
+  const bundlePreflight = await page.evaluate((expectedMarker) => {
+    const engine = (window as any).__ampera;
+    if (
+      !engine ||
+      typeof engine.runAllRules !== "function" ||
+      !Array.isArray(engine.buildMarkers) ||
+      !engine.buildMarkers.includes(expectedMarker)
+    ) {
+      return "The deployed browser-rule bundle is stale or incomplete";
+    }
+    if (typeof engine.verifyLanguageDetectorBundle !== "function") {
+      return "The deployed browser-rule bundle has no language-detector self-check";
+    }
+    try {
+      return engine.verifyLanguageDetectorBundle() === true
+        ? null
+        : "The bundled language detector returned an unexpected result";
+    } catch (error) {
+      return `The bundled language detector failed: ${String(error)}`;
+    }
+  }, languageDetectorBuildMarker);
+  if (bundlePreflight) {
+    throw new Error(
+      `Invalid scanner browser bundle: ${bundlePreflight}. Rebuild and redeploy the current API artifact.`,
+    );
   }
 
   const bundleResult: {

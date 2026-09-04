@@ -157,7 +157,7 @@ async function buildAll() {
   // Compile this first so the server bundle can embed a copy. The standalone
   // file is retained for diagnostics/backwards compatibility, but production
   // scans no longer depend on a sibling asset surviving deployment packaging.
-  await esbuild({
+  const browserBuildResult = await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/lib/browser/index.ts")],
     platform: "browser",
     bundle: true,
@@ -166,6 +166,7 @@ async function buildAll() {
     logLevel: "info",
     minify: process.env.NODE_ENV === "production",
     sourcemap: process.env.NODE_ENV === "production" ? "linked" : false,
+    metafile: true,
     // No external — browser bundle must be fully self-contained. The browser
     // sources use only relative imports, so esbuild does not need a separate
     // tsconfig file here. Keeping this build independent of that optional
@@ -175,6 +176,18 @@ async function buildAll() {
   const browserBundlePath = path.join(distDir, "browser-bundle.js");
   await access(browserBundlePath);
   const browserBundleContents = await readFile(browserBundlePath, "utf8");
+  const languageDetectorMarker = "language-detector-franc-min-v1";
+  const hasBundledFrancInput = Object.keys(
+    browserBuildResult.metafile.inputs,
+  ).some((inputPath) =>
+    inputPath.replaceAll("\\", "/").includes("/franc-min/"),
+  );
+  if (!hasBundledFrancInput || !browserBundleContents.includes(languageDetectorMarker)) {
+    throw new Error(
+      "Invalid browser bundle: franc-min language detection was not bundled. " +
+      "Install workspace dependencies and rebuild before deploying.",
+    );
+  }
 
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],
@@ -312,6 +325,18 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
       "Invalid API bundle: unresolved stale project-sites reference found. " +
       "Clean the API dist directory and rebuild before deploying.\n" +
       `Generated bundle context: ${context ?? "(context unavailable)"}`,
+    );
+  }
+  if (!serverBundleContents.includes("issues-attachments-r2-v1")) {
+    throw new Error(
+      "Invalid API bundle: issues-attachments-r2-v1 build marker is missing. " +
+      "The Issue Management routes or health marker were not included in the build.",
+    );
+  }
+  if (!serverBundleContents.includes(languageDetectorMarker)) {
+    throw new Error(
+      "Invalid API bundle: the embedded franc-min language-detector marker is missing. " +
+      "Rebuild the API and browser bundles together before deploying.",
     );
   }
 }

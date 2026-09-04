@@ -219,6 +219,8 @@ const browserEntrySource = read("artifacts/api-server/src/lib/browser/index.ts")
     expect(browserSource).toContain(
       "Report that shared declaration once instead of repeating the same root",
     );
+    expect(browserSource).toContain("language-detector-franc-min-v1");
+    expect(browserEntrySource).toContain("verifyLanguageDetectorBundle");
     expect(browserSource).toContain('ruleId: "ACT-R111"');
     expect(browserSource).toContain("isIncludedInAccessibilityTree");
     expect(read("artifacts/api-server/src/lib/browser/contrast.ts")).toContain(
