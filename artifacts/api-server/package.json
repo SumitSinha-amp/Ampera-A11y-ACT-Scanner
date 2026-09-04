@@ -36,7 +36,8 @@
     "puppeteer-extra-plugin-stealth": "^2.11.2",
     "xlsx": "^0.18.5",
     "xml2js": "^0.6.2",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "franc-min": "^6.2.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
