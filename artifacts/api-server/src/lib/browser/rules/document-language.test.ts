@@ -25,6 +25,22 @@ describe("ACT-R7 language identification", () => {
     expect(detectPrimaryLanguage("Bienvenido!")).toBeNull();
   });
 
+  it("does not misclassify the Dream Destination English heading as French", () => {
+    expect(
+      detectPrimaryLanguage(
+        "Buy travel packages for your favorite destinations today!",
+      ),
+    ).toBeNull();
+  });
+
+  it("still identifies a similarly sized, confidently French sentence", () => {
+    expect(
+      detectPrimaryLanguage(
+        "Achetez des forfaits de voyage pour vos destinations préférées dès aujourd’hui !",
+      ),
+    ).toBe("fr");
+  });
+
   it("uses adjacent foreign-language text to identify a short translated heading", () => {
     expect(
       detectHeadingLanguageWithAdjacentText(

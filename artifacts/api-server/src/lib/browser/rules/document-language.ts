@@ -1,4 +1,4 @@
-import { franc } from "franc-min";
+import { francAll } from "franc-min";
 import type { ScanRawResult, PushStatFn } from "../types";
 import { VALID_ROLES } from "../aria-data";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
@@ -79,7 +79,18 @@ export function detectPrimaryLanguage(text: string): string | null {
   const letterCount = (normalized.match(/\p{L}/gu) ?? []).length;
   if (letterCount < 40) return null;
 
-  const detected = franc(normalized, { minLength: 40 });
+  const candidates = francAll(normalized, { minLength: 40 });
+  const [detected, detectedScore] = candidates[0] ?? ["und", 0];
+  const runnerUpScore = candidates[1]?.[1] ?? 0;
+
+  // Statistical language detection is noisy for short marketing headings.
+  // Require a clear lead before reporting a language change; otherwise an
+  // ordinary English phrase such as "Buy travel packages..." can be labelled
+  // French based on a handful of shared trigrams.
+  if (letterCount < 100 && detectedScore - runnerUpScore < 0.2) {
+    return null;
+  }
+
   return ISO_639_3_TO_PRIMARY[detected] ?? null;
 }
 
