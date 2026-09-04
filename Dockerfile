@@ -98,7 +98,7 @@ RUN pnpm --filter @workspace/api-server run build && \
     test -s artifacts/api-server/dist/browser-bundle.js && \
     ! grep -q "projectSitesTable3" artifacts/api-server/dist/index.mjs && \
     grep -q "language-detector-franc-min-v1" artifacts/api-server/dist/browser-bundle.js && \
-    grep -q "language-detector-franc-min-v1" artifacts/api-server/dist/index.mjs && \
+    grep -q "language-detector-franc-min-v1" artifacts/api-server/dist/index.mjs
 
 RUN BASE_PATH=/ pnpm --filter @workspace/accessibility-scanner build
 RUN mkdir -p artifacts/api-server/dist/public && \
