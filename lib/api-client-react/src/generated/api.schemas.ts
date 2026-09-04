@@ -98,10 +98,14 @@ export interface ScanOptions {
   stealthMode?: boolean;
   /** If provided, only check these rule IDs (e.g. ["ACT-R14","ACT-R35"]) */
   rules?: string[];
+  /** Accessibility scope levels selected for this scan */
+  wcagLevels?: string[];
   /** PAC file URL to route scan traffic through a corporate proxy */
   proxyPacUrl?: string;
   /** Skip pages whose raw HTML is unchanged since the last completed scan, carrying previous issues forward */
   incremental?: boolean;
+  /** For direct manual scans only, ask the configured server-side AI provider to assess each detected issue occurrence */
+  aiContextualAssessment?: boolean;
 }
 
 export type PageResultStatus =
@@ -137,6 +141,70 @@ export const AccessibilityIssueImpact = {
   minor: "minor",
 } as const;
 
+export type AIIssueAssessmentStatus =
+  (typeof AIIssueAssessmentStatus)[keyof typeof AIIssueAssessmentStatus];
+
+export const AIIssueAssessmentStatus = {
+  queued: "queued",
+  analyzing: "analyzing",
+  completed: "completed",
+  failed: "failed",
+} as const;
+
+/**
+ * @nullable
+ */
+export type AIIssueAssessmentDecision =
+  | (typeof AIIssueAssessmentDecision)[keyof typeof AIIssueAssessmentDecision]
+  | null;
+
+export const AIIssueAssessmentDecision = {
+  confirmed_issue: "confirmed_issue",
+  potential_issue: "potential_issue",
+  not_an_issue: "not_an_issue",
+  needs_review: "needs_review",
+} as const;
+
+/**
+ * @nullable
+ */
+export type AIIssueAssessmentConfidence =
+  | (typeof AIIssueAssessmentConfidence)[keyof typeof AIIssueAssessmentConfidence]
+  | null;
+
+export const AIIssueAssessmentConfidence = {
+  low: "low",
+  medium: "medium",
+  high: "high",
+} as const;
+
+export interface AIIssueAssessment {
+  id: number;
+  issueId: number;
+  status: AIIssueAssessmentStatus;
+  /** @nullable */
+  decision: AIIssueAssessmentDecision;
+  /** @nullable */
+  confidence: AIIssueAssessmentConfidence;
+  /** @nullable */
+  rationale: string | null;
+  evidence: string[];
+  engine: string;
+  /** @nullable */
+  provider: string | null;
+  /** @nullable */
+  model: string | null;
+  attempts: number;
+  /** @nullable */
+  errorMessage: string | null;
+  /** @nullable */
+  queuedAt: string | null;
+  /** @nullable */
+  startedAt: string | null;
+  /** @nullable */
+  completedAt: string | null;
+}
+
 export interface AccessibilityIssue {
   id: number;
   pageId: number;
@@ -156,6 +224,7 @@ export interface AccessibilityIssue {
   selector: string | null;
   /** @nullable */
   remediation: string | null;
+  aiAssessment: AIIssueAssessment | null;
 }
 
 export interface PageResult {
@@ -431,6 +500,17 @@ export type ListProjectsParams = {
 
 export type ListScansParams = {
   siteId?: number;
+};
+
+export type RetryAIAssessment200Status =
+  (typeof RetryAIAssessment200Status)[keyof typeof RetryAIAssessment200Status];
+
+export const RetryAIAssessment200Status = {
+  queued: "queued",
+} as const;
+
+export type RetryAIAssessment200 = {
+  status: RetryAIAssessment200Status;
 };
 
 export type GrantSiteUserAccess201 = {

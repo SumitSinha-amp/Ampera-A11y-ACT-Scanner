@@ -8,7 +8,7 @@ import { dirname, join } from "path";
 import { existsSync } from "fs";
 import { pool } from "@workspace/db";
 import router from "./routes";
-import issuesRouter, { ISSUE_CREATE_ROUTE_MARKER } from "./routes/issues";
+import issuesRouter, { ISSUE_ATTACHMENT_ROUTE_MARKER, ISSUE_CREATE_ROUTE_MARKER } from "./routes/issues";
 import { logger } from "./lib/logger";
 
 const PgStore = connectPgSimple(session);
@@ -109,6 +109,9 @@ app.use("/api", (req, res, next) => {
     res.setHeader("X-Ampera-Issue-Router-Mount", ISSUE_ROUTER_APP_MOUNT_MARKER);
     if (req.method === "POST" && req.path === "/issues") {
       res.setHeader("X-Ampera-Issue-Route", ISSUE_CREATE_ROUTE_MARKER);
+    }
+    if (req.path.includes("/attachments/")) {
+      res.setHeader("X-Ampera-Issue-Attachment-Route", ISSUE_ATTACHMENT_ROUTE_MARKER);
     }
   }
   next();

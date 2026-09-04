@@ -889,25 +889,17 @@ img { max-width: 100%; height: auto; }
 
   "ACT-R99": ({ el }) => {
     return {
-      why: `This element uses <code>aria-hidden="true"</code> but contains focusable children (links, buttons, inputs). Screen readers will skip the container, but keyboard users can still Tab into the hidden children — creating ghost focus traps that are invisible to AT users.`,
-      howToFix: `Either remove <code>aria-hidden</code>, or ensure all focusable descendants have <code>tabindex="-1"</code> or are removed from the DOM when hidden.`,
-      codeExample: codeBlock(`<!-- Bad: focusable button inside aria-hidden -->
-<div aria-hidden="true">
-  <button>Click me</button>  <!-- keyboard accessible but AT can't see it -->
-</div>
+      why: `The page's primary content is not exposed through a <code>main</code> landmark, so screen reader users cannot jump directly to the central content region.`,
+      howToFix: `Wrap the primary page content in a single <code>&lt;main&gt;</code> element, or add <code>role="main"</code> to the existing primary content container.`,
+      codeExample: codeBlock(`<!-- Expose the primary content as a landmark -->
+<main id="content">
+  <!-- page content -->
+</main>
 
-<!-- Option 1: Remove aria-hidden -->
-<div>
-  <button>Click me</button>
-</div>
-
-<!-- Option 2: Also hide from keyboard -->
-<div aria-hidden="true" inert>
-  <button tabindex="-1">Click me</button>
-</div>
-
-<!-- Modern: use 'inert' attribute -->
-<div inert>...</div>  <!-- hides from both AT and keyboard -->`),
+<!-- Equivalent when the element cannot be changed -->
+<div id="content" role="main">
+  <!-- page content -->
+</div>`),
       confidence: HIGH,
       needsExternalAI: false,
     };

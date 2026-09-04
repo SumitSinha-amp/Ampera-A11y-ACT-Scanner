@@ -178,6 +178,17 @@ export interface ScanIssue {
   bboxY?: number | null;
   bboxWidth?: number | null;
   bboxHeight?: number | null;
+  falsePositive?: boolean;
+  /** Local interaction-state key, resolved to a persisted state row by scanQueue. */
+  interactionStateKey?: string | null;
+}
+
+export interface InteractionStateEvidence {
+  key: string;
+  triggerSelector: string;
+  triggerLabel: string;
+  screenshot: string;
+  pageHtml: string;
 }
 
 export interface QAPageMeta {
@@ -242,6 +253,8 @@ export interface PageScanResult {
   rawHtml?: string;
   /** Per-rule element/page check counts for true compliance ratio scoring. */
   ruleStats?: RuleCheckStat[];
+  /** Snapshots of safely revealed dialogs, menus, and disclosure states. */
+  interactionStates?: InteractionStateEvidence[];
 }
 
 const WCAG_MAPPING: Record<string, { sc: string[]; level: string[] }> = {
@@ -371,6 +384,7 @@ const WCAG_MAPPING: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R125": { sc: ["3.3.7"], level: ["A"] },
   "ACT-R126": { sc: ["3.3.8"], level: ["AA"] },
   "ACT-R127": { sc: ["3.3.9"], level: ["AAA"] },
+  "ACT-R128": { sc: ["3.1.4"], level: ["AAA"] },
 };
 
 /** All five level identifiers recognised by the scan level selector. */
@@ -442,7 +456,7 @@ const RULE_DESCRIPTIONS: Record<
       "xml:lang attributes are no longer used in modern HTML; this rule is superseded by SIA-R4 and SIA-R5",
   },
   "ACT-R7": {
-    type: "Potential Issue",
+    type: "Issue",
     description: "Content language changes are not identified",
     remediation: "Use lang attributes on elements where language changes",
   },
@@ -996,7 +1010,7 @@ const RULE_DESCRIPTIONS: Record<
   },
   "ACT-R99": {
     type: "Potential Issue",
-    description: "Document has its main content inside a landmark",
+    description: "Document has no main landmark",
     remediation: "Add a <main> element to define primary content",
   },
   "ACT-R100": {
@@ -1155,6 +1169,13 @@ const RULE_DESCRIPTIONS: Record<
       "Accessible authentication (enhanced) — no cognitive function test permitted (WCAG 3.3.9)",
     remediation:
       "AAA: authentication must work without any cognitive test — provide passkey, magic link, or SSO — requires manual verification",
+  },
+  "ACT-R128": {
+    type: "Potential Issue",
+    description:
+      "Abbreviations and acronyms should have their full expansion available",
+    remediation:
+      "Provide the full meaning at first use in visible text, an <abbr title>, or an equivalent glossary entry (WCAG 3.1.4, AAA)",
   },
 };
 
@@ -1432,6 +1453,101 @@ async function fullyRenderPage(page: Page, timeout: number): Promise<void> {
   await new Promise((r) => setTimeout(r, 1000));
 }
 
+interface SnapshotLayoutEntry {
+  marker: string;
+  style: string | null;
+  scrollTop: number;
+}
+
+/**
+ * Some sites keep the document itself fixed to the viewport and put the real
+ * page inside a full-screen overflow:auto container. Puppeteer's fullPage
+ * screenshot only follows the document height, so those pages otherwise store
+ * a viewport-only image even when fullPage:true succeeds.
+ */
+async function expandPageScrollerForSnapshot(
+  page: Page,
+): Promise<SnapshotLayoutEntry[]> {
+  return page.evaluate(() => {
+    const viewportArea = Math.max(1, window.innerWidth * window.innerHeight);
+    const candidates = Array.from(document.querySelectorAll<HTMLElement>("*"))
+      .filter((element) => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return (
+          (style.overflowY === "auto" || style.overflowY === "scroll") &&
+          element.scrollHeight > element.clientHeight + 4 &&
+          rect.width * rect.height >= viewportArea * 0.5
+        );
+      })
+      .sort((left, right) => {
+        const leftOverflow = left.scrollHeight - left.clientHeight;
+        const rightOverflow = right.scrollHeight - right.clientHeight;
+        return rightOverflow - leftOverflow;
+      });
+
+    const pageScroller = candidates[0];
+    if (!pageScroller) return [];
+
+    const elements: HTMLElement[] = [];
+    let current: HTMLElement | null = pageScroller;
+    while (current) {
+      elements.push(current);
+      current = current.parentElement;
+    }
+
+    const entries = elements.map((element, index) => {
+      const marker = `snapshot-layout-${index}`;
+      element.dataset.amperaSnapshotLayout = marker;
+      return {
+        marker,
+        style: element.getAttribute("style"),
+        scrollTop: element.scrollTop,
+      };
+    });
+
+    for (const element of elements) {
+      element.style.setProperty("max-height", "none", "important");
+      element.style.setProperty("overflow", "visible", "important");
+      element.style.setProperty("overflow-y", "visible", "important");
+      element.scrollTop = 0;
+    }
+    pageScroller.style.setProperty(
+      "height",
+      `${pageScroller.scrollHeight}px`,
+      "important",
+    );
+    for (const ancestor of elements.slice(1)) {
+      ancestor.style.setProperty("height", "auto", "important");
+    }
+    window.scrollTo(0, 0);
+
+    return entries;
+  });
+}
+
+async function restoreSnapshotLayout(
+  page: Page,
+  entries: SnapshotLayoutEntry[],
+): Promise<void> {
+  if (entries.length === 0) return;
+  await page.evaluate((savedEntries) => {
+    for (const entry of savedEntries) {
+      const element = document.querySelector<HTMLElement>(
+        `[data-ampera-snapshot-layout="${entry.marker}"]`,
+      );
+      if (!element) continue;
+      if (entry.style === null) {
+        element.removeAttribute("style");
+      } else {
+        element.setAttribute("style", entry.style);
+      }
+      element.scrollTop = entry.scrollTop;
+      delete element.dataset.amperaSnapshotLayout;
+    }
+  }, entries);
+}
+
 // ─── Proxy browser management ─────────────────────────────────────────────────
 // Proxy scans need a separate Chromium instance launched with either
 // --proxy-pac-url (for PAC files) or --proxy-server (for direct proxy URLs).
@@ -1444,10 +1560,28 @@ async function fullyRenderPage(page: Page, timeout: number): Promise<void> {
  */
 async function hydrateVisualImages(
   page: Page,
-): Promise<{ images: number; backgrounds: number }> {
-  return page.evaluate(() => {
+): Promise<{ images: number; backgrounds: number; loaded: number; failed: number }> {
+  return page.evaluate(async () => {
     let images = 0;
     let backgrounds = 0;
+    const visualUrls = new Set<string>();
+
+    const absoluteUrl = (value: string): string | null => {
+      try {
+        return new URL(value, document.baseURI).href;
+      } catch {
+        return null;
+      }
+    };
+
+    const collectBackgroundUrls = (value: string): void => {
+      for (const match of value.matchAll(
+        /url\((?:"([^"]+)"|'([^']+)'|([^)'"]+))\)/g,
+      )) {
+        const url = absoluteUrl(match[1] || match[2] || match[3] || "");
+        if (url && !url.startsWith("data:")) visualUrls.add(url);
+      }
+    };
 
     for (const img of Array.from(document.images)) {
       const currentSrc = img.currentSrc || img.getAttribute("src") || "";
@@ -1462,6 +1596,10 @@ async function hydrateVisualImages(
         source.startsWith("data:") ||
         (img.complete && img.naturalWidth > 0)
       ) {
+        if (source && !source.startsWith("data:")) {
+          const url = absoluteUrl(source);
+          if (url) visualUrls.add(url);
+        }
         continue;
       }
 
@@ -1482,6 +1620,8 @@ async function hydrateVisualImages(
       if (retrySrc) {
         img.removeAttribute("src");
         img.setAttribute("src", retrySrc);
+        const url = absoluteUrl(retrySrc);
+        if (url) visualUrls.add(url);
       }
       images++;
     }
@@ -1500,7 +1640,21 @@ async function hydrateVisualImages(
     }
 
     for (const el of Array.from(document.querySelectorAll<HTMLElement>("*"))) {
-      const backgroundImage = window.getComputedStyle(el).backgroundImage;
+      let backgroundImage = window.getComputedStyle(el).backgroundImage;
+      const lazyBackground =
+        el.getAttribute("data-original") ||
+        el.getAttribute("data-bg") ||
+        el.getAttribute("data-background-image");
+      if (
+        lazyBackground &&
+        (!backgroundImage || backgroundImage === "none")
+      ) {
+        const url = absoluteUrl(lazyBackground);
+        if (url) {
+          backgroundImage = `url("${url.replaceAll('"', '\\"')}")`;
+          el.style.setProperty("background-image", backgroundImage, "important");
+        }
+      }
       if (
         !backgroundImage ||
         backgroundImage === "none" ||
@@ -1508,13 +1662,47 @@ async function hydrateVisualImages(
       ) {
         continue;
       }
+      collectBackgroundUrls(backgroundImage);
       el.style.backgroundImage = "none";
       void el.offsetWidth;
       el.style.backgroundImage = backgroundImage;
       backgrounds++;
     }
 
-    return { images, backgrounds };
+    // Requests made during the fast rule pass are intentionally aborted.
+    // Re-applying the same CSS value does not make Chromium retry every failed
+    // resource, so explicitly preload each visual URL after images are enabled.
+    const settled = await Promise.all(
+      Array.from(visualUrls)
+        .slice(0, 100)
+        .map(
+          (url) =>
+            new Promise<boolean>((resolve) => {
+              const image = new Image();
+              const timer = window.setTimeout(() => resolve(false), 10_000);
+              image.onload = () => {
+                window.clearTimeout(timer);
+                resolve(true);
+              };
+              image.onerror = () => {
+                window.clearTimeout(timer);
+                resolve(false);
+              };
+              image.src = url;
+            }),
+        ),
+    );
+
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+
+    return {
+      images,
+      backgrounds,
+      loaded: settled.filter(Boolean).length,
+      failed: settled.filter((loaded) => !loaded).length,
+    };
   });
 }
 
@@ -1899,6 +2087,25 @@ async function _scanPageInternal(
       // Expose on window so the rule evaluation context can read it
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (window as any).__ariaLabelWasEmpty__ = tracked;
+      const clickTargets = new WeakSet<EventTarget>();
+      (window as any).__amperaClickTargets__ = clickTargets;
+
+      // Track direct click handlers installed by page scripts. This lets the
+      // button-name rule recognize custom controls such as an empty
+      // <div id="btn-next"> without treating every generic container as a
+      // button. The original method is called unchanged so page behavior is
+      // unaffected.
+      const origAddEventListener = EventTarget.prototype.addEventListener;
+      EventTarget.prototype.addEventListener = function (
+        type: string,
+        listener: EventListenerOrEventListenerObject | null,
+        options?: boolean | AddEventListenerOptions,
+      ): void {
+        if (type.toLowerCase() === "click" && this instanceof Element) {
+          clickTargets.add(this);
+        }
+        origAddEventListener.call(this, type, listener, options);
+      };
 
       const origSetAttribute = Element.prototype.setAttribute;
       Element.prototype.setAttribute = function (
@@ -2601,6 +2808,7 @@ async function _scanPageInternal(
     // the final rendered page.
     let screenshot: string | undefined;
     let pageHtml: string | undefined;
+    let interactionStates: InteractionStateEvidence[] = [];
 
     // Capture the rendered DOM immediately before rule execution. Do not move
     // this after the rules or the later visual-readiness wait: pages can patch
@@ -2648,6 +2856,53 @@ async function _scanPageInternal(
     if (options.rules && options.rules.length > 0) {
       const ruleSet = new Set(options.rules.map((r) => r.toUpperCase()));
       issues = issues.filter((i) => ruleSet.has(i.ruleId.toUpperCase()));
+    }
+
+    // Safely reveal common non-navigating UI states and run the same complete
+    // rule bundle against each one. Findings from a revealed state replace an
+    // identical baseline finding so its bbox and snapshot match visible UI.
+    try {
+      const triggers = await discoverSafeInteractionTriggers(page);
+      if (triggers.length > 0) {
+        allowVisualImages = true;
+        await hydrateVisualImages(page).catch(() => 0);
+        const explored = await exploreInteractiveStates(
+          page,
+          triggers,
+          options.rules,
+        );
+        for (const stateIssue of explored.issues) {
+          const key = `${stateIssue.ruleId}|${stateIssue.selector ?? ""}|${stateIssue.description}`;
+          issues = issues.filter(
+            (existing) =>
+              `${existing.ruleId}|${existing.selector ?? ""}|${existing.description}` !== key,
+          );
+          issues.push(stateIssue);
+        }
+        ruleStats.push(...explored.stats);
+        const usedStateKeys = new Set(
+          issues
+            .map((issue) => issue.interactionStateKey)
+            .filter((key): key is string => !!key),
+        );
+        interactionStates = explored.states.filter((state) =>
+          usedStateKeys.has(state.key),
+        );
+        logger.info(
+          {
+            url,
+            triggers: triggers.length,
+            states: interactionStates.length,
+            stateIssues: explored.issues.length,
+          },
+          "Interactive page states scanned",
+        );
+      }
+    } catch (interactionErr) {
+      logger.warn(
+        { url, err: interactionErr },
+        "Interactive-state exploration failed — continuing with baseline state",
+      );
     }
 
     // Capture the final visual snapshot only when the page has issues. Clean
@@ -2740,12 +2995,59 @@ async function _scanPageInternal(
       if (issues.length > 0) {
         const bboxes = await page.evaluate(
           (selectors: (string | null)[]) => {
+            const isSnapshotVisible = (candidate: Element): boolean => {
+              let current: Element | null = candidate;
+              while (current) {
+                const style = window.getComputedStyle(current);
+                if (
+                  style.display === "none" ||
+                  style.visibility === "hidden" ||
+                  style.visibility === "collapse" ||
+                  Number.parseFloat(style.opacity) === 0
+                ) {
+                  return false;
+                }
+                current = current.parentElement;
+              }
+              const rect = candidate.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0;
+            };
+
             return selectors.map((sel) => {
               if (!sel) return null;
               try {
                 const el = document.querySelector(sel);
                 if (!el) return null;
-                const rect = el.getBoundingClientRect();
+
+                let snapshotTarget = el;
+                if (!isSnapshotVisible(snapshotTarget)) {
+                  let ancestor = snapshotTarget.parentElement;
+                  while (ancestor && ancestor !== document.body) {
+                    if (isSnapshotVisible(ancestor)) {
+                      const ancestorRect = ancestor.getBoundingClientRect();
+                      const viewportArea = Math.max(
+                        1,
+                        window.innerWidth * window.innerHeight,
+                      );
+                      // A compact visible disclosure/menu wrapper gives useful
+                      // context for a dormant control. A page-sized ancestor
+                      // would be a misleading highlight, so omit it.
+                      if (
+                        ancestorRect.width * ancestorRect.height <=
+                        viewportArea * 0.35
+                      ) {
+                        snapshotTarget = ancestor;
+                      } else {
+                        return null;
+                      }
+                      break;
+                    }
+                    ancestor = ancestor.parentElement;
+                  }
+                  if (!ancestor || ancestor === document.body) return null;
+                }
+
+                const rect = snapshotTarget.getBoundingClientRect();
                 if (rect.width === 0 && rect.height === 0) return null;
                 return {
                   x: Math.round(rect.left + window.scrollX),
@@ -2781,12 +3083,25 @@ async function _scanPageInternal(
       // pixel colours at each candidate's bounding box, and emits confirmed
       // Issues for elements whose actual contrast fails the WCAG threshold.
       try {
-        const pixelIssues = await runPixelContrastPass(page, logger);
+        const PIXEL_RULE_IDS = new Set(["ACT-R69", "ACT-R66", "ACT-R88", "ACT-R89"]);
+        const selectedRuleSet =
+          options.rules && options.rules.length > 0
+            ? new Set(options.rules.map((rule) => rule.toUpperCase()))
+            : null;
+        const shouldRunPixelContrast =
+          selectedRuleSet === null ||
+          Array.from(PIXEL_RULE_IDS).some((ruleId) => selectedRuleSet.has(ruleId));
+        const pixelIssues = shouldRunPixelContrast
+          ? (await runPixelContrastPass(page, logger)).filter(
+              (issue) =>
+                selectedRuleSet === null ||
+                selectedRuleSet.has(issue.ruleId.toUpperCase()),
+            )
+          : [];
         if (pixelIssues.length > 0) {
           // Remove Potential Issue stubs for the same selectors — the pixel
           // pass either promotes them to confirmed or dismisses them.
           const pixelSelectors = new Set(pixelIssues.map((pi) => pi.selector));
-          const PIXEL_RULE_IDS = new Set(["ACT-R69", "ACT-R66", "ACT-R88", "ACT-R89"]);
           issues = issues.filter(
             (issue) =>
               !(
@@ -2831,17 +3146,27 @@ async function _scanPageInternal(
 
       // ── 2. Full-page screenshot with fallback to viewport-only ─────────
       try {
+        const snapshotLayout = await expandPageScrollerForSnapshot(page);
         // Wrap in a timeout so a hung compositor doesn't block the slot forever
         const ssTimeout = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("screenshot timeout")), 30_000),
         );
-        const screenshotBuffer = await Promise.race([
-          page.screenshot({ type: "jpeg", quality: 40, fullPage: true }),
-          ssTimeout,
-        ]);
+        let screenshotBuffer: Uint8Array;
+        try {
+          screenshotBuffer = await Promise.race([
+            page.screenshot({ type: "jpeg", quality: 40, fullPage: true }),
+            ssTimeout,
+          ]);
+        } finally {
+          await restoreSnapshotLayout(page, snapshotLayout).catch(() => {});
+        }
         screenshot = Buffer.from(screenshotBuffer).toString("base64");
         logger.info(
-          { url, sizeKb: Math.round(screenshotBuffer.length / 1024) },
+          {
+            url,
+            sizeKb: Math.round(screenshotBuffer.length / 1024),
+            expandedPageScroller: snapshotLayout.length > 0,
+          },
           "Page snapshot captured (full-page)",
         );
       } catch (ssErr) {
@@ -3038,6 +3363,7 @@ async function _scanPageInternal(
       images,
       rawHtml,
       ruleStats,
+      interactionStates,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -3068,6 +3394,358 @@ function getLegalCompliance(levels: string[] = []) {
     eaa: isApplicable,
   };
 }
+
+interface SafeInteractionTrigger {
+  selector: string;
+  label: string;
+}
+
+async function discoverSafeInteractionTriggers(
+  page: Page,
+): Promise<SafeInteractionTrigger[]> {
+  return page.evaluate(() => {
+    const unsafeAction =
+      /\b(delete|remove|purchase|buy|checkout|pay|place order|submit|save|send|upload|sign out|log out|unsubscribe)\b/i;
+    const isVisible = (el: Element): boolean => {
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        style.visibility !== "collapse" &&
+        Number.parseFloat(style.opacity) > 0
+      );
+    };
+    const selectorFor = (el: Element): string => {
+      if (el.id) return `#${CSS.escape(el.id)}`;
+      const parts: string[] = [];
+      let current: Element | null = el;
+      while (current && current !== document.body && parts.length < 6) {
+        let part = current.tagName.toLowerCase();
+        const parentEl: Element | null = current.parentElement;
+        if (parentEl) {
+          const siblings: Element[] = Array.from(parentEl.children).filter(
+            (sibling: Element) => sibling.tagName === current!.tagName,
+          );
+          if (siblings.length > 1) {
+            part += `:nth-of-type(${siblings.indexOf(current) + 1})`;
+          }
+        }
+        parts.unshift(part);
+        current = parentEl;
+      }
+      return parts.join(" > ");
+    };
+
+    const candidates = Array.from(
+      document.querySelectorAll(
+        "summary,button,[role='button'],[aria-expanded='false'],[aria-haspopup]:not([aria-haspopup='false']),[aria-controls],[data-toggle='modal'],[data-toggle='dropdown'],[data-toggle='collapse'],a[href]",
+      ),
+    );
+    const seen = new Set<string>();
+    const result: SafeInteractionTrigger[] = [];
+
+    for (const el of candidates) {
+      if (result.length >= 12 || !isVisible(el)) continue;
+      if (
+        el.closest("[hidden],[inert],[aria-hidden='true']") ||
+        el.getAttribute("aria-disabled") === "true" ||
+        (el as HTMLButtonElement).disabled
+      ) {
+        continue;
+      }
+      const button = el as HTMLButtonElement;
+      if (button.tagName === "BUTTON" && (button.type === "submit" || button.type === "reset")) {
+        continue;
+      }
+      if (el.tagName === "A") {
+        const href = (el.getAttribute("href") ?? "").trim();
+        if (href && href !== "#" && !href.startsWith("#")) {
+          try {
+            const target = new URL(href, location.href);
+            const current = new URL(location.href);
+            if (
+              target.origin !== current.origin ||
+              target.pathname !== current.pathname ||
+              target.search !== current.search ||
+              (target.hash && target.hash !== "#")
+            ) {
+              continue;
+            }
+          } catch {
+            continue;
+          }
+        }
+      }
+      const label = (
+        el.getAttribute("aria-label") ||
+        el.getAttribute("title") ||
+        (el as HTMLElement).innerText ||
+        ""
+      ).trim().replace(/\s+/g, " ").slice(0, 160);
+      if (unsafeAction.test(label)) continue;
+
+      const disclosureHint = `${
+        el.getAttribute("class") ?? ""
+      } ${label}`.toLowerCase();
+      const controlledIds = (el.getAttribute("aria-controls") ?? "")
+        .split(/\s+/)
+        .filter(Boolean);
+      const controlsDisclosure = controlledIds.some((id) => {
+        const controlled = document.getElementById(id);
+        return (
+          controlled !== null &&
+          !controlled.matches("input,select,textarea,output")
+        );
+      });
+      const hasDisclosureSemantics =
+        el.tagName === "SUMMARY" ||
+        el.getAttribute("aria-expanded") === "false" ||
+        controlsDisclosure ||
+        !!el.getAttribute("aria-haspopup") ||
+        /^(modal|dropdown|collapse)$/i.test(el.getAttribute("data-toggle") ?? "") ||
+        /\b(open|modal|dialog|popup|overlay|dropdown|toggle|accordion|collapse|menu|railcard|country|currency|language|filter)\b/.test(
+          disclosureHint,
+        );
+      const qualifies =
+        hasDisclosureSemantics ||
+        (el.tagName !== "A" && /\b(open|show|add|choose|select)\b/i.test(label));
+      if (!qualifies) continue;
+
+      const selector = selectorFor(el);
+      if (!selector || seen.has(selector)) continue;
+      seen.add(selector);
+      result.push({ selector, label: label || selector });
+    }
+    return result;
+  });
+}
+
+async function exploreInteractiveStates(
+  page: Page,
+  triggers: SafeInteractionTrigger[],
+  selectedRules?: string[],
+): Promise<{
+  issues: ScanIssue[];
+  states: InteractionStateEvidence[];
+  stats: RuleCheckStat[];
+}> {
+  const selectedRuleSet =
+    selectedRules && selectedRules.length > 0
+      ? new Set(selectedRules.map((rule) => rule.toUpperCase()))
+      : null;
+  const issues: ScanIssue[] = [];
+  const states: InteractionStateEvidence[] = [];
+  const stats: RuleCheckStat[] = [];
+  const seenIssues = new Set<string>();
+
+  for (let index = 0; index < triggers.length; index++) {
+    const trigger = triggers[index]!;
+    const visibilityToken = `ampera-state-${index + 1}`;
+    try {
+      const before = await page.evaluate(({ selector, visibilityToken }) => {
+        const visible = (el: Element): boolean => {
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return rect.width > 0 && rect.height > 0 && style.display !== "none" &&
+            style.visibility !== "hidden" && Number.parseFloat(style.opacity) > 0;
+        };
+        document.querySelectorAll("*").forEach((el) => {
+          if (visible(el)) {
+            (el as HTMLElement).dataset.amperaVisibleBefore = visibilityToken;
+          }
+        });
+        const dialogs = Array.from(
+          document.querySelectorAll("[role='dialog'],dialog,[role='menu'],[role='listbox']"),
+        ).filter(visible).length;
+        return {
+          url: location.href,
+          dialogs,
+          expanded: document.querySelector(selector)?.getAttribute("aria-expanded"),
+        };
+      }, { selector: trigger.selector, visibilityToken });
+
+      await page.click(trigger.selector);
+      await new Promise((resolve) => setTimeout(resolve, 450));
+
+      const revealed = await page.evaluate(
+        ({ selector, beforeDialogs, beforeExpanded, beforeUrl, visibilityToken }) => {
+          if (location.href !== beforeUrl) return false;
+          const visible = (el: Element): boolean => {
+            const rect = el.getBoundingClientRect();
+            const style = getComputedStyle(el);
+            return rect.width > 0 && rect.height > 0 && style.display !== "none" &&
+              style.visibility !== "hidden" && Number.parseFloat(style.opacity) > 0;
+          };
+          const current = document.querySelector(selector);
+          const controls = (current?.getAttribute("aria-controls") ?? "")
+            .split(/\s+/)
+            .filter(Boolean);
+          const controlledVisible = controls.some((id) => {
+            const target = document.getElementById(id);
+            return target ? visible(target) : false;
+          });
+          const dialogs = Array.from(
+            document.querySelectorAll("[role='dialog'],dialog,[role='menu'],[role='listbox']"),
+          ).filter(visible).length;
+          const newlyVisible = Array.from(document.querySelectorAll("*")).filter(
+            (el) =>
+              visible(el) &&
+              (el as HTMLElement).dataset.amperaVisibleBefore !== visibilityToken,
+          ).length;
+          return (
+            current?.getAttribute("aria-expanded") === "true" ||
+            (current?.tagName === "SUMMARY" && (current.parentElement as HTMLDetailsElement)?.open) ||
+            controlledVisible ||
+            dialogs > beforeDialogs ||
+            newlyVisible > 0 ||
+            (beforeExpanded === "false" && current?.getAttribute("aria-expanded") !== "false")
+          );
+        },
+        {
+          selector: trigger.selector,
+          beforeDialogs: before.dialogs,
+          beforeExpanded: before.expanded,
+          beforeUrl: before.url,
+          visibilityToken,
+        },
+      );
+
+      if (!revealed) continue;
+
+      const stateKey = `interaction-${index + 1}`;
+      const result = await runACTRules(
+        page,
+        selectedRuleSet?.has("ACT-R118") ?? false,
+      );
+      stats.push(...result.stats);
+      let stateIssues = result.issues.filter(
+        (issue) =>
+          selectedRuleSet === null ||
+          selectedRuleSet.has(issue.ruleId.toUpperCase()),
+      );
+
+      const bboxes = await page.evaluate(({ selectors, visibilityToken }) => {
+        const isVisible = (candidate: Element): boolean => {
+          let current: Element | null = candidate;
+          while (current) {
+            const style = getComputedStyle(current);
+            if (
+              style.display === "none" ||
+              style.visibility === "hidden" ||
+              style.visibility === "collapse" ||
+              Number.parseFloat(style.opacity) === 0
+            ) {
+              return false;
+            }
+            current = current.parentElement;
+          }
+          const rect = candidate.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        };
+        return selectors.map((selector) => {
+          if (!selector) return null;
+          try {
+            const el = document.querySelector(selector);
+            if (!el) return null;
+            const wasVisibleBefore =
+              (el as HTMLElement).dataset.amperaVisibleBefore === visibilityToken;
+            let snapshotTarget = el;
+            if (!isVisible(snapshotTarget)) {
+              let ancestor = snapshotTarget.parentElement;
+              while (ancestor && ancestor !== document.body) {
+                if (isVisible(ancestor)) {
+                  const rect = ancestor.getBoundingClientRect();
+                  const viewportArea = Math.max(1, innerWidth * innerHeight);
+                  if (rect.width * rect.height > viewportArea * 0.35) return null;
+                  snapshotTarget = ancestor;
+                  break;
+                }
+                ancestor = ancestor.parentElement;
+              }
+              if (!ancestor || ancestor === document.body) return null;
+            }
+            const rect = snapshotTarget.getBoundingClientRect();
+            return {
+              x: Math.round(rect.left + scrollX),
+              y: Math.round(rect.top + scrollY),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+              wasVisibleBefore,
+            };
+          } catch {
+            return null;
+          }
+        });
+      }, {
+        selectors: stateIssues.map((issue) => issue.selector),
+        visibilityToken,
+      });
+
+      stateIssues = stateIssues
+        .map((issue, issueIndex): ScanIssue => {
+          const wcag = WCAG_MAPPING[issue.ruleId];
+          return {
+            ...issue,
+            wcagCriteria: wcag?.sc?.join(", ") || null,
+            wcagLevel: wcag?.level?.join(", ") || null,
+            legal: getLegalCompliance(wcag?.level || []),
+            bboxX: bboxes[issueIndex]?.x ?? null,
+            bboxY: bboxes[issueIndex]?.y ?? null,
+            bboxWidth: bboxes[issueIndex]?.width ?? null,
+            bboxHeight: bboxes[issueIndex]?.height ?? null,
+            interactionStateKey: stateKey,
+          };
+        })
+        .filter((_issue, issueIndex) => bboxes[issueIndex]?.wasVisibleBefore === false)
+        .filter((issue) => {
+          const key = `${issue.ruleId}|${issue.selector ?? ""}|${issue.description}`;
+          if (seenIssues.has(key)) return false;
+          seenIssues.add(key);
+          return true;
+        });
+
+      if (stateIssues.length > 0) {
+        const [screenshotBuffer, pageHtml] = await Promise.all([
+          page.screenshot({ type: "jpeg", quality: 40, fullPage: true }),
+          page.content(),
+        ]);
+        states.push({
+          key: stateKey,
+          triggerSelector: trigger.selector,
+          triggerLabel: trigger.label,
+          screenshot: Buffer.from(screenshotBuffer).toString("base64"),
+          pageHtml,
+        });
+        issues.push(...stateIssues);
+      }
+    } catch (err) {
+      logger.debug(
+        { selector: trigger.selector, err },
+        "Interactive state could not be scanned",
+      );
+    } finally {
+      await page.keyboard.press("Escape").catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      await page.evaluate((selector) => {
+        const trigger = document.querySelector(selector) as HTMLElement | null;
+        if (trigger?.getAttribute("aria-expanded") === "true") trigger.click();
+        const details = trigger?.closest("details") as HTMLDetailsElement | null;
+        if (details?.open) details.open = false;
+      }, trigger.selector).catch(() => {});
+      await page.evaluate((visibilityToken) => {
+        document
+          .querySelectorAll(`[data-ampera-visible-before="${visibilityToken}"]`)
+          .forEach((el) => delete (el as HTMLElement).dataset.amperaVisibleBefore);
+      }, visibilityToken).catch(() => {});
+    }
+  }
+
+  return { issues, states, stats };
+}
+
 async function runACTRules(
   page: Page,
   emitManualOnlyRules = false,

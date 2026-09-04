@@ -1,7 +1,8 @@
-import React, { useState } from "react";
-import { Loader2, Archive, Link2, X } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Loader2, Archive, Link2, X, Pencil, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { useIssue, useUpdateIssue, useAddComment, useArchiveIssue, useAddIssueLink, useRemoveIssueLink } from "../../hooks/use-issues";
@@ -35,6 +36,16 @@ export function IssueDetail({ id, people, issues, canEdit, canComment, canManage
   const [commentAttachments, setCommentAttachments] = useState<any[]>([]);
   const [linkType, setLinkType] = useState<IssueLinkType>("relates_to");
   const [linkTargetId, setLinkTargetId] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+
+  useEffect(() => {
+    if (!editing) {
+      setEditTitle(data?.issue.title ?? "");
+      setEditDescription(data?.issue.description ?? "");
+    }
+  }, [data?.issue.title, data?.issue.description, editing]);
 
   if (isLoading || !data) {
     return (
@@ -76,7 +87,16 @@ export function IssueDetail({ id, people, issues, canEdit, canComment, canManage
 
   const submitComment = () => {
     if (!commentBody.trim() && commentAttachments.length === 0) return;
-    const mentionIds = people.filter((person) => commentBody.includes(`@${person.name}`)).map((person) => person.id);
+    const mentionIds = (() => {
+      const parsed = new DOMParser().parseFromString(commentBody, "text/html");
+      const markedIds = Array.from(parsed.querySelectorAll("[data-mention-id]"))
+        .map((element) => Number(element.getAttribute("data-mention-id")))
+        .filter((personId) => Number.isInteger(personId) && personId > 0);
+      const textMatches = people
+        .filter((person) => commentBody.includes(`@${person.name}`))
+        .map((person) => person.id);
+      return [...new Set([...markedIds, ...textMatches])];
+    })();
     addComment.mutate(
       { body: commentBody, mentionIds, attachments: commentAttachments },
       {
@@ -111,6 +131,31 @@ export function IssueDetail({ id, people, issues, canEdit, canComment, canManage
     });
   };
 
+  const handleSaveDetails = () => {
+    const title = editTitle.trim();
+    if (!title || updateIssue.isPending) return;
+    updateIssue.mutate(
+      { title, description: editDescription },
+      {
+        onSuccess: () => {
+          setEditing(false);
+          toast({ title: "Issue details updated", description: `${issue.issueKey} was saved.` });
+        },
+        onError: (error) => toast({
+          title: "Couldn't update issue details",
+          description: error.message,
+          variant: "destructive",
+        }),
+      },
+    );
+  };
+
+  const cancelEditing = () => {
+    setEditTitle(issue.title);
+    setEditDescription(issue.description);
+    setEditing(false);
+  };
+
   const handleRemoveLink = (linkId: number) => {
     removeIssueLink.mutate(linkId, {
       onSuccess: () => toast({ title: "Issue relationship removed" }),
@@ -132,6 +177,23 @@ export function IssueDetail({ id, people, issues, canEdit, canComment, canManage
             </Badge>
           </div>
           <div className="flex items-center gap-2">
+            {canEdit && !editing && (
+              <Button variant="outline" size="sm" onClick={() => setEditing(true)} className="h-8">
+                <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                Edit
+              </Button>
+            )}
+            {editing && (
+              <>
+                <Button variant="ghost" size="sm" onClick={cancelEditing} className="h-8" disabled={updateIssue.isPending}>
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={handleSaveDetails} className="h-8" disabled={!editTitle.trim() || updateIssue.isPending}>
+                  {updateIssue.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
+                  Save
+                </Button>
+              </>
+            )}
             {canManage && (
               <Button variant="ghost" size="sm" onClick={handleArchive} className="h-8 text-muted-foreground hover:text-destructive">
                 <Archive className="mr-1.5 h-3.5 w-3.5" />
@@ -145,7 +207,17 @@ export function IssueDetail({ id, people, issues, canEdit, canComment, canManage
             )}
           </div>
         </div>
-        <h1 className="text-lg font-bold leading-snug tracking-tight text-foreground">{issue.title}</h1>
+         {editing ? (
+           <Input
+             aria-label="Issue title"
+             value={editTitle}
+             maxLength={300}
+             onChange={(event) => setEditTitle(event.target.value)}
+             className="mt-1 text-lg font-bold"
+           />
+         ) : (
+           <h1 className="text-lg font-bold leading-snug tracking-tight text-foreground">{issue.title}</h1>
+         )}
       </div>
 
       {/* Scrollable Content */}
@@ -157,10 +229,19 @@ export function IssueDetail({ id, people, issues, canEdit, canComment, canManage
             {/* Description */}
             <section>
               <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Description</h3>
-              <div 
-                className="prose prose-sm dark:prose-invert max-w-none text-foreground/90 leading-relaxed bg-muted/20 p-4 rounded-lg border"
-                dangerouslySetInnerHTML={{ __html: sanitizeIssueHtml(issue.description) || "<p>No description provided.</p>" }}
-              />
+              {editing ? (
+                <RichTextEditor
+                  value={editDescription}
+                  onChange={setEditDescription}
+                  placeholder="Describe the issue, add context, and insert links..."
+                  people={people}
+                />
+              ) : (
+                <div
+                  className="prose prose-sm dark:prose-invert max-w-none text-foreground/90 leading-relaxed bg-muted/20 p-4 rounded-lg border"
+                  dangerouslySetInnerHTML={{ __html: sanitizeIssueHtml(issue.description) || "<p>No description provided.</p>" }}
+                />
+              )}
             </section>
 
             {/* Type-Specific Fields */}

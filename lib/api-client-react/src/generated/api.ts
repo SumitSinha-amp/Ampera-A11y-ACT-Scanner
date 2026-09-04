@@ -32,6 +32,7 @@ import type {
   ParseSitemapResponse,
   Project,
   ProjectSiteBody,
+  RetryAIAssessment200,
   ScanReport,
   ScanSession,
   ScanSessionDetail,
@@ -1342,6 +1343,94 @@ export function useGetScanReport<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Retry a failed manual-scan AI assessment
+ */
+export const getRetryAIAssessmentUrl = (scanId: number, issueId: number) => {
+  return `/api/scans/${scanId}/issues/${issueId}/ai-assessment/retry`;
+};
+
+export const retryAIAssessment = async (
+  scanId: number,
+  issueId: number,
+  options?: RequestInit,
+): Promise<RetryAIAssessment200> => {
+  return customFetch<RetryAIAssessment200>(
+    getRetryAIAssessmentUrl(scanId, issueId),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getRetryAIAssessmentMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof retryAIAssessment>>,
+    TError,
+    { scanId: number; issueId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof retryAIAssessment>>,
+  TError,
+  { scanId: number; issueId: number },
+  TContext
+> => {
+  const mutationKey = ["retryAIAssessment"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof retryAIAssessment>>,
+    { scanId: number; issueId: number }
+  > = (props) => {
+    const { scanId, issueId } = props ?? {};
+
+    return retryAIAssessment(scanId, issueId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RetryAIAssessmentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof retryAIAssessment>>
+>;
+
+export type RetryAIAssessmentMutationError = ErrorType<void>;
+
+/**
+ * @summary Retry a failed manual-scan AI assessment
+ */
+export const useRetryAIAssessment = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof retryAIAssessment>>,
+    TError,
+    { scanId: number; issueId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof retryAIAssessment>>,
+  TError,
+  { scanId: number; issueId: number },
+  TContext
+> => {
+  return useMutation(getRetryAIAssessmentMutationOptions(options));
+};
 
 /**
  * Returns all sites the authenticated user can access. Admins get all sites; regular users get only their assigned sites (direct + group).

@@ -3,6 +3,101 @@ import { VALID_ROLES } from "../aria-data";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
 import { isProgrammaticallyHidden } from "../visibility";
 
+const ISO_639_3_TO_PRIMARY: Record<string, string> = {
+  ara: "ar",
+  cat: "ca",
+  ces: "cs",
+  dan: "da",
+  deu: "de",
+  ell: "el",
+  eng: "en",
+  fin: "fi",
+  fra: "fr",
+  heb: "he",
+  hin: "hi",
+  hun: "hu",
+  ind: "id",
+  ita: "it",
+  jpn: "ja",
+  kor: "ko",
+  nld: "nl",
+  nor: "no",
+  pol: "pl",
+  por: "pt",
+  ron: "ro",
+  rus: "ru",
+  spa: "es",
+  swe: "sv",
+  tha: "th",
+  tur: "tr",
+  ukr: "uk",
+  vie: "vi",
+  zho: "zh",
+};
+
+const LANGUAGE_NAMES: Record<string, string> = {
+  ar: "Arabic",
+  ca: "Catalan",
+  cs: "Czech",
+  da: "Danish",
+  de: "German",
+  el: "Greek",
+  en: "English",
+  es: "Spanish",
+  fi: "Finnish",
+  fr: "French",
+  he: "Hebrew",
+  hi: "Hindi",
+  hu: "Hungarian",
+  id: "Indonesian",
+  it: "Italian",
+  ja: "Japanese",
+  ko: "Korean",
+  nl: "Dutch",
+  no: "Norwegian",
+  pl: "Polish",
+  pt: "Portuguese",
+  ro: "Romanian",
+  ru: "Russian",
+  sv: "Swedish",
+  th: "Thai",
+  tr: "Turkish",
+  uk: "Ukrainian",
+  vi: "Vietnamese",
+  zh: "Chinese",
+};
+
+export function detectPrimaryLanguage(text: string): string | null {
+  const normalized = text
+    .replace(/https?:\/\/\S+|www\.\S+|\S+@\S+\.\S+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const letterCount = (normalized.match(/\p{L}/gu) ?? []).length;
+  if (letterCount < 40) return null;
+
+  const detected = franc(normalized, { minLength: 40 });
+  return ISO_639_3_TO_PRIMARY[detected] ?? null;
+}
+
+function directVisibleText(el: Element): string {
+  return Array.from(el.childNodes)
+    .filter((node) => node.nodeType === Node.TEXT_NODE)
+    .map((node) => node.textContent ?? "")
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function detectHeadingLanguageWithAdjacentText(
+  headingText: string,
+  adjacentText: string,
+  documentPrimary: string,
+): string | null {
+  const adjacentPrimary = detectPrimaryLanguage(adjacentText);
+  if (!adjacentPrimary || adjacentPrimary === documentPrimary) return null;
+  return detectPrimaryLanguage(`${headingText} ${adjacentText}`);
+}
+
 export function runDocumentLanguageRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: boolean, pushStat: PushStatFn): void {
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R1: Page has no title (WCAG 2.4.2)
@@ -58,7 +153,11 @@ export function runDocumentLanguageRules(results: ScanRawResult[], EMIT_MANUAL_O
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // ACT-R7: Element with lang attribute has invalid language tag (WCAG 3.1.2)
+  // ACT-R7: Language of parts (WCAG 3.1.2)
+  //
+  // Alfa's automatic expectation validates explicit, non-empty lang attributes.
+  // In addition, the platform scanner identifies language changes so undeclared
+  // blocks can be reported as confirmed issues.
   // ════════════════════════════════════════════════════════════════════════
   {
     const BCP47_RE = /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/;
@@ -68,9 +167,85 @@ export function runDocumentLanguageRules(results: ScanRawResult[], EMIT_MANUAL_O
       const lang = el.getAttribute("lang")?.trim();
       if (!lang) return;
       if (!BCP47_RE.test(lang)) {
-        results.push({ ruleId: "ACT-R7", type: "Potential Issue", impact: "moderate", description: `lang attribute "${lang}" is not a valid BCP 47 language tag`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
+        results.push({ ruleId: "ACT-R7", displayTitle: "Language is not valid", type: "Issue", impact: "moderate", description: `lang attribute "${lang}" is not a valid BCP 47 language tag`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
       }
     });
+
+    const documentLang = htmlEl.getAttribute("lang")?.trim() ?? "";
+    const declaredDocumentPrimary = BCP47_RE.test(documentLang)
+      ? documentLang.split("-")[0].toLowerCase()
+      : null;
+    const inferredDocumentPrimary = detectPrimaryLanguage(
+      document.body?.innerText ?? "",
+    );
+    const documentPrimary = declaredDocumentPrimary ?? inferredDocumentPrimary;
+    const textContainers = Array.from(document.body?.querySelectorAll("*") ?? [])
+      .filter((el) => {
+        if (["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"].includes(el.tagName)) {
+          return false;
+        }
+        return Array.from(el.childNodes).some(
+          (node) =>
+            node.nodeType === Node.TEXT_NODE &&
+            (node.textContent?.trim().length ?? 0) > 0,
+        );
+      });
+
+    if (documentPrimary) {
+      for (const el of textContainers) {
+        if (isProgrammaticallyHidden(el)) continue;
+
+        const declaredLangElement = el.closest("[lang]");
+        if (declaredLangElement && declaredLangElement !== htmlEl) continue;
+
+        // Analyze only text directly owned by this element. Descendant blocks
+        // may carry their own valid lang declarations and must not make a broad
+        // wrapper (such as .entry-content) look undeclared.
+        const ownText = directVisibleText(el);
+        if (!ownText) continue;
+
+        let detectedPrimary: string | null = null;
+        const ownLetterCount = (ownText.match(/\p{L}/gu) ?? []).length;
+        const isHeadingLike =
+          /^H[1-6]$/.test(el.tagName) ||
+          el.getAttribute("role") === "heading" ||
+          /(^|\s)heading(\s|$)/i.test(el.className);
+        if (isHeadingLike && ownLetterCount < 40) {
+          const next = el.nextElementSibling;
+          if (
+            next &&
+            !isProgrammaticallyHidden(next) &&
+            (next.closest("[lang]") === htmlEl || !next.closest("[lang]"))
+          ) {
+            const nextText = directVisibleText(next);
+            detectedPrimary = detectHeadingLanguageWithAdjacentText(
+              ownText,
+              nextText,
+              documentPrimary,
+            );
+          }
+        } else {
+          detectedPrimary = detectPrimaryLanguage(ownText);
+        }
+
+        if (!detectedPrimary || detectedPrimary === documentPrimary) continue;
+
+        const detectedName = LANGUAGE_NAMES[detectedPrimary] ?? detectedPrimary;
+        const inheritedLanguageDescription = declaredDocumentPrimary
+          ? `the document language "${documentLang}"`
+          : `the page's inferred primary language "${documentPrimary}"`;
+        results.push({
+          ruleId: "ACT-R7",
+          displayTitle: "Language not specified",
+          type: "Issue",
+          impact: "moderate",
+          description: `${detectedName} content differs from ${inheritedLanguageDescription} but has no language declaration — add lang="${detectedPrimary}" to this element or its containing section`,
+          element: outerHtmlSnippet(el),
+          elementContext: elementContextForAI(el),
+          selector: getSelector(el),
+        });
+      }
+    }
   }
 
   // ACT-R109 / SIA-R109: Alfa applies this rule only when the document has a
@@ -145,8 +320,10 @@ export function runDocumentLanguageRules(results: ScanRawResult[], EMIT_MANUAL_O
   pushStat("ACT-R4",   1, "page");
   pushStat("ACT-R5",   1, "page");
   pushStat("ACT-R6",   1, "page");
-  const langEls = document.querySelectorAll("[lang]").length;
-  if (langEls > 0) pushStat("ACT-R7", langEls, "element");
+  const languageTargets =
+    document.querySelectorAll("[lang]").length +
+    document.querySelectorAll("body *").length;
+  if (languageTargets > 0) pushStat("ACT-R7", languageTargets, "element");
   const roleEls = document.querySelectorAll("[role]").length;
   if (roleEls > 0) pushStat("ACT-R110", roleEls, "element");
   const idEls = document.querySelectorAll("[id]").length;

@@ -1400,6 +1400,24 @@ async function runStartupMigrations(): Promise<void> {
       )
     `);
 
+    // 50. State-specific evidence for safely revealed dialogs and disclosures
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS page_interaction_states (
+        id SERIAL PRIMARY KEY,
+        page_id INTEGER NOT NULL REFERENCES page_results(id) ON DELETE CASCADE,
+        state_key TEXT NOT NULL,
+        trigger_selector TEXT,
+        trigger_label TEXT,
+        screenshot TEXT,
+        page_html TEXT
+      );
+      CREATE INDEX IF NOT EXISTS page_interaction_states_page_id_idx
+        ON page_interaction_states(page_id);
+      ALTER TABLE accessibility_issues
+        ADD COLUMN IF NOT EXISTS interaction_state_id INTEGER
+        REFERENCES page_interaction_states(id) ON DELETE SET NULL;
+    `);
+
     await client.query("COMMIT");
     logger.info("Startup migrations completed");
   } catch (err) {
@@ -1710,9 +1728,7 @@ async function checkDatabaseWritable(): Promise<void> {
     client.release();
   }
 }
-
 startListening(port);
-
 runStartupMigrations()
   .then(() => checkDatabaseWritable())
   .then(() => Promise.all([seedDefaultAdmin(), ensureChromeDependencies()]))
@@ -1720,5 +1736,6 @@ runStartupMigrations()
   .then(() => recoverAIAssessments())
   .then(() => resumeOrphanedCrawlerSessions())
   .catch((err) => {
-    logger.error({ err }, "Post-listen startup failed");
+    logger.error({ err }, "Startup failed");
+    process.exit(1);
   });

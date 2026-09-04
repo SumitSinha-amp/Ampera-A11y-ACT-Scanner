@@ -194,7 +194,51 @@ export function runTextStyleRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RUL
       }
       return false;
     };
-    for (const el of Array.from(document.querySelectorAll("p,[role='paragraph']")).slice(0, 2000)) {
+    const paragraphElements = Array.from(
+      document.querySelectorAll("p,[role='paragraph']"),
+    ).slice(0, 2000);
+    const hasVisibleParagraphText = paragraphElements.some(
+      (el) =>
+        el instanceof HTMLElement &&
+        isVisible(el) &&
+        !(
+          el.classList.contains("vjs-no-js") ||
+          /(^|_)no_?player/i.test(el.id) ||
+          el.closest(".video-js")
+        ) &&
+        !!(el.textContent || "").trim(),
+    );
+
+    // A relative paragraph value such as 1em still cannot follow the user's
+    // browser-default font size when its page-level anchor is fixed in px/pt.
+    // Report that shared declaration once instead of repeating the same root
+    // cause for every descendant paragraph.
+    const rootAbsoluteFontSize =
+      directFontSizeUnit(document.body) === true
+        ? document.body
+        : directFontSizeUnit(document.documentElement) === true
+          ? document.documentElement
+          : null;
+    if (rootAbsoluteFontSize && hasVisibleParagraphText) {
+      const rootStyle = window.getComputedStyle(rootAbsoluteFontSize);
+      const rootFontSize = parseFloat(rootStyle.fontSize);
+      if (!isNaN(rootFontSize) && rootFontSize > 0) {
+        const selector =
+          rootAbsoluteFontSize === document.body ? "body" : "html";
+        r74Seen.add(selector);
+        results.push({
+          ruleId: "ACT-R74",
+          type: "Best Practice",
+          impact: "minor",
+          description: `Base font size is fixed at ${rootFontSize.toFixed(1)}px — descendant text using em or % cannot follow the user's browser-default font size; use rem, em, or % from a relative root`,
+          element: outerHtmlSnippet(rootAbsoluteFontSize),
+          elementContext: elementContextForAI(rootAbsoluteFontSize),
+          selector,
+        });
+      }
+    }
+
+    for (const el of paragraphElements) {
       if (!(el instanceof HTMLElement)) continue;
       // Alfa R74 applies to visible paragraph-role elements with
       // non-whitespace text and a cascaded font-size declaration.

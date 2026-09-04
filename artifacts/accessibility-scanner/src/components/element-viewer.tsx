@@ -45,6 +45,7 @@ export interface ViewerIssue {
   bboxY?: number | null;
   bboxWidth?: number | null;
   bboxHeight?: number | null;
+  interactionStateId?: number | null;
 }
 
 interface ElementViewerProps {
@@ -220,6 +221,7 @@ export const SnapshotView = forwardRef<
   SnapshotHandle,
   {
     pageId: number;
+    interactionStateId?: number | null;
     bboxX: number | null;
     bboxY: number | null;
     bboxWidth: number | null;
@@ -231,14 +233,16 @@ export const SnapshotView = forwardRef<
     onNaturalSize: (w: number, h: number) => void;
   }
 >(function SnapshotView(
-  { pageId, bboxX, bboxY, bboxWidth, bboxHeight, zoom, showHighlight, scrollTrigger, onError, onNaturalSize },
+  { pageId, interactionStateId, bboxX, bboxY, bboxWidth, bboxHeight, zoom, showHighlight, scrollTrigger, onError, onNaturalSize },
   ref
 ) {
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [containerWidth, setContainerWidth] = useState<number>(0);
-  const snapshotUrl = `${BASE_URL}/api/pages/${pageId}/snapshot`;
+  const snapshotUrl = `${BASE_URL}/api/pages/${pageId}/snapshot${
+    interactionStateId ? `?stateId=${interactionStateId}` : ""
+  }`;
 
   const hasBbox =
     bboxX != null &&
@@ -871,6 +875,7 @@ export function ElementViewer({
                 <SnapshotView
                   ref={snapshotRef}
                   pageId={pageId}
+                  interactionStateId={currentIssue.interactionStateId ?? null}
                   bboxX={currentIssue.bboxX ?? null}
                   bboxY={currentIssue.bboxY ?? null}
                   bboxWidth={currentIssue.bboxWidth ?? null}

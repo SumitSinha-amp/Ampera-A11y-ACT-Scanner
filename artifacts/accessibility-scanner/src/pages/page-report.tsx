@@ -62,6 +62,7 @@ interface ReportIssue {
   bboxY?: number | null;
   bboxWidth?: number | null;
   bboxHeight?: number | null;
+  interactionStateId?: number | null;
   falsePositive?: boolean;
   aiAssessment?: {
     status: "queued" | "analyzing" | "completed" | "failed";
@@ -1088,6 +1089,7 @@ export default function PageReport() {
                   <SnapshotView
                     ref={snapshotRef}
                     pageId={pageId}
+                    interactionStateId={selectedIssue.interactionStateId ?? null}
                     bboxX={selectedIssue.bboxX ?? null}
                     bboxY={selectedIssue.bboxY ?? null}
                     bboxWidth={selectedIssue.bboxWidth ?? null}

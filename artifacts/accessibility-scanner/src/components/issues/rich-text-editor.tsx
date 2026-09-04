@@ -1,7 +1,6 @@
-import React, { useRef, useEffect, useId } from 'react';
-import { Bold, Italic, Underline, Heading2, List, ListOrdered, Link as LinkIcon, AtSign } from 'lucide-react';
+import React, { useRef, useEffect, useId, useMemo, useState } from 'react';
+import { Bold, Italic, Underline, Heading2, List, ListOrdered, Link as LinkIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Person } from '../../lib/issue-types';
 
 interface RichTextEditorProps {
@@ -14,7 +13,9 @@ interface RichTextEditorProps {
 export function RichTextEditor({ value, onChange, placeholder, people = [] }: RichTextEditorProps) {
   const ref = useRef<HTMLDivElement>(null);
   const helpId = useId();
-  const [mentionOpen, setMentionOpen] = React.useState(false);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const mentionRangeRef = useRef<Range | null>(null);
 
   useEffect(() => {
     if (ref.current && ref.current.innerHTML !== value && document.activeElement !== ref.current) {
@@ -28,13 +29,120 @@ export function RichTextEditor({ value, onChange, placeholder, people = [] }: Ri
     onChange(ref.current?.innerHTML || '');
   };
 
+  const mentionMatches = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const query = mentionQuery.toLowerCase();
+    return people
+      .filter((person) => person.name.toLowerCase().includes(query) || person.email.toLowerCase().includes(query))
+      .slice(0, 6);
+  }, [mentionQuery, people]);
+
+  const getCaretTextOffset = (range: Range) => {
+    if (!ref.current) return 0;
+    const beforeCaret = range.cloneRange();
+    beforeCaret.selectNodeContents(ref.current);
+    beforeCaret.setEnd(range.endContainer, range.endOffset);
+    return beforeCaret.toString().length;
+  };
+
+  const createTextRange = (start: number, end: number) => {
+    if (!ref.current) return null;
+    const walker = document.createTreeWalker(ref.current, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = [];
+    let current: Node | null;
+    while ((current = walker.nextNode())) nodes.push(current as Text);
+    const result = document.createRange();
+    let offset = 0;
+    let startSet = false;
+    for (const node of nodes) {
+      const nextOffset = offset + node.data.length;
+      if (!startSet && start >= offset && start <= nextOffset) {
+        result.setStart(node, Math.max(0, start - offset));
+        startSet = true;
+      }
+      if (end >= offset && end <= nextOffset) {
+        if (!startSet) result.setStart(node, Math.max(0, start - offset));
+        result.setEnd(node, Math.max(0, end - offset));
+        return result;
+      }
+      offset = nextOffset;
+    }
+    return startSet ? result : null;
+  };
+
+  const readMentionQuery = () => {
+    const selection = window.getSelection();
+    if (!selection || !selection.rangeCount || !ref.current?.contains(selection.anchorNode)) {
+      setMentionQuery(null);
+      return;
+    }
+    const range = selection.getRangeAt(0).cloneRange();
+    range.collapse(true);
+    const caretOffset = getCaretTextOffset(range);
+    const beforeCaret = range.cloneRange();
+    beforeCaret.selectNodeContents(ref.current);
+    beforeCaret.setEnd(range.endContainer, range.endOffset);
+    const match = beforeCaret.toString().match(/(?:^|\s)@([^\s@<]*)$/);
+    if (!match) {
+      setMentionQuery(null);
+      mentionRangeRef.current = null;
+      return;
+    }
+    mentionRangeRef.current = range;
+    setMentionQuery(match[1] ?? '');
+    setMentionIndex(0);
+    void caretOffset;
+  };
+
   const insertMention = (person: Person) => {
-    setMentionOpen(false);
-    exec('insertHTML', `<strong class="text-primary" data-mention-id="${person.id}">@${person.name}</strong>&nbsp;`);
+    const savedRange = mentionRangeRef.current;
+    if (!savedRange || !ref.current) return;
+    const caretOffset = getCaretTextOffset(savedRange);
+    const queryLength = mentionQuery?.length ?? 0;
+    const mentionStart = Math.max(0, caretOffset - queryLength - 1);
+    const replacementRange = createTextRange(mentionStart, caretOffset);
+    if (!replacementRange) return;
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(replacementRange);
+    const safeName = person.name.replace(/[&<>"']/g, (character) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }[character] ?? character));
+    document.execCommand(
+      'insertHTML',
+      false,
+      `<strong class="text-primary" data-mention-id="${person.id}">@${safeName}</strong>&nbsp;`,
+    );
+    ref.current.focus();
+    onChange(ref.current.innerHTML || '');
+    mentionRangeRef.current = null;
+    setMentionQuery(null);
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (mentionQuery === null || mentionMatches.length === 0) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setMentionIndex((current) => (current + 1) % mentionMatches.length);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setMentionIndex((current) => (current - 1 + mentionMatches.length) % mentionMatches.length);
+    } else if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault();
+      insertMention(mentionMatches[mentionIndex] ?? mentionMatches[0]);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      setMentionQuery(null);
+      mentionRangeRef.current = null;
+    }
   };
 
   return (
-    <div className="border rounded-md focus-within:ring-2 focus-within:ring-ring focus-within:border-transparent bg-background overflow-hidden transition-all duration-200">
+    <div className="relative border rounded-md focus-within:ring-2 focus-within:ring-ring focus-within:border-transparent bg-background transition-all duration-200">
       <div className="flex flex-wrap items-center gap-1 border-b p-1 bg-muted/40">
         <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => { e.preventDefault(); exec('bold'); }} title="Bold" aria-label="Bold">
           <Bold className="h-4 w-4" />
@@ -71,33 +179,6 @@ export function RichTextEditor({ value, onChange, placeholder, people = [] }: Ri
           <LinkIcon className="h-4 w-4" />
         </Button>
 
-        {people.length > 0 && (
-          <>
-            <div className="w-px h-4 bg-border mx-1" />
-            <Popover open={mentionOpen} onOpenChange={setMentionOpen}>
-              <PopoverTrigger asChild>
-                <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" title="Mention" aria-label="Mention a person">
-                  <AtSign className="h-4 w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-48 p-0" align="start">
-                <div className="flex flex-col max-h-48 overflow-y-auto">
-                  {people.map(person => (
-                    <button
-                      key={person.id}
-                      type="button"
-                      className="text-left px-3 py-2 text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                      onClick={() => insertMention(person)}
-                    >
-                      <div className="font-medium">{person.name}</div>
-                      <div className="text-xs text-muted-foreground truncate">{person.email}</div>
-                    </button>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
-          </>
-        )}
       </div>
       
       <p id={helpId} className="sr-only">Use the toolbar buttons to format text. Press Tab to move between formatting controls and the editor.</p>
@@ -112,7 +193,36 @@ export function RichTextEditor({ value, onChange, placeholder, people = [] }: Ri
         data-placeholder={placeholder}
         onInput={(e) => onChange(e.currentTarget.innerHTML)}
         onBlur={(e) => onChange(e.currentTarget.innerHTML)}
+        onKeyUp={readMentionQuery}
+        onKeyDown={handleKeyDown}
       />
+      {mentionQuery !== null && mentionMatches.length > 0 && (
+        <div
+          role="listbox"
+          aria-label="Mention suggestions"
+          className="absolute left-3 top-full z-30 mt-1 w-64 overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg"
+        >
+          <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Mention someone
+          </p>
+          {mentionMatches.map((person, index) => (
+            <button
+              key={person.id}
+              type="button"
+              role="option"
+              aria-selected={index === mentionIndex}
+              className={`block w-full rounded px-2 py-1.5 text-left text-sm ${
+                index === mentionIndex ? 'bg-muted' : 'hover:bg-muted/70'
+              }`}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => insertMention(person)}
+            >
+              <span className="block font-medium">{person.name}</span>
+              <span className="block truncate text-xs text-muted-foreground">{person.email}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

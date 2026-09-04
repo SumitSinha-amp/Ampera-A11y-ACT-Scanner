@@ -155,6 +155,10 @@ export const CreateScanBody = zod.object({
         .describe(
           'If provided, only check these rule IDs (e.g. [\"ACT-R14\",\"ACT-R35\"])',
         ),
+      wcagLevels: zod
+        .array(zod.string())
+        .optional()
+        .describe("Accessibility scope levels selected for this scan"),
       proxyPacUrl: zod
         .string()
         .optional()
@@ -166,6 +170,12 @@ export const CreateScanBody = zod.object({
         .optional()
         .describe(
           "Skip pages whose raw HTML is unchanged since the last completed scan, carrying previous issues forward",
+        ),
+      aiContextualAssessment: zod
+        .boolean()
+        .optional()
+        .describe(
+          "For direct manual scans only, ask the configured server-side AI provider to assess each detected issue occurrence",
         ),
     })
     .optional(),
@@ -215,6 +225,10 @@ export const GetScanResponse = zod.object({
         .describe(
           'If provided, only check these rule IDs (e.g. [\"ACT-R14\",\"ACT-R35\"])',
         ),
+      wcagLevels: zod
+        .array(zod.string())
+        .optional()
+        .describe("Accessibility scope levels selected for this scan"),
       proxyPacUrl: zod
         .string()
         .optional()
@@ -226,6 +240,12 @@ export const GetScanResponse = zod.object({
         .optional()
         .describe(
           "Skip pages whose raw HTML is unchanged since the last completed scan, carrying previous issues forward",
+        ),
+      aiContextualAssessment: zod
+        .boolean()
+        .optional()
+        .describe(
+          "For direct manual scans only, ask the configured server-side AI provider to assess each detected issue occurrence",
         ),
     })
     .optional(),
@@ -274,6 +294,41 @@ export const GetScanResponse = zod.object({
           wcagLevel: zod.string().nullable(),
           selector: zod.string().nullable(),
           remediation: zod.string().nullable(),
+          aiAssessment: zod.union([
+            zod.object({
+              id: zod.number(),
+              issueId: zod.number(),
+              status: zod.enum(["queued", "analyzing", "completed", "failed"]),
+              decision: zod
+                .union([
+                  zod.literal("confirmed_issue"),
+                  zod.literal("potential_issue"),
+                  zod.literal("not_an_issue"),
+                  zod.literal("needs_review"),
+                  zod.literal(null),
+                ])
+                .nullable(),
+              confidence: zod
+                .union([
+                  zod.literal("low"),
+                  zod.literal("medium"),
+                  zod.literal("high"),
+                  zod.literal(null),
+                ])
+                .nullable(),
+              rationale: zod.string().nullable(),
+              evidence: zod.array(zod.string()),
+              engine: zod.string(),
+              provider: zod.string().nullable(),
+              model: zod.string().nullable(),
+              attempts: zod.number(),
+              errorMessage: zod.string().nullable(),
+              queuedAt: zod.string().nullable(),
+              startedAt: zod.string().nullable(),
+              completedAt: zod.string().nullable(),
+            }),
+            zod.null(),
+          ]),
         }),
       ),
     }),
@@ -426,6 +481,18 @@ export const GetScanReportResponse = zod.object({
       criticalCount: zod.number(),
     }),
   ),
+});
+
+/**
+ * @summary Retry a failed manual-scan AI assessment
+ */
+export const RetryAIAssessmentParams = zod.object({
+  scanId: zod.coerce.number(),
+  issueId: zod.coerce.number(),
+});
+
+export const RetryAIAssessmentResponse = zod.object({
+  status: zod.enum(["queued"]),
 });
 
 /**

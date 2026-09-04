@@ -564,9 +564,9 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       "The primary content region should begin with a heading that describes its topic, helping screen reader users orient themselves within the page after landing on it.",
   },
   "ACT-R99": {
-    title: "Document has its main content inside a landmark",
+    title: "Document has no main landmark",
     detail:
-      'Every page must include exactly one <main> element or role="main" landmark so screen reader users can jump directly to the primary content area.',
+      'Every page should expose its primary content through one <main> element or role="main" landmark so screen reader users can navigate to it directly.',
   },
   "ACT-R100": {
     title: "Document has instrument to main content",
@@ -706,6 +706,11 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
     detail:
       "Authentication must work without requiring a cognitive-function test.",
   },
+  "ACT-R128": {
+    title: "Abbreviations and acronyms should have their full expansion available",
+    detail:
+      "At first use, provide the full meaning of abbreviations and acronyms in visible text, an <abbr title>, or an equivalent glossary entry. Because the browser cannot determine whether a reader knows an abbreviation, matches are reported as Potential Issues for review.",
+  },
 };
 
 // Keep documentation badges aligned with the API's WCAG_MAPPING and
@@ -754,7 +759,8 @@ const WCAG_RULE_METADATA: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R117": { sc: ["1.1.1"], level: ["A"] }, "ACT-R119": { sc: ["2.4.11"], level: ["AA"] }, "ACT-R120": { sc: ["2.4.12"], level: ["AAA"] },
   "ACT-R118": { sc: ["1.4.5", "1.4.9"], level: ["AA", "AAA"] },
   "ACT-R121": { sc: ["2.4.13"], level: ["AAA"] }, "ACT-R122": { sc: ["2.5.7"], level: ["AA"] }, "ACT-R124": { sc: ["3.2.6"], level: ["A"] },
-  "ACT-R125": { sc: ["3.3.7"], level: ["A"] }, "ACT-R126": { sc: ["3.3.8"], level: ["AA"] }, "ACT-R127": { sc: ["3.3.9"], level: ["AAA"] },
+   "ACT-R125": { sc: ["3.3.7"], level: ["A"] }, "ACT-R126": { sc: ["3.3.8"], level: ["AA"] }, "ACT-R127": { sc: ["3.3.9"], level: ["AAA"] },
+   "ACT-R128": { sc: ["3.1.4"], level: ["AAA"] },
 };
 
 for (const [id, metadata] of Object.entries(WCAG_RULE_METADATA)) {

@@ -3,6 +3,7 @@ import {
   pool,
   scanSessionsTable,
   pageResultsTable,
+  pageInteractionStatesTable,
   accessibilityIssuesTable,
   appSettingsTable,
   qaPagesTable,
@@ -151,12 +152,52 @@ async function tryCarryForward(
     .select()
     .from(accessibilityIssuesTable)
     .where(eq(accessibilityIssuesTable.pageId, prev.id));
+  const selectedRuleIds =
+    options.rules && options.rules.length > 0
+      ? new Set(options.rules.map((rule) => rule.toUpperCase()))
+      : null;
+  const carriedIssues = selectedRuleIds
+    ? prevIssues.filter((issue) => selectedRuleIds.has(issue.ruleId.toUpperCase()))
+    : prevIssues;
+  const carriedCriticalCount = carriedIssues.filter(
+    (issue) => issue.impact === "critical",
+  ).length;
 
-  if (prevIssues.length > 0) {
+  const interactionStateIds = new Map<number, number>();
+  const previousStates = await db
+    .select()
+    .from(pageInteractionStatesTable)
+    .where(eq(pageInteractionStatesTable.pageId, prev.id));
+  if (previousStates.length > 0) {
+    const copiedStates = await db
+      .insert(pageInteractionStatesTable)
+      .values(
+        previousStates.map(({ id: _id, pageId: _pageId, ...state }) => ({
+          ...state,
+          pageId,
+        })),
+      )
+      .returning({
+        id: pageInteractionStatesTable.id,
+        stateKey: pageInteractionStatesTable.stateKey,
+      });
+    const copiedByKey = new Map(
+      copiedStates.map((state) => [state.stateKey, state.id]),
+    );
+    for (const previousState of previousStates) {
+      const copiedId = copiedByKey.get(previousState.stateKey);
+      if (copiedId) interactionStateIds.set(previousState.id, copiedId);
+    }
+  }
+
+  if (carriedIssues.length > 0) {
     const copiedIssues = await db.insert(accessibilityIssuesTable).values(
-      prevIssues.map(({ id: _id, pageId: _pageId, ...rest }) => ({
+      carriedIssues.map(({ id: _id, pageId: _pageId, interactionStateId, ...rest }) => ({
         ...rest,
         pageId,
+        interactionStateId: interactionStateId
+          ? interactionStateIds.get(interactionStateId) ?? null
+          : null,
       })),
     ) .returning({ id: accessibilityIssuesTable.id });
     if (shouldQueueAIAssessments(options)) {
@@ -169,8 +210,8 @@ async function tryCarryForward(
     .update(pageResultsTable)
     .set({
       status: "completed",
-      issueCount: prev.issueCount,
-      criticalCount: prev.criticalCount,
+      issueCount: carriedIssues.length,
+      criticalCount: carriedCriticalCount,
       errorMessage: null,
       scannedAt: new Date(),
       loadDurationMs: prev.loadDurationMs,
@@ -231,21 +272,26 @@ async function tryCarryForward(
       [prev.id],
     );
     if (prevStatsRes.rows.length > 0) {
-      const vals = prevStatsRes.rows
+      const carriedStats = selectedRuleIds
+        ? prevStatsRes.rows.filter((row) => selectedRuleIds.has(row.rule_id.toUpperCase()))
+        : prevStatsRes.rows;
+      const vals = carriedStats
         .map((r) => `(${pageId}, '${r.rule_id.replace(/'/g, "''")}', ${r.total_checked}, '${r.scope}')`)
         .join(",");
-      await pool.query(
-        `INSERT INTO rule_page_stats (page_result_id, rule_id, total_checked, scope)
-         VALUES ${vals}
-         ON CONFLICT (page_result_id, rule_id) DO NOTHING`,
-      );
+      if (vals) {
+        await pool.query(
+          `INSERT INTO rule_page_stats (page_result_id, rule_id, total_checked, scope)
+           VALUES ${vals}
+           ON CONFLICT (page_result_id, rule_id) DO NOTHING`,
+        );
+      }
     }
   } catch (statsCarryErr) {
     logger.warn({ scanId, url, err: statsCarryErr }, "Incremental: rule_page_stats carry-forward failed — scoring will use proxy");
   }
 
   logger.info(
-    { scanId, pageId, url, fromPageId: prev.id, issueCount: prev.issueCount },
+    { scanId, pageId, url, fromPageId: prev.id, issueCount: carriedIssues.length },
     "Incremental: page unchanged — issues carried forward without browser visit",
   );
   return true;
@@ -1077,6 +1123,28 @@ async function scanSinglePage(
       );
 
     logger.info({ scanId, url, pageId, issueCount }, "Inserting issues into DB");
+    const interactionStateIds = new Map<string, number>();
+    if ((result.interactionStates?.length ?? 0) > 0) {
+      const insertedStates = await db
+        .insert(pageInteractionStatesTable)
+        .values(
+          result.interactionStates!.map((state) => ({
+            pageId,
+            stateKey: state.key,
+            triggerSelector: state.triggerSelector,
+            triggerLabel: state.triggerLabel,
+            screenshot: state.screenshot,
+            pageHtml: state.pageHtml,
+          })),
+        )
+        .returning({
+          id: pageInteractionStatesTable.id,
+          stateKey: pageInteractionStatesTable.stateKey,
+        });
+      for (const state of insertedStates) {
+        interactionStateIds.set(state.stateKey, state.id);
+      }
+    }
     if (result.issues.length > 0) {
       try {
         const insertedIssues = await db.insert(accessibilityIssuesTable).values(
@@ -1097,6 +1165,9 @@ async function scanSinglePage(
             bboxY: issue.bboxY ?? null,
             bboxWidth: issue.bboxWidth ?? null,
             bboxHeight: issue.bboxHeight ?? null,
+            interactionStateId: issue.interactionStateKey
+              ? interactionStateIds.get(issue.interactionStateKey) ?? null
+              : null,
           })),
         ).returning({ id: accessibilityIssuesTable.id });
         logger.info({ scanId, url, pageId, issueCount }, "Issues inserted successfully");

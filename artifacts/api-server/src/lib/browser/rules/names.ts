@@ -60,8 +60,27 @@ export function runNamesRules(results: ScanRawResult[], pushStat: PushStatFn): v
   // ════════════════════════════════════════════════════════════════════════
   {
     const r8Roles = new Set(["checkbox","combobox","listbox","menuitemcheckbox","menuitemradio","radio","searchbox","slider","spinbutton","switch","textbox"]);
+    const isPermanentlyExcludedNativeControl = (el: Element): boolean => {
+      if (!el.matches("input,select,textarea")) return false;
+      if (el.matches("input[type='hidden'],input[type='submit'],input[type='button'],input[type='reset'],input[type='image']")) return true;
+      if (el.closest("template,noscript,[hidden],[inert],[aria-hidden='true']")) return true;
+      return false;
+    };
     const r8Targets = Array.from(document.querySelectorAll("*")).filter(
-      (el) => r8Roles.has(getEffectiveAriaRole(el)) && isIncludedInAccessibilityTree(el),
+      (el) => {
+        const role = getEffectiveAriaRole(el);
+        if (!r8Roles.has(role)) return false;
+
+        // Native fields in closed menus, dialogs, and other dormant UI states
+        // still require names when those states are opened. CSS visibility is
+        // therefore not an R8 exclusion. Truly inactive markup and hidden
+        // input values remain out of scope.
+        if (el.matches("input,select,textarea")) {
+          return !isPermanentlyExcludedNativeControl(el);
+        }
+
+        return isIncludedInAccessibilityTree(el);
+      },
     );
     for (const el of r8Targets) {
       if (!getFormFieldAccessibleName(el)) {
@@ -109,8 +128,23 @@ export function runNamesRules(results: ScanRawResult[], pushStat: PushStatFn): v
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R12: Button has no accessible name (WCAG 4.1.2)
   // ════════════════════════════════════════════════════════════════════════
-  document.querySelectorAll("button, input, [role='button']").forEach((btn) => {
-    if (getEffectiveAriaRole(btn) !== "button" || !isIncludedInAccessibilityTree(btn)) return;
+  const r12ClickTargets: WeakSet<EventTarget> | undefined =
+    (window as any).__amperaClickTargets__;
+  const hasButtonLikeToken = (el: Element): boolean => {
+    const tokens = `${el.id} ${el.getAttribute("class") || ""}`.toLowerCase();
+    return /(?:^|[\\s_-])(?:btn|button)(?:$|[\\s_-])/.test(tokens);
+  };
+  const r12Targets = Array.from(
+    document.querySelectorAll("button, input, [role='button'], [id], [class]"),
+  ).filter((btn) => {
+    const semanticButton = getEffectiveAriaRole(btn) === "button";
+    const scriptedButton =
+      hasButtonLikeToken(btn) &&
+      (!!r12ClickTargets?.has(btn) ||
+        typeof (btn as HTMLElement).onclick === "function");
+    return (semanticButton || scriptedButton) && isIncludedInAccessibilityTree(btn);
+  });
+  r12Targets.forEach((btn) => {
     if (btn.matches("input[type='image']")) return;
     if (!getAccessibleName(btn)) {
       results.push({ ruleId: "ACT-R12", type: "Issue", impact: "critical", description: "Button has no accessible name", element: outerHtmlSnippet(btn), elementContext: elementContextForAI(btn), selector: getSelector(btn) });
@@ -236,7 +270,7 @@ export function runNamesRules(results: ScanRawResult[], pushStat: PushStatFn): v
   if (formEls > 0) pushStat("ACT-R8", formEls, "element");
   const linkEls = document.querySelectorAll("a[href]").length;
   if (linkEls > 0) pushStat("ACT-R11", linkEls, "element");
-  const btnEls = document.querySelectorAll("button,[role='button']").length;
+  const btnEls = r12Targets.length;
   if (btnEls > 0) pushStat("ACT-R12", btnEls, "element");
   const menuitemEls = document.querySelectorAll("[role='menuitem'],[role='menuitemcheckbox'],[role='menuitemradio']").length;
   if (menuitemEls > 0) pushStat("ACT-R94", menuitemEls, "element");

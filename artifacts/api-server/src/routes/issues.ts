@@ -263,6 +263,18 @@ router.get("/issues", requireAuth, async (req, res) => {
     inProgress: issues.filter((x) => x.issue.status === "in_progress").length,
     done: issues.filter((x) => ["complete", "closed"].includes(x.issue.status)).length,
     bugs: issues.filter((x) => x.issue.type === "bug").length,
+    statusCounts: Object.fromEntries(
+      statuses.map((status) => [
+        status,
+        issues.filter((x) => x.issue.status === status).length,
+      ]),
+    ),
+    typeCounts: Object.fromEntries(
+      ISSUE_TYPES.map((type) => [
+        type,
+        issues.filter((x) => x.issue.type === type).length,
+      ]),
+    ),
   };
   res.json({ issues: issues.map((x) => ({ ...x.issue, reporterName: x.reporterName, assigneeName: x.assigneeName, siteName: x.siteName, projectName: x.projectName })), metrics });
 });

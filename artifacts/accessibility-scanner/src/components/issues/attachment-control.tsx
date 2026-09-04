@@ -79,6 +79,9 @@ export function AttachmentPreview({
   const isVideo = attachment.contentType.startsWith("video/");
   const isPdf = attachment.contentType === "application/pdf";
   const url = issueId && attachment.id ? `${BASE}/api/issues/${issueId}/attachments/${attachment.id}` : undefined;
+  const restorePreviewFocus = () => {
+    window.setTimeout(() => previewTriggerRef.current?.focus({ preventScroll: true }), 0);
+  };
 
   return (
     <>
@@ -126,12 +129,18 @@ export function AttachmentPreview({
       </div>
 
       {url && (
-        <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <Dialog
+          open={previewOpen}
+          onOpenChange={(nextOpen) => {
+            setPreviewOpen(nextOpen);
+            if (!nextOpen) restorePreviewFocus();
+          }}
+        >
           <DialogContent
             className="flex max-h-[92vh] max-w-5xl grid-rows-none flex-col gap-0 overflow-hidden p-0"
             onCloseAutoFocus={(event) => {
               event.preventDefault();
-              previewTriggerRef.current?.focus();
+              restorePreviewFocus();
             }}
           >
             <DialogHeader className="border-b px-5 py-4 pr-14">

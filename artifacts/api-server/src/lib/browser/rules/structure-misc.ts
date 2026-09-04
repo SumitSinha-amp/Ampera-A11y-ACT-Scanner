@@ -251,6 +251,141 @@ export function runStructureMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
     });
   }
 
+  // ACT-R128: Abbreviations and acronyms should have their full expansion
+  // available (WCAG 3.1.4, AAA). The browser cannot reliably determine
+  // whether a reader already knows an abbreviation, so findings are
+  // intentionally emitted as Potential Issues for human review.
+  {
+    const commonUppercaseWords = new Set([
+      "A", "AM", "AN", "AND", "ARE", "AS", "AT", "BE", "BETWEEN", "BY",
+      "CAN", "DO", "FOR", "FROM", "GO", "HAS", "HAD", "HE", "HOW", "IF",
+      "IN", "INTO", "IS", "IT", "ITS", "MAY", "ME", "MORE", "MY", "NEW",
+      "NO", "NOT", "OF", "ON", "ONE", "OR", "OUR", "OUT", "PER", "SEE",
+      "SO", "THAN", "THAT", "THE", "THESE", "THIS", "TO", "TWO", "UP",
+      "US", "USE", "VIA", "WAS", "WE", "WHAT", "WHEN", "WHO", "WHY",
+      "WITH", "YOU", "YOUR",
+    ]);
+    const acronymToken = /\b[A-Z]{2,8}(?:[0-9][A-Z0-9]{0,7})?\b/g;
+    const ignoredAncestors = "script,style,noscript,template";
+    const expandedTokens = new Set<string>();
+    const reportedTokens = new Set<string>();
+    let checkedTextNodes = 0;
+
+    const normalizeText = (value: string) => value.replace(/\s+/g, " ").trim();
+
+    const hasUsableExpansionAttribute = (el: Element): boolean => {
+      const token = normalizeText(el.textContent || "").toUpperCase();
+      const title = normalizeText(el.getAttribute("title") || "");
+      const ariaLabel = normalizeText(el.getAttribute("aria-label") || "");
+      const labelledBy = el.getAttribute("aria-labelledby");
+      const labelledByText = labelledBy
+        ? normalizeText(
+            labelledBy
+              .split(/\s+/)
+              .map((id) => document.getElementById(id)?.textContent || "")
+              .join(" "),
+          )
+        : "";
+      return [title, ariaLabel, labelledByText].some(
+        (value) => value.length > token.length && value.toUpperCase() !== token,
+      );
+    };
+
+    const hasExpansionInContext = (token: string, context: string): boolean => {
+      const escapedToken = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const normalized = normalizeText(context);
+      if (!normalized) return false;
+      const fullNameBefore = new RegExp(
+        "\\b[A-Za-z][A-Za-z0-9&'/-]*(?:\\s+[A-Za-z][A-Za-z0-9&'/-]*){0,10}\\s*\\(\\s*" +
+          escapedToken +
+          "\\s*\\)",
+        "i",
+      );
+      const fullNameAfter = new RegExp(
+        "\\b" +
+          escapedToken +
+          "\\b\\s*\\(\\s*[A-Za-z][A-Za-z0-9&'/-]*(?:\\s+[A-Za-z][A-Za-z0-9&'/-]*){1,10}\\s*\\)",
+        "i",
+      );
+      return fullNameBefore.test(normalized) || fullNameAfter.test(normalized);
+    };
+
+    const reportCandidate = (token: string, el: Element, reason: string) => {
+      const normalizedToken = token.toUpperCase();
+      const selector = getSelector(el);
+      const reportKey = `${normalizedToken}|${selector}`;
+      if (reportedTokens.has(normalizedToken) || reportedTokens.has(reportKey)) return;
+      reportedTokens.add(normalizedToken);
+      reportedTokens.add(reportKey);
+      results.push({
+        ruleId: "ACT-R128",
+        type: "Potential Issue",
+        impact: "minor",
+        description: `Abbreviation or acronym "${token}" may not have its full expansion available at first use — ${reason}. Verify that the full meaning is provided in visible text, an <abbr title>, or an equivalent glossary`,
+        element: outerHtmlSnippet(el),
+        elementContext: elementContextForAI(el),
+        selector,
+      });
+    };
+
+    document.querySelectorAll("abbr").forEach((el) => {
+      if (!(el instanceof HTMLElement) || !isVisible(el)) return;
+      if (el.closest(ignoredAncestors) || el.closest("[aria-hidden='true'],[inert]")) return;
+      const token = normalizeText(el.textContent || "");
+      if (!token || !/^[A-Za-z0-9][A-Za-z0-9.-]*$/.test(token)) return;
+      checkedTextNodes += 1;
+      if (hasUsableExpansionAttribute(el)) {
+        expandedTokens.add(token.toUpperCase());
+        return;
+      }
+      if (hasExpansionInContext(token, el.parentElement?.textContent || "")) {
+        expandedTokens.add(token.toUpperCase());
+        return;
+      }
+      reportCandidate(token, el, "the element has no detectable expansion");
+    });
+
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let textNode: Node | null;
+    let precedingText = "";
+    while ((textNode = walker.nextNode())) {
+      const parent = textNode.parentElement;
+      if (!parent || parent.closest(ignoredAncestors)) continue;
+      if (parent.closest("abbr") || parent.closest("[aria-hidden='true'],[inert]")) continue;
+      if (!isVisible(parent)) continue;
+      const text = textNode.textContent || "";
+      if (!text.trim()) continue;
+      checkedTextNodes += 1;
+      let match: RegExpExecArray | null;
+      acronymToken.lastIndex = 0;
+      while ((match = acronymToken.exec(text))) {
+        const token = match[0];
+        const normalizedToken = token.toUpperCase();
+        if (commonUppercaseWords.has(normalizedToken)) continue;
+        const textWithoutToken = `${text.slice(0, match.index)} ${text.slice(match.index + token.length)}`;
+        const hasMixedCaseContext =
+          /[a-z]/.test(textWithoutToken) || /[a-z]/.test(precedingText.slice(-200));
+        const isShortStandaloneAcronym = token.length >= 3 && token.length <= 5;
+        // A currency/code label such as the standalone "USD" in a selector
+        // is still a meaningful abbreviation even when its own text node has
+        // no lowercase prose. Keep longer all-caps labels conservative.
+        if (!hasMixedCaseContext && !isShortStandaloneAcronym) continue;
+        const context = `${precedingText.slice(-700)} ${text.slice(
+          Math.max(0, match.index - 120),
+          Math.min(text.length, match.index + token.length + 120),
+        )}`;
+        if (hasExpansionInContext(normalizedToken, context)) {
+          expandedTokens.add(normalizedToken);
+          continue;
+        }
+        if (expandedTokens.has(normalizedToken) || reportedTokens.has(normalizedToken)) continue;
+        reportCandidate(token, parent, "the page does not show its full meaning before this use");
+      }
+      precedingText += ` ${text}`;
+    }
+    if (checkedTextNodes > 0) pushStat("ACT-R128", checkedTextNodes, "element");
+  }
+
   // ── Scoring stats: total elements checked per rule ────────────────────────
   const abbrEls = document.querySelectorAll("abbr").length;
   const preEls = document.querySelectorAll("pre").length;

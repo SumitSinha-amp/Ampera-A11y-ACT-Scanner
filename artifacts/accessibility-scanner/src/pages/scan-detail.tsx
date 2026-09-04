@@ -3222,24 +3222,14 @@ export default function ScanDetail() {
               <ChevronLeft className="mr-1 h-3 w-3" />
               Back to {isCrawlerScan ? "Crawler History" : "Scan History"}
             </Button>
+             </div>
+             <div className="mt-2 flex min-w-0 items-center gap-2">
             <h1
               className="min-w-0 max-w-[min(52vw,760px)] flex-1 truncate whitespace-nowrap text-[19px] font-bold tracking-[-0.02em] text-[#172b4d] dark:text-slate-100"
               title={scan.name || `Scan #${scan.id}`}
             >
               {scan.name || `Scan #${scan.id}`}
             </h1>
-            <span className="shrink-0 [&>span]:rounded-full [&>span]:bg-[#e3f0fb] [&>span]:px-3 [&>span]:py-1 [&>span]:text-xs [&>span]:font-bold [&>span]:text-[#1565c0]">
-              {getStatusBadge(displayStatus)}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 rounded-md text-[#7b8aaa] hover:bg-white hover:text-[#172b4d] dark:hover:bg-slate-800"
-              title="Edit scan details"
-              onClick={openEditDialog}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
             {isCrawlBoost && (
               <Badge variant="outline" className="gap-1.5 text-xs border-emerald-500 text-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400">
                 <span className="relative flex h-2 w-2">
@@ -3250,7 +3240,7 @@ export default function ScanDetail() {
                 Crawl Boost
               </Badge>
             )}
-          </div>
+             </div>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs font-normal text-[#7b8aaa] dark:text-slate-400">
             {(scan as { projectName?: string | null }).projectName && (
               <span>Project <span className="font-semibold text-violet-700 dark:text-violet-300">{(scan as { projectName: string }).projectName}</span></span>
@@ -3367,6 +3357,18 @@ export default function ScanDetail() {
               )}
             </>
           )}
+          <span className="shrink-0 [&>span]:rounded-full [&>span]:bg-[#e3f0fb] [&>span]:px-3 [&>span]:py-1 [&>span]:text-xs [&>span]:font-bold [&>span]:text-[#1565c0]">
+            {getStatusBadge(displayStatus)}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-md text-[#7b8aaa] hover:bg-white hover:text-[#172b4d] dark:hover:bg-slate-800"
+            title="Edit scan details"
+            onClick={openEditDialog}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
         </div>
         </div>
       </section>

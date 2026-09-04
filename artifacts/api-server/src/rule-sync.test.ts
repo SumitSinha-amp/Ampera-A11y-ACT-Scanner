@@ -91,6 +91,23 @@ const browserEntrySource = read("artifacts/api-server/src/lib/browser/index.ts")
     );
   });
 
+  it("keeps ACT-R99 as a targeted missing-main-landmark check", () => {
+    expect(browserSource).toContain('ruleId: "ACT-R99"');
+    expect(browserSource).toContain(
+      "document.querySelectorAll(\"main, [role='main']\")",
+    );
+    expect(browserSource).toContain('preferredIds = ["content", "main", "appForm"]');
+    expect(browserSource).toContain(
+      "Primary content is contained in <${tag}${identifier}> without a main landmark",
+    );
+    expect(read("artifacts/api-server/src/lib/scanner.ts")).toContain(
+      'description: "Document has no main landmark"',
+    );
+    expect(
+      read("artifacts/accessibility-scanner/src/lib/actRules.ts"),
+    ).toContain('title: "Document has no main landmark"');
+  });
+
   it("does not emit the manual R24 video-transcript question automatically", () => {
     expect(browserSource).toContain(
       'ruleId: "ACT-R24", type: "Potential Issue"',
@@ -117,6 +134,23 @@ const browserEntrySource = read("artifacts/api-server/src/lib/browser/index.ts")
     expect(
       read("artifacts/accessibility-scanner/src/lib/actRules.ts"),
     ).toContain('"ACT-R118"');
+  });
+
+  it("keeps ACT-R128 aligned as the potential abbreviation rule", () => {
+    expect(browserSource).toContain('ruleId: "ACT-R128"');
+    expect(browserSource).toContain('type: "Potential Issue"');
+    expect(read("artifacts/api-server/src/lib/scanner.ts")).toContain(
+      '"ACT-R128": { sc: ["3.1.4"], level: ["AAA"] }',
+    );
+    expect(read("artifacts/api-server/src/lib/scanner.ts")).toContain(
+      '"ACT-R128": {',
+    );
+    expect(
+      read("artifacts/accessibility-scanner/src/lib/actRules.ts"),
+    ).toContain('"ACT-R128"');
+    expect(
+      read("artifacts/accessibility-scanner/src/pages/home.tsx"),
+    ).toContain('id: "ACT-R128"');
   });
 
   it("enables manual-only emission when an API scan explicitly selects ACT-R118", () => {
@@ -149,8 +183,23 @@ const browserEntrySource = read("artifacts/api-server/src/lib/browser/index.ts")
     expect(scannerSource).toContain("allowVisualImages = true");
     expect(scannerSource).toContain("hydrateVisualImages(page)");
     expect(scannerSource).toContain("img.naturalWidth === 0");
+    expect(scannerSource).toContain('el.getAttribute("data-original")');
+    expect(scannerSource).toContain("explicitly preload each visual URL");
     expect(scannerSource).toContain(
       'type === "image" && !allowVisualImages',
+    );
+  });
+
+  it("discovers same-page anchor dropdowns and class-named popup triggers", () => {
+    const scannerSource = read("artifacts/api-server/src/lib/scanner.ts");
+    expect(scannerSource).toContain(
+      "[data-toggle='collapse'],a[href]",
+    );
+    expect(scannerSource).toContain(
+      "\\b(open|modal|dialog|popup|overlay|dropdown|toggle|accordion|collapse|menu|railcard|country|currency|language|filter)\\b",
+    );
+    expect(scannerSource).toContain(
+      '!controlled.matches("input,select,textarea,output")',
     );
   });
 
@@ -165,10 +214,24 @@ const browserEntrySource = read("artifacts/api-server/src/lib/browser/index.ts")
     expect(browserSource).toContain('explicitRole === "none" || explicitRole === "presentation"');
     expect(browserSource).toContain('img.hasAttribute("alt")');
     expect(browserSource).toContain('hasAbsoluteFontSizeDeclaration');
+    expect(browserSource).toContain("rootAbsoluteFontSize");
+    expect(browserSource).toContain("hasVisibleParagraphText");
+    expect(browserSource).toContain(
+      "Report that shared declaration once instead of repeating the same root",
+    );
     expect(browserSource).toContain('ruleId: "ACT-R111"');
     expect(browserSource).toContain("isIncludedInAccessibilityTree");
     expect(read("artifacts/api-server/src/lib/browser/contrast.ts")).toContain(
       "hasIndeterminateLayer",
+    );
+    expect(read("artifacts/api-server/src/lib/browser/alfa-helpers.ts")).toContain(
+      "rectangleDistanceSquared(targetBounds, otherBounds) < size * size",
+    );
+    expect(read("artifacts/api-server/src/lib/browser/alfa-helpers.ts")).toContain(
+      "visible descendants that are not",
+    );
+    expect(read("artifacts/api-server/src/lib/browser/alfa-helpers.ts")).toContain(
+      "getAlfaTargetRects(candidate).length > 0",
     );
   });
 

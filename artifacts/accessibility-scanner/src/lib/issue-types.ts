@@ -208,6 +208,16 @@ export interface Issue {
   updatedAt: string;
 }
 
+export interface IssueMetrics {
+  total: number;
+  open: number;
+  inProgress: number;
+  done: number;
+  bugs: number;
+  statusCounts?: Record<string, number>;
+  typeCounts?: Record<string, number>;
+}
+
 export interface IssueReference {
   id: number;
   issueKey: string;

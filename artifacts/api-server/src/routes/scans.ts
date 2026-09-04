@@ -5,6 +5,7 @@ import {
   pool,
   scanSessionsTable,
   pageResultsTable,
+  pageInteractionStatesTable,
   accessibilityIssuesTable,
   projectsTable,
   projectSitesTable,
@@ -244,9 +245,13 @@ router.post("/scans", requireAuth, async (req, res): Promise<void> => {
       const levels = rawOpts.wcagLevels as string[];
       const isAll = ALL_SCAN_LEVELS.every((l) => levels.includes(l));
       const existingRules: string[] = Array.isArray(rawOpts.rules) ? rawOpts.rules : [];
-      const mergedRules = isAll
-        ? existingRules
-        : [...new Set([...getRulesForLevels(levels), ...existingRules])];
+      // An explicit rule selection is authoritative. wcagLevels describes the
+      // picker scope, but must not silently broaden a one-rule scan.
+      const mergedRules = existingRules.length > 0
+        ? [...new Set(existingRules)]
+        : isAll
+          ? []
+          : [...new Set(getRulesForLevels(levels))];
       const { wcagLevels: _drop, ...restOpts } = rawOpts;
       req.body = {
         ...req.body,
@@ -1088,6 +1093,7 @@ router.get("/scans/:scanId/pages/:pageId/report-data", requireAuth, async (req, 
             'bboxY', ai.bbox_y,
             'bboxWidth', ai.bbox_width,
             'bboxHeight', ai.bbox_height,
+            'interactionStateId', ai.interaction_state_id,
             'falsePositive', ai.false_positive,
             'aiAssessment', CASE WHEN aia.id IS NULL THEN NULL ELSE jsonb_build_object(
               'id', aia.id,
@@ -2301,17 +2307,31 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
     (async () => {
       try {
         await pool.query(
+          `INSERT INTO page_interaction_states
+             (page_id, state_key, trigger_selector, trigger_label, screenshot, page_html)
+           SELECT new_pr.id, pis.state_key, pis.trigger_selector, pis.trigger_label,
+                  pis.screenshot, pis.page_html
+           FROM page_interaction_states pis
+           JOIN page_results orig_pr ON orig_pr.id = pis.page_id
+           JOIN page_results new_pr  ON new_pr.scan_id = $1 AND new_pr.url = orig_pr.url
+           WHERE orig_pr.id = ANY($2)`,
+          [newSession.id, completedPageIds],
+        );
+        await pool.query(
           `INSERT INTO accessibility_issues
              (page_id, rule_id, rule_type, impact, description, element, wcag_criteria, wcag_level,
               legal_text, selector, remediation, bbox_x, bbox_y, bbox_width, bbox_height,
-              false_positive, false_positive_note)
+              interaction_state_id, false_positive, false_positive_note)
            SELECT new_pr.id, ai.rule_id, ai.rule_type, ai.impact, ai.description, ai.element,
                   ai.wcag_criteria, ai.wcag_level, ai.legal_text, ai.selector, ai.remediation,
                   ai.bbox_x, ai.bbox_y, ai.bbox_width, ai.bbox_height,
-                  ai.false_positive, ai.false_positive_note
+                  new_pis.id, ai.false_positive, ai.false_positive_note
            FROM accessibility_issues ai
            JOIN page_results orig_pr ON orig_pr.id = ai.page_id
            JOIN page_results new_pr  ON new_pr.scan_id = $1 AND new_pr.url = orig_pr.url
+           LEFT JOIN page_interaction_states orig_pis ON orig_pis.id = ai.interaction_state_id
+           LEFT JOIN page_interaction_states new_pis
+             ON new_pis.page_id = new_pr.id AND new_pis.state_key = orig_pis.state_key
            WHERE orig_pr.id = ANY($2)`,
           [newSession.id, completedPageIds],
         );
@@ -2769,10 +2789,27 @@ router.get("/pages/:pageId/snapshot", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Invalid pageId" });
     return;
   }
-  const [page] = await db
-    .select({ screenshot: pageResultsTable.screenshot })
-    .from(pageResultsTable)
-    .where(eq(pageResultsTable.id, pageId));
+  const stateId =
+    typeof req.query.stateId === "string"
+      ? parseInt(req.query.stateId, 10)
+      : null;
+  const [page] =
+    stateId && Number.isInteger(stateId)
+      ? await db
+          .select({ screenshot: pageInteractionStatesTable.screenshot })
+          .from(pageInteractionStatesTable)
+          .where(
+            and(
+              eq(pageInteractionStatesTable.id, stateId),
+              eq(pageInteractionStatesTable.pageId, pageId),
+            ),
+          )
+          .limit(1)
+      : await db
+          .select({ screenshot: pageResultsTable.screenshot })
+          .from(pageResultsTable)
+          .where(eq(pageResultsTable.id, pageId))
+          .limit(1);
 
   if (!page) {
     res.status(404).json({ error: "Page not found" });
@@ -3445,7 +3482,8 @@ router.get("/pages/:pageId/rule-report", requireAuth, async (req: Request, res: 
     const issuesRes = await client.query(
       `SELECT id, rule_id, rule_type, impact, description, element, element_context,
               selector, wcag_criteria, wcag_level, legal_text, remediation,
-              bbox_x, bbox_y, bbox_width, bbox_height, false_positive
+              bbox_x, bbox_y, bbox_width, bbox_height, interaction_state_id,
+              false_positive
        FROM accessibility_issues
        WHERE page_id = $1 AND rule_id = $2
        ORDER BY id`,
@@ -3475,6 +3513,7 @@ router.get("/pages/:pageId/rule-report", requireAuth, async (req: Request, res: 
         bboxY: r.bbox_y ?? null,
         bboxWidth: r.bbox_width ?? null,
         bboxHeight: r.bbox_height ?? null,
+        interactionStateId: r.interaction_state_id ?? null,
         falsePositive: r.false_positive ?? false,
       })),
     });

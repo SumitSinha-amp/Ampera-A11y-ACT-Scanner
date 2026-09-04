@@ -107,7 +107,18 @@ const WIDGET_ROLES = new Set([
 ]);
 
 export function isAlfaPointerTarget(el: Element): boolean {
-  if (!isAlfaFocusable(el) || !isAlfaIncludedInAccessibilityTree(el)) return false;
+  if (
+    !isAlfaFocusable(el) ||
+    !isAlfaIncludedInAccessibilityTree(el) ||
+    window.getComputedStyle(el).pointerEvents === "none"
+  ) {
+    return false;
+  }
+  for (const node of [el, ...composedAncestors(el)]) {
+    if (Number.parseFloat(window.getComputedStyle(node).opacity) === 0) {
+      return false;
+    }
+  }
   const role = getEffectiveAriaRole(el);
   return WIDGET_ROLES.has(role) || el.matches("a[href],area[href],button,input,select,textarea,summary");
 }
@@ -117,7 +128,9 @@ export function getAlfaPointerTargets(root: ParentNode = document): Element[] {
     root.querySelectorAll(
       "a[href],area[href],button,input:not([type='hidden']),select,textarea,summary,iframe,audio[controls],video[controls],[role]",
     ),
-  ).filter(isAlfaPointerTarget);
+  )
+    .filter(isAlfaPointerTarget)
+    .filter((candidate) => getAlfaTargetRects(candidate).length > 0);
 
   // The Alfa rule walks the full tree and suppresses inline descendants of an
   // already-selected block target. This avoids treating icon/text fragments
@@ -134,30 +147,38 @@ export function getAlfaPointerTargets(root: ParentNode = document): Element[] {
 }
 
 export function getAlfaTargetRects(el: Element): DOMRect[] {
-  const own = Array.from(el.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
-  if (own.length === 0) return [];
-
-  // Nested clickable descendants own their pointer regions. Excluding their
-  // rectangles keeps the parent’s effective target close to Alfa tQ's
-  // subtraction of interposed descendants.
-  const nestedTargets = Array.from(el.querySelectorAll("*")).filter(
-    (child) => child !== el && isAlfaPointerTarget(child),
+  const rects = Array.from(el.getClientRects()).filter(
+    (rect) => rect.width > 0 && rect.height > 0,
   );
-  return own.filter((rect) => {
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    return !nestedTargets.some((target) =>
-      Array.from(target.getClientRects()).some(
-        (nested) =>
-          nested.width > 0 &&
-          nested.height > 0 &&
-          centerX >= nested.left &&
-          centerX <= nested.right &&
-          centerY >= nested.top &&
-          centerY <= nested.bottom,
-      ),
-    );
-  });
+
+  const containsRect = (outer: DOMRect, inner: DOMRect): boolean =>
+    outer.left <= inner.left &&
+    outer.top <= inner.top &&
+    outer.right >= inner.right &&
+    outer.bottom >= inner.bottom;
+
+  // Alfa's clickable region includes visible descendants that are not
+  // independently actionable. This matters for icon/image links whose anchor
+  // has no box of its own, and for controls whose child artwork extends the
+  // parent's nominal line box.
+  const visit = (parent: Element): void => {
+    for (const child of Array.from(parent.children)) {
+      if (!isAlfaVisible(child) || isAlfaPointerTarget(child)) continue;
+      for (const childRect of Array.from(child.getClientRects())) {
+        if (
+          childRect.width > 0 &&
+          childRect.height > 0 &&
+          !rects.some((rect) => containsRect(rect, childRect))
+        ) {
+          rects.push(childRect);
+        }
+      }
+      visit(child);
+    }
+  };
+  visit(el);
+
+  return rects;
 }
 
 export function hasAlfaTargetSize(el: Element, size: number): boolean {
@@ -181,16 +202,49 @@ function circleIntersectsRect(centerX: number, centerY: number, radius: number, 
   return dx * dx + dy * dy <= radius * radius;
 }
 
+function unionRect(rects: DOMRect[]): { left: number; right: number; top: number; bottom: number } | null {
+  if (rects.length === 0) return null;
+  return {
+    left: Math.min(...rects.map((rect) => rect.left)),
+    right: Math.max(...rects.map((rect) => rect.right)),
+    top: Math.min(...rects.map((rect) => rect.top)),
+    bottom: Math.max(...rects.map((rect) => rect.bottom)),
+  };
+}
+
+function rectangleDistanceSquared(
+  left: { left: number; right: number; top: number; bottom: number },
+  right: { left: number; right: number; top: number; bottom: number },
+): number {
+  const dx = Math.max(left.left - right.right, right.left - left.right, 0);
+  const dy = Math.max(left.top - right.bottom, right.top - left.bottom, 0);
+  return dx * dx + dy * dy;
+}
+
 export function hasAlfaTargetSpacing(el: Element, allTargets: Element[], size = 24): boolean {
   const rects = getAlfaTargetRects(el);
   if (rects.length === 0) return true;
   const radius = size / 2;
+  const targetBounds = unionRect(rects);
   return !allTargets.some((other) => {
     if (other === el) return false;
-    return getAlfaTargetRects(other).some((otherRect) =>
+    const otherRects = getAlfaTargetRects(other);
+    const intersectsTargetCircle = otherRects.some((otherRect) =>
       rects.some((rect) =>
         circleIntersectsRect(rect.left + rect.width / 2, rect.top + rect.height / 2, radius, otherRect),
       ),
+    );
+    if (intersectsTargetCircle) return true;
+
+    // Alfa's R113 spacing exception also fails when two undersized targets are
+    // less than 24 CSS pixels apart, even if neither target intersects the
+    // other's 12px center circle.
+    if (hasAlfaTargetSize(other, size)) return false;
+    const otherBounds = unionRect(otherRects);
+    return (
+      targetBounds !== null &&
+      otherBounds !== null &&
+      rectangleDistanceSquared(targetBounds, otherBounds) < size * size
     );
   });
 }

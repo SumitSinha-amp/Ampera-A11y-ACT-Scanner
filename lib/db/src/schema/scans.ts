@@ -60,6 +60,18 @@ export const pageResultsTable = pgTable("page_results", {
   index("page_results_url_hash_idx").on(t.url, t.contentHash),
 ]);
 
+export const pageInteractionStatesTable = pgTable("page_interaction_states", {
+  id: serial("id").primaryKey(),
+  pageId: integer("page_id").notNull().references(() => pageResultsTable.id, { onDelete: "cascade" }),
+  stateKey: text("state_key").notNull(),
+  triggerSelector: text("trigger_selector"),
+  triggerLabel: text("trigger_label"),
+  screenshot: text("screenshot"),
+  pageHtml: text("page_html"),
+}, (t) => [
+  index("page_interaction_states_page_id_idx").on(t.pageId),
+]);
+
 export const accessibilityIssuesTable = pgTable("accessibility_issues", {
   id: serial("id").primaryKey(),
   pageId: integer("page_id").notNull().references(() => pageResultsTable.id, { onDelete: "cascade" }),
@@ -78,6 +90,7 @@ export const accessibilityIssuesTable = pgTable("accessibility_issues", {
   bboxY: real("bbox_y"),
   bboxWidth: real("bbox_width"),
   bboxHeight: real("bbox_height"),
+  interactionStateId: integer("interaction_state_id").references(() => pageInteractionStatesTable.id, { onDelete: "set null" }),
   falsePositive: boolean("false_positive").default(false).notNull(),
   falsePositiveNote: text("false_positive_note"),
 }, (t) => [

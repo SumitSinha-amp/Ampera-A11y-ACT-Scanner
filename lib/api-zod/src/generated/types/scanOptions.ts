@@ -14,8 +14,12 @@ export interface ScanOptions {
   stealthMode?: boolean;
   /** If provided, only check these rule IDs (e.g. ["ACT-R14","ACT-R35"]) */
   rules?: string[];
+  /** Accessibility scope levels selected for this scan */
+  wcagLevels?: string[];
   /** PAC file URL to route scan traffic through a corporate proxy */
   proxyPacUrl?: string;
   /** Skip pages whose raw HTML is unchanged since the last completed scan, carrying previous issues forward */
   incremental?: boolean;
+  /** For direct manual scans only, ask the configured server-side AI provider to assess each detected issue occurrence */
+  aiContextualAssessment?: boolean;
 }

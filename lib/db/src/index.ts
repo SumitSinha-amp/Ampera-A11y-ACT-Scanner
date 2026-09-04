@@ -33,6 +33,7 @@ export {
   projectSitesTable,
   scanSessionsTable,
   pageResultsTable,
+  pageInteractionStatesTable,
   accessibilityIssuesTable,
   aiIssueAssessmentsTable,
   qaPagesTable,

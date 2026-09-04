@@ -7,6 +7,7 @@
  */
 import type { AccessibilityIssueImpact } from "./accessibilityIssueImpact";
 import type { AccessibilityIssueRuleType } from "./accessibilityIssueRuleType";
+import type { AIIssueAssessment } from "./aIIssueAssessment";
 
 export interface AccessibilityIssue {
   id: number;
@@ -27,4 +28,5 @@ export interface AccessibilityIssue {
   selector: string | null;
   /** @nullable */
   remediation: string | null;
+  aiAssessment: AIIssueAssessment | null;
 }

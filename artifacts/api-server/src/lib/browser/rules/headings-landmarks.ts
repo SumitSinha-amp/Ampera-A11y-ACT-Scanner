@@ -351,8 +351,54 @@ export function runHeadingsLandmarksRules(results: ScanRawResult[], EMIT_MANUAL_
     }
   }
 
-  // ACT-R99 (missing <main> landmark) emitter removed — Siteimprove folds the
-  // missing-main condition into its single skip-link check (ACT-R87).
+  // ════════════════════════════════════════════════════════════════════════
+  // ACT-R99: Primary content is not exposed as a main landmark (WCAG 1.3.1)
+  // ════════════════════════════════════════════════════════════════════════
+  {
+    const mainLandmarks = Array.from(
+      document.querySelectorAll("main, [role='main']"),
+    ).filter((el) => isRendered(el));
+
+    if (mainLandmarks.length === 0) {
+      // Prefer the page-level generic wrapper used by older sites. These
+      // selectors intentionally identify one primary content container rather
+      // than reporting every generic div on a page without <main>.
+      const preferredIds = ["content", "main", "appForm"];
+      const namedCandidates = preferredIds
+        .map((id) => document.getElementById(id))
+        .filter((el): el is HTMLElement => {
+          if (!el || !isRendered(el)) return false;
+          if (el.closest("header, nav, aside, footer")) return false;
+          return (el.textContent || "").trim().length >= 80;
+        });
+      const classCandidates = Array.from(
+        document.querySelectorAll(
+          "[class~='content'],[class~='main'],[class~='primary-content'],[class~='page-content']",
+        ),
+      ).filter((el) => {
+        if (!isRendered(el)) return false;
+        if (el.closest("header, nav, aside, footer")) return false;
+        return (el.textContent || "").trim().length >= 80;
+      });
+      const contentContainer = namedCandidates[0] ?? classCandidates[0];
+
+      if (contentContainer) {
+        const tag = contentContainer.tagName.toLowerCase();
+        const identifier = contentContainer.id
+          ? `#${contentContainer.id}`
+          : "";
+        results.push({
+          ruleId: "ACT-R99",
+          type: "Potential Issue",
+          impact: "moderate",
+          description: `Primary content is contained in <${tag}${identifier}> without a main landmark`,
+          element: outerHtmlSnippet(contentContainer),
+          elementContext: elementContextForAI(contentContainer),
+          selector: getSelector(contentContainer),
+        });
+      }
+    }
+  }
 
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R97: Collapsible element aria-expanded/aria-controls broken (WCAG 4.1.2)
@@ -411,6 +457,7 @@ export function runHeadingsLandmarksRules(results: ScanRawResult[], EMIT_MANUAL_
     pushStat("ACT-R56", landmarkEls, "element");
   }
   pushStat("ACT-R87", 1, "page");
+  pushStat("ACT-R99", 1, "page");
   pushStat("ACT-R101", 1, "page");
   pushStat("ACT-R102", 1, "page");
   const expandableEls = document.querySelectorAll("[aria-expanded]").length;

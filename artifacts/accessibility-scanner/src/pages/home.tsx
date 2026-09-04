@@ -325,7 +325,7 @@ const ALL_RULES: { id: string; label: string }[] = [
   },
   {
     id: "ACT-R99",
-    label: "Document has its main content inside a landmark (WCAG 1.3.1)",
+    label: "Document has no main landmark (WCAG 1.3.1)",
   },
   {
     id: "ACT-R100",
@@ -400,6 +400,11 @@ const ALL_RULES: { id: string; label: string }[] = [
   {
     id: "ACT-R127",
     label: "Authentication has no cognitive function test (WCAG 3.3.9)",
+  },
+  {
+    id: "ACT-R128",
+    label:
+      "Abbreviations and acronyms need full expansion (WCAG 3.1.4)",
   },
 ];
 
