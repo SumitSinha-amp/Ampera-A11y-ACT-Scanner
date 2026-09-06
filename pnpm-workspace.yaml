@@ -73,6 +73,7 @@ onlyBuiltDependencies:
   - msw
   - unrs-resolver
   - puppeteer
+  - '@clerk/shared'
 
 supportedArchitectures:
   os:
