@@ -40,6 +40,12 @@ packages:
   - lib/integrations/*
   - scripts
 
+allowBuilds:
+  "@clerk/shared": true
+  "core-js": true
+  "esbuild": true
+  "puppeteer": true
+  
 catalog:
   '@replit/vite-plugin-cartographer': ^0.5.1
   '@replit/vite-plugin-dev-banner': ^0.1.1
