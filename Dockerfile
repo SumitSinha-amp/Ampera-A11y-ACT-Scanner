@@ -69,13 +69,8 @@ RUN chmod +x /app/docker-entrypoint.sh
 # =========================
 # Install Dependencies
 # =========================
-RUN pnpm install --no-frozen-lockfile --unsafe-perm --ignore-scripts
+RUN pnpm install --no-frozen-lockfile --unsafe-perm
 
-# =========================
-# Rebuild Required Packages
-# =========================
-RUN pnpm approve-builds esbuild puppeteer core-js @clerk/shared
-RUN pnpm rebuild esbuild puppeteer core-js @clerk/shared
 
 # =========================
 # Install Puppeteer Chrome
