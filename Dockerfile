@@ -74,6 +74,7 @@ RUN pnpm install --no-frozen-lockfile --unsafe-perm --ignore-scripts
 # =========================
 # Rebuild Required Packages
 # =========================
+RUN pnpm approve-builds esbuild puppeteer core-js @clerk/shared
 RUN pnpm rebuild esbuild puppeteer core-js @clerk/shared
 
 # =========================
