@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { Ban, CheckCheck, CheckCircle2, CircleDot, Eye, GripVertical, Layers, List, Loader2, Lock, PanelRight, Plus, Search } from "lucide-react";
+import { Ban, CheckCheck, CheckCircle2, CircleDot, Eye, GripVertical, Layers, List, Loader2, Lock, PanelRight, PauseCircle, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -122,12 +122,13 @@ export default function IssuesPage() {
     { key: "fixed", label: "Fixed", helper: "", style: "text-emerald-600 dark:text-emerald-400", Icon: CheckCheck },
     { key: "closed", label: "Closed", helper: "", style: "text-slate-600 dark:text-slate-300", Icon: Lock },
     { key: "blocked", label: "Blocked", helper: "", style: "text-rose-600 dark:text-rose-400", Icon: Ban },
+    { key: "differ", label: "Differed", helper: "", style: "text-cyan-600 dark:text-cyan-400", Icon: PauseCircle },
   ];
 
   const filtered = useMemo(() => issues.filter((issue) =>
     (!search || [issue.issueKey, issue.title, issue.description, issue.siteName ?? ""].join(" ").toLowerCase().includes(search.toLowerCase())) &&
     (typeFilter === "all" || issue.type === typeFilter) && 
-    (statusFilter === "all" || issue.status === statusFilter)
+    (statusFilter === "all" || issue.status === statusFilter || (statusFilter === "closed" && issue.status === "complete"))
   ), [issues, search, typeFilter, statusFilter]);
 
   const sortedIssues = useMemo(() => {
@@ -257,35 +258,52 @@ export default function IssuesPage() {
       </div>
 
       {/* Metrics Row */}
-      <div className="flex-none grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-7">
-        <Card className="bg-card shadow-sm border-border/50">
-          <CardContent className="flex min-h-[104px] flex-col items-center p-2 text-center">
-            <Layers className="mb-0.5 h-3.5 w-3.5 text-violet-500" aria-hidden="true" />
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total</p>
-            <p className="text-2xl font-black leading-none text-foreground">{metrics.total}</p>
-            <div className="mt-1.5 grid w-full grid-cols-2 gap-x-2 gap-y-0 border-t pt-1.5 text-left">
-              {ISSUE_TYPES.map((type) => (
-                <div key={type} className="flex items-center justify-between gap-1 text-[9px] leading-[14px]">
-                  <span className="text-muted-foreground">{typeCountLabels[type] ?? type}</span>
-                  <span className="font-bold text-foreground">{typeCounts[type] ?? 0}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-        {statusCards.map(({ key, label, helper, style, Icon }) => (
-          <Card key={key} className="bg-card shadow-sm border-border/50">
-            <CardContent className="flex min-h-[104px] flex-col items-center justify-center p-2 text-center">
-              <Icon className={`mb-1 h-3.5 w-3.5 ${style}`} aria-hidden="true" />
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
-              {helper && <p className="text-[9px] font-medium leading-3 text-muted-foreground">({helper})</p>}
-              <p className={`mt-0.5 text-2xl font-black leading-none ${style}`}>
-                {key === "closed"
-                  ? (statusCounts.closed ?? 0) + (statusCounts.complete ?? 0)
-                  : statusCounts[key] ?? 0}
-              </p>
+      <div className="flex-none grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-8">
+        <button
+          type="button"
+          className="rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 cursor-pointer"
+          aria-label={`Show all ${metrics.total} issues`}
+          aria-pressed={statusFilter === "all"}
+          onClick={() => setStatusFilter("all")}
+        >
+          <Card className={`h-full bg-card shadow-sm transition-colors hover:border-primary/50 ${statusFilter === "all" ? "border-primary ring-1 ring-primary/25" : "border-border/50"}`}>
+            <CardContent className="flex min-h-[104px] flex-col items-center p-2 text-center">
+              <Layers className="mb-0.5 h-3.5 w-3.5 text-violet-500" aria-hidden="true" />
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total</p>
+              <p className="text-2xl font-black leading-none text-foreground">{metrics.total}</p>
+              <div className="mt-1.5 grid w-full grid-cols-2 gap-x-2 gap-y-0 border-t pt-1.5 text-left">
+                {ISSUE_TYPES.map((type) => (
+                  <div key={type} className="flex items-center justify-between gap-1 text-[9px] leading-[14px]">
+                    <span className="text-muted-foreground">{typeCountLabels[type] ?? type}</span>
+                    <span className="font-bold text-foreground">{typeCounts[type] ?? 0}</span>
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
+        </button>
+        {statusCards.map(({ key, label, helper, style, Icon }) => (
+          <button
+            key={key}
+            type="button"
+            className="rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 cursor-pointer"
+            aria-label={`Filter issues by ${label}`}
+            aria-pressed={statusFilter === key}
+            onClick={() => setStatusFilter((current) => current === key ? "all" : key)}
+          >
+            <Card className={`h-full bg-card shadow-sm transition-colors hover:border-primary/50 ${statusFilter === key ? "border-primary ring-1 ring-primary/25" : "border-border/50"}`}>
+              <CardContent className="flex min-h-[104px] flex-col items-center justify-center p-2 text-center">
+                <Icon className={`mb-1 h-3.5 w-3.5 ${style}`} aria-hidden="true" />
+                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
+                {helper && <p className="text-[9px] font-medium leading-3 text-muted-foreground">({helper})</p>}
+                <p className={`mt-0.5 text-2xl font-black leading-none ${style}`}>
+                  {key === "closed"
+                    ? (statusCounts.closed ?? 0) + (statusCounts.complete ?? 0)
+                    : statusCounts[key] ?? 0}
+                </p>
+              </CardContent>
+            </Card>
+          </button>
         ))}
       </div>
 
@@ -410,6 +428,7 @@ export default function IssuesPage() {
                   id={selectedIssueId}
                   people={people}
                   issues={issues}
+                  currentUserId={user?.id}
                   canEdit={canEdit}
                   canComment={canComment}
                   canManage={canManage}

@@ -142,6 +142,25 @@ export function useAddComment(id: number) {
   });
 }
 
+export function useUpdateComment(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      commentId: number;
+      body: string;
+      mentionIds?: number[];
+    }) =>
+      api<any>(`/api/issues/${id}/comments/${data.commentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          body: data.body,
+          mentionIds: data.mentionIds,
+        }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["issues", id] }),
+  });
+}
+
 export function useArchiveIssue() {
   const qc = useQueryClient();
   return useMutation({

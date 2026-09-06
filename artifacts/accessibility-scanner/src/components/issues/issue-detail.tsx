@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { useIssue, useUpdateIssue, useAddComment, useArchiveIssue, useAddIssueLink, useRemoveIssueLink } from "../../hooks/use-issues";
+import { useIssue, useUpdateIssue, useAddComment, useUpdateComment, useArchiveIssue, useAddIssueLink, useRemoveIssueLink } from "../../hooks/use-issues";
 import { getStatusTransitions, STATUS_LABELS, STATUS_COLORS, TYPE_COLORS, Person, Issue, ISSUE_LINK_LABELS, ISSUE_LINK_TYPES, IssueLinkType } from "../../lib/issue-types";
 import { RichTextEditor } from "./rich-text-editor";
 import { AttachmentControl, AttachmentPreview } from "./attachment-control";
@@ -16,6 +16,7 @@ interface IssueDetailProps {
   id: number;
   people: Person[];
   issues: Issue[];
+  currentUserId?: number;
   canEdit: boolean;
   canComment: boolean;
   canManage: boolean;
@@ -23,10 +24,11 @@ interface IssueDetailProps {
   onSelectIssue?: (id: number) => void;
 }
 
-export function IssueDetail({ id, people, issues, canEdit, canComment, canManage, onClose, onSelectIssue }: IssueDetailProps) {
+export function IssueDetail({ id, people, issues, currentUserId, canEdit, canComment, canManage, onClose, onSelectIssue }: IssueDetailProps) {
   const { data, isLoading } = useIssue(id);
   const updateIssue = useUpdateIssue(id);
   const addComment = useAddComment(id);
+  const updateComment = useUpdateComment(id);
   const archiveIssue = useArchiveIssue();
   const addIssueLink = useAddIssueLink(id);
   const removeIssueLink = useRemoveIssueLink(id);
@@ -34,6 +36,8 @@ export function IssueDetail({ id, people, issues, canEdit, canComment, canManage
 
   const [commentBody, setCommentBody] = useState("");
   const [commentAttachments, setCommentAttachments] = useState<any[]>([]);
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
+  const [editingCommentBody, setEditingCommentBody] = useState("");
   const [linkType, setLinkType] = useState<IssueLinkType>("relates_to");
   const [linkTargetId, setLinkTargetId] = useState("");
   const [editing, setEditing] = useState(false);
@@ -106,6 +110,42 @@ export function IssueDetail({ id, people, issues, canEdit, canComment, canManage
           toast({ title: "Comment added" });
         }
       }
+    );
+  };
+
+  const mentionIdsFromBody = (body: string) => {
+    const parsed = new DOMParser().parseFromString(body, "text/html");
+    const markedIds = Array.from(parsed.querySelectorAll("[data-mention-id]"))
+      .map((element) => Number(element.getAttribute("data-mention-id")))
+      .filter((personId) => Number.isInteger(personId) && personId > 0);
+    const textMatches = people
+      .filter((person) => body.includes(`@${person.name}`))
+      .map((person) => person.id);
+    return [...new Set([...markedIds, ...textMatches])];
+  };
+
+  const saveEditedComment = () => {
+    if (editingCommentId === null || !editingCommentBody.trim()) return;
+    updateComment.mutate(
+      {
+        commentId: editingCommentId,
+        body: editingCommentBody,
+        mentionIds: mentionIdsFromBody(editingCommentBody),
+      },
+      {
+        onSuccess: () => {
+          setEditingCommentId(null);
+          setEditingCommentBody("");
+          toast({ title: "Comment updated" });
+        },
+        onError: (error) => {
+          toast({
+            title: "Couldn't update comment",
+            description: error.message,
+            variant: "destructive",
+          });
+        },
+      },
     );
   };
 
@@ -476,11 +516,66 @@ export function IssueDetail({ id, people, issues, canEdit, canComment, canManage
                       {comment.authorName.charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-baseline justify-between mb-1.5">
+                      <div className="flex items-center justify-between gap-3 mb-1.5">
                         <span className="font-semibold text-sm">{comment.authorName}</span>
-                        <span className="text-xs text-muted-foreground">{new Date(comment.createdAt).toLocaleString()}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(comment.createdAt).toLocaleString()}
+                            {comment.updatedAt && new Date(comment.updatedAt).getTime() > new Date(comment.createdAt).getTime() + 1000 ? " (edited)" : ""}
+                          </span>
+                          {canComment && currentUserId === comment.authorId && editingCommentId !== comment.id && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => {
+                                setEditingCommentId(comment.id);
+                                setEditingCommentBody(comment.body);
+                              }}
+                              aria-label={`Edit comment by ${comment.authorName}`}
+                            >
+                              <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                              Edit
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                      <div className="prose prose-sm dark:prose-invert max-w-none text-foreground/90 bg-muted/20 p-3 rounded-lg border" dangerouslySetInnerHTML={{ __html: sanitizeIssueHtml(comment.body) }} />
+                      {editingCommentId === comment.id ? (
+                        <div className="rounded-lg border bg-muted/10 p-3">
+                          <RichTextEditor
+                            value={editingCommentBody}
+                            onChange={setEditingCommentBody}
+                            placeholder="Edit your comment..."
+                            people={people}
+                          />
+                          <div className="mt-3 flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={updateComment.isPending}
+                              onClick={() => {
+                                setEditingCommentId(null);
+                                setEditingCommentBody("");
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={!editingCommentBody.trim() || updateComment.isPending}
+                              onClick={saveEditedComment}
+                            >
+                              {updateComment.isPending ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Save className="mr-1 h-3.5 w-3.5" aria-hidden="true" />}
+                              Save
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="prose prose-sm dark:prose-invert max-w-none text-foreground/90 bg-muted/20 p-3 rounded-lg border" dangerouslySetInnerHTML={{ __html: sanitizeIssueHtml(comment.body) }} />
+                      )}
                       
                       {comment.attachments && comment.attachments.length > 0 && (
                         <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">

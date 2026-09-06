@@ -235,8 +235,10 @@ export interface IssueRelationship {
 export interface Comment {
   id: number;
   body: string;
+  authorId: number;
   authorName: string;
   createdAt: string;
+  updatedAt: string;
   attachments?: IssueAttachment[];
 }
 

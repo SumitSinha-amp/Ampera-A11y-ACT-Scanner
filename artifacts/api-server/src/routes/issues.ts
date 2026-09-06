@@ -656,6 +656,56 @@ router.post("/issues/:id/comments", requireAuth, async (req, res) => {
   res.status(201).json({ ...comment, authorName: author?.authorName, attachments: attachments.map((attachment) => ({ ...attachment, url: `/api/issues/${issue.id}/attachments/${attachment.id}` })) });
 });
 
+router.patch("/issues/:issueId/comments/:commentId", requireAuth, async (req, res) => {
+  if (!(await requireIssuePermission(req, res, "canCommentIssue"))) return;
+  const issueId = Number(req.params.issueId);
+  const commentId = Number(req.params.commentId);
+  const issue = await canSeeIssue(req, issueId);
+  if (!issue || !Number.isInteger(commentId)) {
+    res.status(404).json({ error: "Comment not found" });
+    return;
+  }
+
+  const [comment] = await db.select().from(appIssueCommentsTable).where(and(
+    eq(appIssueCommentsTable.id, commentId),
+    eq(appIssueCommentsTable.issueId, issue.id),
+  ));
+  if (!comment) {
+    res.status(404).json({ error: "Comment not found" });
+    return;
+  }
+
+  const userId = Number(req.session!.user!.id);
+  if (comment.authorId !== userId) {
+    res.status(403).json({ error: "You can only edit your own comments" });
+    return;
+  }
+
+  const body = sanitizeRichText(typeof req.body?.body === "string" ? req.body.body : "");
+  if (!plainRichText(body)) {
+    res.status(400).json({ error: "Comment cannot be empty" });
+    return;
+  }
+
+  const mentions = cleanMentionIds(req.body?.mentionIds);
+  const updatedAt = new Date();
+  const [updatedComment] = await db.update(appIssueCommentsTable)
+    .set({ body, mentions, updatedAt })
+    .where(eq(appIssueCommentsTable.id, comment.id))
+    .returning();
+  await Promise.all([
+    db.update(appIssuesTable).set({ updatedAt }).where(eq(appIssuesTable.id, issue.id)),
+    db.insert(appIssueActivityTable).values({
+      issueId: issue.id,
+      actorId: userId,
+      action: "edited a comment",
+      details: { commentId: comment.id },
+    }),
+  ]);
+
+  res.json(updatedComment);
+});
+
 router.delete("/issues/:id", requireAuth, async (req, res) => {
   if (req.session!.user!.role !== "super_admin" && !(await requireIssuePermission(req, res, "canManageIssues"))) return;
   const issue = await canSeeIssue(req, Number(req.params.id));
