@@ -2825,20 +2825,53 @@ router.get("/pages/:pageId/snapshot", async (req, res): Promise<void> => {
   res.send(buf);
 });
 
-// GET /api/pages/:pageId/html — serve stored Puppeteer-rendered HTML for Element Viewer
-router.get("/pages/:pageId/html", async (req, res): Promise<void> => {
-  const pageId = parseInt(req.params.pageId, 10);
+async function getStoredPageHtml(
+  pageId: number,
+  stateId: number | null,
+): Promise<{ scanId: number; url: string; pageHtml: string | null } | null> {
+  const [page] = await db
+    .select({ scanId: pageResultsTable.scanId, url: pageResultsTable.url, pageHtml: pageResultsTable.pageHtml })
+    .from(pageResultsTable)
+    .where(eq(pageResultsTable.id, pageId))
+    .limit(1);
+  if (!page) return null;
+  if (stateId === null) return page;
+  const [state] = await db
+    .select({ pageHtml: pageInteractionStatesTable.pageHtml })
+    .from(pageInteractionStatesTable)
+    .where(and(
+      eq(pageInteractionStatesTable.id, stateId),
+      eq(pageInteractionStatesTable.pageId, pageId),
+    ))
+    .limit(1);
+  return state ? { ...page, pageHtml: state.pageHtml } : null;
+}
+
+function parseOptionalStateId(req: Request): number | null | "invalid" {
+  if (typeof req.query.stateId !== "string") return null;
+  if (!/^[1-9]\d*$/.test(req.query.stateId)) return "invalid";
+  return Number(req.query.stateId);
+}
+
+// GET /api/pages/:pageId/html — stored source used by the existing HTML viewer
+router.get("/pages/:pageId/html", requireAuth, async (req, res): Promise<void> => {
+  const pageId = parseInt(req.params.pageId as string, 10);
   if (isNaN(pageId)) {
     res.status(400).json({ error: "Invalid pageId" });
     return;
   }
-  const [page] = await db
-    .select({ pageHtml: pageResultsTable.pageHtml })
-    .from(pageResultsTable)
-    .where(eq(pageResultsTable.id, pageId))
-    .limit(1);
+  const stateId = parseOptionalStateId(req);
+  if (stateId === "invalid") {
+    res.status(400).json({ error: "Invalid stateId" });
+    return;
+  }
+  const page = await getStoredPageHtml(pageId, stateId);
   if (!page) {
-    res.status(404).json({ error: "Page not found" });
+    res.status(404).json({ error: stateId === null ? "Page not found" : "Interaction state not found" });
+    return;
+  }
+  if (!(await canAccessScan(req, page.scanId))) {
+    res.status(403).json({ error: "Forbidden" });
     return;
   }
   if (!page.pageHtml) {
@@ -2846,18 +2879,63 @@ router.get("/pages/:pageId/html", async (req, res): Promise<void> => {
     return;
   }
   res.setHeader("Content-Type", "application/json");
-  res.setHeader("Cache-Control", "public, max-age=86400");
-  res.json({ html: page.pageHtml, statusCode: 200 });
+  res.setHeader("Cache-Control", "private, no-store");
+  res.json({ html: page.pageHtml, url: page.url, statusCode: 200 });
+});
+
+// GET /api/pages/:pageId/replay — permission-gated source for the sandboxed replay
+router.get("/pages/:pageId/replay", requireAuth, async (req, res): Promise<void> => {
+  const pageId = parseInt(req.params.pageId as string, 10);
+  if (isNaN(pageId)) {
+    res.status(400).json({ error: "Invalid pageId" });
+    return;
+  }
+  const stateId = parseOptionalStateId(req);
+  if (stateId === "invalid") {
+    res.status(400).json({ error: "Invalid stateId" });
+    return;
+  }
+  const page = await getStoredPageHtml(pageId, stateId);
+  if (!page) {
+    res.status(404).json({ error: stateId === null ? "Page not found" : "Interaction state not found" });
+    return;
+  }
+  if (!(await canAccessScan(req, page.scanId))) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  const userId = parseInt(getAuthUserId(req), 10);
+  if (!Number.isInteger(userId)) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  const permissions = await getEffectivePermissions(userId, req.session?.user?.role ?? "user");
+  if (!permissions.canViewHtmlReplay) {
+    res.status(403).json({ error: "You do not have permission to view HTML replays" });
+    return;
+  }
+  if (!page.pageHtml) {
+    res.status(404).json({ error: "No HTML replay available for this page state" });
+    return;
+  }
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Cache-Control", "private, no-store");
+  res.json({ html: page.pageHtml, url: page.url, statusCode: 200 });
 });
 
 // GET /api/page-source?url=... — server-side HTML fetch for Element Viewer (fallback)
-router.get("/page-source", async (req, res): Promise<void> => {
+router.get("/page-source", requireAuth, async (req, res): Promise<void> => {
   const { url } = req.query;
   if (!url || typeof url !== "string") {
     res.status(400).json({ error: "url required" });
     return;
   }
   try {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      res.status(400).json({ error: "Only HTTP and HTTPS URLs are supported" });
+      return;
+    }
     const resp = await fetch(url, {
       headers: {
         "User-Agent":
@@ -2867,7 +2945,7 @@ router.get("/page-source", async (req, res): Promise<void> => {
       signal: AbortSignal.timeout(15000),
       redirect: "follow",
     });
-    const html = await resp.text();
+    const html = (await resp.text()).slice(0, 5 * 1024 * 1024);
     res.json({ html, statusCode: resp.status });
   } catch (err) {
     logger.warn({ err, url }, "page-source fetch failed");

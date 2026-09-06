@@ -30,7 +30,7 @@ import {
   Sparkles,
   RotateCcw,
 } from "lucide-react";
-import { useAuth } from "@/contexts/auth";
+import { useAuth, isSuperAdmin } from "@/contexts/auth";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,7 +40,8 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { InteractiveHtmlTree } from "@/components/page-report/html-tree";
-import { SnapshotView, type SnapshotHandle } from "@/components/element-viewer";
+import { HtmlReplayView, SnapshotView, type SnapshotHandle } from "@/components/element-viewer";
+import { HTML_REPLAY_CHANGED_EVENT, isHtmlReplayEnabled } from "@/pages/settings";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -302,7 +303,16 @@ export default function PageReport() {
 
   const [selectedIssueId, setSelectedIssueId] = useState<number | null>(null);
   const [tab, setTab] = useState<"page" | "html">("page");
+  const [htmlReplayPreference, setHtmlReplayPreference] = useState(isHtmlReplayEnabled);
   const [expandedOcc, setExpandedOcc] = useState<Set<number>>(new Set());
+  const canViewHtmlReplay = isSuperAdmin(user) || Boolean(user?.permissions.canViewHtmlReplay);
+  const showHtmlReplay = canViewHtmlReplay && htmlReplayPreference;
+
+  useEffect(() => {
+    const syncReplayPreference = () => setHtmlReplayPreference(isHtmlReplayEnabled());
+    window.addEventListener(HTML_REPLAY_CHANGED_EVENT, syncReplayPreference);
+    return () => window.removeEventListener(HTML_REPLAY_CHANGED_EVENT, syncReplayPreference);
+  }, []);
 
   // ── Decision (false positive / can't fix) state ─────────────────────────────
   const [decisions, setDecisions] = useState<DecisionRecord[]>([]);
@@ -1065,7 +1075,13 @@ export default function PageReport() {
                   {showHighlight ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                   {showHighlight ? "Hide highlight" : "Show highlight"}
                 </Button>
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs gap-1" onClick={zoomToElement} title="Zoom to element">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs gap-1"
+                  onClick={() => showHtmlReplay ? setScrollTrigger((value) => value + 1) : zoomToElement()}
+                  title="Focus highlighted element"
+                >
                   <Crosshair className="w-3.5 h-3.5" /> Focus
                 </Button>
                 <Button variant="ghost" size="sm" className="h-6 px-1.5" onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2)))}>
@@ -1077,7 +1093,16 @@ export default function PageReport() {
                 </Button>
               </div>
               <div ref={snapshotContainerRef} className="flex-1 overflow-hidden">
-                {snapshotError ? (
+                {showHtmlReplay ? (
+                  <HtmlReplayView
+                    pageId={pageId}
+                    interactionStateId={selectedIssue.interactionStateId ?? null}
+                    selector={selectedIssue.selector}
+                    showHighlight={showHighlight}
+                    zoom={zoom}
+                    focusTrigger={scrollTrigger}
+                  />
+                ) : snapshotError ? (
                   <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400">
                     <Monitor className="w-8 h-8" />
                     <p className="text-sm">No snapshot stored for this page</p>

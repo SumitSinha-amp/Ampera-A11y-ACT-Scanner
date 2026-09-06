@@ -11,11 +11,13 @@ interface RichTextEditorProps {
 }
 
 export function RichTextEditor({ value, onChange, placeholder, people = [] }: RichTextEditorProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const ref = useRef<HTMLDivElement>(null);
   const helpId = useId();
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const mentionRangeRef = useRef<Range | null>(null);
+  const [mentionPosition, setMentionPosition] = useState({ left: 12, top: 0 });
 
   useEffect(() => {
     if (ref.current && ref.current.innerHTML !== value && document.activeElement !== ref.current) {
@@ -89,6 +91,21 @@ export function RichTextEditor({ value, onChange, placeholder, people = [] }: Ri
       return;
     }
     mentionRangeRef.current = range;
+    const caretRect = range.getBoundingClientRect();
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    if (containerRect) {
+      const menuWidth = 256;
+      const estimatedMenuHeight = Math.min(220, 34 + Math.max(1, mentionMatches.length) * 52);
+      const left = Math.max(
+        8,
+        Math.min(caretRect.left - containerRect.left, containerRect.width - menuWidth - 8),
+      );
+      const roomBelow = window.innerHeight - caretRect.bottom;
+      const top = roomBelow >= estimatedMenuHeight + 12
+        ? caretRect.bottom - containerRect.top + 6
+        : caretRect.top - containerRect.top - estimatedMenuHeight - 6;
+      setMentionPosition({ left, top });
+    }
     setMentionQuery(match[1] ?? '');
     setMentionIndex(0);
     void caretOffset;
@@ -142,7 +159,7 @@ export function RichTextEditor({ value, onChange, placeholder, people = [] }: Ri
   };
 
   return (
-    <div className="relative border rounded-md focus-within:ring-2 focus-within:ring-ring focus-within:border-transparent bg-background transition-all duration-200">
+    <div ref={containerRef} className="relative border rounded-md focus-within:ring-2 focus-within:ring-ring focus-within:border-transparent bg-background transition-all duration-200">
       <div className="flex flex-wrap items-center gap-1 border-b p-1 bg-muted/40">
         <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => { e.preventDefault(); exec('bold'); }} title="Bold" aria-label="Bold">
           <Bold className="h-4 w-4" />
@@ -200,7 +217,9 @@ export function RichTextEditor({ value, onChange, placeholder, people = [] }: Ri
         <div
           role="listbox"
           aria-label="Mention suggestions"
-          className="absolute left-3 top-full z-30 mt-1 w-64 overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg"
+          data-testid="listbox-mention-suggestions"
+          className="absolute z-30 w-64 overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg"
+          style={{ left: mentionPosition.left, top: mentionPosition.top }}
         >
           <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Mention someone
@@ -211,6 +230,7 @@ export function RichTextEditor({ value, onChange, placeholder, people = [] }: Ri
               type="button"
               role="option"
               aria-selected={index === mentionIndex}
+              data-testid={`button-mention-person-${person.id}`}
               className={`block w-full rounded px-2 py-1.5 text-left text-sm ${
                 index === mentionIndex ? 'bg-muted' : 'hover:bg-muted/70'
               }`}

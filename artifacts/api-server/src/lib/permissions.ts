@@ -19,6 +19,7 @@ export interface EffectivePermissions {
   canViewCrawlHistory: boolean;
   canViewQualityAssurance: boolean;
   canViewSiteAccessibilityDashboard: boolean;
+  canViewHtmlReplay: boolean;
   canManageSites: boolean;
   canManageSiteTargetScore: boolean;
   canViewIssues: boolean;
@@ -46,6 +47,7 @@ const FULL_ACCESS: EffectivePermissions = {
   canViewCrawlHistory: true,
   canViewQualityAssurance: true,
   canViewSiteAccessibilityDashboard: true,
+  canViewHtmlReplay: true,
   canManageSites: true,
   canManageSiteTargetScore: true,
   canViewIssues: true,
@@ -240,7 +242,11 @@ export async function getEffectivePermissions(
   // admin gets full access except canSwitchSite which requires explicit grant
   if (role === "admin") {
     const [perm] = await db.select().from(userPermissionsTable).where(eq(userPermissionsTable.userId, userId));
-    return { ...FULL_ACCESS, canSwitchSite: perm?.canSwitchSite ?? false };
+    return {
+      ...FULL_ACCESS,
+      canSwitchSite: perm?.canSwitchSite ?? false,
+      canViewHtmlReplay: perm?.canViewHtmlReplay ?? false,
+    };
   }
 
   const [[perm], inDevGroup] = await Promise.all([
@@ -265,6 +271,7 @@ export async function getEffectivePermissions(
       canViewCrawlHistory: userGroupsTable.canViewCrawlHistory,
       canViewQualityAssurance: userGroupsTable.canViewQualityAssurance,
       canViewSiteAccessibilityDashboard: userGroupsTable.canViewSiteAccessibilityDashboard,
+      canViewHtmlReplay: userGroupsTable.canViewHtmlReplay,
       canManageSites: userGroupsTable.canManageSites,
       canManageSiteTargetScore: userGroupsTable.canManageSiteTargetScore,
       canViewIssues: userGroupsTable.canViewIssues,
@@ -306,6 +313,7 @@ export async function getEffectivePermissions(
     canViewCrawlHistory: Boolean(perm?.canViewCrawlHistory ?? true) || groupGrants("canViewCrawlHistory"),
     canViewQualityAssurance: Boolean(perm?.canViewQualityAssurance ?? true) || groupGrants("canViewQualityAssurance"),
     canViewSiteAccessibilityDashboard: Boolean(perm?.canViewSiteAccessibilityDashboard ?? true) || groupGrants("canViewSiteAccessibilityDashboard"),
+    canViewHtmlReplay: Boolean(perm?.canViewHtmlReplay ?? false) || groupGrants("canViewHtmlReplay"),
     canManageSites: Boolean(perm?.canManageSites ?? false) || groupGrants("canManageSites"),
     canManageSiteTargetScore: Boolean(perm?.canManageSiteTargetScore || targetScoreGroup?.enabled || groupGrants("canManageSiteTargetScore")),
     canViewIssues,

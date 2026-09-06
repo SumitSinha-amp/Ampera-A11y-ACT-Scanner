@@ -31,7 +31,8 @@ type PermissionKey =
   | "canCreateIssue"
   | "canEditIssue"
   | "canCommentIssue"
-  | "canManageIssues";
+  | "canManageIssues"
+  | "canViewHtmlReplay";
 
 type PermissionSet = Record<PermissionKey, boolean>;
 
@@ -96,6 +97,7 @@ const PERMISSION_GROUPS: {
       { key: "canExport", label: "Export reports", shortLabel: "Export", desc: "Download reports and scan exports" },
       { key: "canSmartAnalysis", label: "Smart analysis", shortLabel: "Smart", desc: "Access component-level Smart Analysis" },
       { key: "canSwitchSite", label: "Switch sites", shortLabel: "Switch", desc: "Use the global site selector" },
+      { key: "canViewHtmlReplay", label: "HTML replay", shortLabel: "HTML replay", desc: "Replay live HTML interactively in issue viewer" },
     ],
   },
   {
@@ -154,6 +156,7 @@ const DEFAULT_PERMISSION: PermissionSet = {
   canEditIssue: true,
   canCommentIssue: true,
   canManageIssues: true,
+  canViewHtmlReplay: false,
 };
 
 function getInitials(name: string) {
@@ -232,7 +235,7 @@ function UserMatrix({
         </thead>
         <tbody>
           {users.map((user) => {
-            const isLocked = user.role === "super_admin" || user.role === "admin";
+            const isSuperAdminUser = user.role === "super_admin";
             const perm = localPerms[user.id] ?? DEFAULT_PERMISSION;
             return (
               <tr key={user.id} className={`border-b last:border-0 ${dirty[user.id] ? "bg-amber-50/50 dark:bg-amber-950/10" : "hover:bg-muted/20"}`}>
@@ -258,14 +261,22 @@ function UserMatrix({
                 {PERMISSIONS.map((permission) => (
                   <td key={permission.key} className="border-r px-2 py-3 text-center">
                     <MatrixSwitch
-                      checked={isLocked ? true : Boolean(perm[permission.key])}
-                      disabled={isLocked || saving[user.id]}
+                      checked={
+                        isSuperAdminUser ||
+                        (user.role === "admin" && permission.key !== "canSwitchSite" && permission.key !== "canViewHtmlReplay") ||
+                        Boolean(perm[permission.key])
+                      }
+                      disabled={
+                        isSuperAdminUser ||
+                        (user.role === "admin" && permission.key !== "canSwitchSite" && permission.key !== "canViewHtmlReplay") ||
+                        saving[user.id]
+                      }
                       onChange={(value) => onToggle(user.id, permission.key, value)}
                     />
                   </td>
                 ))}
                 <td className="px-3 py-3">
-                  {isLocked ? (
+                  {isSuperAdminUser ? (
                     <span className="flex items-center justify-center gap-1 text-[10px] text-muted-foreground"><ShieldCheck className="h-3 w-3" /> Full access</span>
                   ) : (
                     <div className="flex items-center justify-center gap-1">

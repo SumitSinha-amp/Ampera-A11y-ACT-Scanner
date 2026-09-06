@@ -511,6 +511,16 @@ async function runStartupMigrations(): Promise<void> {
       $$
     `);
 
+    // 13d. HTML replay is opt-in because captured page source can contain
+    // sensitive content. Super Admin receives it through FULL_ACCESS; all
+    // other roles, including Admin, require an explicit user/group grant.
+    await client.query(`
+      ALTER TABLE user_permissions
+        ADD COLUMN IF NOT EXISTS can_view_html_replay BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE user_groups
+        ADD COLUMN IF NOT EXISTS can_view_html_replay BOOLEAN NOT NULL DEFAULT FALSE;
+    `);
+
     // 14. Assign orphaned scans (NULL user_id) to superadmin
     await client.query(`
       UPDATE scan_sessions
@@ -666,6 +676,10 @@ async function runStartupMigrations(): Promise<void> {
     await client.query(`
       UPDATE accessibility_issues SET wcag_criteria = '1.3.1'
       WHERE rule_id = 'ACT-R35' AND wcag_criteria = '1.2.1'
+    `);
+    await client.query(`
+      UPDATE accessibility_issues SET wcag_criteria = '1.2.3'
+      WHERE rule_id = 'ACT-R31' AND (wcag_criteria = '1.4.8' OR wcag_criteria = '1.2.1')
     `);
 
     // 20d2. Correct the legacy ACT-R32 target-size implementation.
@@ -1411,6 +1425,12 @@ async function runStartupMigrations(): Promise<void> {
         screenshot TEXT,
         page_html TEXT
       );
+      ALTER TABLE page_interaction_states
+        ADD COLUMN IF NOT EXISTS state_key TEXT,
+        ADD COLUMN IF NOT EXISTS trigger_selector TEXT,
+        ADD COLUMN IF NOT EXISTS trigger_label TEXT,
+        ADD COLUMN IF NOT EXISTS screenshot TEXT,
+        ADD COLUMN IF NOT EXISTS page_html TEXT;
       CREATE INDEX IF NOT EXISTS page_interaction_states_page_id_idx
         ON page_interaction_states(page_id);
       ALTER TABLE accessibility_issues
@@ -1728,6 +1748,7 @@ async function checkDatabaseWritable(): Promise<void> {
     client.release();
   }
 }
+
 startListening(port);
 runStartupMigrations()
   .then(() => checkDatabaseWritable())

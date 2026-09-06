@@ -43,10 +43,20 @@ const BASE = (import.meta.env.BASE_URL as string).replace(/\/$/, "");
 const SETTINGS_CARD_CLASS = "rounded-[22px] border border-white/80 bg-card/75 shadow-[0_14px_34px_rgba(69,57,112,.06)] backdrop-blur-xl";
 
 export const ELEMENT_VIEWER_LS_KEY = "a11y-element-viewer-enabled";
+export const HTML_REPLAY_LS_KEY = "a11y-html-replay-enabled";
+export const HTML_REPLAY_CHANGED_EVENT = "a11y-html-replay-changed";
 
 export function isElementViewerEnabled(): boolean {
   try {
     return localStorage.getItem(ELEMENT_VIEWER_LS_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function isHtmlReplayEnabled(): boolean {
+  try {
+    return localStorage.getItem(HTML_REPLAY_LS_KEY) === "true";
   } catch {
     return false;
   }
@@ -823,6 +833,8 @@ export default function Settings() {
   const [testingProxy, setTestingProxy] = useState<string | null>(null);
   const [elementViewerEnabled, setElementViewerEnabledState] =
     useState<boolean>(false);
+  const [htmlReplayEnabled, setHtmlReplayEnabledState] =
+    useState<boolean>(false);
   const [theme, setThemeState] = useState<Theme>("system");
   const [accent, setAccentState] = useState<AccentColor | string>("indigo");
   const [bgImage, setBgImage] = useState<string>("");
@@ -871,6 +883,7 @@ export default function Settings() {
     setSavedProxies(loadSavedProxies());
     setActiveProxy(getActiveProxy());
     setElementViewerEnabledState(isElementViewerEnabled());
+    setHtmlReplayEnabledState(isHtmlReplayEnabled());
     setThemeState(getSavedTheme());
     const savedAccent = getSavedAccentColor();
     setAccentState(savedAccent);
@@ -1688,7 +1701,7 @@ export default function Settings() {
                 Next controls.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium">Enable Element Viewer</p>
@@ -1710,6 +1723,30 @@ export default function Settings() {
                   }}
                 />
               </div>
+
+              {(isSuperAdmin(user) || user?.permissions.canViewHtmlReplay) && (
+                <div className="flex items-center justify-between pt-4 border-t">
+                  <div>
+                    <p className="text-sm font-medium">Enable HTML Page Replay</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Adds an option in the Element Viewer to render the stored HTML of the page (sandboxed, scripts disabled). Image snapshot remains the default.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={htmlReplayEnabled}
+                    onCheckedChange={(v) => {
+                      setHtmlReplayEnabledState(v);
+                      localStorage.setItem(HTML_REPLAY_LS_KEY, String(v));
+                      window.dispatchEvent(new CustomEvent(HTML_REPLAY_CHANGED_EVENT, { detail: { enabled: v } }));
+                      toast({
+                        title: v
+                          ? "HTML Page Replay enabled"
+                          : "HTML Page Replay disabled",
+                      });
+                    }}
+                  />
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

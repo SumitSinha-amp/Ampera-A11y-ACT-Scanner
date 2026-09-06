@@ -29,6 +29,12 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
+import { useAuth, isSuperAdmin } from "@/contexts/auth";
+import {
+  HTML_REPLAY_CHANGED_EVENT,
+  HTML_REPLAY_LS_KEY,
+  isHtmlReplayEnabled,
+} from "@/pages/settings";
 
 export interface ViewerIssue {
   id: number;
@@ -65,11 +71,16 @@ async function fetchPageSource(
   pageId?: number
 ): Promise<{ html: string; statusCode: number }> {
   if (pageId != null) {
-    const stored = await fetch(`${BASE_URL}/api/pages/${pageId}/html`);
+    const stored = await fetch(`${BASE_URL}/api/pages/${pageId}/html`, { credentials: "include" });
     if (stored.ok) return stored.json();
+    if (stored.status !== 404) {
+      const body = await stored.json().catch(() => ({}));
+      throw new Error(body.error ?? `HTTP ${stored.status}`);
+    }
   }
   const resp = await fetch(
-    `${BASE_URL}/api/page-source?url=${encodeURIComponent(url)}`
+    `${BASE_URL}/api/page-source?url=${encodeURIComponent(url)}`,
+    { credentials: "include" },
   );
   if (!resp.ok) {
     const data = await resp.json().catch(() => ({}));
@@ -208,6 +219,160 @@ function findMatchLines(
   }
 
   return matches;
+}
+
+// ── HTML Replay View ───────────────────────────────────────────────────────
+export function HtmlReplayView({
+  pageId,
+  interactionStateId,
+  selector,
+  showHighlight = true,
+  zoom = 1,
+  focusTrigger = 0,
+}: {
+  pageId: number;
+  interactionStateId: number | null;
+  selector?: string | null;
+  showHighlight?: boolean;
+  zoom?: number;
+  focusTrigger?: number;
+}) {
+  const [html, setHtml] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+    const url = `${BASE_URL}/api/pages/${pageId}/replay${
+      interactionStateId ? `?stateId=${interactionStateId}` : ""
+    }`;
+    fetch(url, { credentials: "include" })
+      .then((res) => {
+        if (!res.ok) {
+          if (res.status === 403) {
+            localStorage.removeItem(HTML_REPLAY_LS_KEY);
+            window.dispatchEvent(new CustomEvent(HTML_REPLAY_CHANGED_EVENT, { detail: { enabled: false } }));
+          }
+          throw new Error(`HTTP ${res.status}`);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        if (!active) return;
+        const source = typeof data.html === "string" ? data.html : "";
+        const baseUrl = typeof data.url === "string" ? data.url : "";
+        const documentSnapshot = new DOMParser().parseFromString(source, "text/html");
+        documentSnapshot.querySelectorAll("script, object, embed, base, link, meta[http-equiv='refresh'], meta[http-equiv='content-security-policy']").forEach((node) => node.remove());
+        documentSnapshot.querySelectorAll("*").forEach((element) => {
+          for (const attribute of Array.from(element.attributes)) {
+            const name = attribute.name.toLowerCase();
+            if (
+              name.startsWith("on") ||
+              name === "src" ||
+              name === "srcset" ||
+              name === "poster" ||
+              name === "action" ||
+              name === "formaction"
+            ) {
+              element.removeAttribute(attribute.name);
+            }
+          }
+        });
+        if (showHighlight && selector) {
+          try {
+            const target = documentSnapshot.querySelector(selector);
+            if (target instanceof HTMLElement) {
+              target.setAttribute("data-a11y-replay-highlight", "true");
+            }
+          } catch {
+            // Unsupported selectors render without a replay highlight.
+          }
+        }
+        const base = documentSnapshot.createElement("base");
+        base.href = baseUrl;
+        documentSnapshot.head.prepend(base);
+        const policy = documentSnapshot.createElement("meta");
+        policy.httpEquiv = "Content-Security-Policy";
+        policy.content = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:; script-src 'nonce-YTExeS1yZXBsYXk';";
+        documentSnapshot.head.prepend(policy);
+        const replayStyles = documentSnapshot.createElement("style");
+        replayStyles.textContent = `
+          [data-a11y-replay-highlight="true"] {
+            outline: 4px solid #f59e0b !important;
+            outline-offset: 3px !important;
+            box-shadow: 0 0 0 2px rgba(255,255,255,.95), 0 0 0 8px rgba(245,158,11,.28) !important;
+            scroll-margin: 96px !important;
+          }
+        `;
+        documentSnapshot.head.append(replayStyles);
+        const replayController = documentSnapshot.createElement("script");
+        replayController.setAttribute("nonce", "YTExeS1yZXBsYXk");
+        replayController.textContent = `
+          (() => {
+            const focusHighlight = () => {
+              const target = document.querySelector('[data-a11y-replay-highlight="true"]');
+              if (target) target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+            };
+            if (document.readyState === 'loading') {
+              document.addEventListener('DOMContentLoaded', () => requestAnimationFrame(focusHighlight), { once: true });
+            } else {
+              requestAnimationFrame(focusHighlight);
+            }
+          })();
+        `;
+        documentSnapshot.body.append(replayController);
+        setHtml(`<!doctype html>\n${documentSnapshot.documentElement.outerHTML}`);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setError(String(err));
+        setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [pageId, interactionStateId, selector, showHighlight]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 text-center p-6 bg-muted/10">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        <p className="text-sm font-medium text-muted-foreground">Loading page replay...</p>
+      </div>
+    );
+  }
+
+  if (error || !html) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 text-center p-6 bg-muted/10">
+        <Monitor className="w-10 h-10 text-muted-foreground/20" />
+        <p className="text-sm font-medium text-muted-foreground">Replay not available</p>
+        <p className="text-xs text-muted-foreground/60">
+          The HTML source for this page state could not be loaded.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <iframe
+      key={focusTrigger}
+      srcDoc={html}
+      sandbox="allow-scripts"
+      referrerPolicy="no-referrer"
+      title="Page Replay"
+      className="bg-white border-0"
+      style={{
+        width: `${100 / zoom}%`,
+        height: `${100 / zoom}%`,
+        transform: `scale(${zoom})`,
+        transformOrigin: "top left",
+      }}
+    />
+  );
 }
 
 // ── Snapshot handle exposed to parent ─────────────────────────────────────
@@ -401,7 +566,11 @@ export function ElementViewer({
   onClose,
   showClose = true,
 }: ElementViewerProps) {
+  const { user } = useAuth();
   const [tab, setTab] = useState<"html" | "live">("html");
+  const [htmlReplayPreference, setHtmlReplayPreference] = useState(isHtmlReplayEnabled);
+  const canViewHtmlReplay = isSuperAdmin(user) || Boolean(user?.permissions.canViewHtmlReplay);
+  const htmlReplaySetting = canViewHtmlReplay && htmlReplayPreference;
   const [htmlSource, setHtmlSource] = useState<string | null>(null);
   const [htmlError, setHtmlError] = useState<string | null>(null);
   const [htmlLoading, setHtmlLoading] = useState(false);
@@ -416,6 +585,12 @@ export function ElementViewer({
   const liveContainerRef = useRef<HTMLDivElement>(null);
 
   const currentIssue = group[groupIndex] ?? group[0];
+
+  useEffect(() => {
+    const syncReplayPreference = () => setHtmlReplayPreference(isHtmlReplayEnabled());
+    window.addEventListener(HTML_REPLAY_CHANGED_EVENT, syncReplayPreference);
+    return () => window.removeEventListener(HTML_REPLAY_CHANGED_EVENT, syncReplayPreference);
+  }, []);
 
   const hasBbox =
     (currentIssue.bboxX ?? null) != null &&
@@ -761,9 +936,70 @@ export function ElementViewer({
             </div>
 
             {/* ── Snapshot toolbar ── */}
-            {!snapshotError && (
-              <div className="flex items-center gap-1 shrink-0 flex-wrap">
-                {/* Highlight toggle */}
+            <div className="flex items-center gap-1 shrink-0 flex-wrap">
+              {htmlReplaySetting && (
+                <>
+                  <Button
+                    variant={showHighlight ? "secondary" : "outline"}
+                    size="sm"
+                    className="h-6 text-xs px-2 gap-1"
+                    onClick={() => setShowHighlight((value) => !value)}
+                    title={showHighlight ? "Hide element highlight" : "Show element highlight"}
+                    disabled={!currentIssue.selector}
+                  >
+                    {showHighlight ? <Eye className="w-3 h-3 text-amber-500" /> : <EyeOff className="w-3 h-3" />}
+                    Highlight
+                  </Button>
+                  <div className="w-px h-4 bg-border mx-0.5" />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    onClick={() => setZoom((value) => Math.max(0.5, +(value - 0.25).toFixed(2)))}
+                    disabled={zoom <= 0.5}
+                    title="Zoom out"
+                  >
+                    <ZoomOut className="w-3 h-3" />
+                  </Button>
+                  <span className="text-[10px] font-mono text-muted-foreground tabular-nums min-w-[2.5rem] text-center">
+                    {Math.round(zoom * 100)}%
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    onClick={() => setZoom((value) => Math.min(4, +(value + 0.25).toFixed(2)))}
+                    disabled={zoom >= 4}
+                    title="Zoom in"
+                  >
+                    <ZoomIn className="w-3 h-3" />
+                  </Button>
+                  <Button
+                    variant={zoom === 1 ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-6 text-xs px-2"
+                    onClick={() => setZoom(1)}
+                    title="Reset zoom"
+                  >
+                    Fit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs px-2 gap-1"
+                    onClick={() => setScrollTrigger((value) => value + 1)}
+                    disabled={!currentIssue.selector}
+                    title="Focus highlighted element"
+                  >
+                    <Crosshair className="w-3 h-3" />
+                    Focus
+                  </Button>
+                </>
+              )}
+
+              {!htmlReplaySetting && !snapshotError && (
+                <>
+                  {/* Highlight toggle */}
                 <Button
                   variant={showHighlight ? "secondary" : "outline"}
                   size="sm"
@@ -856,35 +1092,47 @@ export function ElementViewer({
                   <Maximize2 className="w-3 h-3" />
                   Zoom to element
                 </Button>
-              </div>
-            )}
+                </>
+              )}
+            </div>
 
-            {/* Snapshot area */}
+            {/* Snapshot/Replay area */}
             <div ref={liveContainerRef} className="flex-1 border rounded-md overflow-hidden relative bg-muted/10">
-              {snapshotError ? (
-                <div className="flex flex-col items-center justify-center h-full gap-3 text-center p-6">
-                  <Monitor className="w-10 h-10 text-muted-foreground/20" />
-                  <p className="text-sm font-medium text-muted-foreground">
-                    No snapshot available
-                  </p>
-                  <p className="text-xs text-muted-foreground/60">
-                    Snapshots are captured during scanning. Re-run the scan to generate one.
-                  </p>
-                </div>
+              {!htmlReplaySetting ? (
+                snapshotError ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-3 text-center p-6">
+                    <Monitor className="w-10 h-10 text-muted-foreground/20" />
+                    <p className="text-sm font-medium text-muted-foreground">
+                      No snapshot available
+                    </p>
+                    <p className="text-xs text-muted-foreground/60">
+                      Snapshots are captured during scanning. Re-run the scan to generate one.
+                    </p>
+                  </div>
+                ) : (
+                  <SnapshotView
+                    ref={snapshotRef}
+                    pageId={pageId}
+                    interactionStateId={currentIssue.interactionStateId ?? null}
+                    bboxX={currentIssue.bboxX ?? null}
+                    bboxY={currentIssue.bboxY ?? null}
+                    bboxWidth={currentIssue.bboxWidth ?? null}
+                    bboxHeight={currentIssue.bboxHeight ?? null}
+                    zoom={zoom}
+                    showHighlight={showHighlight}
+                    scrollTrigger={scrollTrigger}
+                    onError={() => setSnapshotError(true)}
+                    onNaturalSize={(w) => setSnapshotNaturalW(w)}
+                  />
+                )
               ) : (
-                <SnapshotView
-                  ref={snapshotRef}
+                <HtmlReplayView
                   pageId={pageId}
                   interactionStateId={currentIssue.interactionStateId ?? null}
-                  bboxX={currentIssue.bboxX ?? null}
-                  bboxY={currentIssue.bboxY ?? null}
-                  bboxWidth={currentIssue.bboxWidth ?? null}
-                  bboxHeight={currentIssue.bboxHeight ?? null}
-                  zoom={zoom}
+                  selector={currentIssue.selector}
                   showHighlight={showHighlight}
-                  scrollTrigger={scrollTrigger}
-                  onError={() => setSnapshotError(true)}
-                  onNaturalSize={(w) => setSnapshotNaturalW(w)}
+                  zoom={zoom}
+                  focusTrigger={scrollTrigger}
                 />
               )}
             </div>
