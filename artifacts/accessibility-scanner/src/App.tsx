@@ -73,7 +73,6 @@ import ManageProjectsPage from "@/pages/manage-projects";
 import { AppStatusProvider, useAppStatus } from "@/contexts/app-status";
 import MaintenancePage from "@/pages/maintenance";
 import WelcomePage from "@/pages/welcome";
-import { AppStartupLoader } from "@/components/app-startup-loader";
 import { LoadingActivityProvider, TopLoadingProgress } from "@/components/top-loading-progress";
 import { useEffect } from "react";
 import { RefreshCw } from "lucide-react";
@@ -104,11 +103,40 @@ function AppStatusGate({ children }: { children: React.ReactNode }) {
 }
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, authError, retryAuth } = useAuth();
   const [location] = useLocation();
 
-  if (loading) {
-    return <AppStartupLoader />;
+  if (loading && !user) {
+    // The app cannot reveal a protected route until the session check finishes,
+    // but there is no artificial progress sequence before showing the real UI.
+    return (
+      <div className="flex min-h-[100dvh] items-center justify-center bg-background px-6">
+        <p role="status" className="text-sm text-muted-foreground">Checking your session…</p>
+      </div>
+    );
+  }
+
+  if (authError && !user) {
+    return (
+      <div className="flex min-h-[100dvh] items-center justify-center bg-background px-6">
+        <div role="alert" className="w-full max-w-md rounded-xl border border-border bg-card p-8 text-center shadow-sm">
+          <img src={`${import.meta.env.BASE_URL}ampera-logo.png`} alt="Ampera" className="mx-auto mb-7 h-10 w-auto" />
+          <h1 className="text-xl font-semibold text-foreground">Unable to verify your session</h1>
+          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+            The server did not respond in time. Your workspace cannot finish loading right now.
+            We&apos;ll retry automatically, or you can try again now.
+          </p>
+          <button
+            type="button"
+            onClick={() => { void retryAuth(); }}
+            className="mt-6 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          >
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            Try again
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (!user) {
