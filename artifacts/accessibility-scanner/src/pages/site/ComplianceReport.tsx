@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { BASE, ConformanceBadge, ImpactIcon, SiteBreadcrumb, useSite, useAutoActiveSite } from "@/pages/site/shared";
 import { usePageGroup } from "@/contexts/page-group";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import {
   WCAG_TAXONOMY,
   FRAMEWORK_META,
@@ -123,11 +124,7 @@ export function ComplianceReport({ siteId, framework }: { siteId: number; framew
   const meta = FRAMEWORK_META[framework];
 
   if (siteQ.isLoading || complianceQ.isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
-        Loading {meta.title}…
-      </div>
-    );
+    return <PageLoadingSkeleton variant="report" message={`Loading ${meta.title.toLowerCase()}…`} />;
   }
   if (siteQ.isError || !siteQ.data || complianceQ.isError || !complianceQ.data) {
     return (
@@ -141,7 +138,7 @@ export function ComplianceReport({ siteId, framework }: { siteId: number; framew
   const data = complianceQ.data;
 
   return (
-    <div className="space-y-6">
+    <div className="loaded-reveal space-y-6">
       <div className="flex flex-col gap-1">
         <SiteBreadcrumb siteId={siteId} siteName={site.name} current={meta.title} />
         <h1 className="text-2xl font-bold flex items-center gap-2">

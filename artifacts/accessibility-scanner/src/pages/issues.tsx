@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 import { uploadIssueAttachment, useIssues, usePeople, useCreateIssue } from "../hooks/use-issues";
 import { ISSUE_TYPES, STATUS_LABELS, type IssueMetrics } from "../lib/issue-types";
@@ -256,7 +257,7 @@ export default function IssuesPage() {
   };
 
   if (issuesLoading) {
-    return <div className="flex justify-center p-14"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
+    return <PageLoadingSkeleton variant="table" message="Loading issues…" />;
   }
 
   if (issuesFailed) {
@@ -294,7 +295,7 @@ export default function IssuesPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-4rem)] p-4 md:p-6 bg-muted/10 space-y-4">
+    <div className="loaded-reveal flex flex-col h-[calc(100dvh-4rem)] p-4 md:p-6 bg-muted/10 space-y-4">
       
       {/* Header */}
       <div className="flex-none flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

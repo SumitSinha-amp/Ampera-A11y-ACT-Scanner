@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "wouter";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -52,6 +53,7 @@ import {
   Download,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
+import "./crawler-dashboard.css";
 import { CrawlerLiveOverview } from "@/components/crawler-live-overview";
 import {
   Tooltip,
@@ -698,7 +700,7 @@ export default function CrawlerDetailPage() {
   }, [shouldTickClock]);
 
   if (isLoading && !sseSession) {
-    return <div className="text-muted-foreground text-sm">Loading…</div>;
+    return <PageLoadingSkeleton variant="detail" message="Loading crawler session…" />;
   }
   if (!displaySession) {
     return <div className="text-destructive">Crawler session not found.</div>;
@@ -783,7 +785,7 @@ export default function CrawlerDetailPage() {
   };
 
   return (
-    <div className="vision-page vision-crawler-detail relative space-y-5">
+    <div className="vision-page vision-crawler-detail loaded-reveal relative space-y-5">
       {/* Header */}
       <div className="flex items-start gap-4">
         <div className="flex-1 min-w-0">
@@ -1216,7 +1218,7 @@ export default function CrawlerDetailPage() {
           </div>
 
           {pagesLoading ? (
-            <div className="text-muted-foreground text-sm py-4">Loading pages…</div>
+            <PageLoadingSkeleton variant="table" message="Loading crawled pages…" />
           ) : pages.length === 0 ? (
             <div className="text-muted-foreground text-sm py-8 text-center">No pages found.</div>
           ) : (
@@ -1350,7 +1352,7 @@ export default function CrawlerDetailPage() {
         {/* Broken Links Tab */}
         <TabsContent value="broken" className="space-y-3 pt-2">
           {brokenLoading ? (
-            <div className="text-muted-foreground text-sm py-4">Loading broken links…</div>
+            <PageLoadingSkeleton variant="table" message="Loading broken links…" />
           ) : brokenLinks.length === 0 ? (
             <div className="py-8 text-center space-y-2">
               <Link2 className="w-8 h-8 mx-auto text-muted-foreground" />

@@ -30,6 +30,7 @@ import {
 import { useAuth } from "@/contexts/auth";
 import { InteractiveHtmlTree } from "@/components/page-report/html-tree";
 import { SnapshotView, type SnapshotHandle } from "@/components/element-viewer";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -314,11 +315,7 @@ export default function SiteRulePageReport() {
   const backHref = `/sites/${siteId}/issues/${encodeURIComponent(ruleId)}`;
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-[70vh] text-muted-foreground gap-2">
-        <Loader2 className="w-5 h-5 animate-spin" /> Loading page report…
-      </div>
-    );
+    return <PageLoadingSkeleton variant="report" message="Loading page report…" />;
   }
 
   if (loadError || !data) {
@@ -333,7 +330,7 @@ export default function SiteRulePageReport() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-white flex flex-col" data-testid="page-report">
+    <div className="fixed inset-0 z-50 bg-white flex flex-col loaded-reveal" data-testid="page-report">
       {/* ── Top bar ── */}
       <div className="shrink-0 flex items-center gap-3 px-4 py-2 border-b bg-gray-50">
         <Link href={backHref}>

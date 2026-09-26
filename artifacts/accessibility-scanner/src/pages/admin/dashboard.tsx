@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Users, Shield, Clock3, Zap, LayoutGrid, Ticket, ArrowRight, Loader2 } from "lucide-react";
+import { Users, Shield, Clock3, Zap, LayoutGrid, Ticket, ArrowRight } from "lucide-react";
 import { Link } from "wouter";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -48,7 +49,7 @@ function StatCard({
 }) {
   return (
     <article 
-      className="relative rounded-[22px] border border-border/75 bg-card/60 p-5 backdrop-blur-xl shadow-[0_14px_34px_rgba(69,57,112,.06)] animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both"
+      className="dashboard-overview-card relative animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both"
       style={{ animationDelay: `${delayMs}ms` }}
     >
       <div className="flex items-start justify-between gap-2">
@@ -56,9 +57,9 @@ function StatCard({
           {icon}
         </div>
       </div>
-      <p className="mt-4 text-3xl font-bold tracking-tight text-foreground">{value}</p>
-      <p className="mt-0.5 text-sm font-medium text-foreground/90">{label}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
+      <p className="dashboard-metric-value mt-4 text-3xl font-bold tracking-tight text-foreground">{value}</p>
+      <p className="dashboard-metric-label mt-0.5 text-sm font-medium text-foreground/90">{label}</p>
+      <p className="dashboard-metric-detail mt-1 text-xs text-muted-foreground">{sub}</p>
     </article>
   );
 }
@@ -95,15 +96,12 @@ export default function AdminDashboardPage() {
   }, []);
 
   if (loading) {
-    return (
-      <div className="flex h-[50vh] items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground/50" />
-      </div>
-    );
+    return <PageLoadingSkeleton variant="dashboard" message="Loading admin overview…" />;
   }
 
   return (
-    <div className="w-full space-y-6 pb-10">
+    <div className="refined-screen">
+    <div className="site-dashboard loaded-reveal w-full space-y-6 pb-10">
       <header className="relative flex flex-wrap items-center justify-between gap-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
         <div className="flex items-center gap-3">
           <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 border border-primary/20 text-primary">
@@ -119,7 +117,7 @@ export default function AdminDashboardPage() {
         </div>
       </header>
 
-      <section className="relative grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="dashboard-metric-grid relative grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Total users"
           value={stats?.totalUsers ?? 0}
@@ -163,7 +161,7 @@ export default function AdminDashboardPage() {
       </section>
 
       <section className="relative grid gap-4 lg:grid-cols-[1.5fr_1fr]">
-        <article className="rounded-[22px] border border-border/75 bg-card/60 p-5 backdrop-blur-xl shadow-[0_14px_34px_rgba(69,57,112,.06)] animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both" style={{ animationDelay: "200ms" }}>
+        <article className="ampera-card animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both" style={{ animationDelay: "200ms" }}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-foreground">Recent users</h3>
             <Link href="/admin/users" className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
@@ -212,7 +210,7 @@ export default function AdminDashboardPage() {
         </article>
 
         <div className="space-y-4">
-          <article className="rounded-[22px] border border-border/75 bg-card/60 p-5 backdrop-blur-xl shadow-[0_14px_34px_rgba(69,57,112,.06)] animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both" style={{ animationDelay: "250ms" }}>
+          <article className="ampera-card animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both" style={{ animationDelay: "250ms" }}>
             <h3 className="text-sm font-semibold text-foreground mb-4">System status</h3>
             <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-background/50 p-3">
               <span className="h-2.5 w-2.5 rounded-full shrink-0 bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,.15)] animate-pulse" />
@@ -224,7 +222,7 @@ export default function AdminDashboardPage() {
             </div>
           </article>
 
-          <article className="rounded-[22px] border border-border/75 bg-card/60 p-5 backdrop-blur-xl shadow-[0_14px_34px_rgba(69,57,112,.06)] animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both" style={{ animationDelay: "300ms" }}>
+          <article className="ampera-card animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both" style={{ animationDelay: "300ms" }}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-foreground">User groups</h3>
               <Link href="/admin/groups" className="text-xs font-medium text-primary hover:underline">
@@ -251,6 +249,7 @@ export default function AdminDashboardPage() {
           </article>
         </div>
       </section>
+    </div>
     </div>
   );
 }

@@ -167,6 +167,7 @@ export async function runStaticHtmlPreflight(
     proxyStrategy?: "direct" | "configured_pac" | "configured_proxy";
     proxyPacUrl?: string;
     timeoutMs?: number;
+    accept?: string;
   } = {},
 ): Promise<StaticHtmlPreflight | undefined> {
   // There is no safe Node fetch/PAC adapter in this pipeline. Callers must
@@ -196,7 +197,7 @@ export async function runStaticHtmlPreflight(
         headers: {
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36",
-          Accept: "text/html,application/xhtml+xml",
+          Accept: options.accept ?? "text/html,application/xhtml+xml",
         },
       });
       const contentType = response.headers.get("content-type") ?? undefined;

@@ -1,0 +1,99 @@
+/* QA surfaces intentionally borrow the approved accessibility overview rhythm. */
+.vision-qa {
+  color: hsl(var(--foreground));
+  background: hsl(var(--background)) !important;
+}
+html:is(.glass-light, .glass-dark, .glass-vision, .glass-vision-light) .vision-qa {
+  background: transparent !important;
+}
+
+.vision-qa > div > nav[aria-label="Quality assurance sections"] {
+  background: hsl(var(--card) / .82);
+}
+
+.vision-qa > div > nav[aria-label="Quality assurance sections"] a:not([aria-current="page"]) {
+  color: hsl(var(--muted-foreground));
+}
+
+.vision-qa > div > nav[aria-label="Quality assurance sections"] a:not([aria-current="page"]):hover {
+  background: hsl(var(--muted) / .45);
+  color: hsl(var(--foreground));
+}
+
+.vision-qa .qa-panel,
+.vision-qa .qa-table-shell,
+.vision-qa .qa-stat {
+  border: 1px solid hsl(var(--border) / .8);
+  border-radius: 14px;
+  background: hsl(var(--card));
+  box-shadow: 0 1px 2px hsl(var(--foreground) / .025);
+}
+
+.vision-qa .qa-stat {
+  min-height: 142px;
+  padding: 16px;
+}
+
+.vision-qa .qa-panel {
+  padding: 18px;
+}
+
+.vision-qa .qa-table-shell {
+  overflow-x: auto;
+}
+
+.vision-qa .qa-table-shell thead {
+  background: hsl(var(--muted) / .18);
+}
+
+.vision-qa .qa-table-shell th {
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.vision-qa .qa-table-shell td,
+.vision-qa .qa-table-shell th {
+  border-color: hsl(var(--border) / .62);
+}
+
+.vision-qa .qa-table-shell tbody tr {
+  transition: background-color 150ms ease;
+}
+
+.vision-qa .qa-table-shell tbody tr:hover {
+  background: hsl(var(--primary) / .035);
+}
+
+.vision-qa .qa-toolbar {
+  border: 1px solid hsl(var(--border) / .72);
+  border-radius: 12px;
+  background: hsl(var(--card) / .82);
+  box-shadow: 0 1px 2px hsl(var(--foreground) / .025);
+}
+
+html:is(.glass-light, .glass-dark, .glass-vision, .glass-vision-light) .vision-qa .qa-panel,
+html:is(.glass-light, .glass-dark, .glass-vision, .glass-vision-light) .vision-qa .qa-stat,
+html:is(.glass-light, .glass-dark, .glass-vision, .glass-vision-light) .vision-qa .qa-table-shell {
+  background: hsl(var(--card) / .74);
+  backdrop-filter: blur(18px) saturate(116%);
+  -webkit-backdrop-filter: blur(18px) saturate(116%);
+}
+
+@media (max-width: 767px) {
+  .vision-qa .qa-stat {
+    min-height: 128px;
+  }
+
+  .vision-qa .qa-panel {
+    padding: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vision-qa .qa-table-shell tbody tr {
+    transition: none;
+  }
+}

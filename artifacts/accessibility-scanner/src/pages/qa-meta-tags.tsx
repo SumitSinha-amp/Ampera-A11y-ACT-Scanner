@@ -12,7 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Download, ExternalLink, Loader2, Tag } from "lucide-react";
+import { ExternalLink, Tag } from "lucide-react";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import {
   useQASites,
   useQASelectedSite,
@@ -90,11 +91,7 @@ function MetaTagsContent({ scanId }: { scanId: number }) {
   }));
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <PageLoadingSkeleton variant="table" message="Loading meta tags…" />;
   }
 
   if (!rows.length && !search) {
@@ -109,7 +106,7 @@ function MetaTagsContent({ scanId }: { scanId: number }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="loaded-reveal space-y-4">
       {!search && rows.length > 0 && (
         <div className="flex gap-4 flex-wrap">
           {missingTitle > 0 && (
@@ -141,7 +138,7 @@ function MetaTagsContent({ scanId }: { scanId: number }) {
         {total.toLocaleString()} page{total !== 1 ? "s" : ""}
       </p>
 
-      <div className={QA_TABLE_SHELL_CLASS}>
+      <div className={`${QA_TABLE_SHELL_CLASS} !rounded-xl !border-border/80 !bg-card !shadow-sm !backdrop-blur-none`}>
         <Table className={QA_TABLE_CLASS}>
           <TableHeader>
             <TableRow>
@@ -215,9 +212,7 @@ export default function QAMetaTagsPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-        </div>
+        <PageLoadingSkeleton variant="table" message="Loading sites…" />
       ) : !selected?.scanId ? (
         <Card>
           <CardContent className="py-12 flex flex-col items-center gap-3 text-muted-foreground">

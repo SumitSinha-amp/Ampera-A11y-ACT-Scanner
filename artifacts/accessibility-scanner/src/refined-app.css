@@ -1,0 +1,404 @@
+@font-face {
+  font-family: "Manrope";
+  src: url("@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+}
+
+/*
+ * Ampera application-wide visual layer.
+ * Keep theme-owned materials intact while sharing a quiet, data-first language.
+ */
+:root {
+  --app-font-sans: "Manrope", system-ui, -apple-system, sans-serif;
+  --app-font-display: "Manrope", system-ui, -apple-system, sans-serif;
+  --app-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --radius: 0.625rem;
+  --refined-ink: 204 29% 14%;
+  --refined-subtle: 202 10% 45%;
+  --refined-rule: 166 15% 91%;
+  --refined-paper: 0 0% 100%;
+  --refined-tint: 160 25% 97%;
+  --refined-hover: 164 55% 95%;
+  --refined-shadow: 204 25% 20%;
+  --suite-canvas: hsl(var(--background));
+  --suite-sidebar: hsl(var(--sidebar));
+  --suite-line: hsl(var(--border));
+  --suite-elevation: 0 10px 28px hsl(var(--refined-shadow) / 0.08);
+}
+
+/* Light and system-light share the white Ampera workspace. */
+:root:not(:is(.dark, .glass-light, .glass-dark, .glass-vision, .glass-vision-light)) {
+  --background: 0 0% 100%;
+  --foreground: 204 29% 14%;
+  --border: 166 15% 91%;
+  --card: 0 0% 100%;
+  --card-foreground: 204 29% 14%;
+  --card-border: 166 15% 91%;
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 204 25% 22%;
+  --sidebar-border: 166 15% 91%;
+  --sidebar-accent: 164 48% 94%;
+  --sidebar-accent-foreground: 204 29% 14%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 204 29% 14%;
+  --popover-border: 166 15% 89%;
+  --primary: 176 88% 34%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 160 25% 97%;
+  --secondary-foreground: 204 29% 14%;
+  --muted: 160 25% 97%;
+  --muted-foreground: 202 10% 45%;
+  --accent: 164 48% 94%;
+  --accent-foreground: 176 80% 27%;
+  --input: 166 13% 86%;
+  --ring: 176 88% 34%;
+  --suite-canvas: hsl(0 0% 100%);
+  --suite-sidebar: hsl(0 0% 100%);
+  --suite-line: hsl(166 15% 91%);
+  --suite-elevation: 0 10px 28px hsl(204 25% 20% / 0.07);
+}
+
+html.dark {
+  --app-font-sans: "Manrope", system-ui, -apple-system, sans-serif;
+  --app-font-display: "Manrope", system-ui, -apple-system, sans-serif;
+  --refined-ink: 210 25% 94%;
+  --refined-subtle: 215 14% 70%;
+  --refined-rule: 217 18% 25%;
+  --refined-paper: 222 30% 10%;
+  --refined-tint: 220 24% 15%;
+  --refined-hover: 208 34% 21%;
+  --refined-shadow: 222 35% 4%;
+  --suite-canvas: hsl(var(--background));
+  --suite-sidebar: hsl(var(--sidebar));
+  --suite-line: hsl(var(--border));
+  --suite-elevation: 0 12px 32px hsl(222 35% 4% / 0.32);
+}
+
+html.glass-light {
+  --refined-ink: 220 18% 17%;
+  --refined-subtle: 215 12% 43%;
+  --refined-rule: 215 24% 85%;
+  --refined-paper: 250 50% 97%;
+  --refined-tint: 255 35% 95%;
+  --refined-hover: 204 100% 94%;
+  --refined-shadow: 225 35% 30%;
+  --suite-canvas: hsl(var(--background) / 0.68);
+  --suite-sidebar: hsl(var(--sidebar) / 0.72);
+  --suite-line: hsl(var(--border) / 0.82);
+  --suite-elevation: 0 12px 32px hsl(225 35% 30% / 0.12);
+}
+
+html.glass-dark {
+  --refined-ink: 210 30% 94%;
+  --refined-subtle: 215 20% 72%;
+  --refined-rule: 255 25% 29%;
+  --refined-paper: 240 28% 9%;
+  --refined-tint: 255 24% 17%;
+  --refined-hover: 205 34% 24%;
+  --refined-shadow: 240 40% 3%;
+  --suite-canvas: hsl(var(--background) / 0.72);
+  --suite-sidebar: hsl(var(--sidebar) / 0.72);
+  --suite-line: hsl(var(--border) / 0.86);
+  --suite-elevation: 0 14px 34px hsl(240 40% 3% / 0.34);
+}
+
+html.glass-vision {
+  --refined-ink: 0 0% 97%;
+  --refined-subtle: 0 0% 78%;
+  --refined-rule: 220 6% 29%;
+  --refined-paper: 220 10% 9%;
+  --refined-tint: 220 8% 17%;
+  --refined-hover: 204 24% 23%;
+  --refined-shadow: 220 45% 3%;
+  --suite-canvas: hsl(var(--background) / 0.72);
+  --suite-sidebar: hsl(var(--sidebar) / 0.72);
+  --suite-line: hsl(var(--border) / 0.86);
+  --suite-elevation: 0 16px 40px hsl(220 45% 3% / 0.38);
+}
+
+html.glass-vision-light {
+  --refined-ink: 220 22% 18%;
+  --refined-subtle: 215 15% 42%;
+  --refined-rule: 205 22% 82%;
+  --refined-paper: 202 40% 96%;
+  --refined-tint: 198 35% 92%;
+  --refined-hover: 198 55% 90%;
+  --refined-shadow: 205 32% 25%;
+  --suite-canvas: hsl(var(--background) / 0.68);
+  --suite-sidebar: hsl(var(--sidebar) / 0.72);
+  --suite-line: hsl(var(--border) / 0.84);
+  --suite-elevation: 0 12px 32px hsl(205 32% 25% / 0.14);
+}
+
+.app-shell {
+  color: hsl(var(--foreground));
+  font-family: var(--app-font-sans);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+html:has(.app-shell),
+body:has(.app-shell),
+body:has(.app-shell) #root {
+  font-family: var(--app-font-sans);
+}
+
+.app-shell :is(h1, h2, h3, h4, h5, h6) {
+  color: hsl(var(--foreground));
+  font-family: var(--app-font-display);
+  letter-spacing: -0.035em;
+}
+
+.app-shell h1 {
+  font-size: clamp(1.5rem, 2.4vw, 2rem);
+  font-weight: 700;
+  letter-spacing: -0.045em;
+}
+
+.app-shell :is(h2, h3) {
+  font-weight: 600;
+}
+
+.app-shell :is(.font-bold, strong) {
+  font-weight: 700;
+}
+
+.app-shell .font-mono {
+  font-family: var(--app-font-mono);
+}
+
+.app-shell svg.lucide {
+  stroke-width: 1.7;
+}
+
+.app-shell :is(.text-muted-foreground, [data-slot="card-description"]) {
+  color: hsl(var(--muted-foreground));
+}
+
+/* Cards and content primitives use restrained outlines, not heavy panels. */
+.app-shell :is([data-slot="card"], .bg-card) {
+  border-color: hsl(var(--card-border, var(--border)));
+  border-radius: 14px;
+  box-shadow: 0 1px 2px hsl(var(--refined-shadow) / 0.035);
+}
+
+.app-shell :is([data-slot="card-header"], [data-slot="card-content"], [data-slot="card-footer"]) {
+  color: hsl(var(--card-foreground));
+}
+
+.app-shell :is(hr, [data-slot="separator"], [role="separator"]) {
+  border-color: hsl(var(--refined-rule));
+  background-color: hsl(var(--refined-rule));
+}
+
+.app-shell :is(button, [role="button"], a, summary, select) {
+  transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.app-shell :is(button, [data-slot="button"], [data-slot="select-trigger"], input, textarea, select) {
+  border-radius: 7px;
+}
+
+.app-shell :is(button, [role="button"], a, input, textarea, select, table, [role="tab"], [role="menuitem"], [role="option"]) {
+  font-family: var(--app-font-sans) !important;
+  letter-spacing: inherit;
+}
+
+.app-shell :is(button, [data-slot="button"]) {
+  border-radius: 9px;
+}
+
+.app-shell :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select, [data-slot="select-trigger"]) {
+  font-family: var(--app-font-sans) !important;
+  border-radius: 8px;
+}
+
+.app-shell :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select, [data-slot="select-trigger"]) {
+  border-color: hsl(var(--input));
+  color: hsl(var(--foreground));
+}
+
+.app-shell :is(input, textarea)::placeholder {
+  color: hsl(var(--muted-foreground) / 0.82);
+}
+
+.app-shell :is(button, [role="button"], a, input, textarea, select, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.app-shell :is(button, [data-slot="select-trigger"]):hover {
+  border-color: hsl(var(--refined-rule));
+}
+
+/* The selected chrome accent remains user-controlled and is reused for actions. */
+.app-shell :is(button, a, [role="button"], [data-slot="button"]).bg-primary {
+  background-color: hsl(var(--chrome-accent, var(--primary)));
+  border-color: hsl(var(--chrome-accent, var(--primary)));
+  color: hsl(var(--chrome-accent-foreground, var(--primary-foreground)));
+}
+
+/* Tables, tabs and list-like data regions share a neutral data rhythm. */
+.app-shell :is(table, [role="table"]) {
+  border-color: hsl(var(--refined-rule));
+}
+
+.app-shell :is(th, [role="columnheader"]) {
+  color: hsl(var(--muted-foreground));
+  font-weight: 600;
+}
+
+.app-shell :is(td, th, [role="cell"], [role="columnheader"]) {
+  border-color: hsl(var(--refined-rule));
+}
+
+.app-shell :is(th, [role="columnheader"]) {
+  padding: 10px 16px;
+  background-color: hsl(var(--refined-tint) / 0.48);
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.app-shell :is(td, [role="cell"]) {
+  padding: 11px 16px;
+  font-size: 0.75rem;
+}
+
+.app-shell tbody tr:hover,
+.app-shell [role="row"]:hover {
+  background-color: hsl(var(--refined-tint) / 0.72);
+}
+
+.app-shell :is([role="tablist"], [data-slot="tabs-list"]) {
+  border-color: hsl(var(--refined-rule));
+}
+
+.app-shell :is([role="tab"][aria-selected="true"], [data-slot="tabs-trigger"][data-state="active"]) {
+  color: hsl(var(--chrome-accent, var(--primary)));
+  font-weight: 700;
+}
+
+/* Radix portal content is outside the shell; target semantic slots only. */
+html :is(
+  [data-slot="dialog-content"],
+  [data-slot="alert-dialog-content"],
+  [data-slot="sheet-content"],
+  [data-slot="drawer-content"],
+  [data-slot="popover-content"],
+  [data-slot="dropdown-menu-content"],
+  [data-slot="context-menu-content"],
+  [data-slot="select-content"],
+  [data-slot="command"],
+  [role="alertdialog"],
+  [role="dialog"],
+  [role="menu"],
+  [role="listbox"]
+) {
+  font-family: var(--app-font-sans);
+  border-color: hsl(var(--popover-border, var(--border)));
+  color: hsl(var(--popover-foreground, var(--foreground)));
+  border-radius: 9px;
+  box-shadow: var(--suite-elevation, 0 18px 50px hsl(var(--refined-shadow) / 0.14));
+}
+
+html :is(
+  [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"],
+  [data-slot="drawer-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"],
+  [data-slot="context-menu-content"], [data-slot="select-content"], [data-slot="command"],
+  [role="alertdialog"], [role="dialog"], [role="menu"], [role="listbox"]
+) :is(button, input, textarea, select, [role="menuitem"], [role="option"], [tabindex]) {
+  font-family: var(--app-font-sans) !important;
+  letter-spacing: inherit;
+}
+
+html :is(
+  [data-slot="dropdown-menu-item"],
+  [data-slot="context-menu-item"],
+  [data-slot="select-item"],
+  [role="menuitem"],
+  [role="option"]
+):focus,
+html :is(
+  [data-slot="dropdown-menu-item"],
+  [data-slot="context-menu-item"],
+  [data-slot="select-item"],
+  [role="menuitem"],
+  [role="option"]
+)[data-highlighted] {
+  background-color: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+html :is([data-slot="tooltip-content"], [role="tooltip"]) {
+  border-radius: 6px;
+  font-family: var(--app-font-sans);
+  font-size: 0.75rem;
+}
+
+/* Standard themes keep portal surfaces opaque; no decorative light gradients. */
+html:not(:is(.glass-light, .glass-dark, .glass-vision, .glass-vision-light)) :is(
+  [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"],
+  [data-slot="drawer-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"],
+  [data-slot="context-menu-content"], [data-slot="select-content"], [data-slot="command"],
+  [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]
+) {
+  background-color: hsl(var(--popover));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html :is([data-sonner-toast], [data-slot="toast"], [role="status"], [role="alert"]) {
+  font-family: var(--app-font-sans);
+}
+
+html :is([data-sonner-toast], [data-slot="toast"]) {
+  border-color: hsl(var(--border));
+  border-radius: 9px;
+  box-shadow: var(--suite-elevation);
+}
+
+/* Glass and Vision modes keep their material backdrops with clearer edges. */
+html:is(.glass-light, .glass-dark, .glass-vision, .glass-vision-light) .app-shell :is([data-slot="card"], .bg-card) {
+  border-color: hsl(var(--card-border, var(--border)));
+  box-shadow: 0 1px 0 hsl(var(--refined-ink) / 0.06), 0 8px 24px hsl(var(--refined-shadow) / 0.09);
+}
+
+html:is(.glass-light, .glass-vision-light) :is(
+  [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"],
+  [data-slot="drawer-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"],
+  [data-slot="context-menu-content"], [data-slot="select-content"], [data-slot="command"],
+  [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]
+) {
+  background-color: hsl(var(--popover) / 0.88);
+  -webkit-backdrop-filter: blur(18px) saturate(165%);
+  backdrop-filter: blur(18px) saturate(165%);
+}
+
+html:is(.glass-dark, .glass-vision) :is(
+  [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"],
+  [data-slot="drawer-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"],
+  [data-slot="context-menu-content"], [data-slot="select-content"], [data-slot="command"],
+  [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]
+) {
+  background-color: hsl(var(--popover) / 0.9);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell *,
+  .app-shell *::before,
+  .app-shell *::after,
+  html [data-sonner-toast],
+  html [data-slot="toast"] {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

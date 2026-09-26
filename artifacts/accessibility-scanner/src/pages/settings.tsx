@@ -163,6 +163,7 @@ export type Theme = "light" | "dark" | "system" | "glass-dark" | "glass-light" |
 export const ACCENT_LS_KEY = "a11y-accent";
 export type AccentColor =
   | "black"
+  | "charcoal"
   | "purple"
   | "blue"
   | "pink"
@@ -182,6 +183,12 @@ export const ACCENT_COLORS: Record<
     value: "220 12% 19%",
     foreground: "0 0% 100%",
     swatch: "#30343b",
+  },
+  charcoal: {
+    label: "Charcoal",
+    value: "220 9% 26%",
+    foreground: "0 0% 100%",
+    swatch: "#3c4048",
   },
   purple: {
     label: "Purple",
@@ -249,7 +256,7 @@ export function getSavedAccentColor(): AccentColor | string {
   } catch {
     /* ignore */
   }
-    return "violet";
+    return "teal";
 }
 
 export function hexToHslString(hex: string): string {
@@ -279,25 +286,37 @@ function hexLuminance(hex: string): number {
   return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 }
 
+function shellForegroundFor(hex: string): string {
+  // Keep white lettering on saturated medium accents. Only visibly bright
+  // swatches (such as orange, bronze, mint, or pale custom colors) use dark ink.
+  return hexLuminance(hex) > 0.275 ? "220 15% 6%" : "0 0% 100%";
+}
+
 export function applyAccentColor(accent: AccentColor | string) {
   let value: string;
   let foreground: string;
+  let chromeColor: string;
   let datasetKey: string;
   if (typeof accent === "string" && accent.startsWith("#")) {
     value = hexToHslString(accent);
-    foreground = hexLuminance(accent) > 0.45 ? "222 10% 8%" : "0 0% 100%";
+    foreground = shellForegroundFor(accent);
+    chromeColor = accent;
     datasetKey = "custom";
   } else {
     const selected =
       ACCENT_COLORS[accent as AccentColor] ?? ACCENT_COLORS.indigo;
     value = selected.value;
-    foreground = selected.foreground;
+    foreground = shellForegroundFor(selected.swatch);
+    chromeColor = selected.swatch;
     datasetKey = accent as string;
   }
 
-  // Dark themes intentionally use monochrome white chrome. The accent is
-  // still persisted and restored for light themes, but it must not feed the
-  // rail, primary controls, selected states, or focus rings in dark themes.
+  // Keep the selected color available to navigation independently of the
+  // theme's header surface and dark-theme content controls.
+  const chromeAccent = value;
+  const chromeForeground = foreground;
+  // Dark themes keep neutral content controls; shell chrome uses the
+  // separately preserved selected accent above.
   const savedTheme = getSavedTheme();
   const darkChrome =
     savedTheme === "dark" ||
@@ -311,6 +330,12 @@ export function applyAccentColor(accent: AccentColor | string) {
   }
 
   const root = document.documentElement;
+  root.style.setProperty("--chrome-accent", chromeAccent);
+  root.style.setProperty("--chrome-accent-color", chromeColor);
+  root.style.setProperty("--chrome-accent-foreground", chromeForeground);
+  const luminance = hexLuminance(chromeColor);
+  root.style.setProperty("--shell-text-shadow", luminance > 0.18 && luminance <= 0.275 ? "0 1px 1px rgba(0, 0, 0, .45)" : "none");
+  root.style.setProperty("--shell-interaction-color", luminance > 0.275 ? "black" : "white");
   root.style.setProperty("--app-accent", value);
   root.style.setProperty("--primary", value);
   root.style.setProperty("--ring", value);
@@ -347,9 +372,8 @@ export function applyTheme(theme: Theme) {
   document.documentElement.classList.toggle("glass-vision", theme === "glass-vision");
   document.documentElement.classList.toggle("glass-vision-light", theme === "glass-vision-light");
 
-  // Reapply the persisted accent after the theme classes change. This keeps
-  // dark themes neutral and restores the user's accent when switching back
-  // to a light theme.
+  // Reapply the persisted accent after changing themes. Standard Light/Dark
+  // use it on navigation; every header uses its theme's own surface.
   applyAccentColor(getSavedAccentColor());
 }
 
@@ -1190,7 +1214,7 @@ export default function Settings() {
                   <div>
                     <p className="text-sm font-semibold">Accent colour</p>
                     <p className="text-xs text-muted-foreground">
-                      Set the navigation rail, active states, buttons, and focus colour.
+                      Set the header and sidebar backgrounds, active states, buttons, and focus colour.
                     </p>
                   </div>
                 </div>

@@ -1,9 +1,10 @@
 import { useQASites, useQASelectedSite, QAPageShell } from "@/pages/qa-shared";
 import { BrokenLinksTab } from "@/pages/scan-qa";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, RefreshCw, XCircle } from "lucide-react";
+import { RefreshCw, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { qaErrorMessage } from "@/pages/qa-shared";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 export default function QABrokenLinksPage() {
   const { data: sites = [], isLoading, isError, error, refetch } = useQASites();
@@ -14,9 +15,7 @@ export default function QABrokenLinksPage() {
       activeTab="broken-links"
     >
       {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-        </div>
+        <PageLoadingSkeleton variant="table" message="Loading sites…" />
       ) : isError ? (
         <Card>
           <CardContent className="py-12 flex flex-col items-center gap-3 text-muted-foreground">
@@ -39,7 +38,9 @@ export default function QABrokenLinksPage() {
           </CardContent>
         </Card>
       ) : (
-        <BrokenLinksTab scanId={selected.scanId} />
+        <div className="loaded-reveal">
+          <BrokenLinksTab scanId={selected.scanId} />
+        </div>
       )}
     </QAPageShell>
   );

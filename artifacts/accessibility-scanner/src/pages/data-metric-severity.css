@@ -1,0 +1,35 @@
+/* Keep the overview card geometry without losing issue severity or progress cues. */
+body .site-dashboard .dashboard-overview-card.metric-danger {
+  --metric-accent: hsl(0 69% 37%);
+  --metric-tint: hsl(0 74% 52% / .07);
+  border-color: hsl(0 69% 48% / .34) !important;
+  background: linear-gradient(145deg, var(--metric-tint), hsl(var(--card) / .88)) !important;
+}
+body .site-dashboard .dashboard-overview-card.metric-success {
+  --metric-accent: hsl(155 70% 29%);
+  --metric-tint: hsl(155 65% 43% / .07);
+  border-color: hsl(155 65% 43% / .34) !important;
+  background: linear-gradient(145deg, var(--metric-tint), hsl(var(--card) / .88)) !important;
+}
+body .site-dashboard .dashboard-overview-card.metric-warning {
+  --metric-accent: hsl(35 85% 33%);
+  --metric-tint: hsl(40 82% 51% / .08);
+  border-color: hsl(35 80% 49% / .36) !important;
+  background: linear-gradient(145deg, var(--metric-tint), hsl(var(--card) / .88)) !important;
+}
+body .site-dashboard .dashboard-overview-card:is(.metric-danger, .metric-success, .metric-warning)
+  :is(.dashboard-metric-label, .dashboard-metric-value, .dashboard-metric-detail) {
+  color: var(--metric-accent) !important;
+}
+html:is(.dark, .glass-dark, .glass-vision) body .site-dashboard .dashboard-overview-card.metric-danger {
+  --metric-accent: hsl(0 89% 74%);
+  --metric-tint: hsl(0 75% 58% / .15);
+}
+html:is(.dark, .glass-dark, .glass-vision) body .site-dashboard .dashboard-overview-card.metric-success {
+  --metric-accent: hsl(155 60% 72%);
+  --metric-tint: hsl(155 55% 52% / .14);
+}
+html:is(.dark, .glass-dark, .glass-vision) body .site-dashboard .dashboard-overview-card.metric-warning {
+  --metric-accent: hsl(40 90% 72%);
+  --metric-tint: hsl(40 77% 56% / .15);
+}

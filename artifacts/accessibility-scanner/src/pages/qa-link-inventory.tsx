@@ -11,7 +11,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Download, ExternalLink, Link2, Loader2 } from "lucide-react";
+import { ExternalLink, Link2 } from "lucide-react";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import {
   useQASites,
   useQASelectedSite,
@@ -150,11 +151,7 @@ function LinkInventoryContent({
   }));
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <PageLoadingSkeleton variant="table" message="Loading link inventory…" />;
   }
 
   const meta = CATEGORY_META[category];
@@ -171,7 +168,7 @@ function LinkInventoryContent({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="loaded-reveal space-y-3">
       <QAListToolbar
         search={search}
         onSearch={(value) => { setSearch(value); setPage(1); }}
@@ -196,7 +193,7 @@ function LinkInventoryContent({
         {search ? ` matching "${search}"` : ""}
       </p>
 
-      <div className={QA_TABLE_SHELL_CLASS}>
+      <div className={`${QA_TABLE_SHELL_CLASS} !rounded-xl !border-border/80 !bg-card !shadow-sm !backdrop-blur-none`}>
         <Table className={QA_TABLE_CLASS}>
           <TableHeader>
             <TableRow>
@@ -279,9 +276,7 @@ function QALinkInventoryPage({ category }: { category: Category }) {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-        </div>
+        <PageLoadingSkeleton variant="table" message="Loading sites…" />
       ) : !selected?.scanId ? (
         <Card>
           <CardContent className="py-12 flex flex-col items-center gap-3 text-muted-foreground">

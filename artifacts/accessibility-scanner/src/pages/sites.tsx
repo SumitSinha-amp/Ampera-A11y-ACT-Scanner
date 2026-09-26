@@ -35,6 +35,7 @@ import { Plus, Globe, MoreHorizontal, Pencil, Trash2, ExternalLink, BarChart3, U
 import { Link, useLocation } from "wouter";
 import { useAuth, isAdmin } from "@/contexts/auth";
 import { useSite } from "@/contexts/site";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -251,7 +252,8 @@ export default function SitesPage() {
   const sites = data?.sites ?? [];
 
   return (
-    <div className="space-y-6">
+    <div className="refined-screen">
+    <div className="site-dashboard space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Sites</h1>
@@ -267,7 +269,24 @@ export default function SitesPage() {
         )}
       </div>
 
-      {isLoading && <div className="text-muted-foreground text-sm">Loading sites…</div>}
+      {isLoading && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" role="status" aria-label="Loading sites" aria-busy="true">
+          {Array.from({ length: 6 }, (_, index) => (
+            <div key={index} className="ampera-card space-y-4 p-5">
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-8 w-8 rounded-lg" />
+                <Skeleton className="h-4 w-2/3" />
+              </div>
+              <Skeleton className="h-3 w-4/5" />
+              <Skeleton className="h-3 w-1/2" />
+              <div className="flex gap-2 pt-2">
+                <Skeleton className="h-8 flex-1 rounded-lg" />
+                <Skeleton className="h-8 flex-1 rounded-lg" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {!isLoading && sites.length === 0 && (
         <Card>
@@ -281,13 +300,13 @@ export default function SitesPage() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className={`${isLoading ? "" : "loaded-reveal"} grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4`}>
         {sites.map((site) => {
           const isActive = activeSite?.id === site.id;
           return (
           <Card
             key={site.id}
-            className={`hover:shadow-md transition-shadow${isActive ? " ring-2 ring-primary" : ""}`}
+            className={`ampera-card hover:shadow-md transition-shadow${isActive ? " ring-2 ring-primary" : ""}`}
           >
             <CardHeader className="pb-2">
               <div className="flex items-start justify-between gap-2">
@@ -414,6 +433,7 @@ export default function SitesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
     </div>
   );
 }

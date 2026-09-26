@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
 @layer theme, base, components, utilities;
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -127,8 +127,8 @@
   --chart-4: 221 83% 53%; /* Minor - Blue */
   --chart-5: 215 16% 47%; /* Gray/Other */
 
-   --app-font-sans: 'DM Sans', sans-serif;
-   --app-font-display: 'Plus Jakarta Sans', 'DM Sans', sans-serif;
+   --app-font-sans: "Manrope", system-ui, -apple-system, sans-serif;
+   --app-font-display: "Manrope", system-ui, -apple-system, sans-serif;
   --app-font-serif: Georgia, serif;
   --app-font-mono: 'Space Mono', monospace;
    --app-accent: 239 84% 67%;
@@ -193,6 +193,8 @@
   --chart-4: 221 83% 53%; 
   --chart-5: 215 20% 65%;
    --app-accent: 239 84% 72%;
+   --app-font-sans: "Manrope", system-ui, -apple-system, sans-serif;
+   --app-font-display: "Manrope", system-ui, -apple-system, sans-serif;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -1683,45 +1685,6 @@ html.glass-vision-light *::-webkit-scrollbar-button:end {
   background: transparent !important;
 }
 
-/* ── Floating accessibility button — centered on the rail ── */
-@media (min-width: 768px) {
-  html.glass-vision .accessibility-mode-control,
-  html.glass-vision-light .accessibility-mode-control {
-    left: 25px !important;   /* rail starts at 17px, 64px wide; orb 48px → centered */
-    bottom: 26px !important; /* sits just above the rail's rounded end */
-  }
-}
-
-/* ── Floating accessibility button — frosted glass orb ── */
-html.glass-vision .accessibility-mode-control button {
-  background: rgba(255, 255, 255, 0.14) !important;
-  backdrop-filter: blur(24px) saturate(150%);
-  -webkit-backdrop-filter: blur(24px) saturate(150%);
-  border: 1px solid rgba(255, 255, 255, 0.28) !important;
-  border-radius: 9999px !important;
-  color: rgb(255, 255, 255) !important;
-  box-shadow:
-    0 1px 0 0 rgba(255, 255, 255, 0.25) inset,
-    0 12px 36px rgba(0, 0, 0, 0.45);
-}
-html.glass-vision .accessibility-mode-control button:hover {
-  background: rgba(255, 255, 255, 0.22) !important;
-}
-html.glass-vision-light .accessibility-mode-control button {
-  background: rgba(255, 255, 255, 0.72) !important;
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.95) !important;
-  border-radius: 9999px !important;
-  color: hsl(205 42% 15%) !important;
-  box-shadow:
-    0 1px 0 0 rgba(255, 255, 255, 0.95) inset,
-    0 12px 36px rgba(80, 115, 140, 0.30);
-}
-html.glass-vision-light .accessibility-mode-control button:hover {
-  background: rgba(255, 255, 255, 0.88) !important;
-}
-
 /* ── Toasts / alert notifications ─────────────────────────
       The toast root carries `bg-background`, which the vision
       themes force transparent — restore an opaque frosted pane
@@ -2059,15 +2022,6 @@ html.a11y-reduced-motion *::after {
 
 .sidebar-rail-menu {
   width: 42px;
-}
-
-/* Center the floating accessibility control in the fixed 70px desktop rail.
- * Keep the original safe viewport inset on smaller screens where the rail is
- * not rendered. */
-@media (min-width: 768px) {
-  .accessibility-mode-control {
-    left: 11px !important;
-  }
 }
 
 .sidebar-flyout {

@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import { useParams, Link, useSearch } from "wouter";
 import { ACT_RULES, getRuleTitle } from "@/lib/actRules";
 import { Button } from "@/components/ui/button";
@@ -482,11 +483,7 @@ export default function PageReport() {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-[70vh] text-muted-foreground gap-2">
-        <Loader2 className="w-5 h-5 animate-spin" /> Loading page report…
-      </div>
-    );
+    return <PageLoadingSkeleton variant="detail" message="Loading page report…" />;
   }
   if (loadError || !page) {
     return (

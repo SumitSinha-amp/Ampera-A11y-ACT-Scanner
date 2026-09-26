@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import "./data-metric-severity.css";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -44,6 +45,7 @@ import {
   Shield,
   XCircle,
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   fetchQAJson,
   qaErrorMessage,
@@ -115,6 +117,31 @@ function QAQueryError({ error, onRetry }: { error: unknown; onRetry: () => void 
   );
 }
 
+function QALoadingSkeleton({ rows = 5 }: { rows?: number }) {
+  return (
+    <div className="space-y-3 py-2" role="status" aria-label="Loading QA data" aria-busy="true">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {Array.from({ length: 4 }, (_, index) => (
+          <div key={index} className="rounded-xl border border-border/60 bg-card p-4">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="mt-4 h-7 w-16" />
+          </div>
+        ))}
+      </div>
+      <div className="rounded-xl border border-border/60 bg-card px-4">
+        {Array.from({ length: rows }, (_, index) => (
+          <div key={index} className="flex min-h-14 items-center gap-4 border-b border-border/50 last:border-0">
+            <Skeleton className="h-4 w-2/5" />
+            <Skeleton className="h-4 w-1/5" />
+            <Skeleton className="h-4 w-16" />
+            <Skeleton className="h-5 w-14 rounded-full" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function httpStatusBadge(status: number | null) {
   if (status === null) return <Badge variant="outline" className="text-muted-foreground">—</Badge>;
   if (status === 0) return <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">Timeout</Badge>;
@@ -156,17 +183,17 @@ export function OverviewCards({ status }: { status: QAStatus }) {
   const pct = status.totalLinks > 0 ? Math.round((status.checked / status.totalLinks) * 100) : 0;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <Card className="bg-[#1a1a2e] border-[#2a2a4a]">
+    <div className="dashboard-metric-grid grid grid-cols-2 md:grid-cols-4 gap-4">
+      <Card className="dashboard-overview-card">
         <CardContent className="pt-6">
-          <div className="flex items-center gap-2 mb-1 text-gray-400 text-sm"><FileText className="w-4 h-4" /> Pages crawled</div>
-          <div className="text-3xl font-bold text-white">{status.totalPages.toLocaleString()}</div>
+          <div className="dashboard-metric-label flex items-center gap-2 mb-1 text-gray-400 text-sm"><FileText className="w-4 h-4" /> Pages crawled</div>
+          <div className="dashboard-metric-value text-3xl font-bold text-white">{status.totalPages.toLocaleString()}</div>
         </CardContent>
       </Card>
-      <Card className="bg-[#1a1a2e] border-[#2a2a4a]">
+      <Card className="dashboard-overview-card">
         <CardContent className="pt-6">
-          <div className="flex items-center gap-2 mb-1 text-gray-400 text-sm"><Link2 className="w-4 h-4" /> Links found</div>
-          <div className="text-3xl font-bold text-white">{status.totalLinks.toLocaleString()}</div>
+          <div className="dashboard-metric-label flex items-center gap-2 mb-1 text-gray-400 text-sm"><Link2 className="w-4 h-4" /> Links found</div>
+          <div className="dashboard-metric-value text-3xl font-bold text-white">{status.totalLinks.toLocaleString()}</div>
           {status.running && (
             <div className="text-xs text-blue-400 mt-1 flex items-center gap-1">
               <Loader2 className="w-3 h-3 animate-spin" /> Checking… {pct}%
@@ -174,18 +201,18 @@ export function OverviewCards({ status }: { status: QAStatus }) {
           )}
         </CardContent>
       </Card>
-      <Card className={`bg-[#1a1a2e] border-[#2a2a4a] ${status.broken > 0 ? "border-red-800" : ""}`}>
+      <Card className={`dashboard-overview-card ${status.broken > 0 ? "metric-danger" : ""}`}>
         <CardContent className="pt-6">
-          <div className="flex items-center gap-2 mb-1 text-gray-400 text-sm"><XCircle className="w-4 h-4 text-red-400" /> Broken links</div>
-          <div className={`text-3xl font-bold ${status.broken > 0 ? "text-red-400" : "text-white"}`}>
+          <div className="dashboard-metric-label flex items-center gap-2 mb-1 text-gray-400 text-sm"><XCircle className="w-4 h-4 text-red-400" /> Broken links</div>
+          <div className={`dashboard-metric-value text-3xl font-bold ${status.broken > 0 ? "text-red-400" : "text-white"}`}>
             {status.broken.toLocaleString()}
           </div>
         </CardContent>
       </Card>
-      <Card className={`bg-[#1a1a2e] border-[#2a2a4a] ${status.redirects > 0 ? "border-yellow-800" : ""}`}>
+      <Card className={`dashboard-overview-card ${status.redirects > 0 ? "metric-warning" : ""}`}>
         <CardContent className="pt-6">
-          <div className="flex items-center gap-2 mb-1 text-gray-400 text-sm"><ArrowRight className="w-4 h-4 text-yellow-400" /> Redirects</div>
-          <div className={`text-3xl font-bold ${status.redirects > 0 ? "text-yellow-400" : "text-white"}`}>
+          <div className="dashboard-metric-label flex items-center gap-2 mb-1 text-gray-400 text-sm"><ArrowRight className="w-4 h-4 text-yellow-400" /> Redirects</div>
+          <div className={`dashboard-metric-value text-3xl font-bold ${status.redirects > 0 ? "text-yellow-400" : "text-white"}`}>
             {status.redirects.toLocaleString()}
           </div>
         </CardContent>
@@ -231,11 +258,11 @@ export function BrokenLinksTab({ scanId }: { scanId: number }) {
     "Anchor Texts": (r.anchorTexts ?? []).slice(0, 3).join("; "),
   }));
 
-  if (isLoading) return <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
+  if (isLoading) return <QALoadingSkeleton />;
   if (isError) return <QAQueryError error={error} onRetry={() => refetch()} />;
 
   return (
-    <div className="space-y-3">
+    <div className="loaded-reveal space-y-3">
       <QAListToolbar
         search={search}
         onSearch={(value) => { setSearch(value); setPage(1); }}
@@ -392,11 +419,11 @@ export function RedirectsTab({ scanId }: { scanId: number }) {
     "Source URLs": (r.sources ?? []).slice(0, 5).join("; "),
   }));
 
-  if (isLoading) return <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
+  if (isLoading) return <QALoadingSkeleton />;
   if (isError) return <QAQueryError error={error} onRetry={() => refetch()} />;
 
   return (
-    <div className="space-y-3">
+    <div className="loaded-reveal space-y-3">
       <QAListToolbar
         search={search}
         onSearch={(value) => { setSearch(value); setPage(1); }}
@@ -531,7 +558,7 @@ export function PagesTab({
   );
 
   const content = isLoading ? (
-    <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+    <QALoadingSkeleton rows={4} />
   ) : isError ? (
     <QAQueryError error={error} onRetry={() => refetch()} />
   ) : !rows.length ? (
@@ -582,11 +609,11 @@ export function PagesTab({
   );
 
   if (!compact) {
-    return <div className="space-y-3">{toolbar}{content}</div>;
+    return <div className="loaded-reveal space-y-3">{toolbar}{content}</div>;
   }
 
   return (
-    <section className="rounded-2xl border border-white/90 bg-white/82 p-5 shadow-[0_4px_22px_rgba(0,0,0,.07)] backdrop-blur-xl">
+    <section className="ampera-card loaded-reveal rounded-2xl p-5">
       <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <h2 className="text-sm font-bold text-[#172b4d]">Page Inventory</h2>
@@ -635,11 +662,7 @@ export function ScanQATab({ scanId }: { scanId: number }) {
   ];
 
   if (isLoading) {
-    return (
-      <div className="flex justify-center py-20">
-        <Loader2 className="w-6 h-6 animate-spin text-blue-400" />
-      </div>
-    );
+    return <QALoadingSkeleton />;
   }
   if (isError) {
     return <QAQueryError error={error} onRetry={() => refetch()} />;
@@ -648,7 +671,8 @@ export function ScanQATab({ scanId }: { scanId: number }) {
   const noData = !status || (status.totalPages === 0 && status.totalLinks === 0);
 
   return (
-    <div className="space-y-6">
+    <div className="refined-screen">
+    <div className="site-dashboard loaded-reveal space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -772,6 +796,7 @@ export function ScanQATab({ scanId }: { scanId: number }) {
           </div>
         </>
       )}
+    </div>
     </div>
   );
 }

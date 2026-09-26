@@ -1450,7 +1450,7 @@ router.patch("/scans/:id", async (req, res): Promise<void> => {
   res.status(204).send();
 });
 
-// Bulk-delete cancelled / failed scans ─────────────────────────────────────
+// Bulk-delete scans, including scans with active workers.
 router.delete("/scans/bulk", async (req, res): Promise<void> => {
   const userId = getAuthUserId(req);
   if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -1462,7 +1462,7 @@ router.delete("/scans/bulk", async (req, res): Promise<void> => {
     return;
   }
 
-  const rawIds = (req.body as Record<string, unknown>)["ids"];
+  const rawIds = (req.body as Record<string, unknown> | undefined)?.ids;
   if (
     !Array.isArray(rawIds) ||
     rawIds.length === 0 ||
@@ -1472,18 +1472,41 @@ router.delete("/scans/bulk", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Invalid request body" });
     return;
   }
-  const ids = rawIds as number[];
+  const ids = [...new Set(rawIds as number[])];
   const isAdmin = role === "super_admin" || role === "admin";
 
+  // Match the single-delete route's site and scan access checks. Reject the
+  // entire selection rather than quietly deleting only the permitted subset.
+  const requestedScans = await db
+    .select({
+      id: scanSessionsTable.id,
+      userId: scanSessionsTable.userId,
+      siteId: scanSessionsTable.siteId,
+    })
+    .from(scanSessionsTable)
+    .where(inArray(scanSessionsTable.id, ids));
+  if (requestedScans.length !== ids.length) {
+    res.status(404).json({ error: "One or more scans no longer exist. Refresh and try again." });
+    return;
+  }
+  if (!isAdmin) {
+    const siteIds = [...new Set(requestedScans.map((scan) => scan.siteId).filter((id): id is number => id != null))];
+    const access = await Promise.all(
+      siteIds.map((siteId) => canAccessSite(parseInt(userId, 10), userId, role, siteId)),
+    );
+    if (
+      access.some((allowed) => !allowed) ||
+      (!perms.canViewAllScans && requestedScans.some((scan) => scan.userId?.toString() !== userId))
+    ) {
+      res.status(403).json({ error: "You do not have access to one or more selected scans" });
+      return;
+    }
+  }
+
+  for (const id of ids) cancelScan(id);
   const deleted = await db
     .delete(scanSessionsTable)
-    .where(
-      and(
-        inArray(scanSessionsTable.id, ids),
-        inArray(scanSessionsTable.status, ["cancelled", "failed"]),
-        ...(isAdmin ? [] : [eq(scanSessionsTable.userId, userId)]),
-      ),
-    )
+    .where(inArray(scanSessionsTable.id, ids))
     .returning({ id: scanSessionsTable.id });
 
   res.json({ deleted: deleted.length });

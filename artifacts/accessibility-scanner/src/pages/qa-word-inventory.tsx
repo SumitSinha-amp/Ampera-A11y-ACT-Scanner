@@ -14,8 +14,9 @@ import {
 } from "@/pages/qa-shared";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { BookOpen, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { BookOpen, RefreshCw, XCircle } from "lucide-react";
 import { useDebounce } from "@/hooks/use-debounce";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 interface WordRow {
   word: string;
@@ -55,7 +56,7 @@ function WordInventoryContent({ scanId, siteName }: { scanId: number; siteName: 
   const topWords = debouncedSearch ? [] : items.slice(0, 6);
 
   return (
-    <section className="rounded-2xl border border-white/90 bg-white/82 p-5 shadow-[0_4px_22px_rgba(0,0,0,.07)] backdrop-blur-xl">
+    <section className="rounded-xl border border-border/80 bg-card p-5 shadow-sm">
       <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <h2 className="text-sm font-bold text-[#172b4d]">Word Inventory</h2>
@@ -74,9 +75,7 @@ function WordInventoryContent({ scanId, siteName }: { scanId: number; siteName: 
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
+        <PageLoadingSkeleton variant="table" message="Loading word inventory…" />
       ) : isError ? (
         <div className="flex flex-col items-center gap-3 py-14 text-center">
           <XCircle className="h-9 w-9 text-destructive" />
@@ -101,7 +100,7 @@ function WordInventoryContent({ scanId, siteName }: { scanId: number; siteName: 
           No words matching &ldquo;{debouncedSearch}&rdquo;
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="loaded-reveal space-y-4">
           {topWords.length > 0 && (
             <div className="flex flex-wrap gap-2.5">
               {topWords.map((word) => (
@@ -118,10 +117,10 @@ function WordInventoryContent({ scanId, siteName }: { scanId: number; siteName: 
             </div>
           )}
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-lg border border-border/70">
             <table className={`w-full ${QA_TABLE_CLASS} text-[13px]`}>
               <thead>
-                <tr className="bg-[#f5f6fb]">
+                <tr className="bg-muted/40">
                   <th className="h-9 px-3 text-left text-[10px] font-bold uppercase tracking-[.04em] text-[#9eadca]">Keyword</th>
                   <th className="h-9 px-3 text-left text-[10px] font-bold uppercase tracking-[.04em] text-[#9eadca]">Occurrences</th>
                   <th className="h-9 px-3 text-left text-[10px] font-bold uppercase tracking-[.04em] text-[#9eadca]">Pages</th>
@@ -132,8 +131,8 @@ function WordInventoryContent({ scanId, siteName }: { scanId: number; siteName: 
                 {items.map((word) => {
                   const ratio = Math.round((word.totalCount / maxCount) * 100);
                   return (
-                    <tr key={word.word} className="border-t border-[#f0f2f8] transition-colors hover:bg-muted/30">
-                      <td className="px-3 py-2.5 font-bold text-[#172b4d]">{word.word}</td>
+                    <tr key={word.word} className="border-t border-border/60 transition-colors hover:bg-muted/30">
+                      <td className="px-3 py-2.5 font-bold text-foreground">{word.word}</td>
                       <td className="px-3 py-2.5 font-mono font-bold text-primary">{word.totalCount.toLocaleString()}</td>
                       <td className="px-3 py-2.5 text-[#7b8aaa]">{word.pageCount.toLocaleString()} {word.pageCount === 1 ? "page" : "pages"}</td>
                       <td className="px-3 py-2.5">
@@ -167,11 +166,9 @@ export default function QAWordInventoryPage() {
       activeTab="word-inventory"
     >
       {isLoading ? (
-        <div className="flex justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
+        <PageLoadingSkeleton variant="table" message="Loading sites…" />
       ) : !selected?.scanId ? (
-        <Card className="rounded-2xl border border-white/90 bg-white/82 shadow-[0_4px_22px_rgba(0,0,0,.07)] backdrop-blur-xl">
+        <Card className="rounded-xl border-border/80 bg-card shadow-sm">
           <CardContent className="flex flex-col items-center gap-3 py-12 text-muted-foreground">
             <BookOpen className="h-10 w-10" />
             <p className="font-medium text-foreground">No scan data available</p>

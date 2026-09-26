@@ -14,6 +14,7 @@ import {
   type ListScansParams,
 } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/auth";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import { useSite } from "@/contexts/site";
 import { ProjectSelector } from "@/components/project-selector";
 import { Link, useLocation } from "wouter";
@@ -948,7 +949,10 @@ export default function ScanList() {
         credentials: "include",
         body: JSON.stringify({ ids }),
       });
-      if (!res.ok) throw new Error("Failed to delete");
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: string } | null;
+        throw new Error(body?.error || "Could not delete the selected scans");
+      }
       return res.json() as Promise<{ deleted: number }>;
     },
     onSuccess: (data) => {
@@ -957,7 +961,10 @@ export default function ScanList() {
       setBulkDeleteOpen(false);
       queryClient.invalidateQueries({ queryKey: getListScansQueryKey() });
     },
-    onError: () => toast({ title: "Failed to delete scans", variant: "destructive" }),
+    onError: (error) => {
+      toast({ title: "Failed to delete scans", description: error.message, variant: "destructive" });
+      queryClient.invalidateQueries({ queryKey: getListScansQueryKey() });
+    },
   });
 
   // Hover preview state
@@ -1099,18 +1106,15 @@ export default function ScanList() {
   const completedScanCount = siteScopedScans.filter((scan) => scan.status === "completed").length;
   const failedScanCount = siteScopedScans.filter((scan) => scan.status === "failed").length;
 
-  const selectableIds = useMemo(
-    () => filteredScans.filter((s) => s.status === "cancelled" || s.status === "failed").map((s) => s.id),
-    [filteredScans],
-  );
+  const selectableIds = visibleScans.map((scan) => scan.id);
   const allSelectableSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id));
   const someSelectableSelected = selectableIds.some((id) => selectedIds.has(id));
 
   const toggleSelectAll = () => {
     if (allSelectableSelected) {
-      setSelectedIds(new Set());
+      setSelectedIds((previous) => new Set([...previous].filter((id) => !selectableIds.includes(id))));
     } else {
-      setSelectedIds(new Set(selectableIds));
+      setSelectedIds((previous) => new Set([...previous, ...selectableIds].slice(0, 200)));
     }
   };
 
@@ -1118,7 +1122,7 @@ export default function ScanList() {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
-      else next.add(id);
+      else if (next.size < 200) next.add(id);
       return next;
     });
   };
@@ -1134,6 +1138,7 @@ export default function ScanList() {
     statusFilter,
     rulesFilter,
     projectFilter,
+    activeSite?.id,
   ]);
 
   useEffect(() => {
@@ -1160,15 +1165,11 @@ export default function ScanList() {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex justify-center p-12">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <PageLoadingSkeleton variant="table" message="Loading scan history…" />;
   }
 
   return (
-    <div className="vision-page vision-scan-history relative min-h-full space-y-5 overflow-hidden p-4 sm:p-6">
+    <div className="vision-page vision-scan-history loaded-reveal relative min-h-full space-y-5 overflow-hidden p-4 sm:p-6">
       {editingScan && (
         <EditScanDialog
           scan={editingScan}
@@ -1424,12 +1425,11 @@ export default function ScanList() {
             <TableRow className="border-[#eef0f8] hover:bg-transparent">
               <TableHead className="w-10 pl-4 text-[11px] font-bold uppercase tracking-[.04em] text-[#7b8aaa]">
                 <Checkbox
-                  checked={allSelectableSelected}
-                  data-state={someSelectableSelected && !allSelectableSelected ? "indeterminate" : undefined}
+                  checked={allSelectableSelected ? true : someSelectableSelected ? "indeterminate" : false}
                   onCheckedChange={toggleSelectAll}
                   disabled={selectableIds.length === 0}
-                  aria-label="Select all cancelled/failed scans"
-                  title={selectableIds.length === 0 ? "No cancelled/failed scans to select" : "Select all cancelled/failed scans"}
+                  aria-label="Select all scans on this page"
+                  title={selectableIds.length === 0 ? "No scans to select" : "Select all scans on this page (up to 200 total)"}
                 />
               </TableHead>
               <TableHead className="text-[11px] font-bold uppercase tracking-[.04em] text-[#7b8aaa]">Scan / Project</TableHead>
@@ -1467,7 +1467,6 @@ export default function ScanList() {
                 const historyScan = scan as typeof scan & ScanItem;
                 const isRunning = scan.status === "running";
                 const isPaused = (scan.status as string) === "paused";
-                const isSelectable = scan.status === "cancelled" || scan.status === "failed";
                 const isSelected = selectedIds.has(scan.id);
                 const progress = getHistoryProgress(scan);
                 const progressColor = isRunning
@@ -1480,15 +1479,12 @@ export default function ScanList() {
                 return (
                     <TableRow key={scan.id} className={`border-[#f0f2f8] transition-colors hover:bg-[#6d48c7]/[.03] ${isSelected ? "bg-[#eee9ff]/55" : ""}`}>
                     <TableCell className="pl-4">
-                      {isSelectable ? (
-                        <Checkbox
-                          checked={isSelected}
-                          onCheckedChange={() => toggleSelect(scan.id)}
-                          aria-label={`Select ${scan.name || `Scan #${scan.id}`}`}
-                        />
-                      ) : (
-                        <span className="w-4 h-4 block" />
-                      )}
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleSelect(scan.id)}
+                        disabled={!isSelected && selectedIds.size >= 200}
+                        aria-label={`Select ${scan.name || `Scan #${scan.id}`}`}
+                      />
                     </TableCell>
                     <TableCell className="min-w-0 max-w-[42rem] py-3 font-medium">
                       {s.projectName && (
@@ -1768,8 +1764,8 @@ export default function ScanList() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {selectedIds.size} scan{selectedIds.size === 1 ? "" : "s"}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete {selectedIds.size} cancelled/failed scan{selectedIds.size === 1 ? "" : "s"} and all
-              associated issue data. This action cannot be undone.
+              This will permanently delete {selectedIds.size} scan{selectedIds.size === 1 ? "" : "s"} and associated
+              results. Running or paused scans will be stopped. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1777,7 +1773,10 @@ export default function ScanList() {
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={bulkDeleteMutation.isPending}
-              onClick={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
+              onClick={(event) => {
+                event.preventDefault();
+                bulkDeleteMutation.mutate(Array.from(selectedIds));
+              }}
             >
               {bulkDeleteMutation.isPending ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />

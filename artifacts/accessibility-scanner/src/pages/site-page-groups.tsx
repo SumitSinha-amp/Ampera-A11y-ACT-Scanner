@@ -14,6 +14,8 @@ import {
 import { AlertTriangle, Download, Globe2, Layers, Search, Target, X } from "lucide-react";
 import { BASE, PageGroup, ScoreRing, SiteBreadcrumb, useSite, useAutoActiveSite } from "@/pages/site/shared";
 import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 interface Props { siteId: number }
 
@@ -63,11 +65,7 @@ export default function SitePageGroups({ siteId }: Props) {
   );
 
   if (siteQ.isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
-        Loading page groups…
-      </div>
-    );
+    return <PageLoadingSkeleton variant="detail" message="Loading page group data…" />;
   }
   if (siteQ.isError || !siteQ.data) {
     return (
@@ -115,7 +113,7 @@ export default function SitePageGroups({ siteId }: Props) {
   };
 
   return (
-    <div className="vision-page vision-page-groups w-full space-y-5 pb-10">
+    <div className="vision-page vision-page-groups loaded-reveal w-full space-y-5 pb-10">
       <header className="border-b border-[#e5e9f0] pb-5">
         <SiteBreadcrumb siteId={siteId} siteName={site.name} current="Page Groups" />
         <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -140,9 +138,38 @@ export default function SitePageGroups({ siteId }: Props) {
       </header>
 
       {groupsQ.isLoading ? (
-        <Card className="rounded-2xl border-white/80 bg-white shadow-[0_10px_30px_rgba(69,57,112,.05)]">
-          <CardContent className="py-16 text-center text-sm text-muted-foreground">Loading page groups…</CardContent>
-        </Card>
+        <div className="space-y-4" role="status" aria-label="Loading page groups" aria-busy="true">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {[0, 1, 2, 3].map((item) => (
+              <Card key={item} className="border-white/80 bg-white">
+                <CardContent className="flex items-center gap-3 p-4 sm:p-5">
+                  <Skeleton className="h-9 w-9 shrink-0 rounded-xl" />
+                  <div className="min-w-0 flex-1">
+                    <Skeleton className="h-5 w-20" />
+                    <Skeleton className="mt-2 h-3 w-28 max-w-full" />
+                    <Skeleton className="mt-1.5 h-2.5 w-24 max-w-full" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <Card className="overflow-hidden rounded-2xl border-white/80 bg-white">
+            <CardHeader className="gap-3 border-b border-[#ebeef5] px-5 py-4">
+              <Skeleton className="h-4 w-56 max-w-full" />
+              <Skeleton className="h-3 w-80 max-w-full" />
+            </CardHeader>
+            <CardContent className="space-y-4 p-5">
+              {[0, 1, 2, 3, 4].map((item) => (
+                <div key={item} className="flex items-center gap-4">
+                  <Skeleton className="h-4 w-40 max-w-[30%]" />
+                  <Skeleton className="h-7 w-7 rounded-full" />
+                  <Skeleton className="h-4 flex-1" />
+                  <Skeleton className="h-6 w-10 rounded-full" />
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
       ) : groupsQ.isError ? (
         <Card className="rounded-2xl border-rose-200 bg-rose-50/50 shadow-none">
           <CardContent className="flex flex-col items-center gap-3 py-14 text-center">

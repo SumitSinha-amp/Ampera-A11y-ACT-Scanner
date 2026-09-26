@@ -1,10 +1,13 @@
 import { useQASites, useQASelectedSite, QAPageShell } from "@/pages/qa-shared";
 import { RedirectsTab } from "@/pages/scan-qa";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 export default function QARedirectsPage() {
-  const { data: sites = [], isLoading } = useQASites();
+  const { data: sites = [], isLoading, isError, error, refetch } = useQASites();
   const [, selected] = useQASelectedSite(sites);
 
   return (
@@ -12,11 +15,17 @@ export default function QARedirectsPage() {
       activeTab="redirects"
     >
       {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        <PageLoadingSkeleton variant="table" message="Loading site scan data…" />
+      ) : isError ? (
+        <div className="space-y-3">
+          <Alert variant="destructive">
+            <AlertTitle>Could not load site scan data</AlertTitle>
+            <AlertDescription>{error instanceof Error ? error.message : "Please try again."}</AlertDescription>
+          </Alert>
+          <Button variant="outline" onClick={() => refetch()}>Try again</Button>
         </div>
       ) : !selected?.scanId ? (
-        <Card>
+        <Card className="loaded-reveal">
           <CardContent className="py-12 flex flex-col items-center gap-3 text-muted-foreground">
             <ArrowRight className="w-10 h-10" />
             <p className="font-medium text-foreground">No scan data available</p>
@@ -26,7 +35,7 @@ export default function QARedirectsPage() {
           </CardContent>
         </Card>
       ) : (
-        <RedirectsTab scanId={selected.scanId} />
+        <div className="loaded-reveal"><RedirectsTab scanId={selected.scanId} /></div>
       )}
     </QAPageShell>
   );

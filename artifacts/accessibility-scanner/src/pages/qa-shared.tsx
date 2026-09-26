@@ -18,7 +18,7 @@ import { usePageGroup } from "@/contexts/page-group";
 export const QA_BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
 /** Shared visual contract for every QA data table. */
-export const QA_TABLE_SHELL_CLASS = "overflow-x-auto rounded-[18px] border border-white/80 bg-card/80 shadow-[0_8px_22px_rgba(69,57,112,.06)] backdrop-blur-xl";
+export const QA_TABLE_SHELL_CLASS = "qa-data-table-surface overflow-x-auto rounded-[14px] border border-border/80 bg-card shadow-sm";
 export const QA_TABLE_CLASS = "min-w-[720px]";
 export const QA_URL_CLASS =
   "text-primary hover:underline text-sm font-mono flex items-center gap-1 break-all";

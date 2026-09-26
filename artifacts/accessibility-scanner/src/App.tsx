@@ -73,20 +73,34 @@ import ManageProjectsPage from "@/pages/manage-projects";
 import { AppStatusProvider, useAppStatus } from "@/contexts/app-status";
 import MaintenancePage from "@/pages/maintenance";
 import WelcomePage from "@/pages/welcome";
-import { Loader2 } from "lucide-react";
+import { AppStartupLoader } from "@/components/app-startup-loader";
+import { LoadingActivityProvider, TopLoadingProgress } from "@/components/top-loading-progress";
 import { useEffect } from "react";
+import { RefreshCw } from "lucide-react";
 
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function AppStatusGate({ children }: { children: React.ReactNode }) {
-  const { status } = useAppStatus();
+  const { status, hasConnected, retryNow } = useAppStatus();
   // Checking is deliberately non-blocking. The first probe and transient
   // retries must not replace an otherwise usable application shell.
-  if (status === "offline") {
+  if (status === "offline" && !hasConnected) {
     return <MaintenancePage />;
   }
-  return <>{children}</>;
+  return (
+    <>
+      {status === "offline" && (
+        <div role="alert" className="fixed left-1/2 top-3 z-[100] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-md border border-destructive/30 bg-background px-4 py-2 text-sm text-foreground shadow-lg">
+          <span>Connection interrupted. Some actions may not work until the server recovers.</span>
+          <button type="button" onClick={retryNow} className="inline-flex shrink-0 items-center gap-1 font-medium text-primary underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" aria-label="Retry server connection">
+            <RefreshCw className="h-4 w-4" aria-hidden="true" /> Retry
+          </button>
+        </div>
+      )}
+      {children}
+    </>
+  );
 }
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -94,11 +108,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <AppStartupLoader />;
   }
 
   if (!user) {
@@ -708,7 +718,10 @@ function App() {
                 <PageGroupProvider>
                   <TooltipProvider>
                     <AppOverlayScrollbars />
-                    <Router />
+                    <LoadingActivityProvider>
+                      <TopLoadingProgress />
+                      <Router />
+                    </LoadingActivityProvider>
                     <Toaster />
                   </TooltipProvider>
                 </PageGroupProvider>

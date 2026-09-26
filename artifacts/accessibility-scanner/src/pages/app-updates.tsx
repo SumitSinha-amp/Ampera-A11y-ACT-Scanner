@@ -378,6 +378,33 @@ const release143ProductGroups: UpdateGroup[] = [
   updateGroups[3],
 ];
 
+const release145ProductGroups: UpdateGroup[] = [
+  {
+    icon: BarChart3,
+    title: "Dashboard and history visual consistency",
+    description: "Crawler, QA, and other data-heavy views now follow the same clear visual system as Accessibility Overview.",
+    category: "Reporting",
+    features: [
+      "Statistic cards use a consistent hierarchy for icons, labels, and key values across dashboards",
+      "Chart panels and data tables share quieter surfaces, readable labels, and theme-aware colors",
+      "Crawler history retains its existing session metrics and trend charts in a layout aligned with the rest of the workspace",
+      "Responsive layouts preserve useful chart and statistic context on smaller screens",
+    ],
+  },
+  {
+    icon: Layers,
+    title: "Consistent loading and recovery states",
+    description: "Data-heavy pages now give clearer feedback while content loads and when requests need attention.",
+    category: "Reliability",
+    features: [
+      "Dashboards, history pages, reports, and inventories use shared skeleton layouts instead of isolated spinners",
+      "A page-level progress indicator and loading message keep longer data requests visible",
+      "Loading, empty results, and request errors remain distinct, with retry actions where appropriate",
+      "Ticket replies stay unavailable until ticket details load successfully, and failed detail requests can be retried",
+    ],
+  },
+];
+
 const release144ProductGroups: UpdateGroup[] = [
   {
     icon: Workflow,
@@ -423,6 +450,13 @@ export const releaseHistory: ReleaseHistoryEntry[] = [
     version: APP_UPDATES_VERSION,
     month: APP_UPDATES_MONTH,
     label: "Current release",
+    summary: "Dashboard and history pages now share clearer visual patterns and consistent loading feedback.",
+    groups: release145ProductGroups,
+  },
+  {
+    version: "1.4.4",
+    month: "September 2026",
+    label: "Previous release",
     summary: "A stronger Issue module and more accurate accessibility engine behavior across media and structural rules.",
     groups: release144ProductGroups,
   },

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import {
   AlertCircle,
   ArrowRight,
@@ -11,7 +12,6 @@ import {
   Globe2,
   Image,
   Link2,
-  Loader2,
   Mail,
   Phone,
   RefreshCw,
@@ -79,11 +79,7 @@ function SummaryContent({ scanId }: { scanId: number }) {
   });
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-72 items-center justify-center rounded-2xl border border-white/80 bg-white/70 shadow-[0_10px_30px_rgba(69,57,112,.05)]">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-      </div>
-    );
+    return <PageLoadingSkeleton variant="dashboard" message="Loading inventory summary…" />;
   }
 
   if (isError) {
@@ -114,19 +110,19 @@ function SummaryContent({ scanId }: { scanId: number }) {
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="loaded-reveal space-y-5">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => {
           const Icon = metric.icon;
           return (
-            <Card key={metric.label} className="border-white/80 bg-white shadow-[0_8px_24px_rgba(69,57,112,.06)]">
-              <CardContent className="flex items-center gap-3.5 p-5">
-                <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${metric.iconSurfaceClass}`}>
-                  <Icon className={`h-5 w-5 ${metric.iconClass}`} />
+            <Card key={metric.label} className="!rounded-xl !border-border/80 !bg-card !shadow-sm">
+              <CardContent className="flex items-center gap-3.5 p-4">
+                <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${metric.iconSurfaceClass}`}>
+                  <Icon className={`h-[18px] w-[18px] ${metric.iconClass}`} />
                 </span>
                 <div className="min-w-0">
-                  <p className="font-mono text-2xl font-bold leading-none tracking-tight text-[#172b4d]">{metric.value.toLocaleString()}</p>
-                  <p className="mt-1 text-xs font-medium text-[#7b8aaa]">{metric.label}</p>
+                  <p className="font-mono text-2xl font-bold leading-none tracking-tight text-foreground">{metric.value.toLocaleString()}</p>
+                  <p className="mt-1 text-xs font-medium text-muted-foreground">{metric.label}</p>
                 </div>
               </CardContent>
             </Card>
@@ -134,11 +130,11 @@ function SummaryContent({ scanId }: { scanId: number }) {
         })}
       </div>
 
-      <Card className="overflow-hidden rounded-2xl border-white/80 bg-white shadow-[0_10px_30px_rgba(69,57,112,.06)]">
-        <CardHeader className="flex flex-row items-center justify-between gap-4 border-b border-[#ebeef5] px-5 py-4 sm:px-6">
+      <Card className="overflow-hidden !rounded-xl !border-border/80 !bg-card !shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between gap-4 border-b border-border/70 px-5 py-4 sm:px-6">
           <div>
-            <CardTitle className="text-[15px] font-bold text-[#172b4d]">Content inventory</CardTitle>
-            <p className="mt-1 text-xs text-[#7b8aaa]">Explore every content type found during the most recent crawl.</p>
+            <CardTitle className="text-[15px] font-bold text-foreground">Content inventory</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">Explore every content type found during the most recent crawl.</p>
           </div>
           <span className="hidden rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700 sm:inline-flex">
             {CATEGORIES.length} categories
@@ -153,19 +149,19 @@ function SummaryContent({ scanId }: { scanId: number }) {
                 <Link
                   key={cat.key}
                   href={cat.href}
-                  className="group flex min-h-14 items-center justify-between rounded-xl border border-[#edf0f5] bg-[#fcfcfe] px-3.5 py-3 transition-all hover:-translate-y-px hover:border-violet-200 hover:bg-violet-50/40 hover:shadow-[0_7px_18px_rgba(109,72,199,.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  className="group flex min-h-14 items-center justify-between rounded-lg border border-border/70 bg-background/50 px-3.5 py-3 transition-colors hover:border-primary/40 hover:bg-primary/[.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   <span className="flex min-w-0 items-center gap-3">
                     <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${cat.iconSurfaceClass}`}>
                       <Icon className={`h-4 w-4 ${cat.iconClass}`} />
                     </span>
-                    <span className="truncate text-sm font-semibold text-[#334665]">{cat.label}</span>
+                    <span className="truncate text-sm font-semibold text-foreground">{cat.label}</span>
                   </span>
                   <span className="ml-3 flex shrink-0 items-center gap-2">
-                    <span className="font-mono text-sm font-bold text-[#172b4d]">
+                    <span className="font-mono text-sm font-bold text-foreground">
                       {count === null ? "View" : count.toLocaleString()}
                     </span>
-                    <ArrowRight className="h-4 w-4 text-[#9aa8bf] transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                    <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                   </span>
                 </Link>
               );
@@ -203,9 +199,7 @@ export default function QAInventorySummaryPage() {
       </header>
 
       {isLoading ? (
-        <div className="flex min-h-72 items-center justify-center rounded-2xl border border-white/80 bg-white/70 shadow-[0_10px_30px_rgba(69,57,112,.05)]">
-          <Loader2 className="h-6 w-6 animate-spin text-primary" />
-        </div>
+        <PageLoadingSkeleton variant="dashboard" message="Loading sites…" />
       ) : !selected?.scanId ? (
         <Card className="rounded-2xl border-dashed border-[#dfe4ee] bg-white shadow-none">
           <CardContent className="flex flex-col items-center gap-3 py-14 text-center">

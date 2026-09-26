@@ -11,14 +11,18 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ExternalLink, Globe, Loader2, XCircle } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ExternalLink, Globe, XCircle } from "lucide-react";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import {
   useQASites,
   useQASelectedSite,
   QA_BASE,
   QA_TABLE_CLASS,
   QA_TABLE_SHELL_CLASS,
+  QAPageShell,
 } from "@/pages/qa-shared";
+import "./qa-pages.css";
 
 interface CrawlHistoryRow {
   crawlerSessionId: number;
@@ -72,8 +76,13 @@ export default function QACheckHistoryPage() {
     staleTime: 30_000,
   });
 
+  if (sitesLoading) {
+    return <PageLoadingSkeleton variant="table" message="Loading QA history…" />;
+  }
+
   return (
-    <div className="space-y-6">
+    <QAPageShell activeTab="overview">
+      <div className="qa-history space-y-5">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Check history</h1>
         <p className="text-muted-foreground text-sm mt-1">
@@ -81,12 +90,8 @@ export default function QACheckHistoryPage() {
         </p>
       </div>
 
-      {sitesLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-        </div>
-      ) : !selectedSiteId ? (
-        <Card>
+      {!selectedSiteId ? (
+        <Card className="qa-panel">
           <CardContent className="py-12 flex flex-col items-center gap-3 text-muted-foreground">
             <Globe className="w-10 h-10" />
             <p className="font-medium text-foreground">No site selected</p>
@@ -94,11 +99,13 @@ export default function QACheckHistoryPage() {
           </CardContent>
         </Card>
       ) : historyLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        <div className="qa-panel space-y-3" aria-busy="true" aria-label="Loading history">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-10 w-full rounded-lg" />
+          {Array.from({ length: 5 }, (_, index) => <Skeleton key={index} className="h-12 w-full rounded-lg" />)}
         </div>
       ) : history.length === 0 ? (
-        <Card>
+        <Card className="qa-panel">
           <CardContent className="py-12 flex flex-col items-center gap-3 text-muted-foreground">
             <Globe className="w-10 h-10" />
             <p className="font-medium text-foreground">No crawl history found</p>
@@ -106,7 +113,7 @@ export default function QACheckHistoryPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className={QA_TABLE_SHELL_CLASS}>
+        <div className={`${QA_TABLE_SHELL_CLASS} qa-table-shell`}>
           <Table className={QA_TABLE_CLASS}>
             <TableHeader>
               <TableRow>
@@ -157,6 +164,7 @@ export default function QACheckHistoryPage() {
           </Table>
         </div>
       )}
-    </div>
+      </div>
+    </QAPageShell>
   );
 }

@@ -7,9 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -22,6 +23,7 @@ export default function AdminGroupsPage() {
   const [groups, setGroups] = useState<UserGroup[]>([]);
   const [allUsers, setAllUsers] = useState<AppUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [editGroup, setEditGroup] = useState<UserGroup | null>(null);
   const [deleteGroup, setDeleteGroup] = useState<UserGroup | null>(null);
@@ -36,13 +38,19 @@ export default function AdminGroupsPage() {
   const { toast } = useToast();
 
   async function loadAll() {
+    setLoadError("");
     try {
       const [gr, ur] = await Promise.all([
         fetch(`${BASE}/api/admin/groups`, { credentials: "include" }),
         fetch(`${BASE}/api/admin/users`, { credentials: "include" }),
       ]);
-      if (gr.ok) setGroups(await gr.json());
-      if (ur.ok) setAllUsers(await ur.json());
+      if (!gr.ok) throw new Error(`Unable to load groups (${gr.status}).`);
+      if (!ur.ok) throw new Error(`Unable to load users (${ur.status}).`);
+      const [groupData, userData] = await Promise.all([gr.json(), ur.json()]);
+      setGroups(groupData);
+      setAllUsers(userData);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Unable to load groups and users.");
     } finally {
       setLoading(false);
     }
@@ -142,11 +150,20 @@ export default function AdminGroupsPage() {
   }
 
   if (loading) {
-    return <div className="flex justify-center p-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
+    return <PageLoadingSkeleton variant="table" message="Loading user groups…" />;
+  }
+
+  if (loadError) {
+    return (
+      <div className="space-y-4">
+        <Alert variant="destructive"><AlertTitle>Could not load user groups</AlertTitle><AlertDescription>{loadError}</AlertDescription></Alert>
+        <Button variant="outline" onClick={() => { setLoading(true); loadAll(); }}>Try again</Button>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="loaded-reveal space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">User Groups</h1>

@@ -7,7 +7,7 @@
   import { recoverAIAssessments } from "./lib/ai-assessment";
   import { closeBrowser } from "./lib/scanner";
   import bcrypt from "bcryptjs";
-  import { execSync } from "child_process";
+  import { execFileSync, execSync } from "child_process";
   import { existsSync, readdirSync } from "fs";
   import path from "path";
   import type { Server } from "http";
@@ -1450,6 +1450,7 @@
         CREATE INDEX IF NOT EXISTS notification_dismissals_user_idx
           ON notification_dismissals(user_id, notification_id);
       `);
+  
       // 48. Expand target_wcag_level CHECK constraint to allow 'All' level
       await client.query(`
         DO $$
@@ -1505,6 +1506,53 @@
         ALTER TABLE accessibility_issues
           ADD COLUMN IF NOT EXISTS interaction_state_id INTEGER
           REFERENCES page_interaction_states(id) ON DELETE SET NULL;
+      `);
+
+      // 51. Cross-process ownership leases for long-running manual scans
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS scan_run_leases (
+          scan_id      INTEGER PRIMARY KEY REFERENCES scan_sessions(id) ON DELETE CASCADE,
+          owner_token  TEXT        NOT NULL,
+          heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          expires_at   TIMESTAMPTZ NOT NULL
+        );
+        ALTER TABLE scan_run_leases DROP COLUMN IF EXISTS slot_id;
+        DROP INDEX IF EXISTS scan_run_leases_slot_id_uidx;
+        CREATE INDEX IF NOT EXISTS scan_run_leases_expires_at_idx
+          ON scan_run_leases(expires_at);
+        CREATE TABLE IF NOT EXISTS scan_browser_permits (
+          slot_id       SMALLINT PRIMARY KEY,
+          scan_id       INTEGER NOT NULL REFERENCES scan_sessions(id) ON DELETE CASCADE,
+          page_id       INTEGER NOT NULL REFERENCES page_results(id) ON DELETE CASCADE,
+          owner_token   TEXT NOT NULL,
+          run_owner_token TEXT,
+          heartbeat_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          expires_at    TIMESTAMPTZ NOT NULL,
+          revoked_at    TIMESTAMPTZ
+        );
+        ALTER TABLE scan_browser_permits
+          ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
+        ALTER TABLE scan_browser_permits
+          ADD COLUMN IF NOT EXISTS run_owner_token TEXT;
+        CREATE INDEX IF NOT EXISTS scan_browser_permits_expires_at_idx
+          ON scan_browser_permits(expires_at);
+        CREATE TABLE IF NOT EXISTS scan_browser_waiters (
+          request_token  TEXT PRIMARY KEY,
+          scan_id        INTEGER NOT NULL REFERENCES scan_sessions(id) ON DELETE CASCADE,
+          page_id        INTEGER NOT NULL REFERENCES page_results(id) ON DELETE CASCADE,
+          run_owner_token TEXT,
+          max_per_scan   SMALLINT NOT NULL DEFAULT 2,
+          enqueued_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          heartbeat_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        ALTER TABLE scan_browser_waiters
+          ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+        ALTER TABLE scan_browser_waiters
+          ADD COLUMN IF NOT EXISTS run_owner_token TEXT;
+        CREATE INDEX IF NOT EXISTS scan_browser_waiters_queue_idx
+          ON scan_browser_waiters(enqueued_at, request_token);
+        CREATE INDEX IF NOT EXISTS scan_browser_waiters_heartbeat_idx
+          ON scan_browser_waiters(heartbeat_at);
       `);
   
       await client.query("COMMIT");
@@ -1586,54 +1634,13 @@
         const batch = orphaned.slice(offset, offset + RECOVERY_CONCURRENCY);
         await Promise.all(batch.map(async (session) => {
           try {
-          if (isScanWorkStopping()) return;
-          await db
-            .update(pageResultsTable)
-            .set({ status: "pending" })
-            .where(
-              and(
-                eq(pageResultsTable.scanId, session.id),
-                inArray(pageResultsTable.status, [
-                  "navigating",
-                  "scanning",
-                  "rendering",
-                  "analyzing",
-                  "saving",
-                ])
-              )
-            );
-  
-          const remaining = await db
-            .select({ url: pageResultsTable.url })
-            .from(pageResultsTable)
-            .where(
-              and(
-                eq(pageResultsTable.scanId, session.id),
-                inArray(pageResultsTable.status, ["pending", "requeued"])
-              )
-            );
-  
-          if (remaining.length === 0) {
-            await db
-              .update(scanSessionsTable)
-              .set({ status: "completed", completedAt: new Date() })
-              .where(eq(scanSessionsTable.id, session.id));
-            logger.info({ scanId: session.id }, "Orphaned scan had no remaining pages — marked completed");
-            return;
-          }
-  
-          await db
-            .update(scanSessionsTable)
-            .set({ status: "running" })
-            .where(eq(scanSessionsTable.id, session.id));
-  
-          const urls = remaining.map((p) => p.url);
-          await startScan(session.id, urls, {
-            ...((session.options as Record<string, unknown>) ?? {}),
-            skipCompletedPages: true,
-          });
-  
-          logger.info({ scanId: session.id, urlCount: urls.length }, "Restarted orphaned scan");
+            if (isScanWorkStopping()) return;
+            await startScan(session.id, [], {
+              ...((session.options as Record<string, unknown>) ?? {}),
+              skipCompletedPages: true,
+            }, {
+              recoverMidFlight: true,
+            });
           } catch (err) {
             logger.error({ scanId: session.id, err }, "Failed to recover orphaned scan — skipping");
           }
@@ -1701,19 +1708,60 @@
   
       logger.warn({ chromePath, missingLibs }, "Chrome missing shared libraries — auto-installing via apt-get");
   
-      // Full set of libraries required by headless Chrome on Ubuntu/Debian.
-      const CHROME_DEPS = [
-        "libglib2.0-0", "libnss3", "libnspr4",
-        "libatk1.0-0", "libatk-bridge2.0-0",
-        "libcups2", "libdrm2", "libxkbcommon0",
-        "libxcomposite1", "libxdamage1", "libxfixes3", "libxrandr2",
-        "libgbm1", "libpango-1.0-0", "libcairo2",
-        "libasound2", "libatspi2.0-0",
-        "libx11-6", "libxcb1", "libxext6", "libxrender1", "libx11-xcb1",
-      ].join(" ");
-  
       try {
-        execSync(`apt-get install -y --no-install-recommends ${CHROME_DEPS}`, {
+        // Ubuntu 24 exposes several legacy names as virtual packages. apt-cache
+        // still reports candidates for them, but apt-get refuses installation.
+        // Resolve each dependency with an authoritative simulated install.
+        const dependencyAlternatives = [
+          ["libglib2.0-0t64", "libglib2.0-0"],
+          ["libnss3"],
+          ["libnspr4"],
+          ["libatk1.0-0t64", "libatk1.0-0"],
+          ["libatk-bridge2.0-0t64", "libatk-bridge2.0-0"],
+          ["libcups2t64", "libcups2"],
+          ["libdrm2t64", "libdrm2"],
+          ["libxkbcommon0"],
+          ["libxcomposite1"],
+          ["libxdamage1"],
+          ["libxfixes3"],
+          ["libxrandr2"],
+          ["libgbm1"],
+          ["libpango-1.0-0"],
+          ["libcairo2t64", "libcairo2"],
+          ["libasound2t64", "libasound2"],
+          ["libatspi2.0-0t64", "libatspi2.0-0"],
+          ["libx11-6"],
+          ["libxcb1"],
+          ["libxext6"],
+          ["libxrender1"],
+          ["libx11-xcb1"],
+        ];
+        const chromeDependencies = dependencyAlternatives.map((alternatives) => {
+          const resolved = alternatives.find((candidate) => {
+            try {
+              execFileSync(
+                "apt-get",
+                ["install", "--simulate", "--no-install-recommends", candidate],
+                { stdio: "ignore", timeout: 15_000 },
+              );
+              return true;
+            } catch {
+              return false;
+            }
+          });
+          if (!resolved) {
+            throw new Error(
+              `No installable apt package found for ${alternatives.join(" or ")}`,
+            );
+          }
+          return resolved;
+        });
+        execFileSync("apt-get", [
+          "install",
+          "-y",
+          "--no-install-recommends",
+          ...chromeDependencies,
+        ], {
           encoding: "utf-8",
           timeout: 120_000,
           stdio: "pipe",

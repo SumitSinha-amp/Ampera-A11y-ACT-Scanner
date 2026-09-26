@@ -26,6 +26,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useSite } from "@/contexts/site";
+import { Skeleton } from "@/components/ui/skeleton";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import {
   Play, Settings, Activity, ShieldAlert, ListFilter,
   MoreHorizontal, Pencil, Trash2, Globe, Clock,
@@ -121,50 +123,50 @@ function statusBadge(status: string) {
 function OverviewTab({ site, overview, onRunNow, isRunning }: { site: Site, overview: Overview, onRunNow: () => void, isRunning: boolean }) {
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="hover:border-primary/50 transition-colors">
+      <div className="dashboard-metric-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="dashboard-overview-card">
           <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-sm font-medium">Pages Scanned</CardTitle>
+            <CardTitle className="dashboard-metric-label text-sm font-medium">Pages Scanned</CardTitle>
             <FileText className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono">{overview.pages.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">Total pages in index</p>
+            <div className="dashboard-metric-value text-2xl font-bold font-mono">{overview.pages.toLocaleString()}</div>
+            <p className="dashboard-metric-detail text-xs text-muted-foreground mt-1">Total pages in index</p>
           </CardContent>
         </Card>
-        <Card className="hover:border-primary/50 transition-colors">
+        <Card className="dashboard-overview-card">
           <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-sm font-medium">Failed Pages</CardTitle>
+            <CardTitle className="dashboard-metric-label text-sm font-medium">Failed Pages</CardTitle>
             <AlertTriangle className="w-4 h-4 text-orange-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono text-orange-600 dark:text-orange-400">{overview.failedPages.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">Encountered errors</p>
+            <div className="dashboard-metric-value text-2xl font-bold font-mono text-orange-600 dark:text-orange-400">{overview.failedPages.toLocaleString()}</div>
+            <p className="dashboard-metric-detail text-xs text-muted-foreground mt-1">Encountered errors</p>
           </CardContent>
         </Card>
-        <Card className="hover:border-primary/50 transition-colors">
+        <Card className="dashboard-overview-card">
           <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-sm font-medium">Internal Links</CardTitle>
+            <CardTitle className="dashboard-metric-label text-sm font-medium">Internal Links</CardTitle>
             <LinkIcon className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono">{overview.links.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">Discovered edges</p>
+            <div className="dashboard-metric-value text-2xl font-bold font-mono">{overview.links.toLocaleString()}</div>
+            <p className="dashboard-metric-detail text-xs text-muted-foreground mt-1">Discovered edges</p>
           </CardContent>
         </Card>
-        <Card className="hover:border-primary/50 transition-colors">
+        <Card className="dashboard-overview-card">
           <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-sm font-medium">Assets Checked</CardTitle>
+            <CardTitle className="dashboard-metric-label text-sm font-medium">Assets Checked</CardTitle>
             <Activity className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono">{overview.assetCount.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">Images, scripts, styles</p>
+            <div className="dashboard-metric-value text-2xl font-bold font-mono">{overview.assetCount.toLocaleString()}</div>
+            <p className="dashboard-metric-detail text-xs text-muted-foreground mt-1">Images, scripts, styles</p>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="border-primary/10">
+      <Card className="ampera-card">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Shield className="w-5 h-5 text-primary" />
@@ -284,7 +286,7 @@ function RulesTab({ siteId }: { siteId: string }) {
   };
 
   return (
-    <Card>
+    <Card className="ampera-card">
       <CardHeader className="flex flex-row items-start justify-between">
         <div>
           <CardTitle>Content Processing Rules</CardTitle>
@@ -298,7 +300,7 @@ function RulesTab({ siteId }: { siteId: string }) {
         </Button>
       </CardHeader>
       <CardContent className="p-0">
-        <Table>
+        <Table aria-busy={isLoading} aria-label="Content processing rules">
           <TableHeader className="bg-muted/50">
             <TableRow>
               <TableHead className="w-32">Type</TableHead>
@@ -311,7 +313,16 @@ function RulesTab({ siteId }: { siteId: string }) {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={6} className="text-center py-8"><Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+              Array.from({ length: 4 }, (_, index) => (
+                <TableRow key={index} aria-hidden="true">
+                  <TableCell><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
+                  <TableCell><Skeleton className="h-3 w-16" /></TableCell>
+                  <TableCell><Skeleton className="h-3 w-4/5" /></TableCell>
+                  <TableCell><Skeleton className="h-3 w-2/3" /></TableCell>
+                  <TableCell><Skeleton className="mx-auto h-5 w-16 rounded-full" /></TableCell>
+                  <TableCell><Skeleton className="h-7 w-7 rounded-md" /></TableCell>
+                </TableRow>
+              ))
             ) : rules.length === 0 ? (
               <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No processing rules configured.</TableCell></TableRow>
             ) : (
@@ -435,7 +446,7 @@ function RulesTab({ siteId }: { siteId: string }) {
 
 function HistoryTab({ history }: { history: HistorySession[] }) {
   return (
-    <Card>
+    <Card className="ampera-card">
       <CardHeader>
         <CardTitle>Session History Log</CardTitle>
         <CardDescription>Immutable ledger of past crawler operations and metrics.</CardDescription>
@@ -529,7 +540,7 @@ function SettingsTab({ siteId, site }: { siteId: string, site: Site }) {
   });
 
   return (
-    <Card>
+    <Card className="ampera-card">
       <CardHeader>
         <CardTitle>Engine Architecture Settings</CardTitle>
         <CardDescription>Global parameters for crawler execution and boundary enforcement.</CardDescription>
@@ -695,7 +706,7 @@ export default function SiteManagementPage() {
   });
 
   if (isSitesLoading || (Boolean(siteId) && isLoading)) {
-    return <div className="p-12 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>;
+    return <PageLoadingSkeleton variant="detail" message="Loading site control room…" />;
   }
 
   if (!siteId) {
@@ -732,7 +743,8 @@ export default function SiteManagementPage() {
   const { site, overview, history } = data;
 
   return (
-    <div className="w-full space-y-8 pb-16">
+    <div className="refined-screen">
+    <div className="site-dashboard loaded-reveal w-full space-y-8 pb-16">
       <div className="flex items-center gap-4 pb-2 border-b border-border/60">
         <Button variant="outline" size="icon" asChild className="shrink-0 h-9 w-9 border-border/60 hover:bg-muted/50">
           <Link href="/crawler/manage"><ArrowLeft className="w-4 h-4 text-muted-foreground" /></Link>
@@ -772,6 +784,7 @@ export default function SiteManagementPage() {
           <SettingsTab siteId={siteId!} site={site} />
         </TabsContent>
       </Tabs>
+    </div>
     </div>
   );
 }

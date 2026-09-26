@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import "./data-metric-severity.css";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch } from "wouter";
 import { useListScans } from "@workspace/api-client-react";
@@ -21,6 +22,8 @@ import {
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { getImpactBadge } from "@/lib/status-badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 // ── Fetch helper ────────────────────────────────────────────────────────────
 
@@ -232,7 +235,7 @@ export default function ScanCompare() {
   };
 
   return (
-    <div className="w-full space-y-6">
+    <div className="refined-screen w-full space-y-6">
       {/* Page header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
@@ -294,8 +297,8 @@ export default function ScanCompare() {
                 style={{ maxHeight: "220px" }}
               >
                 {scansLoading ? (
-                  <div className="p-4 space-y-2">
-                    {[1,2,3].map(i => <div key={i} className="h-8 bg-muted animate-pulse rounded" />)}
+                  <div className="p-4 space-y-2" role="status" aria-label="Loading scans" aria-busy="true">
+                    {[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full rounded-md" />)}
                   </div>
                 ) : (scans ?? []).length === 0 ? (
                   <div className="p-6 text-center text-sm text-muted-foreground">No scans available.</div>
@@ -365,10 +368,7 @@ export default function ScanCompare() {
 
       {/* Loading */}
       {compareLoading && (
-        <div className="flex items-center justify-center py-16 text-muted-foreground gap-3">
-          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          Building comparison…
-        </div>
+        <PageLoadingSkeleton variant="detail" message="Building comparison…" />
       )}
 
       {/* Error */}
@@ -381,7 +381,7 @@ export default function ScanCompare() {
 
       {/* Results */}
       {result && !compareLoading && (
-        <>
+        <div className="loaded-reveal site-dashboard refined-screen space-y-4">
           {/* Scan meta banner */}
           <div className="rounded-xl border bg-muted/30 px-5 py-4 flex flex-wrap items-center gap-4 text-sm">
             <div>
@@ -400,12 +400,12 @@ export default function ScanCompare() {
           </div>
 
           {/* Summary stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Card>
+          <div className="dashboard-metric-grid grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card className="dashboard-overview-card">
               <CardContent className="pt-5">
-                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Pages Compared</p>
-                <p className="text-3xl font-bold mt-1">{result.summary.pagesCompared}</p>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="dashboard-metric-label text-xs text-muted-foreground font-medium uppercase tracking-wide">Pages Compared</p>
+                <p className="dashboard-metric-value text-3xl font-bold mt-1">{result.summary.pagesCompared}</p>
+                <p className="dashboard-metric-detail text-xs text-muted-foreground mt-1">
                   {result.summary.pagesOnlyInScan1 === 0 && result.summary.pagesOnlyInScan2 === 0
                     ? "All pages matched"
                     : [
@@ -415,25 +415,25 @@ export default function ScanCompare() {
                 </p>
               </CardContent>
             </Card>
-            <Card className="border-red-200 bg-red-50">
+            <Card className="dashboard-overview-card metric-danger">
               <CardContent className="pt-5">
-                <p className="text-xs text-red-600 font-medium uppercase tracking-wide">New Issues</p>
-                <p className="text-3xl font-bold text-red-700 mt-1">+{result.summary.totalNew}</p>
-                <p className="text-xs text-red-500 mt-1">{regressionCount} page{regressionCount !== 1 ? "s" : ""} regressed</p>
+                <p className="dashboard-metric-label text-xs text-red-600 font-medium uppercase tracking-wide">New Issues</p>
+                <p className="dashboard-metric-value text-3xl font-bold text-red-700 mt-1">+{result.summary.totalNew}</p>
+                <p className="dashboard-metric-detail text-xs text-red-500 mt-1">{regressionCount} page{regressionCount !== 1 ? "s" : ""} regressed</p>
               </CardContent>
             </Card>
-            <Card className="border-green-200 bg-green-50">
+            <Card className="dashboard-overview-card metric-success">
               <CardContent className="pt-5">
-                <p className="text-xs text-green-600 font-medium uppercase tracking-wide">Fixed Issues</p>
-                <p className="text-3xl font-bold text-green-700 mt-1">-{result.summary.totalFixed}</p>
-                <p className="text-xs text-green-500 mt-1">{improvedCount} page{improvedCount !== 1 ? "s" : ""} improved</p>
+                <p className="dashboard-metric-label text-xs text-green-600 font-medium uppercase tracking-wide">Fixed Issues</p>
+                <p className="dashboard-metric-value text-3xl font-bold text-green-700 mt-1">-{result.summary.totalFixed}</p>
+                <p className="dashboard-metric-detail text-xs text-green-500 mt-1">{improvedCount} page{improvedCount !== 1 ? "s" : ""} improved</p>
               </CardContent>
             </Card>
-            <Card className="border-slate-200 bg-slate-50">
+            <Card className="dashboard-overview-card border-slate-200 bg-slate-50">
               <CardContent className="pt-5">
-                <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">Persisting</p>
-                <p className="text-3xl font-bold text-slate-700 mt-1">{result.summary.totalPersisting}</p>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="dashboard-metric-label text-xs text-slate-500 font-medium uppercase tracking-wide">Persisting</p>
+                <p className="dashboard-metric-value text-3xl font-bold text-slate-700 mt-1">{result.summary.totalPersisting}</p>
+                <p className="dashboard-metric-detail text-xs text-slate-400 mt-1">
                   net:{" "}
                   <span className={
                     result.summary.totalNew - result.summary.totalFixed > 0 ? "text-red-600 font-semibold" :
@@ -470,7 +470,7 @@ export default function ScanCompare() {
           </div>
 
           {/* Per-page comparison table */}
-          <Card className="overflow-hidden">
+          <Card className="ampera-card overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50">
@@ -542,7 +542,7 @@ export default function ScanCompare() {
               )}
             </div>
           )}
-        </>
+        </div>
       )}
 
       {/* Empty state */}

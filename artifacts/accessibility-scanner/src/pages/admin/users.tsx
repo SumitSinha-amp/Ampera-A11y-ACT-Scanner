@@ -14,9 +14,10 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -91,6 +92,7 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [allGroups, setAllGroups] = useState<UserGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [editUser, setEditUser] = useState<AppUser | null>(null);
   const [deleteUser, setDeleteUser] = useState<AppUser | null>(null);
@@ -119,16 +121,19 @@ export default function AdminUsersPage() {
   const [eLoading, setELoading] = useState(false);
 
   async function loadAll() {
+    setLoadError("");
     try {
       const [usersRes, groupsRes] = await Promise.all([
         fetch(`${BASE}/api/admin/users`, { credentials: "include" }),
         fetch(`${BASE}/api/admin/groups`, { credentials: "include" }),
       ]);
-      if (usersRes.ok) setUsers(await usersRes.json());
-      if (groupsRes.ok) {
-        const groups = await groupsRes.json();
-        setAllGroups(groups.map((g: any) => ({ id: g.id, name: g.name })));
-      }
+      if (!usersRes.ok) throw new Error(`Unable to load users (${usersRes.status}).`);
+      if (!groupsRes.ok) throw new Error(`Unable to load groups (${groupsRes.status}).`);
+      const [userData, groupData] = await Promise.all([usersRes.json(), groupsRes.json()]);
+      setUsers(userData);
+      setAllGroups(groupData.map((g: any) => ({ id: g.id, name: g.name })));
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Unable to load user management data.");
     } finally {
       setLoading(false);
     }
@@ -259,11 +264,20 @@ export default function AdminUsersPage() {
   const isSuperAdmin = currentUser?.role === "super_admin";
 
   if (loading) {
-    return <div className="flex justify-center p-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
+    return <PageLoadingSkeleton variant="table" message="Loading users and groups…" />;
+  }
+
+  if (loadError) {
+    return (
+      <div className="space-y-4">
+        <Alert variant="destructive"><AlertTitle>Could not load user management data</AlertTitle><AlertDescription>{loadError}</AlertDescription></Alert>
+        <Button variant="outline" onClick={() => { setLoading(true); loadAll(); }}>Try again</Button>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="loaded-reveal space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">User Management</h1>

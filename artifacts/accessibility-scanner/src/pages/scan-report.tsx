@@ -8,6 +8,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 export default function ScanReport() {
   const { id } = useParams();
@@ -45,7 +46,7 @@ export default function ScanReport() {
       <div className="flex gap-2"><Button variant="outline" onClick={() => refetch()} data-testid="button-retry-report">Retry</Button><Link href={`/scans/${scanId}`}><Button variant="ghost" data-testid="link-back-scan"><ArrowLeft className="mr-2 h-4 w-4" />Back to scan</Button></Link></div>
     </div>
   );
-  if (isLoading || !report) return <div className="space-y-6"><div className="h-20 animate-pulse rounded-3xl bg-muted/60" /><div className="grid gap-4 md:grid-cols-4">{[1,2,3,4].map((n) => <div key={n} className="h-28 animate-pulse rounded-2xl bg-muted/60" />)}</div></div>;
+  if (isLoading || !report) return <PageLoadingSkeleton variant="report" message="Preparing scan report…" />;
 
   const impactData = [
     { name: "Critical", value: report.issuesByImpact.critical, color: "hsl(346 75% 51%)" },

@@ -14,7 +14,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, XCircle, ShieldAlert, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
+import { XCircle, ShieldAlert, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 interface UnsafeLinkRow {
   sourceUrl: string;
@@ -53,11 +54,7 @@ function UnsafeLinksTable({ scanId }: { scanId: number }) {
   });
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <PageLoadingSkeleton variant="table" message="Loading unsafe links…" />;
   }
 
   const items = data?.items ?? [];
@@ -86,7 +83,7 @@ function UnsafeLinksTable({ scanId }: { scanId: number }) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="loaded-reveal space-y-4">
       <QAListToolbar
         search={search}
         onSearch={(value) => { setSearch(value); setPage(1); }}
@@ -108,7 +105,7 @@ function UnsafeLinksTable({ scanId }: { scanId: number }) {
         <span className="font-semibold text-foreground">{total.toLocaleString()}</span> HTTP link{total !== 1 ? "s" : ""} found on HTTPS pages
       </p>
 
-      <div className={QA_TABLE_SHELL_CLASS}>
+      <div className={`${QA_TABLE_SHELL_CLASS} !rounded-xl !border-border/80 !bg-card !shadow-sm !backdrop-blur-none`}>
           <table className={`w-full text-sm ${QA_TABLE_CLASS}`}>
             <thead>
               <tr className="border-b">
@@ -181,9 +178,7 @@ export default function QAUnsafeLinksPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-        </div>
+        <PageLoadingSkeleton variant="table" message="Loading sites…" />
       ) : !selected?.scanId ? (
         <Card>
           <CardContent className="py-12 flex flex-col items-center gap-3 text-muted-foreground">

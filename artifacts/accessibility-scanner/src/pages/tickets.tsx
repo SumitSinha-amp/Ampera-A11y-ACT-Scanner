@@ -12,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth, isAdmin } from "@/contexts/auth";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
+import { AlertTitle } from "@/components/ui/alert";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -68,9 +70,11 @@ export default function TicketsPage() {
   const [location, navigate] = useLocation();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [detailTicket, setDetailTicket] = useState<TicketDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
   const [replyMessage, setReplyMessage] = useState("");
   const [replyLoading, setReplyLoading] = useState(false);
   const [cSubject, setCSubject] = useState("");
@@ -83,9 +87,13 @@ export default function TicketsPage() {
   const adminUser = isAdmin(user);
 
   async function loadTickets() {
+    setLoadError("");
     try {
       const res = await fetch(`${BASE}/api/tickets`, { credentials: "include" });
-      if (res.ok) setTickets(await res.json());
+      if (!res.ok) throw new Error(`Unable to load support tickets (${res.status}).`);
+      setTickets(await res.json());
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Unable to load support tickets.");
     } finally { setLoading(false); }
   }
 
@@ -102,10 +110,15 @@ export default function TicketsPage() {
 
   async function openTicket(ticket: Ticket) {
     setDetailLoading(true);
+    setDetailError("");
+    setReplyMessage("");
     setDetailTicket({ ...ticket, replies: [] });
     try {
       const res = await fetch(`${BASE}/api/tickets/${ticket.id}`, { credentials: "include" });
-      if (res.ok) setDetailTicket(await res.json());
+      if (!res.ok) throw new Error(`Unable to load ticket details (${res.status}).`);
+      setDetailTicket(await res.json());
+    } catch (error) {
+      setDetailError(error instanceof Error ? error.message : "Unable to load ticket details.");
     } finally { setDetailLoading(false); }
   }
 
@@ -132,7 +145,7 @@ export default function TicketsPage() {
 
   async function handleReply(e: React.FormEvent) {
     e.preventDefault();
-    if (!detailTicket || !replyMessage.trim()) return;
+    if (!detailTicket || detailLoading || detailError || !replyMessage.trim()) return;
     setReplyLoading(true);
     try {
       const res = await fetch(`${BASE}/api/tickets/${detailTicket.id}/replies`, {
@@ -152,7 +165,7 @@ export default function TicketsPage() {
   }
 
   async function handleStatusChange(status: string) {
-    if (!detailTicket) return;
+    if (!detailTicket || detailLoading || detailError) return;
     try {
       const res = await fetch(`${BASE}/api/tickets/${detailTicket.id}`, {
         method: "PUT",
@@ -169,11 +182,20 @@ export default function TicketsPage() {
   }
 
   if (loading) {
-    return <div className="flex justify-center p-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
+    return <PageLoadingSkeleton variant="table" message="Loading support tickets…" />;
+  }
+
+  if (loadError) {
+    return (
+      <div className="space-y-4">
+        <Alert variant="destructive"><AlertTitle>Could not load support tickets</AlertTitle><AlertDescription>{loadError}</AlertDescription></Alert>
+        <Button variant="outline" onClick={() => { setLoading(true); loadTickets(); }}>Try again</Button>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="loaded-reveal space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Support Tickets</h1>
@@ -257,7 +279,7 @@ export default function TicketsPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3 flex-wrap">
               <span>#{detailTicket?.id} {detailTicket?.subject}</span>
-              {detailTicket && <StatusBadge status={detailTicket.status} />}
+               {detailTicket && !detailLoading && !detailError && <StatusBadge status={detailTicket.status} />}
             </DialogTitle>
             {adminUser && detailTicket?.userFullName && (
               <p className="text-xs text-muted-foreground">From: {detailTicket.userFullName} ({detailTicket.userEmail})</p>
@@ -266,7 +288,12 @@ export default function TicketsPage() {
 
           <div className="flex-1 overflow-y-auto space-y-4 min-h-0">
             {detailLoading ? (
-              <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin" /></div>
+              <PageLoadingSkeleton variant="detail" message="Loading ticket details…" />
+            ) : detailError ? (
+               <div className="space-y-3">
+                 <Alert variant="destructive"><AlertTitle>Could not load ticket details</AlertTitle><AlertDescription>{detailError}</AlertDescription></Alert>
+                 <Button type="button" variant="outline" onClick={() => detailTicket && openTicket(detailTicket)}>Try again</Button>
+               </div>
             ) : (
               <>
                 {/* Original message */}
@@ -307,7 +334,7 @@ export default function TicketsPage() {
           </div>
 
           {/* Reply form */}
-          {detailTicket?.status !== "closed" && (
+          {!detailLoading && !detailError && detailTicket && detailTicket.status !== "closed" && (
             <form onSubmit={handleReply} className="border-t pt-4 space-y-3">
               <Textarea
                 value={replyMessage}

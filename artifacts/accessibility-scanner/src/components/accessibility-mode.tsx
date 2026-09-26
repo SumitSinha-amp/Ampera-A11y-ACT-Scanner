@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   Check,
   Keyboard,
@@ -207,7 +208,7 @@ export function AccessibilityModeControl() {
 
   return (
     <>
-      {preferences.enabled && preferences.showSpeechViewer && (
+      {preferences.enabled && preferences.showSpeechViewer && typeof document !== "undefined" && createPortal(
         <div
           className="fixed bottom-20 left-4 z-[70] w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-border bg-background/95 p-3 shadow-xl backdrop-blur"
           role="status"
@@ -230,10 +231,11 @@ export function AccessibilityModeControl() {
               Stop reading
             </Button>
           )}
-        </div>
+        </div>,
+        document.body
       )}
 
-      <div className="accessibility-mode-control fixed bottom-4 left-4 z-[70]">
+      <div className="accessibility-mode-control">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

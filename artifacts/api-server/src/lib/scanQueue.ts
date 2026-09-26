@@ -38,12 +38,13 @@ async function persistRuleStatuses(
   pageId: number,
   statuses: readonly RuleExecutionStatus[],
   carriedForward = false,
+  execute: (query: string) => Promise<unknown> = (query) => pool.query(query),
 ): Promise<void> {
   if (!statuses.length) return;
   const values = statuses.map((status) =>
     `(${pageId}, '${status.ruleId.replace(/'/g, "''")}', '${status.status}', '${status.executionTier}', ${carriedForward})`,
   ).join(",");
-  await pool.query(
+  await execute(
     `INSERT INTO rule_execution_statuses
        (page_result_id, rule_id, status, execution_tier, carried_forward)
      VALUES ${values}
@@ -186,6 +187,8 @@ interface ScanOptions {
   /** Internal crawler marker; never enable automatic assessments for these scans. */
   crawlerSessionId?: number;
   source?: string;
+  /** Internal ownership fence for cross-process browser permits. */
+  runOwnerToken?: string;
 }
 
 // ── Incremental scan helpers ─────────────────────────────────────────────────
@@ -514,18 +517,77 @@ export async function tryCarryForward(
   return carried;
 }
 
-/** Read the configured browser pool size (app_settings.scan_concurrency, default 4, max 8). */
-async function getScanConcurrencySetting(): Promise<number> {
+interface ScanResourceAllocation {
+  deploymentCapacity: number;
+  perScanCapacity: number;
+}
+
+export function calculateScanResourceAllocation(
+  deploymentCapacity: number,
+  requestedPerScanCapacity: number,
+): ScanResourceAllocation {
+  const safeDeploymentCapacity = Math.max(
+    1,
+    Math.min(8, Math.floor(deploymentCapacity)),
+  );
+  const safePerScanCapacity = Math.max(
+    1,
+    Math.min(
+      safeDeploymentCapacity,
+      Math.floor(requestedPerScanCapacity),
+    ),
+  );
+  return {
+    deploymentCapacity: safeDeploymentCapacity,
+    perScanCapacity: safePerScanCapacity,
+  };
+}
+
+/** Read deployment-wide and per-scan browser limits. */
+async function getScanResourceAllocation(): Promise<ScanResourceAllocation> {
+  const configuredCapacity = Number.parseInt(
+    process.env.SCAN_BROWSER_CAPACITY ?? "",
+    10,
+  );
+  const deploymentCapacity = Number.isFinite(configuredCapacity)
+    ? Math.max(1, Math.min(8, configuredCapacity))
+    : process.env.NODE_ENV === "production" ? 2 : 4;
   try {
     const [row] = await db
       .select({ value: appSettingsTable.value })
       .from(appSettingsTable)
       .where(eq(appSettingsTable.key, "scan_concurrency"));
     const parsed = parseInt(row?.value ?? "", 10);
-    return Number.isFinite(parsed) && parsed >= 1 ? Math.min(parsed, 8) : 4;
+    const requestedPerScan =
+      Number.isFinite(parsed) && parsed >= 1 ? Math.min(parsed, 8) : 4;
+    const configuredPerScan = Number.parseInt(
+      process.env.SCAN_BROWSER_WORKERS_PER_SCAN ?? "",
+      10,
+    );
+    const perScanCapacity = Number.isFinite(configuredPerScan)
+      ? configuredPerScan
+      : process.env.NODE_ENV === "production"
+        ? 2
+        : requestedPerScan;
+    return calculateScanResourceAllocation(
+      deploymentCapacity,
+      Math.min(requestedPerScan, perScanCapacity),
+    );
   } catch {
-    return 4;
+    return calculateScanResourceAllocation(
+      deploymentCapacity,
+      process.env.NODE_ENV === "production" ? 2 : deploymentCapacity,
+    );
   }
+}
+
+export function clampScanConcurrency(
+  requested: number | undefined,
+  deploymentCapacity: number,
+): number {
+  const safeCapacity = Math.max(1, Math.floor(deploymentCapacity));
+  if (!Number.isFinite(requested)) return safeCapacity;
+  return Math.min(Math.max(1, Math.floor(requested!)), safeCapacity);
 }
 
 async function getSystemProxyPacUrl(): Promise<string> {
@@ -554,6 +616,7 @@ async function getGlobalScanDelayMs(): Promise<number> {
 }
 
 const activeScanControllers = new Map<number, AbortController>();
+const activeScanRunTokens = new Map<number, string>();
 const activeScanRuns = new Set<Promise<void>>();
 let scanShutdownRequested = false;
 const pausedScans = new Set<number>();
@@ -570,6 +633,398 @@ const injectedUrlQueue = new Map<number, string[]>();
 // between queue dequeue and the database delete request.
 const removedQueuedPageIds = new Map<number, Set<number>>();
 
+// A page can legitimately hold Chromium for 250s. A 60s run lease allowed a
+// temporary database stall to hand the scan to another process while the old
+// browser worker was still active. Keep the lease comfortably above one full
+// page deadline and wait for old permits before takeover.
+const SCAN_LEASE_TTL_MS = 5 * 60_000;
+const SCAN_LEASE_HEARTBEAT_MS = 15_000;
+const SCAN_LEASE_TAKEOVER_MAX_WAIT_MS = 6 * 60_000;
+const BROWSER_PERMIT_TTL_MS = 60_000;
+const BROWSER_PERMIT_HEARTBEAT_MS = 10_000;
+const BROWSER_PERMIT_POLL_MS = 250;
+const BROWSER_PERMIT_REVOCATION_GRACE_MS = 30_000;
+const USER_CANCEL_ABORT_REASON = "user_cancelled";
+const LEASE_LOST_ABORT_REASON = "lease_lost";
+const BROWSER_INFRASTRUCTURE_ABORT_REASON = "browser_infrastructure";
+const SHUTDOWN_ABORT_REASON = "shutdown";
+
+export function isUserRequestedScanAbort(signal: AbortSignal): boolean {
+  return signal.aborted && signal.reason === USER_CANCEL_ABORT_REASON;
+}
+
+function abortScanController(
+  controller: AbortController,
+  reason:
+    | typeof USER_CANCEL_ABORT_REASON
+    | typeof LEASE_LOST_ABORT_REASON
+    | typeof BROWSER_INFRASTRUCTURE_ABORT_REASON
+    | typeof SHUTDOWN_ABORT_REASON,
+): void {
+  if (!controller.signal.aborted) controller.abort(reason);
+}
+
+export function isLikelyNonHtmlDocumentUrl(rawUrl: string): boolean {
+  try {
+    const pathname = new URL(rawUrl).pathname.toLowerCase();
+    return /\.(?:pdf|docx?|xlsx?|pptx?|odt|ods|odp|rtf|epub|zip)$/.test(pathname);
+  } catch {
+    return false;
+  }
+}
+
+export function isSuccessfulNonHtmlPreflight(
+  preflight: StaticHtmlPreflight | undefined,
+): boolean {
+  return Boolean(
+    preflight &&
+      preflight.classification === "non_html" &&
+      preflight.status != null &&
+      preflight.status >= 200 &&
+      preflight.status < 400,
+  );
+}
+
+function inferredDocumentContentType(rawUrl: string): string {
+  try {
+    const pathname = new URL(rawUrl).pathname.toLowerCase();
+    if (pathname.endsWith(".pdf")) return "application/pdf";
+    if (pathname.endsWith(".doc")) return "application/msword";
+    if (pathname.endsWith(".docx")) {
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    }
+    if (pathname.endsWith(".xls")) return "application/vnd.ms-excel";
+    if (pathname.endsWith(".xlsx")) {
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    }
+    if (pathname.endsWith(".ppt")) return "application/vnd.ms-powerpoint";
+    if (pathname.endsWith(".pptx")) {
+      return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+    }
+    if (pathname.endsWith(".zip")) return "application/zip";
+  } catch {
+    // Keep the generic type below.
+  }
+  return "application/octet-stream";
+}
+
+async function markNonHtmlDocumentProcessed(
+  scanId: number,
+  pageId: number,
+  url: string,
+  startedAt: number,
+  selectedRules: string[] | undefined,
+  preflight?: StaticHtmlPreflight,
+): Promise<void> {
+  const contentType =
+    preflight?.contentType ?? inferredDocumentContentType(url);
+  const scannedAt = new Date();
+  const scanDurationMs = Date.now() - startedAt;
+
+  const selected = getSelectedRuleIds(selectedRules);
+  const statuses = getRuleExecutionStatuses(selected, new Set()).map((status) =>
+    status.status === "not-selected"
+      ? status
+      : { ...status, status: "not-applicable" as const },
+  );
+  const client = await pool.connect();
+  let processedRows = 0;
+  try {
+    await client.query("BEGIN");
+    const primary = await client.query(
+      `UPDATE page_results
+          SET status = 'completed',
+              error_message = NULL,
+              issue_count = 0,
+              critical_count = 0,
+              scanned_at = $2,
+              scan_duration_ms = $3,
+              final_url = $4,
+              http_status = $5,
+              content_type = $6,
+              response_captured_at = $7,
+              acquisition_method = $8,
+              proxy_strategy = $9,
+              carried_forward = FALSE
+        WHERE id = $1
+          AND scan_id = $10
+        RETURNING id`,
+      [
+        pageId,
+        scannedAt,
+        scanDurationMs,
+        preflight?.finalUrl ?? redactProvenanceUrl(url),
+        preflight?.status ?? null,
+        contentType,
+        preflight?.capturedAt ?? scannedAt,
+        preflight?.acquisitionMethod ?? "static_http",
+        preflight?.proxyStrategy ?? "direct",
+        scanId,
+      ],
+    );
+    const duplicates = await client.query(
+      `UPDATE page_results
+          SET status = 'completed',
+              error_message = NULL,
+              issue_count = 0,
+              critical_count = 0,
+              scanned_at = $3,
+              scan_duration_ms = $4,
+              content_type = $5
+        WHERE scan_id = $1
+          AND url = $2
+          AND id != $6
+          AND status != 'completed'
+        RETURNING id`,
+      [scanId, url, scannedAt, scanDurationMs, contentType, pageId],
+    );
+    const processedIds = [
+      ...primary.rows.map((row) => Number(row.id)),
+      ...duplicates.rows.map((row) => Number(row.id)),
+    ];
+    for (const processedId of processedIds) {
+      await persistRuleStatuses(
+        processedId,
+        statuses,
+        false,
+        (query) => client.query(query),
+      );
+    }
+    processedRows = processedIds.length;
+    if (processedRows > 0) {
+      await client.query(
+        `UPDATE scan_sessions
+            SET scanned_urls = scanned_urls + $2
+          WHERE id = $1`,
+        [scanId, processedRows],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  logger.info(
+    { scanId, pageId, url, contentType, scanDurationMs, processedRows },
+    "Non-HTML document completed as not applicable without launching Chromium",
+  );
+}
+
+interface BrowserPermit {
+  requestToken: string;
+  permitToken: string;
+  release: () => Promise<void>;
+}
+
+function getBrowserCapacity(): number {
+  const configured = Number.parseInt(process.env.SCAN_BROWSER_CAPACITY ?? "", 10);
+  return Number.isFinite(configured)
+    ? Math.max(1, Math.min(8, configured))
+    : process.env.NODE_ENV === "production" ? 2 : 4;
+}
+
+async function acquireBrowserPermit(
+  scanId: number,
+  pageId: number,
+  runOwnerToken: string,
+  maxPerScan: number,
+  signal: AbortSignal,
+  onLost: () => void,
+): Promise<BrowserPermit | null> {
+  const requestToken = randomBytes(16).toString("hex");
+  const permitToken = randomBytes(16).toString("hex");
+  await pool.query(
+    `INSERT INTO scan_browser_waiters
+       (request_token, scan_id, page_id, run_owner_token, max_per_scan, heartbeat_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     ON CONFLICT (request_token) DO NOTHING`,
+    [requestToken, scanId, pageId, runOwnerToken, maxPerScan],
+  );
+
+  const removeWaiter = async () => {
+    await pool.query(
+      "DELETE FROM scan_browser_waiters WHERE request_token = $1",
+      [requestToken],
+    ).catch(() => {});
+  };
+
+  try {
+    while (!signal.aborted) {
+      const client = await pool.connect();
+      try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock($1)", [782391]);
+      const ownsRun = await client.query(
+        `SELECT 1
+           FROM scan_run_leases
+          WHERE scan_id = $1
+            AND owner_token = $2
+            AND expires_at >= NOW()`,
+        [scanId, runOwnerToken],
+      );
+      if (ownsRun.rowCount === 0) {
+        await client.query("COMMIT");
+        onLost();
+        return null;
+      }
+      await client.query(
+        `UPDATE scan_browser_permits
+            SET revoked_at = NOW()
+          WHERE expires_at < NOW()
+            AND revoked_at IS NULL`,
+      );
+      await client.query(
+        `DELETE FROM scan_browser_permits
+          WHERE revoked_at IS NOT NULL
+            AND revoked_at < NOW() - ($1::int * INTERVAL '1 millisecond')`,
+        [BROWSER_PERMIT_REVOCATION_GRACE_MS],
+      );
+      const refreshedWaiter = await client.query(
+        `UPDATE scan_browser_waiters
+            SET heartbeat_at = NOW()
+          WHERE request_token = $1
+          RETURNING request_token`,
+        [requestToken],
+      );
+      if (refreshedWaiter.rowCount === 0) {
+        await client.query(
+          `INSERT INTO scan_browser_waiters
+             (request_token, scan_id, page_id, run_owner_token, max_per_scan, heartbeat_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())
+           ON CONFLICT (request_token) DO UPDATE
+             SET run_owner_token = EXCLUDED.run_owner_token,
+                 max_per_scan = EXCLUDED.max_per_scan,
+                 heartbeat_at = NOW()`,
+          [requestToken, scanId, pageId, runOwnerToken, maxPerScan],
+        );
+      }
+      await client.query(
+        "DELETE FROM scan_browser_waiters WHERE heartbeat_at < NOW() - INTERVAL '2 minutes'",
+      );
+      const candidate = await client.query(
+        `SELECT waiter.request_token
+           FROM scan_browser_waiters waiter
+           JOIN scan_run_leases lease
+             ON lease.scan_id = waiter.scan_id
+             AND lease.owner_token = waiter.run_owner_token
+            AND lease.expires_at >= NOW()
+           JOIN scan_sessions session
+             ON session.id = waiter.scan_id
+            AND session.status IN ('pending', 'running')
+           JOIN page_results page
+             ON page.id = waiter.page_id
+            AND page.scan_id = waiter.scan_id
+          WHERE (
+            SELECT COUNT(*) FROM scan_browser_permits active
+             WHERE active.scan_id = waiter.scan_id
+                AND active.run_owner_token = waiter.run_owner_token
+                AND active.revoked_at IS NULL
+          ) < waiter.max_per_scan
+          ORDER BY waiter.enqueued_at, waiter.request_token
+          LIMIT 1`,
+      );
+      if (candidate.rows[0]?.request_token === requestToken) {
+        const capacity = getBrowserCapacity();
+        const slot = await client.query(
+          `SELECT candidate.slot_id
+             FROM generate_series(1, $1::int) candidate(slot_id)
+             LEFT JOIN scan_browser_permits active
+               ON active.slot_id = candidate.slot_id
+            WHERE active.slot_id IS NULL
+               AND (
+                 SELECT COUNT(*)
+                   FROM scan_browser_permits
+               ) < $1
+            ORDER BY candidate.slot_id
+            LIMIT 1`,
+          [capacity],
+        );
+        if (slot.rows[0]) {
+          await client.query(
+            `INSERT INTO scan_browser_permits
+               (slot_id, scan_id, page_id, owner_token, run_owner_token, heartbeat_at, expires_at)
+              VALUES ($1, $2, $3, $4, $5, NOW(), NOW() + ($6::int * INTERVAL '1 millisecond'))`,
+            [
+              Number(slot.rows[0].slot_id),
+              scanId,
+              pageId,
+              permitToken,
+              runOwnerToken,
+              BROWSER_PERMIT_TTL_MS,
+            ],
+          );
+          await client.query(
+            "DELETE FROM scan_browser_waiters WHERE request_token = $1",
+            [requestToken],
+          );
+          await client.query("COMMIT");
+
+          let heartbeat: ReturnType<typeof setInterval> | undefined;
+          let heartbeatWork: Promise<void> | null = null;
+          const refresh = async () => {
+            if (heartbeatWork) return;
+            heartbeatWork = pool.query(
+              `UPDATE scan_browser_permits
+                  SET heartbeat_at = NOW(),
+                      expires_at = NOW() + ($3::int * INTERVAL '1 millisecond')
+                WHERE owner_token = $1
+                  AND scan_id = $2
+                  AND run_owner_token = $4
+                  AND revoked_at IS NULL`,
+              [permitToken, scanId, BROWSER_PERMIT_TTL_MS, runOwnerToken],
+            ).then((result) => {
+              if (result.rowCount !== 1) onLost();
+            }).catch((err) => {
+              logger.warn(
+                { scanId, pageId, err },
+                "Could not refresh browser permit — will retry",
+              );
+            }).finally(() => {
+              heartbeatWork = null;
+            });
+            await heartbeatWork;
+          };
+          heartbeat = setInterval(refresh, BROWSER_PERMIT_HEARTBEAT_MS);
+          heartbeat.unref?.();
+          let released = false;
+          return {
+            requestToken,
+            permitToken,
+            release: async () => {
+              if (released) return;
+              released = true;
+              if (heartbeat) clearInterval(heartbeat);
+              if (heartbeatWork) await heartbeatWork;
+              await pool.query(
+                "DELETE FROM scan_browser_permits WHERE owner_token = $1 AND scan_id = $2 AND run_owner_token = $3",
+                [permitToken, scanId, runOwnerToken],
+              ).catch(() => {});
+            },
+          };
+        }
+      }
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        if (!isTransientDatabaseError(err)) throw err;
+      } finally {
+        client.release();
+      }
+      await new Promise((resolve) => setTimeout(resolve, BROWSER_PERMIT_POLL_MS));
+    }
+    return null;
+  } finally {
+    await removeWaiter();
+  }
+}
+
+interface StartScanRuntimeOptions {
+  recoverMidFlight?: boolean;
+}
+
 function getLegalText(legal?: { ada: string[]; eaa: boolean }): string {
   if (!legal) return "";
   const parts: string[] = [];
@@ -579,10 +1034,94 @@ function getLegalText(legal?: { ada: string[]; eaa: boolean }): string {
 }
 
 async function setPageStatus(pageId: number, status: string): Promise<void> {
-  await db
-    .update(pageResultsTable)
-    .set({ status })
-    .where(eq(pageResultsTable.id, pageId));
+  await retryTransientDatabaseOperation(
+    "update page status",
+    { pageId, status },
+    () =>
+      db
+        .update(pageResultsTable)
+        .set({ status })
+        .where(eq(pageResultsTable.id, pageId)),
+  );
+}
+
+export function isTransientDatabaseError(err: unknown): boolean {
+  const messages: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = err;
+
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof Error) messages.push(current.message);
+    else if (typeof current === "string") messages.push(current);
+
+    if (typeof current === "object" && current !== null && "cause" in current) {
+      current = (current as { cause?: unknown }).cause;
+    } else {
+      break;
+    }
+  }
+
+  const message = messages.join(" ").toLowerCase();
+  return [
+    "timeout exceeded when trying to connect",
+    "connection terminated due to connection timeout",
+    "connection terminated unexpectedly",
+    "connection timeout",
+    "connect etimedout",
+    "connect econnreset",
+    "connect econnrefused",
+    "server closed the connection unexpectedly",
+    "too many clients",
+    "remaining connection slots are reserved",
+  ].some((fragment) => message.includes(fragment));
+}
+
+export function isBrowserInfrastructureError(err: unknown): boolean {
+  const message = String(err instanceof Error ? err.message : err).toLowerCase();
+  return [
+    "browser launch timed out",
+    "failed to launch the browser process",
+    "timed out after 30000 ms while waiting for the ws endpoint",
+    "resource temporarily unavailable",
+    "spawn eagain",
+    "cannot fork",
+    "pthread_create",
+  ].some((fragment) => message.includes(fragment));
+}
+
+class BrowserInfrastructureError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BrowserInfrastructureError";
+  }
+}
+
+async function retryTransientDatabaseOperation<T>(
+  operationName: string,
+  context: Record<string, unknown>,
+  operation: () => PromiseLike<T>,
+  maxAttempts = 4,
+): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (err) {
+      lastError = err;
+      if (!isTransientDatabaseError(err) || attempt === maxAttempts) throw err;
+
+      const delayMs = attempt * 1_000;
+      logger.warn(
+        { ...context, operationName, attempt, maxAttempts, delayMs, err },
+        "Transient database failure during scan — retrying",
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw lastError;
 }
 
 async function waitIfPaused(
@@ -603,19 +1142,38 @@ async function waitIfPaused(
   return true;
 }
 
+async function waitForPageBatch(tasks: Promise<void>[]): Promise<void> {
+  const results = await Promise.allSettled(tasks);
+  const failed = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failed) throw failed.reason;
+}
+
 async function runScan(
   scanId: number,
   urls: string[],
   options: ScanOptions = {},
+  ownership: {
+    runToken: string;
+    controller: AbortController;
+    isLeaseLost: () => boolean;
+  },
 ): Promise<void> {
   if (scanShutdownRequested) return;
-  const controller = new AbortController();
+  const { controller, runToken, isLeaseLost } = ownership;
   activeScanControllers.set(scanId, controller);
+  activeScanRunTokens.set(scanId, runToken);
 
-  const configuredConcurrency = await getScanConcurrencySetting();
-  const maxConcurrency = options.maxConcurrency ?? configuredConcurrency;
-  // Size the browser pool to match so batches actually run in parallel.
-  setScanConcurrency(maxConcurrency);
+  const allocation = await getScanResourceAllocation();
+  const maxConcurrency = clampScanConcurrency(
+    options.maxConcurrency,
+    allocation.perScanCapacity,
+  );
+  options = { ...options, maxConcurrency, runOwnerToken: runToken };
+  // The process-wide pool represents the complete deployment budget. Each
+  // distinct leased scan submits no more than its reserved per-scan share.
+  setScanConcurrency(allocation.deploymentCapacity);
 
   try {
     await db
@@ -630,7 +1188,12 @@ async function runScan(
     let qi = 0;
     while (qi < liveQueue.length) {
       if (controller.signal.aborted) {
-        logger.info({ scanId }, "Scan cancelled by user");
+        logger.info(
+          { scanId, reason: controller.signal.reason },
+          isUserRequestedScanAbort(controller.signal)
+            ? "Scan cancelled by user"
+            : "Scan interrupted — leaving it recoverable",
+        );
         break;
       }
       if (!(await waitIfPaused(scanId, controller))) break;
@@ -647,9 +1210,9 @@ async function runScan(
 
       const batch = liveQueue.slice(qi, qi + maxConcurrency);
       qi += maxConcurrency;
-      await Promise.all(
+      await waitForPageBatch(
         batch.map((url) =>
-          scanSinglePage(scanId, url, options, controller.signal),
+          scanSinglePage(scanId, url, { ...options, maxConcurrency }, controller.signal),
         ),
       );
     }
@@ -670,9 +1233,9 @@ async function runScan(
         if (controller.signal.aborted) break;
         if (!(await waitIfPaused(scanId, controller))) break;
         const batch = extra.slice(i, i + maxConcurrency);
-        await Promise.all(
+        await waitForPageBatch(
           batch.map((url) =>
-            scanSinglePage(scanId, url, options, controller.signal),
+            scanSinglePage(scanId, url, { ...options, maxConcurrency }, controller.signal),
           ),
         );
       }
@@ -695,28 +1258,24 @@ async function runScan(
       logger.info({ scanId, retryBatch }, "Processing retry queue batch");
       // skipCompletedPages: true — never re-scan a URL that succeeded while it
       // was waiting in the retry queue (e.g. completed by a concurrent Phase 1 worker).
-      await Promise.all(
+      await waitForPageBatch(
         retryBatch.map((url) =>
-          scanSinglePage(
+            scanSinglePage(
             scanId,
             url,
-            { ...options, skipCompletedPages: true },
+              { ...options, maxConcurrency, skipCompletedPages: true },
             controller.signal,
           ),
         ),
       );
     }
 
-    // ── Phase 3: post-cycle retry loop (up to 5 rounds) ──────────────────────
-    // After Phase 1 + 2, retry every page still marked not_available or failed.
+    // ── Phase 3: exhaustive post-cycle retry loop (up to 5 rounds) ───────────
+    // After Phase 1 + 2, retry every page that has not completed successfully.
     // We loop up to MAX_PHASE3_RETRIES times so transient blips, slow deploys,
     // or brief CDN hiccups have multiple chances to clear.  The scan is never
     // marked "completed" until all retry rounds are finished (or aborted).
-    // Safety valve: if two consecutive rounds show ZERO improvement (same
-    // failure count) we stop early — the site is likely unreachable.
     const MAX_PHASE3_RETRIES = 5;
-    let prevPhase3FailedCount = -1; // sentinel: first round has no prior count
-    let consecutiveNoProgress = 0;
 
     for (let round = 1; round <= MAX_PHASE3_RETRIES; round++) {
       if (controller.signal.aborted) break;
@@ -727,43 +1286,14 @@ async function runScan(
         .where(
           and(
             eq(pageResultsTable.scanId, scanId),
-            or(
-              eq(pageResultsTable.status, "not_available"),
-              eq(pageResultsTable.status, "failed"),
-            ),
+            sql`${pageResultsTable.status} != 'completed'`,
           ),
         );
 
       if (failedRows.length === 0) {
         logger.info(
           { scanId, round },
-          "Phase 3: no failed/not_available pages remaining — stopping early",
-        );
-        break;
-      }
-
-      // Bail only when TWO consecutive rounds produced zero improvement —
-      // this avoids abandoning a slow site after a single unlucky round while
-      // still protecting against a truly unreachable target.
-      if (
-        prevPhase3FailedCount !== -1 &&
-        failedRows.length >= prevPhase3FailedCount
-      ) {
-        consecutiveNoProgress++;
-      } else {
-        consecutiveNoProgress = 0; // improvement this round — reset counter
-      }
-      prevPhase3FailedCount = failedRows.length;
-
-      if (consecutiveNoProgress >= 2) {
-        logger.warn(
-          {
-            scanId,
-            failedCount: failedRows.length,
-            round,
-            consecutiveNoProgress,
-          },
-          "Phase 3 aborted — no improvement over 2 consecutive rounds, site likely unreachable",
+          "Phase 3: every page completed successfully — stopping early",
         );
         break;
       }
@@ -774,17 +1304,16 @@ async function runScan(
         "Phase 3 retry round starting",
       );
 
-      // Mark as "requeued" so the UI reflects that another attempt is in progress.
+      // Normalize every unfinished state to "requeued". This guarantees that a
+      // page left in navigating/scanning/saving by an earlier timeout is
+      // claimable and actually attempted instead of escaping final retries.
       await db
         .update(pageResultsTable)
         .set({ status: "requeued" })
         .where(
           and(
             eq(pageResultsTable.scanId, scanId),
-            or(
-              eq(pageResultsTable.status, "not_available"),
-              eq(pageResultsTable.status, "failed"),
-            ),
+            sql`${pageResultsTable.status} != 'completed'`,
           ),
         );
 
@@ -815,7 +1344,7 @@ async function runScan(
         await scanSinglePage(
           scanId,
           url,
-          { ...options, skipCompletedPages: true },
+          { ...options, maxConcurrency, skipCompletedPages: true },
           controller.signal,
           true,
         );
@@ -849,16 +1378,36 @@ async function runScan(
       }
     }
 
-    // Before closing out, reset any pages still in a non-terminal status
-    // (pending, requeued, running, navigating, scanning, rendering, analyzing,
-    // saving) to not_available so they surface in the UI "Not Available" tile
-    // instead of silently disappearing from the results.
+    if (isLeaseLost()) {
+      logger.warn(
+        { scanId },
+        "Manual scan stopped after losing its lease — leaving rows for the new owner",
+      );
+      return;
+    }
+    if (
+      controller.signal.aborted &&
+      !isUserRequestedScanAbort(controller.signal)
+    ) {
+      logger.warn(
+        { scanId, reason: controller.signal.reason },
+        "Manual scan interrupted by infrastructure — skipping finalization",
+      );
+      return;
+    }
+    if (isUserRequestedScanAbort(controller.signal)) {
+      logger.info({ scanId }, "User-cancelled scan will not continue retries");
+      return;
+    }
+
+    // Completion is forbidden while any page is still unfinished. Put such
+    // rows back in pending and leave the session recoverable for the watchdog.
     const TERMINAL_STATUSES = ["completed", "failed", "not_available"] as const;
     const resetResult = await db
       .update(pageResultsTable)
       .set({
-        status: "not_available",
-        errorMessage: "Page was not reached before the scan ended",
+        status: "pending",
+        errorMessage: "Page remained unfinished after final retries; recovery will continue it.",
       })
       .where(
         and(
@@ -869,8 +1418,9 @@ async function runScan(
     if (resetResult.rowCount && resetResult.rowCount > 0) {
       logger.warn(
         { scanId, resetCount: resetResult.rowCount },
-        "Reset non-terminal page rows to not_available on scan finish",
+        "Scan still has unfinished pages — leaving session recoverable",
       );
+      return;
     }
 
     // Recompute final session totals after the reset so counts are accurate.
@@ -896,7 +1446,7 @@ async function runScan(
         .where(eq(scanSessionsTable.id, scanId));
     }
 
-    const finalStatus = controller.signal.aborted ? "cancelled" : "completed";
+    const finalStatus = "completed";
 
     await db
       .update(scanSessionsTable)
@@ -904,7 +1454,12 @@ async function runScan(
         status: finalStatus,
         completedAt: new Date(),
       })
-      .where(eq(scanSessionsTable.id, scanId));
+      .where(
+        and(
+          eq(scanSessionsTable.id, scanId),
+          sql`${scanSessionsTable.status} != 'cancelled'`,
+        ),
+      );
 
     logger.info({ scanId, status: finalStatus }, "Scan session finished");
 
@@ -915,13 +1470,47 @@ async function runScan(
       );
     }
   } catch (err) {
+    if (isLeaseLost()) {
+      logger.warn(
+        { scanId, err },
+        "Manual scan exited after losing its lease — skipping finalization",
+      );
+      return;
+    }
+    if (
+      controller.signal.aborted &&
+      !isUserRequestedScanAbort(controller.signal)
+    ) {
+      logger.warn(
+        { scanId, reason: controller.signal.reason, err },
+        "Manual scan interrupted by infrastructure — leaving it recoverable",
+      );
+      return;
+    }
+    if (err instanceof BrowserInfrastructureError) {
+      logger.error(
+        { scanId, err },
+        "Manual scan left recoverable after browser infrastructure failure",
+      );
+      return;
+    }
     logger.error({ scanId, err }, "Scan session errored — determining final status from page results");
+    if (isTransientDatabaseError(err) && !controller.signal.aborted) {
+      // Do not finalize a manual scan when PostgreSQL is temporarily
+      // unavailable. Keeping the session "running" leaves its pending and
+      // mid-flight rows recoverable by the watchdog once connectivity returns.
+      logger.error(
+        { scanId, err },
+        "Manual scan left recoverable after database connectivity failure",
+      );
+      return;
+    }
     // Don't blindly mark the whole session "failed": if the pages themselves
     // finished successfully and only a post-scan finalization step threw
     // (transient DB/network hiccup — common on Azure App Service), the scan
     // has real results and must be reported as completed.
     let finalStatus: "completed" | "failed" | "cancelled" =
-      controller.signal.aborted ? "cancelled" : "failed";
+      isUserRequestedScanAbort(controller.signal) ? "cancelled" : "failed";
     try {
       const [stats] = await db
         .select({
@@ -962,13 +1551,16 @@ async function runScan(
       .set({ status: finalStatus, completedAt: new Date() })
       .where(eq(scanSessionsTable.id, scanId));
   } finally {
-    activeScanControllers.delete(scanId);
-    pausedScans.delete(scanId);
-    queuedRetryUrls.delete(scanId);
-    autoRetryCounters.delete(scanId);
-    injectedUrlQueue.delete(scanId);
-    removedQueuedPageIds.delete(scanId);
-    proxyFailedUrls.delete(scanId);
+    if (activeScanRunTokens.get(scanId) === runToken) {
+      activeScanControllers.delete(scanId);
+      activeScanRunTokens.delete(scanId);
+      pausedScans.delete(scanId);
+      queuedRetryUrls.delete(scanId);
+      autoRetryCounters.delete(scanId);
+      injectedUrlQueue.delete(scanId);
+      removedQueuedPageIds.delete(scanId);
+      proxyFailedUrls.delete(scanId);
+    }
     // WAF tokens are intentionally kept alive until their TTL expires (10 min)
     // so the user can still click "Scan from Browser" on a completed scan.
     // Periodically purge globally expired tokens to avoid unbounded memory growth.
@@ -982,14 +1574,286 @@ async function runScan(
   }
 }
 
+async function acquireScanLease(
+  scanId: number,
+  ownerToken: string,
+): Promise<{
+  acquired: boolean;
+  tookOverExpiredLease: boolean;
+  holderScanId?: number;
+}> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock($1, $2)", [782392, scanId]);
+    const previous = await client.query(
+      `SELECT expires_at, expires_at < NOW() AS expired
+         FROM scan_run_leases
+        WHERE scan_id = $1
+        FOR UPDATE`,
+      [scanId],
+    );
+    const prior = previous.rows[0] as { expired: boolean } | undefined;
+    if (prior && prior.expired !== true) {
+      await client.query("COMMIT");
+      return {
+        acquired: false,
+        tookOverExpiredLease: false,
+        holderScanId: scanId,
+      };
+    }
+    await client.query(
+      `INSERT INTO scan_run_leases
+         (scan_id, owner_token, heartbeat_at, expires_at)
+       VALUES ($1, $2, NOW(), NOW() + ($3::int * INTERVAL '1 millisecond'))
+       ON CONFLICT (scan_id) DO UPDATE
+         SET owner_token = EXCLUDED.owner_token,
+             heartbeat_at = EXCLUDED.heartbeat_at,
+             expires_at = EXCLUDED.expires_at`,
+      [scanId, ownerToken, SCAN_LEASE_TTL_MS],
+    );
+    await client.query("COMMIT");
+    return {
+      acquired: true,
+      tookOverExpiredLease: prior?.expired === true,
+    };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function waitForPriorScanPermitsToDrain(
+  scanId: number,
+  newOwnerToken: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const deadline = Date.now() + SCAN_LEASE_TAKEOVER_MAX_WAIT_MS;
+  const stableDrainMs = SCAN_LEASE_HEARTBEAT_MS * 2;
+  let emptySince: number | null = null;
+  while (!signal.aborted && !scanShutdownRequested && Date.now() < deadline) {
+    const result = await pool.query(
+      `WITH revoked AS (
+         UPDATE scan_browser_permits
+            SET revoked_at = COALESCE(revoked_at, NOW())
+          WHERE scan_id = $1
+            AND expires_at < NOW()
+         RETURNING slot_id
+       ), deleted AS (
+         DELETE FROM scan_browser_permits
+          WHERE scan_id = $1
+            AND revoked_at IS NOT NULL
+            AND revoked_at < NOW() - ($2::int * INTERVAL '1 millisecond')
+         RETURNING slot_id
+       ), stale_waiters AS (
+         DELETE FROM scan_browser_waiters
+          WHERE scan_id = $1
+            AND heartbeat_at < NOW() - INTERVAL '2 minutes'
+         RETURNING request_token
+       )
+       SELECT
+         (SELECT COUNT(*)::int
+            FROM scan_browser_permits
+           WHERE scan_id = $1
+             AND run_owner_token IS DISTINCT FROM $3)
+         +
+         (SELECT COUNT(*)::int
+            FROM scan_browser_waiters
+           WHERE scan_id = $1
+             AND run_owner_token IS DISTINCT FROM $3) AS active`,
+      [scanId, BROWSER_PERMIT_REVOCATION_GRACE_MS, newOwnerToken],
+    );
+    const active = Number(result.rows[0]?.active ?? 0);
+    if (active === 0) {
+      emptySince ??= Date.now();
+      if (Date.now() - emptySince >= stableDrainMs) return true;
+    } else {
+      emptySince = null;
+    }
+    logger.info(
+      { scanId, priorWorkRecords: active, stableDrainMs },
+      "Manual scan takeover waiting for prior browser work to settle",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+  return false;
+}
+
+async function runScanWithLease(
+  scanId: number,
+  urls: string[],
+  options: ScanOptions = {},
+  runtime: StartScanRuntimeOptions = {},
+): Promise<void> {
+  if (scanShutdownRequested) return;
+
+  const ownerToken = randomBytes(16).toString("hex");
+  const acquisition = await acquireScanLease(scanId, ownerToken);
+  if (!acquisition.acquired) {
+    if (acquisition.holderScanId === undefined) {
+      await db
+        .update(scanSessionsTable)
+        .set({ status: "pending" })
+        .where(
+          and(
+            eq(scanSessionsTable.id, scanId),
+            inArray(scanSessionsTable.status, ["pending", "running"]),
+          ),
+        );
+      logger.info(
+        { scanId },
+        "Manual scan already has no active owner — retrying recovery later",
+      );
+    } else {
+      logger.info(
+        { scanId },
+        "Manual scan already owned by another server process — skipping duplicate start",
+      );
+    }
+    return;
+  }
+
+  const controller = new AbortController();
+  let leaseLost = false;
+  let heartbeatWork: Promise<void> | null = null;
+  const refreshLease = async (): Promise<void> => {
+    if (leaseLost || controller.signal.aborted) return;
+    try {
+      const result = await pool.query(
+        `UPDATE scan_run_leases
+            SET heartbeat_at = NOW(),
+                expires_at = NOW() + ($3::int * INTERVAL '1 millisecond')
+          WHERE scan_id = $1
+            AND owner_token = $2
+            AND EXISTS (
+              SELECT 1
+                FROM scan_sessions session
+               WHERE session.id = $1
+                 AND session.status IN ('pending', 'running')
+            )
+          RETURNING scan_id`,
+        [scanId, ownerToken, SCAN_LEASE_TTL_MS],
+      );
+      if (result.rowCount === 0) {
+        leaseLost = true;
+        logger.error(
+          { scanId },
+          "Manual scan lease was lost — stopping duplicate worker",
+        );
+        abortScanController(controller, LEASE_LOST_ABORT_REASON);
+      }
+    } catch (err) {
+      logger.warn(
+        { scanId, err },
+        "Could not refresh manual scan lease — will retry",
+      );
+    }
+  };
+  const heartbeat = setInterval(() => {
+    if (heartbeatWork) return;
+    heartbeatWork = refreshLease().finally(() => {
+      heartbeatWork = null;
+    });
+  }, SCAN_LEASE_HEARTBEAT_MS);
+  heartbeat.unref?.();
+
+  try {
+    if (acquisition.tookOverExpiredLease) {
+      logger.warn(
+        { scanId, maxWaitMs: SCAN_LEASE_TAKEOVER_MAX_WAIT_MS },
+        "Manual scan took over an expired lease — waiting for prior browser work to settle",
+      );
+      const drained = await waitForPriorScanPermitsToDrain(
+        scanId,
+        ownerToken,
+        controller.signal,
+      );
+      if (!drained) {
+        logger.error(
+          { scanId, maxWaitMs: SCAN_LEASE_TAKEOVER_MAX_WAIT_MS },
+          "Manual scan takeover abandoned because prior browser work did not settle",
+        );
+        return;
+      }
+      if (scanShutdownRequested || controller.signal.aborted) return;
+    }
+
+    let runUrls = urls;
+    if (runtime.recoverMidFlight) {
+      await db
+        .update(pageResultsTable)
+        .set({ status: "pending" })
+        .where(
+          and(
+            eq(pageResultsTable.scanId, scanId),
+            notInArray(pageResultsTable.status, [
+              "completed",
+              "failed",
+              "not_available",
+              "pending",
+              "requeued",
+            ]),
+          ),
+        );
+
+      const remaining = await db
+        .select({ url: pageResultsTable.url })
+        .from(pageResultsTable)
+        .where(
+          and(
+            eq(pageResultsTable.scanId, scanId),
+            inArray(pageResultsTable.status, ["pending", "requeued"]),
+          ),
+        );
+
+      if (remaining.length === 0) {
+        await db
+          .update(scanSessionsTable)
+          .set({ status: "completed", completedAt: new Date() })
+          .where(eq(scanSessionsTable.id, scanId));
+        logger.info(
+          { scanId },
+          "Recovered scan had no remaining pages — marked completed",
+        );
+        return;
+      }
+      runUrls = remaining.map((row) => row.url);
+      logger.info(
+        { scanId, urlCount: runUrls.length },
+        "Manual scan lease acquired for recovery",
+      );
+    }
+
+    await runScan(scanId, runUrls, options, {
+      runToken: ownerToken,
+      controller,
+      isLeaseLost: () => leaseLost,
+    });
+  } finally {
+    clearInterval(heartbeat);
+    if (heartbeatWork) await heartbeatWork;
+    await pool
+      .query(
+        "DELETE FROM scan_run_leases WHERE scan_id = $1 AND owner_token = $2",
+        [scanId, ownerToken],
+      )
+      .catch((err) =>
+        logger.warn({ scanId, err }, "Could not release manual scan lease"),
+      );
+  }
+}
+
 /** Start a scan while retaining a settlement handle for graceful shutdown. */
 export function startScan(
   scanId: number,
   urls: string[],
   options: ScanOptions = {},
+  runtime: StartScanRuntimeOptions = {},
 ): Promise<void> {
   if (scanShutdownRequested) return Promise.resolve();
-  const run = runScan(scanId, urls, options);
+  const run = runScanWithLease(scanId, urls, options, runtime);
   activeScanRuns.add(run);
   void run.then(
     () => activeScanRuns.delete(run),
@@ -1121,22 +1985,28 @@ async function scanSinglePage(
   // the completed row is accidentally selected and then overwritten by a retry.
   let pageRow: typeof pageResultsTable.$inferSelect | undefined;
   try {
-    const rows = await db
-      .select(pageResultFields)
-      .from(pageResultsTable)
-      .where(
-        and(eq(pageResultsTable.scanId, scanId), eq(pageResultsTable.url, url)),
-      )
-      .orderBy(
-        sql`CASE WHEN ${pageResultsTable.status} IN ('requeued','failed','not_available','pending') THEN 0 ELSE 1 END`,
-        pageResultsTable.id,
-      );
+    const rows = await retryTransientDatabaseOperation(
+      "fetch page row",
+      { scanId, url },
+      () =>
+        db
+          .select(pageResultFields)
+          .from(pageResultsTable)
+          .where(
+            and(eq(pageResultsTable.scanId, scanId), eq(pageResultsTable.url, url)),
+          )
+          .orderBy(
+            sql`CASE WHEN ${pageResultsTable.status} IN ('requeued','failed','not_available','pending') THEN 0 ELSE 1 END`,
+            pageResultsTable.id,
+          ),
+    );
     pageRow = rows[0];
   } catch (err) {
     logger.error(
       { scanId, url, err },
-      "DB error fetching page row — skipping URL",
+      "DB error fetching page row",
     );
+    if (isTransientDatabaseError(err)) throw err;
     return;
   }
 
@@ -1156,27 +2026,33 @@ async function scanSinglePage(
   // deletes rows that remain pending, so this makes "started" a real database
   // boundary rather than relying only on the in-memory queue marker.
   try {
-    const claimed = await db
-      .update(pageResultsTable)
-      .set({ status: "navigating" })
-      .where(
-        and(
-          eq(pageResultsTable.id, pageRow.id),
-          inArray(pageResultsTable.status, [
-            "pending",
-            "failed",
-            "requeued",
-            "not_available",
-          ]),
-        ),
-      )
-      .returning({ id: pageResultsTable.id });
+    const claimed = await retryTransientDatabaseOperation(
+      "claim page row",
+      { scanId, pageId: pageRow.id, url },
+      () =>
+        db
+          .update(pageResultsTable)
+          .set({ status: "navigating" })
+          .where(
+            and(
+              eq(pageResultsTable.id, pageRow.id),
+              inArray(pageResultsTable.status, [
+                "pending",
+                "failed",
+                "requeued",
+                "not_available",
+              ]),
+            ),
+          )
+          .returning({ id: pageResultsTable.id }),
+    );
     if (claimed.length === 0) return;
   } catch (err) {
     logger.error(
       { scanId, pageId: pageRow.id, url, err },
-      "DB error claiming page row — skipping URL",
+      "DB error claiming page row",
     );
+    if (isTransientDatabaseError(err)) throw err;
     return;
   }
 
@@ -1184,6 +2060,20 @@ async function scanSinglePage(
   if (queued?.has(url)) queued.delete(url);
 
   const pageId = pageRow.id;
+  const runOwnerToken = options.runOwnerToken;
+  if (!runOwnerToken) {
+    throw new Error("Manual scan worker is missing its ownership token");
+  }
+  const abortScanAfterPermitLoss = (abortPage: () => void) => {
+    abortPage();
+    const scanController = activeScanControllers.get(scanId);
+    if (
+      scanController?.signal === signal &&
+      activeScanRunTokens.get(scanId) === runOwnerToken
+    ) {
+      abortScanController(scanController, LEASE_LOST_ABORT_REASON);
+    }
+  };
 
   try {
     // ── Incremental change detection ─────────────────────────────────────
@@ -1195,21 +2085,81 @@ async function scanSinglePage(
     // bypass a proxy that Chromium will use; Chromium remains authoritative.
     const systemProxyPacUrl = await getSystemProxyPacUrl();
     const configuredProxyPacUrl = options.proxyPacUrl || systemProxyPacUrl;
+    const likelyNonHtmlDocument = isLikelyNonHtmlDocumentUrl(url);
     const staticPreflightPromise = shouldRunStaticPreflight(configuredProxyPacUrl)
-      ? runStaticHtmlPreflight(url, { proxyStrategy: "direct" })
+      ? runStaticHtmlPreflight(url, {
+          proxyStrategy: "direct",
+          accept: likelyNonHtmlDocument
+            ? "application/pdf,application/octet-stream,*/*"
+            : undefined,
+        })
       : Promise.resolve(undefined);
     let staticPreflight: StaticHtmlPreflight | undefined;
+    const pageWorkStartedAt = Date.now();
+    if (likelyNonHtmlDocument) {
+      staticPreflight = await staticPreflightPromise;
+      if (signal.aborted) return;
+      if (isSuccessfulNonHtmlPreflight(staticPreflight)) {
+        await markNonHtmlDocumentProcessed(
+          scanId,
+          pageId,
+          url,
+          pageWorkStartedAt,
+          options.rules,
+          staticPreflight,
+        );
+        return;
+      }
+    } else {
+      // Capture fast content-type responses without adding meaningful latency
+      // to normal HTML pages. A slower preflight continues in parallel.
+      staticPreflight = await Promise.race([
+        staticPreflightPromise,
+        new Promise<undefined>((resolve) => setTimeout(resolve, 750)),
+      ]);
+      if (isSuccessfulNonHtmlPreflight(staticPreflight)) {
+        await markNonHtmlDocumentProcessed(
+          scanId,
+          pageId,
+          url,
+          pageWorkStartedAt,
+          options.rules,
+          staticPreflight,
+        );
+        return;
+      }
+    }
     if (options.incremental) {
       await setPageStatus(pageId, "checking");
-      staticPreflight = await staticPreflightPromise;
+      staticPreflight ??= await staticPreflightPromise;
       rawHash = staticPreflight?.rawHtmlHash ?? null;
       if (!rawHash && !configuredProxyPacUrl && staticPreflight?.status == null) {
         // WAF-blocked plain fetch (e.g. 403) — retry through a stealth browser
         // with all non-document resources blocked. Still far cheaper than a
         // full scan when the page turns out to be unchanged.
-        const body = await fetchRawHtmlViaBrowser(url);
-        if (body && classifyStaticHtml(undefined, "text/html", body) === "ok") {
-          rawHash = hashRawHtml(body);
+        const rawBrowserController = new AbortController();
+        const abortRawBrowser = () => rawBrowserController.abort();
+        signal.addEventListener("abort", abortRawBrowser, { once: true });
+        let rawPermit: BrowserPermit | null = null;
+        try {
+          rawPermit = await acquireBrowserPermit(
+            scanId,
+            pageId,
+            runOwnerToken,
+            Math.max(1, options.maxConcurrency ?? 2),
+            rawBrowserController.signal,
+            () => abortScanAfterPermitLoss(abortRawBrowser),
+          );
+          if (!rawPermit) return;
+          const body = await fetchRawHtmlViaBrowser(url, {
+            signal: rawBrowserController.signal,
+          });
+          if (body && classifyStaticHtml(undefined, "text/html", body) === "ok") {
+            rawHash = hashRawHtml(body);
+          }
+        } finally {
+          signal.removeEventListener("abort", abortRawBrowser);
+          await rawPermit?.release();
         }
       }
       if (rawHash) {
@@ -1260,17 +2210,10 @@ async function scanSinglePage(
     const NAV_TIMEOUT_MS = 30_000;
     const hardDeadline = NAV_TIMEOUT_MS * 6 + scanDelayMs + 60_000;
     const urlAbortController = new AbortController();
+    const abortPageScan = () => urlAbortController.abort();
+    if (signal.aborted) abortPageScan();
+    else signal.addEventListener("abort", abortPageScan, { once: true });
     let hardTimer: ReturnType<typeof setTimeout> | null = null;
-    const hardTimeoutPromise = new Promise<never>((_, reject) => {
-      hardTimer = setTimeout(() => {
-        urlAbortController.abort(); // force-closes the Puppeteer page
-        reject(
-          new Error(
-            `URL scan hard-timeout after ${hardDeadline}ms — aborting stuck navigation`,
-          ),
-        );
-      }, hardDeadline);
-    });
 
     // Run scanPage against the hard-deadline.  If the hard timer fires first
     // we convert the thrown error into a synthetic failed result so that the
@@ -1283,24 +2226,47 @@ async function scanSinglePage(
       : staticPreflightPromise.then((preflight) => preflight?.rawHtmlHash ?? null).catch(() => null);
     let result: Awaited<ReturnType<typeof scanPage>>;
     const scanStart = Date.now();
+    const browserPermit = await acquireBrowserPermit(
+      scanId,
+      pageId,
+      runOwnerToken,
+      Math.max(1, options.maxConcurrency ?? 2),
+      urlAbortController.signal,
+      () => abortScanAfterPermitLoss(() => urlAbortController.abort()),
+    );
+    if (!browserPermit) {
+      signal.removeEventListener("abort", abortPageScan);
+      return;
+    }
+    const hardTimeoutPromise = new Promise<never>((_, reject) => {
+      hardTimer = setTimeout(() => {
+        urlAbortController.abort(); // force-closes the Puppeteer page
+        reject(
+          new Error(
+            `URL scan hard-timeout after ${hardDeadline}ms — aborting stuck navigation`,
+          ),
+        );
+      }, hardDeadline);
+    });
+    const browserScanPromise = scanPage(url, {
+      timeout: NAV_TIMEOUT_MS,
+      scanDelayMs,
+      bypassCSP: options.bypassCSP,
+      rules: options.rules,
+      proxyPacUrl: options.proxyPacUrl,
+      // If a system proxy is configured and this scan isn't already using it,
+      // pass it as a fallback so 403-blocked pages can automatically retry via proxy.
+      fallbackProxyPacUrl: !options.proxyPacUrl && systemProxyPacUrl && !proxyFailedUrls.get(scanId)?.has(url) ? systemProxyPacUrl : undefined,
+      disableJavascript: options.disableJavascript,
+      signal: urlAbortController.signal,
+      staticPreflightPromise,
+      onStage: async (stage: string) => {
+        await setPageStatus(pageId, stage);
+      },
+    });
     try {
       result = await Promise.race([
-        scanPage(url, {
-          timeout: NAV_TIMEOUT_MS,
-          scanDelayMs,
-          bypassCSP: options.bypassCSP,
-          rules: options.rules,
-          proxyPacUrl: options.proxyPacUrl,
-          // If a system proxy is configured and this scan isn't already using it,
-          // pass it as a fallback so 403-blocked pages can automatically retry via proxy.
-          fallbackProxyPacUrl: !options.proxyPacUrl && systemProxyPacUrl && !proxyFailedUrls.get(scanId)?.has(url) ? systemProxyPacUrl : undefined,
-          disableJavascript: options.disableJavascript,
-          signal: urlAbortController.signal,
-          staticPreflightPromise,
-          onStage: async (stage: string) => {
-            await setPageStatus(pageId, stage);
-          },
-        }),
+        browserScanPromise,
         hardTimeoutPromise,
       ]);
     } catch (raceErr) {
@@ -1309,11 +2275,52 @@ async function scanSinglePage(
       result = { url, issues: [], error: String(raceErr) };
     } finally {
       if (hardTimer !== null) clearTimeout(hardTimer);
+      signal.removeEventListener("abort", abortPageScan);
+      // The permit remains held until Chromium has actually settled, even if
+      // the hard deadline won the race above.
+      await browserScanPromise.catch(() => {});
+      await browserPermit.release();
+    }
+
+    if (signal.aborted) {
+      logger.info(
+        { scanId, pageId, url },
+        "Page scan aborted — leaving row for scan-level recovery",
+      );
+      return;
     }
 
     // Stage final: saving
     await setPageStatus(pageId, "saving");
     logger.info({ scanId, url }, "Saving scan results");
+
+    if (isBrowserInfrastructureError(result.error)) {
+      if (!autoRetryCounters.has(scanId)) {
+        autoRetryCounters.set(scanId, new Map());
+      }
+      const counters = autoRetryCounters.get(scanId)!;
+      const retryCount = counters.get(url) ?? 0;
+      const retryLater = retryCount < MAX_AUTO_RETRIES;
+      await db
+        .update(pageResultsTable)
+        .set({
+          status: retryLater ? "requeued" : "failed",
+          errorMessage:
+            "Scanner capacity was temporarily unavailable; the page will be retried after later pages.",
+          scannedAt: new Date(),
+        })
+        .where(eq(pageResultsTable.id, pageId));
+      resetBrowserInstance();
+      if (retryLater) {
+        counters.set(url, retryCount + 1);
+        queueRetryUrl(scanId, url);
+      }
+      logger.warn(
+        { scanId, pageId, url, retryLater, retryCount },
+        "Browser infrastructure unavailable for page — continuing with later pages",
+      );
+      return;
+    }
 
     const issueCount = result.issues.length;
     const criticalCount = result.issues.filter(
@@ -1328,7 +2335,7 @@ async function scanSinglePage(
     const shouldAutoRetry =
       Boolean(result.error) &&
       !result.notAvailable &&
-      activeScanControllers.has(scanId) &&
+      !signal.aborted &&
       retryCount < MAX_AUTO_RETRIES;
 
     // Track URLs whose proxy fallback failed — future retries won't use the broken proxy
@@ -1383,34 +2390,39 @@ async function scanSinglePage(
       { scanId, url, pageId, pageStatus, issueCount, loadDurationMs: result.loadDurationMs ?? null, scanDurationMs },
       "TIMING: writing page result to DB",
     );
-    await db
-      .update(pageResultsTable)
-      .set({
-        status: pageStatus,
-        issueCount,
-        criticalCount,
-        errorMessage: result.error || null,
-        scannedAt: new Date(),
-        loadDurationMs: result.loadDurationMs ?? null,
-        scanDurationMs,
-        screenshot: result.screenshot ?? null,
-        pageHtml: result.pageHtml ?? null,
-        // Only store a hash baseline for successfully completed pages —
-        // a hash on a failed page could cause a bad carry-forward later.
-        // Fall back to the browser's raw navigation response when the plain
-        // HTTP fetch was WAF-blocked (e.g. Keysight returns 403 to plain GETs).
-        contentHash: completedRawHash,
-        finalUrl: provenance.finalUrl ?? null,
-        httpStatus: provenance.httpStatus ?? null,
-        contentType: provenance.contentType ?? null,
-        responseCapturedAt: provenance.responseCapturedAt,
-        acquisitionMethod: provenance.acquisitionMethod,
-        proxyStrategy: provenance.proxyStrategy,
-        rawHtmlHash: completedRawHash,
-        renderedDomHash: result.httpProvenance?.renderedDomHash ?? null,
-        carriedForward: false,
-      })
-      .where(eq(pageResultsTable.id, pageId));
+    await retryTransientDatabaseOperation(
+      "save page result",
+      { scanId, pageId, url },
+      () =>
+        db
+          .update(pageResultsTable)
+          .set({
+            status: pageStatus,
+            issueCount,
+            criticalCount,
+            errorMessage: result.error || null,
+            scannedAt: new Date(),
+            loadDurationMs: result.loadDurationMs ?? null,
+            scanDurationMs,
+            screenshot: result.screenshot ?? null,
+            pageHtml: result.pageHtml ?? null,
+            // Only store a hash baseline for successfully completed pages —
+            // a hash on a failed page could cause a bad carry-forward later.
+            // Fall back to the browser's raw navigation response when the plain
+            // HTTP fetch was WAF-blocked (e.g. Keysight returns 403 to plain GETs).
+            contentHash: completedRawHash,
+            finalUrl: provenance.finalUrl ?? null,
+            httpStatus: provenance.httpStatus ?? null,
+            contentType: provenance.contentType ?? null,
+            responseCapturedAt: provenance.responseCapturedAt,
+            acquisitionMethod: provenance.acquisitionMethod,
+            proxyStrategy: provenance.proxyStrategy,
+            rawHtmlHash: completedRawHash,
+            renderedDomHash: result.httpProvenance?.renderedDomHash ?? null,
+            carriedForward: false,
+          })
+          .where(eq(pageResultsTable.id, pageId)),
+    );
     logger.info(
       { scanId, url, pageId },
       "TIMING: DB update complete",
@@ -1637,7 +2649,28 @@ async function scanSinglePage(
       );
     }
   } catch (err) {
-    // An unexpected error (browser crash, DB failure, etc.) must never take
+    if (err instanceof BrowserInfrastructureError) {
+      logger.error(
+        { scanId, url, err },
+        "Manual scan stopped by browser infrastructure pressure — leaving it recoverable",
+      );
+      throw err;
+    }
+    if (signal.aborted) {
+      logger.info(
+        { scanId, pageId, url },
+        "Page worker stopped after scan abort — leaving row recoverable",
+      );
+      return;
+    }
+    if (isTransientDatabaseError(err)) {
+      logger.error(
+        { scanId, url, err },
+        "Manual scan paused by persistent database connectivity failure",
+      );
+      throw err;
+    }
+    // An unexpected page/browser error must never take
     // down the whole scan — record the page as failed and carry on.
     logger.error(
       { scanId, url, err },
@@ -1676,7 +2709,7 @@ export function cancelScan(scanId: number): boolean {
   pausedScans.delete(scanId);
   const controller = activeScanControllers.get(scanId);
   if (controller) {
-    controller.abort();
+    abortScanController(controller, USER_CANCEL_ABORT_REASON);
     return true;
   }
   return false;
@@ -1727,25 +2760,19 @@ function isReadOnlyError(err: unknown): boolean {
  */
 let _watchdogSuspendedUntil = 0;
 let scanWatchdogTimer: ReturnType<typeof setInterval> | undefined;
+let scanWatchdogRunning = false;
 
 export function startScanWatchdog(intervalMs = 60_000): void {
   if (scanWatchdogTimer) return;
-  const MID_FLIGHT = [
-    "navigating",
-    "scanning",
-    "rendering",
-    "analyzing",
-    "saving",
-  ] as const;
-  const RESTARTABLE = ["pending", "requeued"] as const;
 
   scanWatchdogTimer = setInterval(async () => {
-    if (scanShutdownRequested) return;
+    if (scanShutdownRequested || scanWatchdogRunning) return;
     // If the database is in read-only mode, skip writes entirely and avoid
     // flooding the log.  Re-attempt every 10 minutes in case storage was
     // freed up or the connection was switched to the primary.
     if (Date.now() < _watchdogSuspendedUntil) return;
 
+    scanWatchdogRunning = true;
     try {
       const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000);
 
@@ -1759,6 +2786,12 @@ export function startScanWatchdog(intervalMs = 60_000): void {
           and(
             inArray(scanSessionsTable.status, ["running", "pending"]),
             lt(scanSessionsTable.createdAt, threeMinutesAgo),
+            sql`NOT EXISTS (
+              SELECT 1
+              FROM scan_run_leases lease
+              WHERE lease.scan_id = ${scanSessionsTable.id}
+                AND lease.expires_at > NOW()
+            )`,
           ),
         );
 
@@ -1771,46 +2804,11 @@ export function startScanWatchdog(intervalMs = 60_000): void {
           "Watchdog: detected stuck scan — attempting recovery",
         );
 
-        await db
-          .update(pageResultsTable)
-          .set({ status: "pending" })
-          .where(
-            and(
-              eq(pageResultsTable.scanId, session.id),
-              inArray(pageResultsTable.status, [...MID_FLIGHT]),
-            ),
-          );
-
-        const remaining = await db
-          .select({ url: pageResultsTable.url })
-          .from(pageResultsTable)
-          .where(
-            and(
-              eq(pageResultsTable.scanId, session.id),
-              inArray(pageResultsTable.status, [...RESTARTABLE]),
-            ),
-          );
-
-        if (remaining.length === 0) {
-          await db
-            .update(scanSessionsTable)
-            .set({ status: "completed", completedAt: new Date() })
-            .where(eq(scanSessionsTable.id, session.id));
-          logger.info(
-            { scanId: session.id },
-            "Watchdog: stuck scan had no remaining pages — marked completed",
-          );
-          continue;
-        }
-
-        const urls = remaining.map((r) => r.url);
-        logger.info(
-          { scanId: session.id, urlCount: urls.length },
-          "Watchdog: restarting stuck scan",
-        );
-        startScan(session.id, urls, {
+        startScan(session.id, [], {
           ...((session.options as Record<string, unknown>) ?? {}),
           skipCompletedPages: true,
+        }, {
+          recoverMidFlight: true,
         }).catch((err) => {
           logger.error(
             { scanId: session.id, err },
@@ -1838,6 +2836,8 @@ export function startScanWatchdog(intervalMs = 60_000): void {
       } else {
         logger.error({ err }, "Scan watchdog encountered an error");
       }
+    } finally {
+      scanWatchdogRunning = false;
     }
   }, intervalMs);
 }
@@ -1849,7 +2849,10 @@ export function stopScanWork(): void {
     clearInterval(scanWatchdogTimer);
     scanWatchdogTimer = undefined;
   }
-  for (const controller of activeScanControllers.values()) controller.abort();
+  scanWatchdogRunning = false;
+  for (const controller of activeScanControllers.values()) {
+    abortScanController(controller, SHUTDOWN_ABORT_REASON);
+  }
 }
 
 export function isScanWorkStopping(): boolean {

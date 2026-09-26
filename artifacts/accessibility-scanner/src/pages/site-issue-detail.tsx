@@ -3,6 +3,8 @@ import { useAutoActiveSite } from "@/pages/site/shared";
 import { usePageGroup } from "@/contexts/page-group";
 import { useAuth } from "@/contexts/auth";
 import { useQuery } from "@tanstack/react-query";
+import { Skeleton } from "@/components/ui/skeleton";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -259,11 +261,7 @@ export default function SiteIssueDetail({ siteId, ruleId }: Props) {
   });
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
-        Loading issue details…
-      </div>
-    );
+    return <PageLoadingSkeleton variant="detail" message="Loading issue details…" />;
   }
 
   if (!data?.rule) {
@@ -285,7 +283,7 @@ export default function SiteIssueDetail({ siteId, ruleId }: Props) {
   const hasSearch = debouncedSearch !== "";
 
   return (
-    <div className="space-y-5">
+    <div className="loaded-reveal space-y-5">
       {/* ── Breadcrumb ── */}
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground flex-wrap">
         <Link href="/crawler/sites" className="hover:underline">Sites</Link>
@@ -521,7 +519,10 @@ export default function SiteIssueDetail({ siteId, ruleId }: Props) {
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
                       <TableCell colSpan={3}>
-                        <div className="h-4 bg-muted animate-pulse rounded" />
+                        <div className="space-y-2 py-1">
+                          <Skeleton className="h-3.5 w-2/3 max-w-64" />
+                          <Skeleton className="h-2.5 w-1/2 max-w-44" />
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))

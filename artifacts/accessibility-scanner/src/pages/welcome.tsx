@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
+  BarChart3,
   History,
   BookOpen,
   PlayCircle,
@@ -19,6 +20,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useAuth } from "@/contexts/auth";
+import { Skeleton } from "@/components/ui/skeleton";
 import { APP_VERSION } from "@/lib/app-version";
 import { useEffect, useState } from "react";
 import { DEFAULT_LOGO_SUBTITLE, DEFAULT_LOGO_TEXT } from "@/pages/settings";
@@ -119,27 +121,27 @@ export default function WelcomePage() {
           <Card className="overflow-hidden border-primary/20">
             <div className="h-1 bg-gradient-to-r from-cyan-400 via-violet-500 to-fuchsia-500" />
             <CardContent className="flex items-start gap-4 p-5">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-400/10 text-emerald-600 dark:text-emerald-300">
-                <ShieldCheck className="h-5 w-5" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <BarChart3 className="h-5 w-5" />
               </div>
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-base font-semibold">
-                    More reliable video accessibility review in {APP_VERSION}
+                    Clearer dashboards and loading feedback in {APP_VERSION}
                   </h2>
                   <Badge variant="outline" className="text-[10px]">
                     New
                   </Badge>
                 </div>
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                  ACT-R37 now keeps visible prerecorded videos in the review queue
-                  when browser audio metadata cannot be confirmed and no audio
-                  description or complete media alternative is found. Confirmed-silent
-                  videos continue through the appropriate visual-only checks.
+                  Crawler history, QA dashboards, and other data-heavy pages now
+                  share the Accessibility Overview's statistics and chart styling.
+                  Shared loading placeholders keep users informed while preserving
+                  clear differences between loading, empty results, and errors.
                 </p>
                 <Link href="/app-updates">
                   <Button variant="link" className="h-auto px-0 text-xs text-cyan-700 dark:text-cyan-300">
-                    Review the media update
+                    Explore the dashboard updates
                     <ArrowRight className="ml-1 h-3 w-3" />
                   </Button>
                 </Link>
@@ -330,8 +332,25 @@ export default function WelcomePage() {
           </section>
 
           {/* Recent section */}
+          {isLoading && (
+            <section className="space-y-4" role="status" aria-label="Loading recent scans" aria-busy="true">
+              <span className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Recent</span>
+              <div className="space-y-3" aria-hidden="true">
+                {[0, 1, 2].map((index) => (
+                  <div key={index} className="flex min-h-[72px] items-center gap-4 rounded-xl border border-border/80 bg-card p-4">
+                    <Skeleton className="h-9 w-9 shrink-0 rounded-lg" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-3 w-36 max-w-[65%]" />
+                      <Skeleton className="h-2.5 w-52 max-w-[85%]" />
+                    </div>
+                    <Skeleton className="h-5 w-14 shrink-0 rounded-full" />
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
           {!isLoading && recentScans.length > 0 && (
-            <section className="space-y-4">
+            <section className="loaded-reveal space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                   Recent

@@ -11,7 +11,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronsRight,
+  CircleHelp,
   ArrowRight,
   ClipboardCheck,
   ExternalLink,
@@ -44,6 +44,7 @@ import {
   Megaphone,
   Menu,
   Palette,
+  PanelLeft,
   UserRound,
   X,
   Home,
@@ -107,6 +108,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { APP_WALKTHROUGH_EVENT } from "@/lib/walkthrough";
+import "../refined-shell.css";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 export const OPEN_SETTINGS_EVENT = "a11y-open-settings";
@@ -170,7 +172,7 @@ function HeaderThemeSwitcher() {
           Theme
         </TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="end" className="w-48">
+      <DropdownMenuContent align="end" className="shell-menu-popover w-48">
         <DropdownMenuLabel>Theme</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {THEME_OPTIONS.map((opt) => (
@@ -475,8 +477,8 @@ function SiteSelector() {
       </PopoverTrigger>
 
       <PopoverContent
-        className="w-[540px] overflow-hidden rounded-2xl border-border/80 bg-popover/95 p-0 shadow-[0_24px_70px_rgba(15,23,42,0.2)] backdrop-blur-2xl"
-        align="center"
+        className="shell-menu-popover w-[540px] max-w-[calc(100vw-1rem)] overflow-hidden rounded-2xl border-border/80 bg-popover/95 p-0 shadow-[0_24px_70px_rgba(15,23,42,0.2)] backdrop-blur-2xl"
+        align="start"
         sideOffset={8}
       >
         {/* Header: site count + search */}
@@ -539,7 +541,6 @@ function SiteSelector() {
             return (
               <div
                 key={site.id}
-                onClick={() => selectSite(site)}
                 className={`site-selector-row w-[calc(100%-16px)] mx-2 my-1 flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-accent text-left transition-colors ${isActive ? "bg-primary/5" : ""}`}
               >
                 {/* Favorite */}
@@ -556,41 +557,48 @@ function SiteSelector() {
                   />
                 </button>
 
-                {/* Site icon placeholder. Keep the fallback in the same
-                    row-relative box and remove it when the favicon loads so
-                    it cannot drift into the next scrolled row. */}
-                <div className="site-selector-icon relative w-9 h-9 rounded border bg-muted/60 flex items-center justify-center shrink-0 overflow-hidden">
-                  <img
-                    src={`${site.baseUrl}/favicon.ico`}
-                    alt=""
-                    className="w-5 h-5 object-contain"
-                    onLoad={(e) => {
-                      const icon = e.currentTarget.parentElement;
-                      icon?.classList.add("has-favicon");
-                    }}
-                    onError={(e) => {
-                      const image = e.currentTarget as HTMLImageElement;
-                      image.style.display = "none";
-                      image.parentElement?.classList.remove("has-favicon");
-                    }}
-                  />
-                  <Globe
-                    aria-hidden="true"
-                    className="site-selector-fallback-icon pointer-events-none absolute inset-0 m-auto w-4 h-4 text-muted-foreground"
-                  />
-                </div>
-
-                {/* Name + URL */}
-                <div className="flex-1 min-w-0">
-                  <div
-                    className={`text-sm font-medium leading-tight truncate ${isActive ? "text-primary" : ""}`}
-                  >
-                    {site.name}
-                  </div>
-                  <div className="text-xs text-muted-foreground truncate leading-tight">
-                    {site.baseUrl}
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => selectSite(site)}
+                  aria-label={`Switch to ${site.name}`}
+                  aria-current={isActive ? "true" : undefined}
+                  className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                >
+                  {/* Keep the favicon fallback inside its own row tile. */}
+                  <span className="site-selector-icon relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted/60">
+                    <img
+                      src={`${site.baseUrl}/favicon.ico`}
+                      alt=""
+                      className="h-5 w-5 object-contain"
+                      onLoad={(e) => {
+                        e.currentTarget.parentElement?.classList.add("has-favicon");
+                      }}
+                      onError={(e) => {
+                        const image = e.currentTarget as HTMLImageElement;
+                        image.style.display = "none";
+                        image.parentElement?.classList.remove("has-favicon");
+                      }}
+                    />
+                    <Globe
+                      aria-hidden="true"
+                      className="site-selector-fallback-icon pointer-events-none absolute inset-0 m-auto h-4 w-4 text-muted-foreground"
+                    />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className={`block truncate text-sm font-medium leading-tight ${isActive ? "text-primary" : ""}`}>
+                      {site.name}
+                    </span>
+                    <span className="block truncate text-xs leading-tight text-muted-foreground">
+                      {site.baseUrl}
+                    </span>
+                  </span>
+                  <span className="w-12 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
+                    {site.pageCount.toLocaleString()}
+                  </span>
+                  <span className="flex w-4 shrink-0 justify-center">
+                    {isActive && <Check className="h-4 w-4 text-primary" />}
+                  </span>
+                </button>
 
                 {/* External link */}
                 <a
@@ -604,15 +612,6 @@ function SiteSelector() {
                   <ExternalLink className="w-3.5 h-3.5" />
                 </a>
 
-                {/* Page count */}
-                <span className="w-12 text-right text-sm tabular-nums text-muted-foreground shrink-0">
-                  {site.pageCount.toLocaleString()}
-                </span>
-
-                {/* Active check */}
-                <span className="w-4 shrink-0 flex justify-center">
-                  {isActive && <Check className="w-4 h-4 text-primary" />}
-                </span>
               </div>
             );
           })}
@@ -644,7 +643,7 @@ function PageGroupSelector() {
         <Button
           variant="outline"
           disabled={isLoading}
-          className="h-auto w-[210px] max-w-full justify-start gap-2 rounded-xl border-border/75 bg-card/70 px-3 py-1.5 text-left shadow-sm backdrop-blur-xl transition-all hover:border-primary/35 hover:bg-card/90 data-[state=open]:border-primary/45 data-[state=open]:ring-4 data-[state=open]:ring-primary/10"
+          className="ampera-page-group-trigger h-auto w-[210px] max-w-full justify-start gap-2 rounded-xl border-border/75 bg-card/70 px-3 py-1.5 text-left shadow-sm backdrop-blur-xl transition-all hover:border-primary/35 hover:bg-card/90 data-[state=open]:border-primary/45 data-[state=open]:ring-4 data-[state=open]:ring-primary/10"
           aria-label={`Filter by page group. Current: ${selectedGroup?.name ?? "All page groups"}`}
           aria-haspopup="listbox"
           aria-expanded={open}
@@ -659,9 +658,9 @@ function PageGroupSelector() {
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        align="center"
+        align="start"
         sideOffset={8}
-        className="w-[250px] rounded-2xl border-border/80 bg-popover/95 p-1.5 shadow-[0_24px_70px_rgba(15,23,42,0.2)] backdrop-blur-2xl"
+        className="shell-menu-popover w-[250px] max-w-[calc(100vw-1rem)] rounded-2xl border-border/80 bg-popover/95 p-1.5 shadow-[0_24px_70px_rgba(15,23,42,0.2)] backdrop-blur-2xl"
         role="listbox"
         aria-label="Page groups"
       >
@@ -756,7 +755,7 @@ function NavItem({
     >
       <Link href={href}>
         {icon}
-        {!collapsed && <span className="truncate">{label}</span>}
+        {!collapsed && <span className="min-w-0 whitespace-nowrap text-left leading-snug">{label}</span>}
         {!collapsed && badge}
       </Link>
     </Button>
@@ -860,7 +859,7 @@ function NavGroup({
         data-tour-description={`Expand or collapse the ${label} navigation menu.`}
       >
         {icon}
-        <span className="flex-1 text-left truncate">{label}</span>
+        <span className="min-w-0 flex-1 whitespace-nowrap text-left leading-snug">{label}</span>
         <ChevronDown
           className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
         />
@@ -1540,10 +1539,10 @@ function CollapsedMainMenuItem({
         }
       >
         {item.isMenuOnly ? (
-          <span className={`sidebar-rail-icon ${item.color}`}>{item.icon}</span>
+          <span className={`sidebar-rail-icon ${item.color}`} aria-hidden="true">{item.icon}</span>
         ) : (
           <Link href={item.href}>
-            <span className={`sidebar-rail-icon ${item.color}`}>{item.icon}</span>
+            <span className={`sidebar-rail-icon ${item.color}`} aria-hidden="true">{item.icon}</span>
           </Link>
         )}
       </Button>
@@ -2032,6 +2031,8 @@ function MainMenuContent({
                 location.startsWith("/sites/")
               : item.href === "/quality-assurance"
                 ? location.startsWith("/quality-assurance")
+              : item.href === "/issues"
+                ? location.startsWith("/issues")
               : item.href === "/admin/dashboard"
                   ? location.startsWith("/admin")
                   : item.href === "/crawler/sites"
@@ -2065,10 +2066,15 @@ function MainMenuContent({
           data-sidebar-active={
             item.href === "/scans"
               ? (location.startsWith("/scans") ||
+                  location === "/activity" ||
                   location === "/new" ||
                   location.startsWith("/compare") ||
                   location.startsWith("/crawler") ||
                   location.startsWith("/sites/")) ? "true" : "false"
+              : item.href === "/quality-assurance"
+                ? location.startsWith("/quality-assurance") ? "true" : "false"
+              : item.href === "/issues"
+                ? location.startsWith("/issues") ? "true" : "false"
               : item.href === "/admin/dashboard"
                 ? location.startsWith("/admin") ? "true" : "false"
                 : item.href === "/crawler/sites"
@@ -2571,11 +2577,42 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [updatesOpen, setUpdatesOpen] = useState(false);
   const [sidebarSearch, setSidebarSearch] = useState("");
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const [collapsed, toggleCollapsed] = useSidebarCollapsed();
+  const sidebarIsCollapsed = collapsed && !mobileNavigationOpen;
   const { user, logout } = useAuth();
   const adminUser = isAdmin(user);
   const superAdminUser = user?.role === "super_admin";
   const canManageSites = user?.permissions?.canManageSites ?? false;
+
+  useEffect(() => {
+    setMobileNavigationOpen(false);
+  }, [location]);
+
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 768px)");
+    const closeOnDesktop = () => {
+      if (desktop.matches) setMobileNavigationOpen(false);
+    };
+    desktop.addEventListener("change", closeOnDesktop);
+    return () => desktop.removeEventListener("change", closeOnDesktop);
+  }, []);
+
+  useEffect(() => {
+    const header = document.querySelector<HTMLElement>(".refined-screen .ampera-header");
+    const shell = header?.closest<HTMLElement>(".refined-screen");
+    if (!header || !shell) return;
+    const updateHeight = () => {
+      shell.style.setProperty("--mobile-header-height", `${Math.ceil(header.getBoundingClientRect().height)}px`);
+    };
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(header);
+    return () => {
+      observer.disconnect();
+      shell.style.removeProperty("--mobile-header-height");
+    };
+  }, []);
 
   // ── Notifications ─────────────────────────────────────────────────
   const [notifs, setNotifs] = useState<AppNotif[]>([]);
@@ -2925,117 +2962,72 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="app-shell min-h-screen bg-background">
-        <header className="ampera-header sticky top-0 z-50 border-b border-border/70 bg-background/90 shadow-[0_8px_32px_rgba(76,57,133,0.06)] backdrop-blur-2xl supports-[backdrop-filter]:bg-background/75">
+      <div className={`app-shell refined-screen min-h-screen bg-background ${collapsed ? "sidebar-collapsed" : ""}`}>
+        <div className="ampera-header sticky top-0 z-50 bg-background">
           <div className="ampera-header-inner flex min-h-14 items-center justify-between gap-2 overflow-visible px-3 py-1.5 md:px-5">
-            <div className="ampera-header-brand flex min-w-0 max-w-[55%] shrink items-center gap-2 overflow-visible">
-              <Link href="/scans" className="flex min-w-0 items-center">
-                <AppLogo />
-              </Link>
-              <Badge
-                data-tour="version-badge"
-                data-tour-title={`Version ${APP_UPDATES_VERSION}`}
-                data-tour-description="This badge shows the current application release."
-                variant="outline"
-                className="vision-header-version h-6 border-primary/30 bg-primary/5 px-2 font-mono text-[10px] text-primary"
+            <div className="ampera-header-start flex shrink-0 items-center">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="sidebar-header-toggle hidden h-9 w-9 shrink-0 md:inline-flex"
+                onClick={toggleCollapsed}
+                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                aria-controls="app-sidebar"
+                aria-expanded={!collapsed}
+                data-testid="button-toggle-sidebar"
               >
-                v{APP_UPDATES_VERSION}
-              </Badge>
+                <PanelLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="mobile-navigation-toggle h-8 w-8 shrink-0 rounded-lg md:hidden"
+                onClick={() => setMobileNavigationOpen((open) => !open)}
+                aria-label={mobileNavigationOpen ? "Close navigation" : "Open navigation"}
+                aria-expanded={mobileNavigationOpen}
+                aria-controls="app-sidebar"
+              >
+                {mobileNavigationOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+              </Button>
             </div>
             <div className="ampera-header-site flex min-w-0 flex-1 items-center justify-center gap-2 px-1 sm:px-2">
               <SiteSelector />
               <PageGroupSelector />
             </div>
             <div className="ampera-header-actions flex shrink-0 items-center gap-0.5 sm:gap-1">
-              <HeaderThemeSwitcher />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link href="/tickets" className="hidden xl:inline-flex">
-                    <Button
-                      data-tour="header-support"
-                      data-tour-title="Support"
-                      data-tour-description="Open support tickets and request help from your team."
-                      variant="ghost"
-                      size="icon"
-                      className={`h-8 w-8 rounded-lg hover:bg-muted ${location.startsWith("/tickets") ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
-                      aria-label="Support"
-                    >
-                      <TicketCheck className="w-4 h-4" />
-                    </Button>
-                  </Link>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="bg-slate-950 text-white shadow-lg">
-                  Support
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link href="/app-updates" className="hidden xl:inline-flex">
-                    <Button
-                      data-testid="button-app-updates"
-                      data-tour="header-app-updates"
-                      data-tour-title="App Updates"
-                      data-tour-description={`See what is new in version ${APP_UPDATES_VERSION}.`}
-                      variant="ghost"
-                      size="icon"
-                      className={`relative h-8 w-8 rounded-lg hover:bg-muted ${location === "/app-updates" ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
-                      aria-label="App Updates"
-                    >
-                      <Megaphone className="h-4 w-4" />
-                      <span
-                        aria-label="New updates"
-                        className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-fuchsia-500 shadow-[0_0_0_2px_hsl(var(--background)),0_0_10px_rgba(217,70,239,0.9)]"
-                      />
-                    </Button>
-                  </Link>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="bg-slate-950 text-white shadow-lg">
-                  App updates
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
                   <Button
-                    data-testid="button-app-walkthrough"
-                    data-tour="header-app-walkthrough"
-                    data-tour-title="App Walkthrough"
-                    data-tour-description="Start a guided tour of the platform navigation."
                     variant="ghost"
                     size="icon"
-                    className="hidden h-8 w-8 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground xl:inline-flex"
-                    aria-label="Start App Walkthrough"
-                    onClick={() =>
-                      window.dispatchEvent(new Event(APP_WALKTHROUGH_EVENT))
-                    }
+                    className="header-utility-trigger h-9 w-9"
+                    aria-label="Support and resources"
+                    data-tour="header-support"
+                    data-tour-title="Support and resources"
+                    data-tour-description="Open support, release notes, walkthrough, or documentation."
                   >
-                    <Map className="h-4 w-4" />
+                    <CircleHelp className="h-4 w-4" />
                   </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="bg-slate-950 text-white shadow-lg">
-                  Start app walkthrough
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link href="/documentation" className="hidden xl:inline-flex">
-                    <Button
-                      data-testid="button-documentation"
-                      data-tour="header-documentation"
-                      data-tour-title="Documentation"
-                      data-tour-description="Read scanning guidance, rule descriptions, and WCAG references."
-                      variant="ghost"
-                      size="icon"
-                      className={`h-8 w-8 rounded-lg hover:bg-muted ${location === "/documentation" ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
-                      aria-label="Documentation"
-                    >
-                      <BookOpen className="w-4 h-4" />
-                    </Button>
-                  </Link>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="bg-slate-950 text-white shadow-lg">
-                  Documentation
-                </TooltipContent>
-              </Tooltip>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" sideOffset={8} className="shell-menu-popover header-resources-menu w-56">
+                  <DropdownMenuItem asChild>
+                    <Link href="/tickets"><TicketCheck className="h-4 w-4" />Support</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/app-updates" data-testid="button-app-updates"><Megaphone className="h-4 w-4" />App Updates<span aria-label="New updates" className="ml-auto h-1.5 w-1.5 rounded-full bg-fuchsia-500" /></Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    data-testid="button-app-walkthrough"
+                    onSelect={() => window.dispatchEvent(new Event(APP_WALKTHROUGH_EVENT))}
+                  >
+                    <Map className="h-4 w-4" />App Walkthrough
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/documentation" data-testid="button-documentation"><BookOpen className="h-4 w-4" />Documentation</Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <HeaderThemeSwitcher />
               <DropdownMenu modal={false}>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -3063,7 +3055,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <DropdownMenuContent
                   align="end"
                   sideOffset={8}
-                  className="w-[340px] rounded-xl border-border/80 bg-popover/95 p-0 shadow-xl backdrop-blur"
+                  className="shell-menu-popover w-[340px] max-w-[calc(100vw-1rem)] rounded-xl border-border/80 bg-popover/95 p-0 shadow-xl backdrop-blur"
                 >
                   {/* Header */}
                   <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/50">
@@ -3175,223 +3167,85 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   </div>
                 </DropdownMenuContent>
               </DropdownMenu>
-              {/* User menu */}
               <DropdownMenu modal={false}>
                 <DropdownMenuTrigger asChild>
-                  <Button
+                  <button
+                    type="button"
+                    className="header-account-trigger"
                     data-tour="header-account"
                     data-tour-title="Account menu"
                     data-tour-description="Access account settings and sign out."
-                    variant="ghost"
-                    size="icon"
-                    title="Account menu"
-                  className="group relative ml-1 flex h-9 w-12 items-center justify-center gap-0.5 rounded-full p-0 hover:bg-muted vision-account-trigger"
-                    aria-label="Open account menu"
+                    aria-label={`Open account menu for ${user?.fullName || user?.username || "Account"}`}
                   >
-                    <span className="vision-account-avatar relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[11px] font-semibold tracking-tight text-white shadow-sm ring-2 ring-background transition-transform group-data-[state=open]:scale-105 dark:bg-slate-100 dark:text-slate-900">
+                    <span className="sidebar-profile-avatar">
                       {user?.profileImageUrl ? (
-                        <img
-                          src={`${BASE}/api/storage/profile-image?v=${encodeURIComponent(user.profileImageUrl)}`}
-                          alt=""
-                          className="h-full w-full rounded-full object-cover"
-                        />
-                      ) : (
-                        getUserInitials(user?.fullName || user?.username)
-                      )}
-                      <span
-                        aria-hidden="true"
-                        className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-background bg-emerald-500"
-                      />
+                        <img src={`${BASE}/api/storage/profile-image?v=${encodeURIComponent(user.profileImageUrl)}`} alt="" className="h-full w-full rounded-full object-cover" />
+                      ) : getUserInitials(user?.fullName || user?.username)}
                     </span>
-                    <HeaderChevron />
-                  </Button>
+                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  sideOffset={8}
-                  className="vision-account-menu relative max-h-[calc(100vh-4.5rem)] w-[340px] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-xl border-border/80 bg-popover/95 p-1.5 shadow-xl backdrop-blur before:absolute before:right-8 before:top-[-5px] before:h-2.5 before:w-2.5 before:rotate-45 before:border-l before:border-t before:border-border/80 before:bg-popover"
-                >
-                  <DropdownMenuLabel className="p-0 font-normal">
-                    <div className="flex items-center gap-3 rounded-lg px-3 py-3">
-                      <span className="vision-account-avatar relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white shadow-sm dark:bg-slate-100 dark:text-slate-900">
-                        {user?.profileImageUrl ? (
-                          <img
-                            src={`${BASE}/api/storage/profile-image?v=${encodeURIComponent(user.profileImageUrl)}`}
-                            alt=""
-                            className="h-full w-full rounded-full object-cover"
-                          />
-                        ) : (
-                          getUserInitials(user?.fullName || user?.username)
-                        )}
-                        <span
-                          aria-hidden="true"
-                          className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-popover bg-emerald-500"
-                        />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-foreground">
-                          {user?.fullName || user?.username || "Account"}
-                        </span>
-                        <span className="mt-0.5 block text-xs text-muted-foreground">
-                          Online
-                        </span>
-                      </span>
-                    </div>
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator className="my-1.5" />
-                  <DropdownMenuItem
-                    className="h-10 rounded-lg px-3 text-[14px] hover:bg-muted/70 hover:text-foreground focus:bg-muted/70 focus:text-foreground xl:hidden"
-                    onSelect={() =>
-                      window.dispatchEvent(new Event(APP_WALKTHROUGH_EVENT))
-                    }
-                  >
-                    <Map className="h-4 w-4 text-muted-foreground" />
-                    Start app walkthrough
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    asChild
-                    className="h-10 rounded-lg px-3 text-[14px] hover:bg-muted/70 hover:text-foreground focus:bg-muted/70 focus:text-foreground"
-                  >
-                    <Link href="/feature-request">
-                      <Lightbulb className="h-4 w-4 text-muted-foreground" />
-                      Feature request
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    asChild
-                    className="h-10 rounded-lg px-3 text-[14px] hover:bg-muted/70 hover:text-foreground focus:bg-muted/70 focus:text-foreground xl:hidden"
-                  >
-                    <Link href="/tickets">
-                      <TicketCheck className="h-4 w-4 text-muted-foreground" />
-                      Support
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    asChild
-                    className="h-10 rounded-lg px-3 text-[14px] hover:bg-muted/70 hover:text-foreground focus:bg-muted/70 focus:text-foreground xl:hidden"
-                  >
-                    <Link href="/documentation">
-                      <BookOpen className="h-4 w-4 text-muted-foreground" />
-                      Documentation
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator className="my-1.5 xl:hidden" />
-                  <DropdownMenuItem
-                    asChild
-                    className="h-10 rounded-lg px-3 text-[14px] hover:bg-muted/70 hover:text-foreground focus:bg-muted/70 focus:text-foreground"
-                  >
-                    <Link href="/profile-settings">
-                      <UserRound className="h-4 w-4 text-muted-foreground" />
-                      Profile settings
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setSettingsOpen(true)}
-                    className="h-10 rounded-lg px-3 text-[14px] hover:bg-muted/70 hover:text-foreground focus:bg-muted/70 focus:text-foreground"
-                  >
-                    <Settings className="h-4 w-4 text-muted-foreground" />
-                    Settings
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setSettingsOpen(true)}
-                    className="h-10 rounded-lg px-3 text-[14px] hover:bg-muted/70 hover:text-foreground focus:bg-muted/70 focus:text-foreground"
-                  >
-                    <Palette className="h-4 w-4 text-muted-foreground" />
-                    Themes
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator className="my-1.5" />
-                  <DropdownMenuItem
-                    className="h-10 rounded-lg px-3 text-[14px] text-destructive hover:bg-destructive/10 hover:text-destructive focus:bg-destructive/10 focus:text-destructive"
-                    onClick={() => logout()}
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Sign Out
-                  </DropdownMenuItem>
+                <DropdownMenuContent side="bottom" align="end" sideOffset={8} className="shell-menu-popover w-60 max-w-[calc(100vw-1rem)]">
+                  <DropdownMenuLabel className="truncate">{user?.fullName || user?.username || "Account"}</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild><Link href="/feature-request"><Lightbulb className="h-4 w-4" />Feature request</Link></DropdownMenuItem>
+                  <DropdownMenuItem asChild><Link href="/profile-settings"><UserRound className="h-4 w-4" />Profile settings</Link></DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSettingsOpen(true)}><Settings className="h-4 w-4" />Settings</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSettingsOpen(true)}><Palette className="h-4 w-4" />Themes</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => logout()}><LogOut className="h-4 w-4" />Sign Out</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
           </div>
-        </header>
+        </div>
 
-          <div className="flex h-[calc(100dvh-3.5rem)] min-h-0">
+          <div className="app-workspace-body flex min-h-0">
           {/* Sidebar */}
            <aside
-             className={`sidebar-shell hidden md:flex ${
-               collapsed ? "sidebar-shell-collapsed" : "sidebar-shell-expanded"
-             }`}
+              id="app-sidebar"
+              className={`sidebar-shell ${
+                collapsed ? "sidebar-shell-collapsed" : "sidebar-shell-expanded"
+              } ${mobileNavigationOpen ? "mobile-open" : ""}`}
            >
-             <div className="sidebar-rail flex flex-col items-center gap-3 py-3">
-               {collapsed && (
-                 <Tooltip>
-                   <TooltipTrigger asChild>
-                     <Button
-                       variant="ghost"
-                       size="icon"
-                       className="sidebar-rail-toggle"
-                       onClick={toggleCollapsed}
-                       aria-label="Open sidebar"
-                     >
-                       <ChevronsRight className="h-5 w-5" />
-                     </Button>
-                   </TooltipTrigger>
-                   <TooltipContent side="right">Open sidebar</TooltipContent>
-                 </Tooltip>
-               )}
+              <div className="sidebar-brand-header">
+                <Link href="/scans" className="sidebar-brand-link min-w-0">
+                  <span className="sidebar-brand-logo"><AppLogo /></span>
+                </Link>
+              </div>
+              <div className="sidebar-navigation">
+               {sidebarIsCollapsed && <div className="sidebar-rail flex flex-col items-center gap-3 py-3">
                <div className="h-px w-7 bg-white/25" />
-               <MainMenuContent
-                 collapsed
-                  showFlyouts={collapsed}
+                <MainMenuContent
+                  collapsed
+                  showFlyouts
                  location={location}
                  adminUser={adminUser}
                  canManageSites={user?.permissions?.canManageSites ?? false}
                />
-             </div>
+              </div>}
 
              <div
                className={
-                 collapsed
+                 sidebarIsCollapsed
                    ? "sidebar-panel sidebar-panel-collapsed"
                    : "sidebar-panel sidebar-panel-expanded"
                }
              >
               <div
                  className={`sidebar-panel-header overflow-hidden whitespace-nowrap ${
-                   collapsed ? "hidden" : ""
+                   sidebarIsCollapsed ? "hidden" : ""
                  }`}
               >
                   <div className="flex min-w-0 items-center gap-2">
                      <p className="text-sm font-normal text-muted-foreground">Main menu</p>
-                   <div className="ml-auto flex items-center gap-1">
-                     <Button
-                       variant="ghost"
-                       size="icon"
-                       className="sidebar-panel-icon-button"
-                       onClick={() => setSidebarSearch((value) => (value ? "" : " "))}
-                       aria-label="Search your sidebar"
-                     >
-                       <Search className="h-4 w-4" />
-                     </Button>
-                     <Button
-                       variant="ghost"
-                       size="icon"
-                       className="sidebar-panel-icon-button"
-                       onClick={toggleCollapsed}
-                       aria-label="Close sidebar"
-                     >
-                       <ChevronLeft className="h-4 w-4" />
-                     </Button>
-                   </div>
                 </div>
-                 <div
-                   className={`sidebar-search-wrap ${
-                     sidebarSearch || normalizedSidebarSearch ? "is-open" : ""
-                   }`}
-                 >
+                  <div className="sidebar-search-wrap is-open">
                    <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
                    <input
-                     value={sidebarSearch.trim()}
+                      value={sidebarSearch}
                      onChange={(event) => setSidebarSearch(event.target.value)}
-                     placeholder="Search sidebar..."
+                      placeholder="Search menu..."
                      aria-label="Search your sidebar"
                      className="sidebar-search-input"
                    />
@@ -3409,7 +3263,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               </div>
 
               <nav
-                className={`app-scrollbar flex-1 py-4 space-y-3 overflow-y-auto ${collapsed ? "px-1.5" : "px-4"} transition-[padding] duration-200`}
+                className={`app-scrollbar flex-1 py-4 space-y-3 overflow-y-auto ${sidebarIsCollapsed ? "px-1.5" : "px-4"} transition-[padding] duration-200`}
               >
                  {normalizedSidebarSearch ? (
                    <div className="sidebar-search-results space-y-1">
@@ -3431,71 +3285,93 @@ export function Layout({ children }: { children: React.ReactNode }) {
                        </p>
                      )}
                    </div>
-                 ) : sidebarSection === null ? (
-                  <MainMenuContent
-                    collapsed={collapsed}
-                    location={location}
-                    adminUser={adminUser}
-                    canManageSites={user?.permissions?.canManageSites ?? false}
-                     onSelectSection={setSidebarSection}
-                  />
-                 ) : null}
-                {sidebarSection === "accessibility" && (
-                  <AccessibilitySidebarContent
-                    collapsed={collapsed}
-                    location={location}
-                    adminUser={adminUser}
-                    showSiteNav={showSiteNav}
-                    effectiveSiteId={effectiveSiteId}
-                    onBack={onBack}
-                  />
-                )}
-                {sidebarSection === "quality-assurance" && (
-                  <QASidebarContent
-                    collapsed={collapsed}
-                    location={location}
-                    onBack={onBack}
-                  />
-                )}
-                {sidebarSection === "seo" && (
-                  <SEOSidebarContent
-                    collapsed={collapsed}
-                    location={location}
-                    onBack={onBack}
-                  />
-                )}
-                {sidebarSection === "admin" && adminUser && (
-                  <AdminSidebarContent
-                    collapsed={collapsed}
-                    location={location}
-                    adminUser={adminUser}
-                    superAdminUser={superAdminUser}
-                    canManageSites={canManageSites}
-                    onBack={onBack}
-                  />
-                )}
-                {sidebarSection === "site-management" && (canManageSites || canManageProjects) && (
-                  <AdminSidebarContent
-                    collapsed={collapsed}
-                    location={location}
-                    adminUser={false}
-                    superAdminUser={false}
-                    canManageSites={canManageSites}
-                    canManageProjects={canManageProjects}
-                    onBack={onBack}
-                  />
-                )}
+                 ) : (
+                  <>
+                     {(!sidebarSection || sidebarSection === "issues") && (
+                       <MainMenuContent
+                         collapsed={sidebarIsCollapsed}
+                         location={location}
+                         adminUser={adminUser}
+                         canManageSites={user?.permissions?.canManageSites ?? false}
+                         onSelectSection={setSidebarSection}
+                       />
+                     )}
+                    {sidebarSection && sidebarSection !== "issues" && (
+                       <div className="sidebar-subsection">
+                        {sidebarSection === "accessibility" && (
+                          <AccessibilitySidebarContent
+                            collapsed={sidebarIsCollapsed}
+                            location={location}
+                            adminUser={adminUser}
+                            showSiteNav={showSiteNav}
+                            effectiveSiteId={effectiveSiteId}
+                            onBack={onBack}
+                          />
+                        )}
+                        {sidebarSection === "quality-assurance" && (
+                          <QASidebarContent
+                            collapsed={sidebarIsCollapsed}
+                            location={location}
+                            onBack={onBack}
+                          />
+                        )}
+                        {sidebarSection === "seo" && (
+                          <SEOSidebarContent
+                            collapsed={sidebarIsCollapsed}
+                            location={location}
+                            onBack={onBack}
+                          />
+                        )}
+                        {sidebarSection === "admin" && adminUser && (
+                          <AdminSidebarContent
+                            collapsed={sidebarIsCollapsed}
+                            location={location}
+                            adminUser={adminUser}
+                            superAdminUser={superAdminUser}
+                            canManageSites={canManageSites}
+                            onBack={onBack}
+                          />
+                        )}
+                        {sidebarSection === "site-management" && (canManageSites || canManageProjects) && (
+                          <AdminSidebarContent
+                            collapsed={sidebarIsCollapsed}
+                            location={location}
+                            adminUser={false}
+                            superAdminUser={false}
+                            canManageSites={canManageSites}
+                            canManageProjects={canManageProjects}
+                            onBack={onBack}
+                          />
+                        )}
+                      </div>
+                    )}
+                  </>
+                 )}
               </nav>
 
-              {!collapsed && (
-                <div className="px-4 pb-4 mt-auto space-y-1">
-                  <div className="sidebar-section-label px-2 pt-2">
-                    Professional accessibility auditing tool.
-                  </div>
-                </div>
-              )}
-            </div>
+              </div>
+              </div>
+              <div className="sidebar-utilities">
+                  <AccessibilityModeControl />
+                  <Badge
+                    data-tour="version-badge"
+                    data-tour-title={`Version ${APP_UPDATES_VERSION}`}
+                    data-tour-description="This badge shows the current application release."
+                    variant="outline"
+                    className="sidebar-version-badge h-5 w-fit border-border bg-background px-1.5 font-mono text-[9px] text-muted-foreground"
+                  >
+                    v{APP_UPDATES_VERSION}
+                  </Badge>
+              </div>
            </aside>
+            {mobileNavigationOpen && (
+              <button
+                type="button"
+                className="mobile-sidebar-backdrop md:hidden"
+                aria-label="Close navigation"
+                onClick={() => setMobileNavigationOpen(false)}
+              />
+            )}
 
           <a
             href="#main-content"
@@ -3513,7 +3389,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             }`}
           >
             <div
-              className={`w-full p-6 md:p-8 ${
+              className={`w-full p-3 md:p-5 ${
                 location === "/welcome" ? "h-full min-h-0" : ""
               }`}
             >
@@ -3529,7 +3405,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 (() => {
                 const breadcrumb = getShellBreadcrumb(location);
                 return breadcrumb ? (
-                  <div className="mb-6">
+                  <div className="mb-3">
                     <nav
                       aria-label="Breadcrumb"
                       className="flex items-center gap-1.5 text-xs text-muted-foreground"
@@ -3550,7 +3426,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   <Link
                     href="/welcome"
                     data-testid="link-back-to-home"
-                    className="mb-6 inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="mb-3 inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <Home className="h-4 w-4" />
                     Back to Home
@@ -3561,8 +3437,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </div>
           </main>
         </div>
-
-        <AccessibilityModeControl />
 
         <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
           <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">

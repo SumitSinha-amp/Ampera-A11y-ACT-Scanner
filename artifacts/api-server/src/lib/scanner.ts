@@ -1428,6 +1428,7 @@ async function getBrowser(slot: BrowserSlot): Promise<Browser> {
     headless: true as const,
     executablePath,
     args: PUPPETEER_LAUNCH_ARGS,
+    timeout: 30_000,
     // Cap how long Puppeteer waits for any single Chrome DevTools Protocol
     // message.  Without this the default (180 s) allows a stuck page.goto()
     // to hang far beyond our own hard-deadline timer.
@@ -1463,20 +1464,32 @@ async function getBrowser(slot: BrowserSlot): Promise<Browser> {
         CHROME_PROFILE_DIR,
         `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       );
-      const launched = await Promise.race([
-        puppeteerExtra.launch({ ...launchOptions, userDataDir }) as Promise<Browser>,
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () =>
-              reject(
-                new Error(
-                  `Browser launch timed out after ${LAUNCH_TIMEOUT_MS}ms`,
-                ),
-              ),
-            LAUNCH_TIMEOUT_MS,
-          ),
-        ),
-      ]);
+      let launchTimedOut = false;
+      let launchTimer: ReturnType<typeof setTimeout> | undefined;
+      const launchPromise = puppeteerExtra.launch({ ...launchOptions, userDataDir }) as Promise<Browser>;
+      void launchPromise
+        .then((lateBrowser) => {
+          if (launchTimedOut) {
+            return lateBrowser.close().catch(() => undefined);
+          }
+        })
+        .catch(() => undefined);
+      const launchTimeout = new Promise<never>((_, reject) => {
+        launchTimer = setTimeout(() => {
+          launchTimedOut = true;
+          reject(
+            new Error(
+              `Browser launch timed out after ${LAUNCH_TIMEOUT_MS}ms`,
+            ),
+          );
+        }, LAUNCH_TIMEOUT_MS);
+      });
+      let launched: Browser;
+      try {
+        launched = await Promise.race([launchPromise, launchTimeout]);
+      } finally {
+        if (launchTimer) clearTimeout(launchTimer);
+      }
       slot.browser = launched;
 
       launched.on("disconnected", () => {
@@ -4140,7 +4153,10 @@ async function runACTRules(
  * Blocks all non-document resources so it costs only the navigation itself.
  * Returns the raw (pre-JS-mutation) response body, or null on failure.
  */
-export function fetchRawHtmlViaBrowser(url: string): Promise<string | null> {
+export function fetchRawHtmlViaBrowser(
+  url: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<string | null> {
   const pool = ensurePool();
   let slot = pool[0]!;
   for (const s of pool) {
@@ -4149,9 +4165,14 @@ export function fetchRawHtmlViaBrowser(url: string): Promise<string | null> {
   slot.pending++;
   const result = slot.chain.then(async (): Promise<string | null> => {
     let page: Page | null = null;
+    const abortHandler = () => {
+      page?.close().catch(() => {});
+    };
     try {
+      if (options.signal?.aborted) return null;
       const browser = await getBrowser(slot);
       page = await browser.newPage();
+      options.signal?.addEventListener("abort", abortHandler, { once: true });
       await page.setRequestInterception(true);
       page.on("request", (req) => {
         // Cloudflare's managed challenge needs its script and same-page fetch
@@ -4189,6 +4210,7 @@ export function fetchRawHtmlViaBrowser(url: string): Promise<string | null> {
 
       const challengeDeadline = Date.now() + 35_000;
       while (await isChallenge()) {
+        if (options.signal?.aborted) return null;
         if (Date.now() >= challengeDeadline) return null;
         await new Promise((resolve) => setTimeout(resolve, 1_000));
       }
@@ -4198,6 +4220,7 @@ export function fetchRawHtmlViaBrowser(url: string): Promise<string | null> {
     } catch {
       return null;
     } finally {
+      options.signal?.removeEventListener("abort", abortHandler);
       if (page) await page.close().catch(() => {});
     }
   });

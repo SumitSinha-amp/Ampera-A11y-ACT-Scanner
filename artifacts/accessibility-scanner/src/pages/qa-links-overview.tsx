@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -15,7 +16,6 @@ import {
   ExternalLink,
   Globe,
   Link2,
-  Loader2,
   Mail,
   Phone,
   XCircle,
@@ -29,6 +29,8 @@ import {
   QA_TABLE_SHELL_CLASS,
 } from "@/pages/qa-shared";
 import { Card as PlainCard } from "@/components/ui/card";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
+import "./qa-pages.css";
 
 interface LinksOverview {
   total: number;
@@ -66,7 +68,7 @@ function StatCard({
       : "text-primary";
 
   const content = (
-    <Card className="hover:border-primary/40 transition-colors">
+    <Card className="qa-stat hover:border-primary/40 transition-colors">
       <CardContent className="pt-5 pb-5">
         <div className="flex items-center gap-3">
           <div className={`${color} shrink-0`}>{icon}</div>
@@ -103,8 +105,11 @@ function OverviewContent({ scanId }: { scanId: number }) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="qa-stat h-32" />)}
+        </div>
+        <Skeleton className="qa-panel h-80" />
       </div>
     );
   }
@@ -135,7 +140,7 @@ function OverviewContent({ scanId }: { scanId: number }) {
         <StatCard label="Broken" value={data.broken} icon={<XCircle className="w-5 h-5" />} href="/quality-assurance/links/broken" variant={data.broken > 0 ? "destructive" : "default"} />
       </div>
 
-      <Card>
+      <Card className="qa-panel">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium">Link breakdown</CardTitle>
         </CardHeader>
@@ -170,7 +175,7 @@ function OverviewContent({ scanId }: { scanId: number }) {
       </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
+        <Card className="qa-panel">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Mail className="w-4 h-4" /> Email &amp; Phone
@@ -199,30 +204,30 @@ function OverviewContent({ scanId }: { scanId: number }) {
           <CardContent className="space-y-2">
             <Button variant="outline" size="sm" className="w-full justify-start" asChild>
               <Link href="/quality-assurance/inventory/documents">
-                📄 {data.document.toLocaleString()} documents
+                {data.document.toLocaleString()} documents
               </Link>
             </Button>
             <Button variant="outline" size="sm" className="w-full justify-start" asChild>
               <Link href="/quality-assurance/inventory/media">
-                🖼️ {data.media.toLocaleString()} media files
+                {data.media.toLocaleString()} media files
               </Link>
             </Button>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="qa-panel">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Code assets</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <Button variant="outline" size="sm" className="w-full justify-start" asChild>
               <Link href="/quality-assurance/inventory/javascript">
-                📜 {data.javascript.toLocaleString()} JavaScript files
+                {data.javascript.toLocaleString()} JavaScript files
               </Link>
             </Button>
             <Button variant="outline" size="sm" className="w-full justify-start" asChild>
               <Link href="/quality-assurance/inventory/css">
-                🎨 {data.css.toLocaleString()} CSS files
+                {data.css.toLocaleString()} CSS files
               </Link>
             </Button>
           </CardContent>
@@ -241,11 +246,9 @@ export default function QALinksOverviewPage() {
       activeTab="redirects"
     >
       {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-        </div>
+        <PageLoadingSkeleton variant="dashboard" message="Loading links overview…" />
       ) : !selected?.scanId ? (
-        <PlainCard>
+        <PlainCard className="qa-panel">
           <CardContent className="py-12 flex flex-col items-center gap-3 text-muted-foreground">
             <Link2 className="w-10 h-10" />
             <p className="font-medium text-foreground">No scan data available</p>

@@ -10,7 +10,9 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Download, Loader2, Type } from "lucide-react";
+import { Download, Type } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import {
   useQASites,
   useQASelectedSite,
@@ -34,7 +36,7 @@ function LinkTextContent({ scanId }: { scanId: number }) {
   const [limit, setLimit] = useState(50);
   const [search, setSearch] = useState("");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["qa-link-text", scanId, page, limit, search],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
@@ -42,6 +44,7 @@ function LinkTextContent({ scanId }: { scanId: number }) {
       const r = await fetch(`${QA_BASE}/api/scans/${scanId}/qa/link-text?${params}`, {
         credentials: "include",
       });
+      if (!r.ok) throw new Error(`Unable to load link text data (${r.status}).`);
       return r.json() as Promise<{ data: LinkTextRow[]; total: number; page: number; limit: number }>;
     },
     staleTime: 30_000,
@@ -52,9 +55,17 @@ function LinkTextContent({ scanId }: { scanId: number }) {
   const pages = Math.ceil(total / limit);
 
   if (isLoading) {
+    return <PageLoadingSkeleton variant="table" message="Loading link text data…" />;
+  }
+
+  if (isError) {
     return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      <div className="space-y-3">
+        <Alert variant="destructive">
+          <AlertTitle>Could not load link text data</AlertTitle>
+          <AlertDescription>{error instanceof Error ? error.message : "Please try again."}</AlertDescription>
+        </Alert>
+        <Button variant="outline" onClick={() => refetch()}>Try again</Button>
       </div>
     );
   }
@@ -81,7 +92,7 @@ function LinkTextContent({ scanId }: { scanId: number }) {
   }));
 
   return (
-    <div className="space-y-3">
+    <div className="loaded-reveal space-y-3">
       <QAListToolbar
         search={search}
         onSearch={(value) => { setSearch(value); setPage(1); }}
@@ -129,7 +140,7 @@ function LinkTextContent({ scanId }: { scanId: number }) {
 }
 
 export default function QALinkTextPage() {
-  const { data: sites = [], isLoading } = useQASites();
+  const { data: sites = [], isLoading, isError, error, refetch } = useQASites();
   const [, selected] = useQASelectedSite(sites);
 
   return (
@@ -142,8 +153,14 @@ export default function QALinkTextPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        <PageLoadingSkeleton variant="table" message="Loading site scan data…" />
+      ) : isError ? (
+        <div className="space-y-3">
+          <Alert variant="destructive">
+            <AlertTitle>Could not load site scan data</AlertTitle>
+            <AlertDescription>{error instanceof Error ? error.message : "Please try again."}</AlertDescription>
+          </Alert>
+          <Button variant="outline" onClick={() => refetch()}>Try again</Button>
         </div>
       ) : !selected?.scanId ? (
         <Card>
@@ -153,7 +170,7 @@ export default function QALinkTextPage() {
           </CardContent>
         </Card>
       ) : (
-        <LinkTextContent scanId={selected.scanId} />
+        <div className="loaded-reveal"><LinkTextContent scanId={selected.scanId} /></div>
       )}
     </div>
   );

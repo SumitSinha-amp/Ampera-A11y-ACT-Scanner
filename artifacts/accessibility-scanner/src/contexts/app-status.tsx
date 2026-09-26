@@ -5,6 +5,7 @@ export type HealthFailureReason = "timeout" | "network" | "http";
 
 export interface AppStatusContextValue {
   status: AppStatus;
+  hasConnected: boolean;
   lastChecked: Date | null;
   failureReason: HealthFailureReason | null;
   retryNow: () => void;
@@ -12,6 +13,7 @@ export interface AppStatusContextValue {
 
 const AppStatusContext = createContext<AppStatusContextValue>({
   status: "checking",
+  hasConnected: false,
   lastChecked: null,
   failureReason: null,
   retryNow: () => {},
@@ -58,6 +60,7 @@ async function checkHealth(): Promise<HealthCheckResult> {
 
 export function AppStatusProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AppStatus>("checking");
+  const [hasConnected, setHasConnected] = useState(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [failureReason, setFailureReason] = useState<HealthFailureReason | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -100,6 +103,7 @@ export function AppStatusProvider({ children }: { children: React.ReactNode }) {
 
     if (result.ok) {
       connectedRef.current = true;
+      setHasConnected(true);
       consecutiveFailuresRef.current = 0;
       lastFailureAtRef.current = null;
       setFailureReason(null);
@@ -158,7 +162,7 @@ export function AppStatusProvider({ children }: { children: React.ReactNode }) {
   }, [run]);
 
   return (
-    <AppStatusContext.Provider value={{ status, lastChecked, failureReason, retryNow }}>
+    <AppStatusContext.Provider value={{ status, hasConnected, lastChecked, failureReason, retryNow }}>
       {children}
     </AppStatusContext.Provider>
   );

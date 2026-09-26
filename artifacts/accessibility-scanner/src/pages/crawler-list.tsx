@@ -44,11 +44,14 @@ import {
 import {
   Plus, Globe, MoreHorizontal, Trash2, Pause, Play, XCircle,
   Eye, Search, ScanLine, Clock, CalendarDays, ExternalLink,
-  Sparkles, ChevronLeft, ChevronRight,
+  Sparkles, ChevronLeft, ChevronRight, Bug, Zap, Hourglass,
+  FileText, Link2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
 import { useSite } from "@/contexts/site";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
+import "./crawler-dashboard.css";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -453,7 +456,7 @@ export default function CrawlerListPage() {
   });
 
   return (
-    <div className="vision-page vision-crawler-history relative min-h-full space-y-5 bg-[#f5f6fb] p-1 font-['Inter',sans-serif]">
+    <div className="vision-page vision-crawler-history relative min-h-full space-y-5">
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
@@ -482,9 +485,7 @@ export default function CrawlerListPage() {
       </div>
 
       {isLoading && (
-        <div className="grid gap-3 md:grid-cols-3">
-          {[1, 2, 3].map((item) => <div key={item} className="h-20 animate-pulse rounded-2xl bg-card/60" />)}
-        </div>
+        <PageLoadingSkeleton variant="dashboard" message="Loading crawler history…" metrics={5} />
       )}
 
       {!isLoading && allSessions.length === 0 && (
@@ -504,19 +505,20 @@ export default function CrawlerListPage() {
       {allSessions.length > 0 && (
         <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-5">
-            {[
-              ["Total Crawlers", sessions.length.toLocaleString(), "text-[#172b4d]", "🕷️"],
-              ["Active", sessions.filter((s) => isActiveStatus(s.status) && s.status !== "paused").length.toLocaleString(), "text-[#198f88]", "⚡"],
-              ["Ready to Scan", sessions.filter((s) => s.status === "crawled").length.toLocaleString(), "text-[#f57f17]", "⌛"],
-              ["Pages Scanned", sessions.reduce((sum, s) => sum + s.totalScanned, 0).toLocaleString(), "text-[#6d48c7]", "📄"],
-              ["Broken Links", sessions.reduce((sum, s) => sum + s.brokenLinksCount, 0).toLocaleString(), "text-[#e84a3d]", "🔗"],
-            ].map(([label, value, color, icon]) => (
-              <div key={String(label)} className="flex min-w-0 items-center gap-2.5 rounded-[14px] border border-white/70 bg-white/75 px-3.5 py-3 shadow-[0_2px_10px_rgba(0,0,0,.06)] backdrop-blur-xl">
-                <span className={`shrink-0 text-xl leading-none ${color}`} aria-hidden="true">{icon}</span>
-                <div className="min-w-0">
-                  <p className={`text-[20px] font-bold leading-none ${color}`}>{value}</p>
-                  <p className="mt-1 truncate text-[11px] text-[#7b8aaa]">{label}</p>
-                </div>
+            {([
+              ["Total Crawlers", sessions.length.toLocaleString(), "text-primary", Bug],
+              ["Active", sessions.filter((s) => isActiveStatus(s.status) && s.status !== "paused").length.toLocaleString(), "text-secondary", Zap],
+              ["Ready to Scan", sessions.filter((s) => s.status === "crawled").length.toLocaleString(), "text-amber-600 dark:text-amber-400", Hourglass],
+              ["Pages Scanned", sessions.reduce((sum, s) => sum + s.totalScanned, 0).toLocaleString(), "text-violet-600 dark:text-violet-400", FileText],
+              ["Broken Links", sessions.reduce((sum, s) => sum + s.brokenLinksCount, 0).toLocaleString(), "text-red-600 dark:text-red-400", Link2],
+            ] as const).map(([label, value, color, icon]) => (
+              <div key={String(label)} className="crawler-stat-card min-w-0 rounded-[14px] border border-white/70 bg-white/75 px-3.5 py-3 shadow-[0_2px_10px_rgba(0,0,0,.06)] backdrop-blur-xl">
+                {(() => {
+                  const Icon = icon;
+                  return <Icon className={`crawler-stat-icon ${color}`} aria-hidden="true" />;
+                })()}
+                <p className="crawler-stat-label">{label}</p>
+                <p className={`crawler-stat-value ${color}`}>{value}</p>
               </div>
             ))}
           </div>

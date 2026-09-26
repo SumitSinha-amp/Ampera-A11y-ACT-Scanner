@@ -7,7 +7,6 @@ import {
   ArrowRight,
   Globe,
   History,
-  Loader2,
   XCircle,
   FileText,
   Link2,
@@ -19,6 +18,8 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { useQASites, useQASelectedSite, QAPageShell, QA_BASE, type QASiteEntry } from "@/pages/qa-shared";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
+import "./qa-pages.css";
 
 interface QAStatus {
   running: boolean;
@@ -121,7 +122,7 @@ function QAStatCard({
 }) {
   return (
     <article 
-      className="relative rounded-[22px] border border-white/80 bg-card/80 p-5 backdrop-blur-xl shadow-[0_14px_34px_rgba(69,57,112,.06)] animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both"
+       className="qa-panel relative rounded-[22px] border border-white/80 bg-card/80 p-5 backdrop-blur-xl shadow-[0_14px_34px_rgba(69,57,112,.06)] animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both"
       style={{ animationDelay: `${delayMs}ms` }}
     >
       <div className={`grid h-10 w-10 place-items-center rounded-xl border ${bg} ${border} ${color} mb-4 shadow-sm`}>{icon}</div>
@@ -143,7 +144,7 @@ function PageLevelChecks({ checks }: { checks: QAStatus["pageChecks"] | undefine
   ] as const;
 
   return (
-    <section className="rounded-[22px] border border-white/80 bg-card/80 p-5 shadow-[0_14px_34px_rgba(69,57,112,.06)] backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both" style={{ animationDelay: "300ms" }}>
+    <section className="qa-panel rounded-[22px] border border-white/80 bg-card/80 p-5 shadow-[0_14px_34px_rgba(69,57,112,.06)] backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both" style={{ animationDelay: "300ms" }}>
       <h2 className="mb-4 text-sm font-semibold text-foreground">Page-level checks</h2>
       <div className="space-y-2.5">
         {rows.map((row) => {
@@ -222,11 +223,7 @@ function OverviewContent({ site }: { site: QASiteEntry }) {
   }
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground/50" />
-      </div>
-    );
+    return <PageLoadingSkeleton variant="dashboard" message="Loading QA dashboard…" />;
   }
 
   const crawledDate = site.crawledAt
@@ -260,7 +257,7 @@ function OverviewContent({ site }: { site: QASiteEntry }) {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="qa-dashboard space-y-5">
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <QAStatCard 
           label="Total pages" 
@@ -325,7 +322,7 @@ function OverviewContent({ site }: { site: QASiteEntry }) {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[1fr_1.6fr]">
-        <article className="relative rounded-[22px] border border-white/80 bg-card/80 p-6 backdrop-blur-xl shadow-[0_14px_34px_rgba(69,57,112,.06)] animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both" style={{ animationDelay: "200ms" }}>
+        <article className="qa-panel relative rounded-[22px] border border-white/80 bg-card/80 p-6 backdrop-blur-xl shadow-[0_14px_34px_rgba(69,57,112,.06)] animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both" style={{ animationDelay: "200ms" }}>
           <h3 className="text-sm font-semibold text-foreground mb-6">Check distribution</h3>
           <DonutChart pass={pass} warn={warn} fail={fail} />
           
@@ -341,7 +338,7 @@ function OverviewContent({ site }: { site: QASiteEntry }) {
           </div>
         </article>
         
-        <article className="relative rounded-[22px] border border-white/80 bg-card/80 p-6 backdrop-blur-xl shadow-[0_14px_34px_rgba(69,57,112,.06)] animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both" style={{ animationDelay: "250ms" }}>
+        <article className="qa-panel relative rounded-[22px] border border-white/80 bg-card/80 p-6 backdrop-blur-xl shadow-[0_14px_34px_rgba(69,57,112,.06)] animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both" style={{ animationDelay: "250ms" }}>
           <h3 className="text-sm font-semibold text-foreground mb-5">Scan details</h3>
           <div className="space-y-3">
             <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-background/30 p-4 transition-colors hover:bg-background/50">
@@ -394,7 +391,7 @@ function OverviewContent({ site }: { site: QASiteEntry }) {
         <h2 className="text-sm font-semibold text-foreground mb-4">QA modules</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {NAV_TILES.map((t, i) => (
-            <Link key={i} href={t.href} className="group block text-left rounded-[22px] border border-white/80 bg-card/80 p-5 backdrop-blur-xl shadow-[0_8px_20px_rgba(69,57,112,.05)] hover:-translate-y-1 hover:shadow-[0_14px_30px_rgba(69,57,112,.10)] transition-all duration-200">
+             <Link key={i} href={t.href} className="qa-panel group block text-left rounded-[22px] border border-white/80 bg-card/80 p-5 backdrop-blur-xl shadow-[0_8px_20px_rgba(69,57,112,.05)] hover:-translate-y-1 hover:shadow-[0_14px_30px_rgba(69,57,112,.10)] transition-all duration-200">
               <div className={`grid h-11 w-11 place-items-center rounded-xl border mb-3 transition-colors ${TONE[t.tone as keyof typeof TONE]}`}>{t.icon}</div>
               <p className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">{t.label}</p>
               <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{t.desc}</p>
@@ -414,7 +411,9 @@ export default function QualityAssurancePage() {
     <QAPageShell
       activeTab="overview"
     >
-      {!isLoading && sites.length === 0 ? (
+      {isLoading ? (
+        <PageLoadingSkeleton variant="dashboard" message="Loading QA sites…" />
+      ) : sites.length === 0 ? (
         <Card className="rounded-[22px] border-border/75 bg-card/80 shadow-[0_8px_28px_rgba(76,57,133,0.06)] backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both" style={{ animationDelay: "100ms" }}>
           <CardContent className="py-16 flex flex-col items-center gap-4 text-muted-foreground">
             <div className="h-16 w-16 rounded-full bg-muted/50 grid place-items-center border border-border/50">

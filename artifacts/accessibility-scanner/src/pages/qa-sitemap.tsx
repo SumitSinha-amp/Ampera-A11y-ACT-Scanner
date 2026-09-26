@@ -14,7 +14,8 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, XCircle, Map, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { XCircle, Map, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 type SitemapFilter = "all" | "in-sitemap" | "not-in-sitemap";
 
@@ -64,11 +65,7 @@ function SitemapCoverageContent({ scanId }: { scanId: number }) {
   });
 
   if (isLoading && !data) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <PageLoadingSkeleton variant="table" message="Loading sitemap coverage…" />;
   }
 
   const stats = data?.stats ?? { total: 0, inSitemap: 0, notInSitemap: 0 };
@@ -85,7 +82,7 @@ function SitemapCoverageContent({ scanId }: { scanId: number }) {
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="loaded-reveal space-y-4">
       <div className="grid grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-4 pb-4">
@@ -223,9 +220,7 @@ export default function QASitemapPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-        </div>
+        <PageLoadingSkeleton variant="table" message="Loading QA sites…" />
       ) : !selected?.scanId ? (
         <Card>
           <CardContent className="py-12 flex flex-col items-center gap-3 text-muted-foreground">

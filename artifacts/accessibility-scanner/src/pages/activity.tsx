@@ -42,6 +42,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -217,8 +218,8 @@ export default function ActivityPage() {
 
   return (
     <TooltipProvider>
-      <div className="vision-page vision-activity relative min-h-[calc(100dvh-4rem)] space-y-5 overflow-hidden p-4 sm:p-6 min-w-0">
-      <div className="relative w-full space-y-5">
+      <div className="vision-page vision-activity site-dashboard refined-screen relative min-h-[calc(100dvh-4rem)] space-y-5 overflow-hidden p-4 sm:p-6 min-w-0">
+      <div className="site-dashboard relative w-full space-y-5">
         {/* Header */}
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
@@ -269,22 +270,22 @@ export default function ActivityPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="dashboard-metric-grid grid grid-cols-1 gap-4 sm:grid-cols-3">
           {[
             ["Total decisions", decisions.length, "Across all scans", "bg-violet-100/70 border-violet-200"],
             ["Pending review", decisions.filter(d => d.reviewStatus === "pending").length, "Awaiting response", "bg-amber-50/80 border-amber-200"],
             ["Confirmed", decisions.filter(d => d.reviewStatus === "confirmed").length, "Accepted overrides", "bg-teal-50/80 border-teal-200"],
           ].map(([label, value, sub, tone]) => (
-            <article key={String(label)} className={`rounded-[22px] border p-5 shadow-[0_14px_34px_rgba(69,57,112,.07)] backdrop-blur-xl ${tone}`}>
-              <p data-testid={`text-activity-${String(label).toLowerCase().replaceAll(" ", "-")}`} className="text-3xl font-bold tracking-tight text-[#172b4d]">{value}</p>
-              <p className="mt-1 text-sm font-semibold text-[#263650]">{label}</p>
-              <p className="text-xs text-[#7a8899]">{sub}</p>
+            <article key={String(label)} className={`dashboard-overview-card ${tone}`}>
+              <p data-testid={`text-activity-${String(label).toLowerCase().replaceAll(" ", "-")}`} className="dashboard-metric-value text-3xl font-bold tracking-tight text-[#172b4d]">{value}</p>
+              <p className="dashboard-metric-label text-sm font-semibold text-[#263650]">{label}</p>
+              <p className="dashboard-metric-detail text-xs text-[#7a8899]">{sub}</p>
             </article>
           ))}
         </div>
 
         {/* Tabs + inline status filters */}
-        <div className="overflow-hidden rounded-[22px] border border-white/80 bg-white/70 shadow-[0_14px_34px_rgba(69,57,112,.06)] backdrop-blur-xl">
+          <div className="ampera-card overflow-hidden">
           <div className="flex flex-wrap items-center border-b border-[#edf0f7]">
             {([
               { key: "cant_fix", label: "Can't fix", icon: Ban },
@@ -398,9 +399,16 @@ export default function ActivityPage() {
 
         {/* Content */}
         {loading ? (
-          <div className="flex items-center justify-center py-20 text-muted-foreground">
-            <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full mr-3" />
-            Loading…
+          <div className="loaded-reveal space-y-2 p-4" role="status" aria-label="Loading activity decisions" aria-busy="true">
+            {[0, 1, 2, 3, 4].map((row) => (
+              <div key={row} className="flex min-h-14 items-center gap-4 border-b border-border/50 px-2">
+                <Skeleton className="h-4 w-1/4" />
+                <Skeleton className="h-4 w-1/5" />
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-4 flex-1" />
+                <Skeleton className="h-7 w-20 rounded-lg" />
+              </div>
+            ))}
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-20 text-muted-foreground">
@@ -415,7 +423,7 @@ export default function ActivityPage() {
             )}
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="loaded-reveal overflow-x-auto">
             <table className="w-full table-fixed text-xs" style={{ minWidth: "980px" }}>
               <colgroup>
                 <col style={{ width: "16%" }} />

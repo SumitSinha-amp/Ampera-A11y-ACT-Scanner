@@ -11,7 +11,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Download, ExternalLink, Loader2, Star } from "lucide-react";
+import { Download, ExternalLink, Star } from "lucide-react";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import {
   useQASites,
   useQASelectedSite,
@@ -62,11 +63,7 @@ function PriorityPagesContent({ scanId }: { scanId: number }) {
   const pages = Math.ceil(total / limit);
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <PageLoadingSkeleton variant="table" message="Loading priority pages…" />;
   }
 
   if (!rows.length) {
@@ -94,7 +91,7 @@ function PriorityPagesContent({ scanId }: { scanId: number }) {
   }));
 
   return (
-    <div className="space-y-3">
+    <div className="loaded-reveal space-y-3">
       <QAListToolbar
         search={search}
         onSearch={(value) => { setSearch(value); setPage(1); }}
@@ -184,9 +181,7 @@ export default function QAPriorityPagesPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-        </div>
+        <PageLoadingSkeleton variant="table" message="Loading QA sites…" />
       ) : !selected?.scanId ? (
         <Card>
           <CardContent className="py-12 flex flex-col items-center gap-3 text-muted-foreground">

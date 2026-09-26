@@ -90,6 +90,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 const ALL_RULES: { id: string; label: string }[] = [
   { id: "ACT-R1", label: "Page has no title (WCAG 2.4.2)" },
@@ -689,7 +690,7 @@ function InlineScanMonitor({
   scanId: number;
   onNewScan: () => void;
 }) {
-  const { data: scan } = useGetScan(scanId, {
+  const { data: scan, isLoading: isScanLoading, isError: isScanError } = useGetScan(scanId, {
     query: {
       queryKey: getGetScanQueryKey(scanId),
       refetchInterval: 3000,
@@ -756,11 +757,19 @@ function InlineScanMonitor({
       toast({ title: "Could not resume scan", variant: "destructive" }),
   });
 
-  if (!scan) {
+  if (isScanLoading) {
+    return <PageLoadingSkeleton variant="detail" message="Loading scan results…" />;
+  }
+
+  if (isScanError || !scan) {
     return (
-      <div className="flex justify-center p-8">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
+      <Alert variant="destructive">
+        <AlertCircle className="h-4 w-4" />
+        <AlertTitle>Could not load scan results</AlertTitle>
+        <AlertDescription>
+          {isScanError ? "The scan details could not be retrieved. Refresh and try again." : "This scan could not be found."}
+        </AlertDescription>
+      </Alert>
     );
   }
 
@@ -836,7 +845,7 @@ function InlineScanMonitor({
     .slice(0, 10);
 
   return (
-    <Card className="relative overflow-hidden rounded-2xl border-primary/20 bg-card/75 shadow-[0_12px_40px_rgba(109,72,199,0.10)] backdrop-blur-xl">
+    <Card className="loaded-reveal relative overflow-hidden rounded-2xl border-primary/20 bg-card/75 shadow-[0_12px_40px_rgba(109,72,199,0.10)] backdrop-blur-xl">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">

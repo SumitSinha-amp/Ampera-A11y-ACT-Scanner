@@ -1,6 +1,7 @@
 import { AlertTriangle, Globe } from "lucide-react";
 import { IssuesTable, PagesWithIssuesTable, SiteBreadcrumb, useSite, useAutoActiveSite } from "@/pages/site/shared";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 interface Props { siteId: number }
 
@@ -9,11 +10,7 @@ export default function SitePotentialIssues({ siteId }: Props) {
   const siteQ = useSite(siteId);
 
   if (siteQ.isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
-        Loading potential issues…
-      </div>
-    );
+    return <PageLoadingSkeleton variant="table" message="Loading potential issues…" />;
   }
   if (siteQ.isError || !siteQ.data) {
     return (
@@ -26,7 +23,7 @@ export default function SitePotentialIssues({ siteId }: Props) {
   const site = siteQ.data;
 
   return (
-    <div className="space-y-6">
+    <div className="loaded-reveal space-y-6">
       <div className="flex flex-col gap-1">
         <SiteBreadcrumb siteId={siteId} siteName={site.name} current="Potential Issues" />
         <h1 className="text-2xl font-bold flex items-center gap-2">

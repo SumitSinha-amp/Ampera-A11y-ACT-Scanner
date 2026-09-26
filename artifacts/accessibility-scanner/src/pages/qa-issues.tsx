@@ -13,7 +13,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Download, ExternalLink, Loader2, TriangleAlert } from "lucide-react";
+import { Download, ExternalLink, TriangleAlert } from "lucide-react";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import {
   useQASites,
   useQASelectedSite,
@@ -91,11 +92,7 @@ function IssuesContent({ scanId }: { scanId: number }) {
   const totalIssues = Object.values(summary).reduce((a, b) => a + b, 0);
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <PageLoadingSkeleton variant="table" message="Loading QA issues…" />;
   }
 
   if (totalIssues === 0) {
@@ -121,7 +118,7 @@ function IssuesContent({ scanId }: { scanId: number }) {
   }));
 
   return (
-    <div className="space-y-4">
+    <div className="loaded-reveal space-y-4">
       {Object.keys(summary).length > 0 && (
         <div className="space-y-2">
           <Card>
@@ -252,9 +249,7 @@ export default function QAIssuesPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-        </div>
+        <PageLoadingSkeleton variant="table" message="Loading QA sites…" />
       ) : !selected?.scanId ? (
         <Card>
           <CardContent className="py-12 flex flex-col items-center gap-3 text-muted-foreground">

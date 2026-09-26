@@ -3,8 +3,9 @@ import { Loader2, Save, RotateCcw, ShieldCheck, Users, UsersRound, Info } from "
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -390,10 +391,12 @@ export default function AdminPermissionsPage() {
   const [savingGroups, setSavingGroups] = useState<Record<number, boolean>>({});
   const [activeTab, setActiveTab] = useState<"users" | "groups">("users");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const { toast } = useToast();
 
   async function loadPermissions() {
     setLoading(true);
+    setLoadError("");
     try {
       const [usersResponse, groupsResponse] = await Promise.all([
         fetch(`${BASE}/api/admin/permissions`, { credentials: "include" }),
@@ -409,7 +412,9 @@ export default function AdminPermissionsPage() {
       setDirtyUsers({});
       setDirtyGroups({});
     } catch (error) {
-      toast({ title: "Unable to load permissions", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" });
+      const message = error instanceof Error ? error.message : "Please try again.";
+      setLoadError(message);
+      toast({ title: "Unable to load permissions", description: message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -488,11 +493,20 @@ export default function AdminPermissionsPage() {
   const dirtyCount = Object.values(activeTab === "users" ? dirtyUsers : dirtyGroups).filter(Boolean).length;
 
   if (loading) {
-    return <div className="flex justify-center p-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+    return <PageLoadingSkeleton variant="table" message="Loading user and group permissions…" />;
+  }
+
+  if (loadError) {
+    return (
+      <div className="space-y-4">
+        <Alert variant="destructive"><AlertTitle>Could not load permissions</AlertTitle><AlertDescription>{loadError}</AlertDescription></Alert>
+        <Button variant="outline" onClick={loadPermissions}>Try again</Button>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="loaded-reveal space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Permissions</h1>

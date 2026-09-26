@@ -11,11 +11,13 @@ import {
   AlertTriangle, FileText, Layers, Download, Target, Save, Shield, Zap, LayoutDashboard, Minus, CheckCircle, AlertCircle, XCircle
 } from "lucide-react";
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer, ReferenceLine
+  BarChart, Bar, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer, ReferenceLine
 } from "recharts";
 import { BASE, DashboardData, ScoreHistoryPoint, useAutoActiveSite } from "@/pages/site/shared";
 import { useAuth } from "@/contexts/auth";
 import { usePageGroup } from "@/contexts/page-group";
+import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
+import "./site-dashboard.css";
 
 interface Props { siteId: number }
 
@@ -44,27 +46,6 @@ function exportCsv(data: ScoreHistoryPoint[], mode: "issues" | "potential") {
   a.download = `score-history-${mode}.csv`;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-function ScoreRing({ score }: { score: number | null }) {
-  const displayScore = score ?? 0;
-  const r = 44, circ = 2 * Math.PI * r;
-  const filled = (displayScore / 100) * circ;
-  const color = score === null ? "#94a3b8" : displayScore >= 80 ? "#16a47a" : displayScore >= 60 ? "#3778c8" : "#e04545";
-  return (
-    <div className="relative grid h-24 w-24 place-items-center my-2">
-      <svg width="96" height="96" viewBox="0 0 96 96" className="-rotate-90" aria-hidden="true">
-        <circle cx="48" cy="48" r={r} fill="none" strokeWidth="7" className="stroke-muted/30" />
-        <circle cx="48" cy="48" r={r} fill="none" strokeWidth="7" stroke={color} strokeLinecap="round"
-          strokeDasharray={`${filled.toFixed(1)} ${(circ - filled).toFixed(1)}`}
-          style={{ transition: "stroke-dasharray .8s cubic-bezier(.4,0,.2,1)" }} />
-      </svg>
-      <div className="absolute grid place-items-center text-center">
-        <p className="text-3xl font-bold leading-none" style={{ color }}>{score === null ? "—" : score.toFixed(0)}</p>
-        <p className="text-[10px] text-muted-foreground mt-0.5">/ 100</p>
-      </div>
-    </div>
-  );
 }
 
 export default function SiteDashboard({ siteId }: Props) {
@@ -119,11 +100,7 @@ export default function SiteDashboard({ siteId }: Props) {
   }, [historyQ.data, dateRange]);
 
   if (dashQ.isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
-        Loading dashboard…
-      </div>
-    );
+    return <PageLoadingSkeleton variant="dashboard" message="Loading dashboard data…" />;
   }
   if (dashQ.isError || !site) {
     return (
@@ -207,7 +184,7 @@ export default function SiteDashboard({ siteId }: Props) {
   }
 
   return (
-    <div className="relative w-full pb-10">
+    <div className="site-dashboard ampera-dashboard loaded-reveal relative w-full pb-10">
       <div className="relative z-10 space-y-5">
         
         {/* Header */}
@@ -242,7 +219,7 @@ export default function SiteDashboard({ siteId }: Props) {
         </header>
 
         {!d?.session ? (
-          <article className="rounded-[22px] border border-border/60 bg-card/70 p-16 text-center space-y-3 backdrop-blur-xl shadow-sm">
+          <article className="ampera-card rounded-[22px] border border-border/60 bg-card/70 p-16 text-center space-y-3 backdrop-blur-xl shadow-sm">
             <BarChart3 className="w-12 h-12 mx-auto text-muted-foreground/50" />
             <p className="text-foreground font-medium text-lg">No completed crawler scan found for this site.</p>
             <p className="text-sm text-muted-foreground max-w-md mx-auto">
@@ -263,7 +240,7 @@ export default function SiteDashboard({ siteId }: Props) {
                 <p className="mt-1 text-xs text-muted-foreground">Choose a metric to see its breakdown for the latest scan.</p>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(180px,.8fr)_repeat(3,minmax(0,1fr))]">
+              <div className="dashboard-metric-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 {([
                   {
                     id: "score" as const,
@@ -303,65 +280,34 @@ export default function SiteDashboard({ siteId }: Props) {
                     type="button"
                     onClick={() => setMetricView(metric.id)}
                     aria-pressed={metricView === metric.id}
-                    className={`dashboard-overview-card min-w-0 min-h-[210px] rounded-[20px] border p-5 text-left transition-all hover:-translate-y-0.5 ${
-                      metric.id === "score"
-                        ? "flex flex-col items-center justify-center text-center"
-                        : ""
-                    } ${
-                      metricView === metric.id
-                        ? "dashboard-overview-card-active"
-                        : ""
+                    className={`dashboard-overview-card min-w-0 flex flex-col rounded-xl border p-4 text-left transition-colors ${
+                      metricView === metric.id ? "dashboard-overview-card-active" : ""
                     }`}
                   >
-                    {metric.id === "score" ? (
-                      <>
-                        <p className="font-mono text-[10px] font-bold uppercase tracking-[.18em] text-primary">Accessibility score</p>
-                        <ScoreRing score={d.score} />
-                        <span className={`mt-1 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                          d.scoreDelta !== null && d.scoreDelta > 0
-                            ? "bg-green-500/10 text-green-700 dark:text-green-400"
-                            : d.scoreDelta !== null && d.scoreDelta < 0
-                              ? "bg-red-500/10 text-red-700 dark:text-red-400"
-                              : "bg-muted/60 text-muted-foreground"
-                        }`}>
-                          {d.scoreDelta !== null && d.scoreDelta > 0 ? <TrendingUp className="h-3.5 w-3.5" /> : d.scoreDelta !== null && d.scoreDelta < 0 ? <TrendingDown className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
-                          {d.scoreDelta !== null && d.scoreDelta !== 0 ? `${d.scoreDelta > 0 ? "+" : ""}${d.scoreDelta} from last scan` : "No change from last scan"}
-                        </span>
-                        <p className="mt-4 text-xs text-muted-foreground">WCAG 2.2 AA · {(d.coverage?.totalScanned ?? 0).toLocaleString()} pages</p>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex items-start justify-between gap-2">
-                          <span className={`grid h-10 w-10 place-items-center rounded-xl border ${
-                            metric.id === "severity"
-                              ? "border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/30"
-                              : metric.id === "rules"
-                                ? "border-violet-200 bg-violet-50 dark:border-violet-900/50 dark:bg-violet-950/30"
-                                : "border-blue-200 bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/30"
-                          } ${metric.color}`}>
-                            {metric.icon}
-                          </span>
-                          {metric.id === "severity" && issueTrendPercent !== null ? (
-                            <span className={`inline-flex items-center gap-1 pt-1 text-[11px] font-semibold ${issueTrendPercent <= 0 ? "text-green-700 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-                              {issueTrendPercent <= 0 ? <TrendingDown className="h-3.5 w-3.5" /> : <TrendingUp className="h-3.5 w-3.5" />}
-                              {issueTrendPercent > 0 ? "+" : ""}{issueTrendPercent}%
-                            </span>
-                          ) : (
-                            <span className="pt-1 text-[10px] font-semibold text-muted-foreground">
-                              {metric.id === "level" ? "By level" : "Coverage"}
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-5 text-3xl font-bold tracking-tight tabular-nums text-foreground">{metric.value}</div>
-                        <div className="mt-1 text-sm font-medium text-foreground/85">{metric.label}</div>
-                        <div className="mt-1 text-xs text-muted-foreground">{metric.detail}</div>
-                      </>
+                    <span className={`dashboard-metric-icon ${metric.color}`} aria-hidden="true">{metric.icon}</span>
+                    <span className="dashboard-metric-label">{metric.label}</span>
+                    <strong className="dashboard-metric-value tabular-nums">
+                      {metric.value}{metric.id === "score" && d.score !== null && <span className="dashboard-metric-unit"> / 100</span>}
+                    </strong>
+                    <span className="dashboard-metric-detail">{metric.detail}</span>
+                    {metric.id === "score" && (
+                      <span className="dashboard-metric-detail">WCAG 2.2 AA · {(d.coverage?.totalScanned ?? 0).toLocaleString()} pages</span>
+                    )}
+                    {metric.id === "score" && d.scoreDelta !== null && d.scoreDelta !== 0 && (
+                      <span className={`dashboard-metric-trend ${d.scoreDelta > 0 ? "text-green-700 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                        {d.scoreDelta > 0 ? "+" : ""}{d.scoreDelta} from last scan
+                      </span>
+                    )}
+                    {metric.id === "severity" && issueTrendPercent !== null && (
+                      <span className={`dashboard-metric-trend ${issueTrendPercent <= 0 ? "text-green-700 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                        {issueTrendPercent > 0 ? "+" : ""}{issueTrendPercent}% from last scan
+                      </span>
                     )}
                   </button>
                 ))}
               </div>
 
-              <article className="dashboard-overview-detail rounded-[20px] border p-5">
+              <article className="ampera-card dashboard-overview-detail rounded-[20px] border p-5">
                 {metricView === "score" && (() => {
                   const levelRank: Record<string, number> = { A: 1, AA: 2, AAA: 3 };
                   const targetRank = levelRank[targetWcagLevel] ?? 2;
@@ -569,7 +515,7 @@ export default function SiteDashboard({ siteId }: Props) {
                 )}
               </article>
               {d.coverage?.confidence && (
-                <article className="rounded-[20px] border border-border/70 bg-card/80 p-4" aria-label="Scan evidence confidence">
+                <article className="ampera-card rounded-[20px] border border-border/70 bg-card/80 p-4" aria-label="Scan evidence confidence">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <h3 className="text-sm font-semibold text-foreground">Scan evidence confidence</h3>
@@ -597,7 +543,7 @@ export default function SiteDashboard({ siteId }: Props) {
                 <h2 className="text-lg font-semibold tracking-tight text-foreground">Improve your score</h2>
                 <p className="mt-1 text-xs text-muted-foreground">Prioritize the rules with the clearest accessibility impact.</p>
               </div>
-              <article className="overflow-hidden rounded-2xl border border-border/60 bg-card/70 shadow-sm backdrop-blur-xl">
+              <article className="ampera-card overflow-hidden rounded-2xl border border-border/60 bg-card/70 shadow-sm backdrop-blur-xl">
                 <div className="flex min-w-0 items-center gap-1 overflow-x-auto border-b border-border/50 px-3 sm:px-4">
                   {[
                     { id: "issues" as const, label: "Issues", count: totalIssues },
@@ -705,25 +651,33 @@ export default function SiteDashboard({ siteId }: Props) {
             </section>
 
             {/* Charts */}
-            <section className="grid gap-4 lg:grid-cols-2">
-              <article className="flex min-w-0 flex-col rounded-[22px] border border-white/80 bg-card/80 p-5 shadow-[0_14px_34px_rgba(69,57,112,.06)] backdrop-blur-xl transition-all hover:shadow-[0_18px_38px_rgba(69,57,112,.1)]">
+            <section className="grid gap-4 lg:grid-cols-3">
+              <article className="ampera-card ampera-chart-card flex min-w-0 flex-col rounded-[22px] border border-white/80 bg-card/80 p-5 shadow-[0_14px_34px_rgba(69,57,112,.06)] backdrop-blur-xl transition-all hover:shadow-[0_18px_38px_rgba(69,57,112,.1)]">
                 <div className="flex items-center justify-between mb-6">
                   <div>
-                    <p className="font-mono text-[10px] font-bold uppercase tracking-[.18em] text-muted-foreground">Score trend</p>
-                    <h3 className="mt-1 text-sm font-semibold text-foreground">12-month history</h3>
+                    <h3 className="text-sm font-semibold text-foreground">Accessibility score by scan</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">Score history across completed scans</p>
                   </div>
                   <span className="text-[11px] font-semibold text-primary px-2.5 py-1 rounded-full bg-primary/10">{chartData.length} scans</span>
                 </div>
-                <div className="flex-1 min-h-[180px]">
+                <div className="ampera-chart-region flex-1 min-h-[180px]">
                   {chartData.length >= 2 ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={chartData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
+                      <BarChart data={chartData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
+                         <defs>
+                           <pattern id="score-bar-stripes" width="8" height="7" patternUnits="userSpaceOnUse">
+                             <rect width="8" height="7" fill="#f2fafb" />
+                             <rect width="8" height="3" fill="#cae9ed" />
+                             <rect width="8" height="1" fill="#27b8c0" />
+                           </pattern>
+                         </defs>
+                         <CartesianGrid strokeDasharray="3 5" stroke="var(--dashboard-grid)" vertical={false} />
                         <XAxis dataKey="date" tick={{ fontSize: 10, fill: "currentColor", opacity: 0.5 }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={20} />
-                        <YAxis hide domain={['auto', 100]} />
+                        <YAxis domain={[0, 100]} ticks={[0, 50, 100]} tick={{ fontSize: 10, fill: "currentColor", opacity: 0.5 }} tickLine={false} axisLine={false} width={28} />
                         <ChartTooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))", background: "hsl(var(--card))", color: "hsl(var(--foreground))" }} formatter={(val: number) => [`${val} pts`, "Score"]} labelFormatter={(label) => `Date: ${label}`} />
                         {targetScore !== null && <ReferenceLine y={targetScore} stroke="#16a47a" strokeDasharray="4 4" strokeOpacity={0.7} />}
-                        <Line type="monotone" dataKey="score" stroke="hsl(var(--primary))" strokeWidth={3} dot={{ r: 3, fill: "hsl(var(--background))", strokeWidth: 2, stroke: "hsl(var(--primary))" }} activeDot={{ r: 5, fill: "hsl(var(--primary))", strokeWidth: 0 }} />
-                      </LineChart>
+                         <Bar dataKey="score" name="Score" fill="url(#score-bar-stripes)" maxBarSize={24} radius={[3, 3, 0, 0]} />
+                      </BarChart>
                     </ResponsiveContainer>
                   ) : (
                     <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
@@ -733,7 +687,7 @@ export default function SiteDashboard({ siteId }: Props) {
                 </div>
               </article>
 
-              <article className="flex min-w-0 flex-col rounded-[22px] border border-white/80 bg-card/80 p-5 shadow-[0_14px_34px_rgba(69,57,112,.06)] backdrop-blur-xl transition-all hover:shadow-[0_18px_38px_rgba(69,57,112,.1)]">
+              <article className="ampera-card ampera-chart-card flex min-w-0 flex-col rounded-[22px] border border-white/80 bg-card/80 p-5 shadow-[0_14px_34px_rgba(69,57,112,.06)] backdrop-blur-xl transition-all hover:shadow-[0_18px_38px_rgba(69,57,112,.1)]">
                 <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
                   <div>
                     <p className="font-mono text-[10px] font-bold uppercase tracking-[.18em] text-muted-foreground">Issue count</p>
@@ -766,29 +720,35 @@ export default function SiteDashboard({ siteId }: Props) {
                   </div>
                 </div>
 
-                <div className="flex-1 min-h-[180px]">
+                <div className="ampera-chart-region flex-1 min-h-[180px]">
                   {chartData.length >= 2 ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={chartData} margin={{ top: 10, right: 30, bottom: 0, left: -20 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-muted/10" vertical={false} />
+                       <ComposedChart data={chartData} margin={{ top: 10, right: 12, bottom: 0, left: -20 }}>
+                         <defs>
+                           <linearGradient id="issue-progress-fill" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#79b5ec" stopOpacity={0.3} />
+                              <stop offset="100%" stopColor="#79b5ec" stopOpacity={0.04} />
+                           </linearGradient>
+                         </defs>
+                         <CartesianGrid strokeDasharray="3 5" stroke="var(--dashboard-grid)" vertical={false} />
                         <XAxis dataKey="date" tick={{ fontSize: 10, fill: "currentColor", opacity: 0.5 }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={20} />
                         <YAxis yAxisId="left" tick={{ fontSize: 10, fill: "currentColor", opacity: 0.5 }} tickLine={false} axisLine={false} width={40} />
                         <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: "currentColor", opacity: 0.5 }} tickLine={false} axisLine={false} width={40} />
                         <ChartTooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))", background: "hsl(var(--card))", color: "hsl(var(--foreground))" }} />
-                        
+                         <Area yAxisId="left" type="stepAfter" dataKey={historyTab === "issues" ? "total_issues" : "total_potential"} name={historyTab === "issues" ? "Total issues" : "Total potential"} stroke="#488bdd" strokeWidth={2} fill="url(#issue-progress-fill)" dot={false} activeDot={{ r: 4 }} />
                         {historyTab === "issues" ? (
                           <>
-                            <Line yAxisId="left" type="monotone" dataKey="level_a_issues" name="Level A" stroke="#ef4444" strokeWidth={2.5} dot={{ r: 3, fill: "hsl(var(--background))", strokeWidth: 1.5 }} activeDot={{ r: 5, strokeWidth: 0 }} />
-                            <Line yAxisId="left" type="monotone" dataKey="level_aa_issues" name="Level AA" stroke="#a855f7" strokeWidth={2.5} strokeDasharray="5 4" dot={{ r: 3, fill: "hsl(var(--background))", strokeWidth: 1.5 }} activeDot={{ r: 5, strokeWidth: 0 }} />
+                              <Line yAxisId="left" type="stepAfter" dataKey="level_a_issues" name="Level A" stroke="#8ab3d0" strokeWidth={1.5} strokeDasharray="4 4" dot={false} activeDot={{ r: 4 }} />
+                              <Line yAxisId="left" type="stepAfter" dataKey="level_aa_issues" name="Level AA" stroke="#27bbc9" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                           </>
                         ) : (
                           <>
-                            <Line yAxisId="left" type="monotone" dataKey="level_a_potential" name="Level A" stroke="#ef4444" strokeWidth={2.5} dot={{ r: 3, fill: "hsl(var(--background))", strokeWidth: 1.5 }} activeDot={{ r: 5, strokeWidth: 0 }} />
-                            <Line yAxisId="left" type="monotone" dataKey="level_aa_potential" name="Level AA" stroke="#a855f7" strokeWidth={2.5} strokeDasharray="5 4" dot={{ r: 3, fill: "hsl(var(--background))", strokeWidth: 1.5 }} activeDot={{ r: 5, strokeWidth: 0 }} />
+                              <Line yAxisId="left" type="stepAfter" dataKey="level_a_potential" name="Level A" stroke="#8ab3d0" strokeWidth={1.5} strokeDasharray="4 4" dot={false} activeDot={{ r: 4 }} />
+                              <Line yAxisId="left" type="stepAfter" dataKey="level_aa_potential" name="Level AA" stroke="#27bbc9" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                           </>
                         )}
                         <Line yAxisId="right" type="monotone" dataKey="pages" name="Pages" stroke="hsl(var(--muted-foreground))" strokeWidth={2} strokeDasharray="3 3" dot={false} activeDot={{ r: 4 }} />
-                      </LineChart>
+                       </ComposedChart>
                     </ResponsiveContainer>
                   ) : (
                     <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
@@ -797,12 +757,34 @@ export default function SiteDashboard({ siteId }: Props) {
                   )}
                 </div>
               </article>
+              <article className="ampera-card ampera-chart-card flex min-w-0 flex-col rounded-[22px] border border-white/80 bg-card/80 p-5">
+                <div className="mb-5">
+                  <h3 className="text-sm font-semibold text-foreground">WCAG coverage</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">Accessibility score by conformance level</p>
+                </div>
+                <div className="flex flex-1 flex-col justify-center gap-5">
+                  {levelRows.length === 0 ? (
+                    <p className="text-center text-xs text-muted-foreground">No level scores in this scan</p>
+                  ) : levelRows.map((row) => (
+                    <div key={row.level}>
+                      <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+                        <span className="font-medium text-foreground">Level {row.level}</span>
+                        <span className="font-semibold tabular-nums text-foreground">{row.score.toFixed(1)} / 100</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-muted" role="img" aria-label={`WCAG level ${row.level} score ${row.score.toFixed(1)} out of 100`}>
+                        <div className="h-full rounded-full bg-[#5b96ea]" style={{ width: `${Math.max(0, Math.min(100, row.score))}%` }} />
+                      </div>
+                      <p className="mt-1.5 text-[10px] text-muted-foreground">{row.pagesAffected.toLocaleString()} pages affected</p>
+                    </div>
+                  ))}
+                </div>
+              </article>
             </section>
 
             {/* Bottom Panels */}
             <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(220px,0.7fr)_minmax(0,2.3fr)]">
               {/* Recent Scans */}
-              <article className="min-w-0 rounded-[22px] border border-border/60 bg-card/70 p-4 backdrop-blur-xl shadow-sm transition-all hover:shadow-md sm:p-5">
+              <article className="ampera-card min-w-0 rounded-[22px] border border-border/60 bg-card/70 p-4 backdrop-blur-xl shadow-sm transition-all hover:shadow-md sm:p-5">
                 <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-base font-semibold text-foreground">Recent scans</h3>
                   {user?.permissions.canViewCrawlHistory && d.session && (
@@ -814,7 +796,7 @@ export default function SiteDashboard({ siteId }: Props) {
                 
                 <div className="space-y-2 flex-1">
                   {recentScans.map((s, i) => (
-                    <div key={i} className="flex min-w-0 items-center gap-3 rounded-xl border border-border/40 bg-background/40 p-3 hover:border-primary/30 transition-colors shadow-sm">
+                    <div key={i} className="ampera-scan-row flex min-w-0 items-center gap-3 rounded-xl border border-border/40 bg-background/40 p-3 hover:border-primary/30 transition-colors shadow-sm">
                       <div className={`h-10 w-10 shrink-0 grid place-items-center rounded-xl text-sm font-bold shadow-sm ${
                         s.score >= 85 ? "bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/40 dark:text-green-400 dark:border-green-900/50" : 
                         s.score >= 70 ? "bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-900/50" : 
@@ -854,7 +836,7 @@ export default function SiteDashboard({ siteId }: Props) {
               </article>
 
               {/* Top failing rules */}
-              <article className="min-w-0 rounded-[22px] border border-border/60 bg-card/70 p-4 backdrop-blur-xl shadow-sm transition-all hover:shadow-md sm:p-5">
+              <article className="ampera-card min-w-0 rounded-[22px] border border-border/60 bg-card/70 p-4 backdrop-blur-xl shadow-sm transition-all hover:shadow-md sm:p-5">
                 <div className="flex items-center justify-between mb-5">
                   <h3 className="text-base font-semibold text-foreground">Top rules</h3>
                   <div className="grid place-items-center w-7 h-7 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-500">
