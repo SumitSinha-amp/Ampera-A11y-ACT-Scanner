@@ -447,6 +447,7 @@ export default function CrawlerListPage() {
   });
 
   const deleteMutation = useMutation({
+    meta: { activityMessage: "Deleting crawler scan…" },
     mutationFn: async (id: number) => {
       const res = await fetch(`${BASE}/api/crawler/sessions/${id}`, { method: "DELETE", credentials: "include" });
       if (!res.ok) throw new Error("Failed");

@@ -9,11 +9,13 @@ import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
 import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
+import { useActionProgress } from "@/components/top-loading-progress";
 
 export default function ScanReport() {
   const { id } = useParams();
   const scanId = Number(id);
   const { toast } = useToast();
+  const trackAction = useActionProgress();
   const { user } = useAuth();
   const [isExporting, setIsExporting] = useState(false);
   const { data: scan } = useGetScan(scanId, { query: { enabled: !!scanId, queryKey: getGetScanQueryKey(scanId) } });
@@ -23,14 +25,16 @@ export default function ScanReport() {
     if (!scanId) return;
     setIsExporting(true);
     try {
-      const response = await fetch(`/api/scans/${scanId}/export?format=csv`, { credentials: "include" });
-      if (!response.ok) throw new Error(`Export failed with status ${response.status}`);
-      const url = URL.createObjectURL(await response.blob());
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${(scan?.name || `scan-${scanId}`).replace(/[^a-z0-9_-]/gi, "_").toLowerCase()}-a11y-report.csv`;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      await trackAction("Exporting CSV…", async () => {
+        const response = await fetch(`/api/scans/${scanId}/export?format=csv`, { credentials: "include" });
+        if (!response.ok) throw new Error(`Export failed with status ${response.status}`);
+        const url = URL.createObjectURL(await response.blob());
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `${(scan?.name || `scan-${scanId}`).replace(/[^a-z0-9_-]/gi, "_").toLowerCase()}-a11y-report.csv`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+      });
       toast({ title: "CSV exported" });
     } catch {
       toast({ title: "Export failed", description: "Could not generate the CSV report.", variant: "destructive" });

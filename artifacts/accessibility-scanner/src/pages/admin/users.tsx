@@ -18,6 +18,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
 import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
+import { useActionProgress } from "@/components/top-loading-progress";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -88,6 +89,7 @@ function GroupMultiSelect({
 }
 
 export default function AdminUsersPage() {
+  const trackAction = useActionProgress();
   const [location, navigate] = useLocation();
   const [users, setUsers] = useState<AppUser[]>([]);
   const [allGroups, setAllGroups] = useState<UserGroup[]>([]);
@@ -206,7 +208,10 @@ export default function AdminUsersPage() {
   async function handleDelete() {
     if (!deleteUser) return;
     try {
-      await fetch(`${BASE}/api/admin/users/${deleteUser.id}`, { method: "DELETE", credentials: "include" });
+      await trackAction("Deleting user…", async () => {
+        const response = await fetch(`${BASE}/api/admin/users/${deleteUser.id}`, { method: "DELETE", credentials: "include" });
+        if (!response.ok) throw new Error("Failed to delete user");
+      });
       setDeleteUser(null);
       loadAll();
       toast({ title: "User deleted" });

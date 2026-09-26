@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { useActionProgress } from "@/components/top-loading-progress";
 import type { Issue } from "../../lib/issue-types";
 
 interface IssueExportActionsProps {
@@ -42,6 +43,7 @@ function downloadBlob(content: BlobPart, filename: string, type: string) {
 
 export function IssueExportActions({ issues }: IssueExportActionsProps) {
   const { toast } = useToast();
+  const trackAction = useActionProgress();
   const [shared, setShared] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const disabled = issues.length === 0;
@@ -49,69 +51,79 @@ export function IssueExportActions({ issues }: IssueExportActionsProps) {
   const date = new Date().toISOString().slice(0, 10);
   const filename = safeFilename(`issues-${date}`);
 
-  const exportCsv = () => {
-    const header = [
-      "Issue key",
-      "Type",
-      "Title",
-      "Status",
-      "Priority",
-      "Assignee",
-      "Reporter",
-      "Site",
-      "Project",
-      "Created",
-      "Updated",
-      "Description",
-    ];
-    const rows = issues.map((issue) => [
-      issue.issueKey,
-      issue.type,
-      issue.title,
-      issue.status,
-      issue.priority,
-      issue.assigneeName,
-      issue.reporterName,
-      issue.siteName,
-      issue.projectName,
-      new Date(issue.createdAt).toLocaleDateString(),
-      new Date(issue.updatedAt).toLocaleDateString(),
-      plainText(issue.description),
-    ]);
-    const csv = [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
-    downloadBlob(`\uFEFF${csv}`, `${filename}.csv`, "text/csv;charset=utf-8");
-    toast({ title: "CSV exported", description: `${issues.length} issue${issues.length === 1 ? "" : "s"} downloaded.` });
+  const exportCsv = async () => {
+    try {
+      await trackAction("Exporting issues CSV…", async () => {
+        // Allow a paint before generating a large CSV.
+        await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        const header = [
+          "Issue key",
+          "Type",
+          "Title",
+          "Status",
+          "Priority",
+          "Assignee",
+          "Reporter",
+          "Site",
+          "Project",
+          "Created",
+          "Updated",
+          "Description",
+        ];
+        const rows = issues.map((issue) => [
+          issue.issueKey,
+          issue.type,
+          issue.title,
+          issue.status,
+          issue.priority,
+          issue.assigneeName,
+          issue.reporterName,
+          issue.siteName,
+          issue.projectName,
+          new Date(issue.createdAt).toLocaleDateString(),
+          new Date(issue.updatedAt).toLocaleDateString(),
+          plainText(issue.description),
+        ]);
+        const csv = [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
+        downloadBlob(`\uFEFF${csv}`, `${filename}.csv`, "text/csv;charset=utf-8");
+      });
+      toast({ title: "CSV exported", description: `${issues.length} issue${issues.length === 1 ? "" : "s"} downloaded.` });
+    } catch {
+      toast({ title: "Export failed", description: "The CSV could not be generated.", variant: "destructive" });
+    }
   };
 
   const exportPdf = async () => {
     try {
-      const { jsPDF } = await import("jspdf");
-      const { default: autoTable } = await import("jspdf-autotable");
-      const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
-      doc.setFontSize(18);
-      doc.text("Issue Management", 40, 40);
-      doc.setFontSize(9);
-      doc.setTextColor(100);
-      doc.text(`${issues.length} filtered issue${issues.length === 1 ? "" : "s"} · ${date}`, 40, 56);
-      autoTable(doc, {
-        startY: 72,
-        head: [["Key", "Type", "Title", "Status", "Priority", "Assignee", "Site", "Updated"]],
-        body: issues.map((issue) => [
-          issue.issueKey,
-          issue.type,
-          plainText(issue.title),
-          issue.status.replace(/_/g, " "),
-          issue.priority,
-          issue.assigneeName || "Unassigned",
-          issue.siteName || "—",
-          new Date(issue.updatedAt).toLocaleDateString(),
-        ]),
-        styles: { fontSize: 8, cellPadding: 5, overflow: "linebreak" },
-        headStyles: { fillColor: [124, 58, 237], textColor: 255 },
-        alternateRowStyles: { fillColor: [248, 247, 252] },
-        columnStyles: { 2: { cellWidth: 210 }, 6: { cellWidth: 100 } },
+      await trackAction("Exporting issues PDF…", async () => {
+        const { jsPDF } = await import("jspdf");
+        const { default: autoTable } = await import("jspdf-autotable");
+        const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+        doc.setFontSize(18);
+        doc.text("Issue Management", 40, 40);
+        doc.setFontSize(9);
+        doc.setTextColor(100);
+        doc.text(`${issues.length} filtered issue${issues.length === 1 ? "" : "s"} · ${date}`, 40, 56);
+        autoTable(doc, {
+          startY: 72,
+          head: [["Key", "Type", "Title", "Status", "Priority", "Assignee", "Site", "Updated"]],
+          body: issues.map((issue) => [
+            issue.issueKey,
+            issue.type,
+            plainText(issue.title),
+            issue.status.replace(/_/g, " "),
+            issue.priority,
+            issue.assigneeName || "Unassigned",
+            issue.siteName || "—",
+            new Date(issue.updatedAt).toLocaleDateString(),
+          ]),
+          styles: { fontSize: 8, cellPadding: 5, overflow: "linebreak" },
+          headStyles: { fillColor: [124, 58, 237], textColor: 255 },
+          alternateRowStyles: { fillColor: [248, 247, 252] },
+          columnStyles: { 2: { cellWidth: 210 }, 6: { cellWidth: 100 } },
+        });
+        doc.save(`${filename}.pdf`);
       });
-      doc.save(`${filename}.pdf`);
       toast({ title: "PDF exported", description: `${issues.length} issue${issues.length === 1 ? "" : "s"} downloaded.` });
     } catch {
       toast({ title: "Export failed", description: "The PDF could not be generated.", variant: "destructive" });

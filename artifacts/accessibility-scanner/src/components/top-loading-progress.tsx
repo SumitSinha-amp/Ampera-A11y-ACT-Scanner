@@ -1,15 +1,117 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { useIsFetching } from "@tanstack/react-query";
+import { useIsFetching, useIsMutating, useMutationState } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth";
 import "./loading-state.css";
 
-const LoadingActivityContext = createContext<{ count: number; change: (delta: number) => void } | null>(null);
+type LoadingActivity = {
+  count: number;
+  change: (delta: number) => void;
+  actions: { id: number; message: string; source: "explicit" | "network" }[];
+  beginAction: (message: string, source?: "explicit" | "network") => () => void;
+  liveScan: LiveScanProgress | null;
+  updateLiveScan: (next: LiveScanProgress | null, scanId: number) => void;
+};
+
+type LiveScanProgress = {
+  scanId: number;
+  status: "running" | "paused";
+  percent: number;
+  authoritative: boolean;
+};
+
+const LoadingActivityContext = createContext<LoadingActivity | null>(null);
 
 export function LoadingActivityProvider({ children }: { children: React.ReactNode }) {
   const [count, setCount] = useState(0);
+  const [actions, setActions] = useState<LoadingActivity["actions"]>([]);
+  const [liveScan, setLiveScan] = useState<LiveScanProgress | null>(null);
+  const nextActionId = useRef(0);
   const change = useCallback((delta: number) => setCount((current) => Math.max(0, current + delta)), []);
-  return <LoadingActivityContext.Provider value={{ count, change }}>{children}</LoadingActivityContext.Provider>;
+  const beginAction = useCallback((message: string, source: "explicit" | "network" = "explicit") => {
+    const id = ++nextActionId.current;
+    setActions((current) => [...current, { id, message, source }]);
+    return () => setActions((current) => current.filter((action) => action.id !== id));
+  }, []);
+  const updateLiveScan = useCallback((next: LiveScanProgress | null, scanId: number) => {
+    setLiveScan((current) => {
+      if (!next) return current?.scanId === scanId ? null : current;
+      const percent = Math.max(0, Math.min(100, Math.round(next.percent)));
+      // Hold the recorded percentage while paused, including when late page
+      // completions arrive. Allow the first live-status response to replace
+      // the less accurate scan-summary percentage.
+      if (next.status === "paused" && current?.scanId === scanId &&
+          current.status === "paused" && (current.authoritative || !next.authoritative)) {
+        return current;
+      }
+      if (current?.scanId === scanId && current.status === next.status &&
+          current.percent === percent && current.authoritative === next.authoritative) {
+        return current;
+      }
+      return { ...next, percent };
+    });
+  }, []);
+
+  useEffect(() => {
+    const originalFetch = window.fetch;
+    const monitoredFetch: typeof window.fetch = (input, init) => {
+      const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+      if (!["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+        return originalFetch.call(window, input, init);
+      }
+      let url: URL;
+      try {
+        url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
+      } catch {
+        return originalFetch.call(window, input, init);
+      }
+      if (url.origin !== window.location.origin || !url.pathname.includes("/api/")) {
+        return originalFetch.call(window, input, init);
+      }
+      const message = method === "DELETE" ? "Deleting…"
+        : /\/upload(?:\/|$)/.test(url.pathname) ? "Uploading…"
+        : method === "PUT" || method === "PATCH" ? "Saving changes…"
+        : "Processing action…";
+      const finish = beginAction(message, "network");
+      try {
+        return originalFetch.call(window, input, init).finally(finish);
+      } catch (error) {
+        finish();
+        throw error;
+      }
+    };
+    window.fetch = monitoredFetch;
+    return () => {
+      if (window.fetch === monitoredFetch) window.fetch = originalFetch;
+    };
+  }, [beginAction]);
+
+  return <LoadingActivityContext.Provider value={{ count, change, actions, beginAction, liveScan, updateLiveScan }}>{children}</LoadingActivityContext.Provider>;
+}
+
+/** Registers only the scan currently visible on the live progress page. */
+export function LiveScanProgressReporter({ scanId, status, percent, authoritative }: LiveScanProgress) {
+  const updateLiveScan = useContext(LoadingActivityContext)?.updateLiveScan;
+  useEffect(() => {
+    updateLiveScan?.({ scanId, status, percent, authoritative }, scanId);
+  }, [updateLiveScan, scanId, status, percent, authoritative]);
+  useEffect(() => () => updateLiveScan?.(null, scanId), [updateLiveScan, scanId]);
+  return null;
+}
+
+/** Tracks a user-initiated async operation, including downloads that do not use React Query. */
+export function useActionProgress() {
+  const activity = useContext(LoadingActivityContext);
+  if (!activity) throw new Error("useActionProgress requires LoadingActivityProvider");
+  const { beginAction } = activity;
+  return useCallback(async <T,>(message: string, operation: () => Promise<T>): Promise<T> => {
+    const finish = beginAction(message);
+    try {
+      return await operation();
+    } finally {
+      finish();
+    }
+  }, [beginAction]);
 }
 
 export function useTrackPageLoading() {
@@ -34,13 +136,29 @@ function loadingMessage(path: string) {
 }
 
 export function TopLoadingProgress() {
-  const manualLoads = useContext(LoadingActivityContext)?.count ?? 0;
+  const activity = useContext(LoadingActivityContext);
+  const manualLoads = activity?.count ?? 0;
   const { user } = useAuth();
+  const liveScan = user ? activity?.liveScan : null;
   const [location] = useLocation();
   // Ignore background refreshes; they already have data on screen.
   const firstFetches = useIsFetching({
     predicate: (query) => query.state.status === "pending" && query.state.fetchStatus === "fetching",
   });
+  const mutations = useIsMutating();
+  const mutationMessages = useMutationState({
+    filters: { status: "pending" },
+    select: (mutation) => mutation.options.meta?.activityMessage as string | undefined,
+  });
+  const actionMessage = activity?.actions.slice().reverse().find((action) => action.source === "explicit")?.message
+    ?? mutationMessages.slice().reverse().find((message) => Boolean(message))
+    ?? activity?.actions[activity.actions.length - 1]?.message
+    ?? (mutations > 0 ? "Processing changes…" : loadingMessage(location));
+  const message = liveScan
+    ? liveScan.status === "paused"
+      ? `Scan paused at ${liveScan.percent}%`
+      : `Scanning… ${liveScan.percent}%`
+    : actionMessage;
   const [routeSettling, setRouteSettling] = useState(true);
   const [phase, setPhase] = useState<"idle" | "running" | "complete">("idle");
   const [progress, setProgress] = useState(0);
@@ -54,7 +172,10 @@ export function TopLoadingProgress() {
     return () => window.clearTimeout(timer);
   }, [location]);
 
-  const busy = Boolean(user) && (routeSettling || firstFetches > 0 || manualLoads > 0);
+  const busy = Boolean(user) && (Boolean(liveScan) || routeSettling || firstFetches > 0 || manualLoads > 0 || mutations > 0 || (activity?.actions.length ?? 0) > 0);
+  useEffect(() => {
+    if (liveScan) setProgress(liveScan.percent);
+  }, [liveScan]);
   useEffect(() => {
     window.clearTimeout(finishTimer.current);
     if (!user) {
@@ -88,20 +209,20 @@ export function TopLoadingProgress() {
   }, [busy, user]);
 
   useEffect(() => {
-    if (phase !== "running") return;
+    if (phase !== "running" || liveScan) return;
     const timer = window.setInterval(() => {
       setProgress((current) => Math.min(90, current + Math.max(0.5, (90 - current) * 0.09)));
     }, 470);
     return () => window.clearInterval(timer);
-  }, [phase]);
+  }, [phase, liveScan]);
 
   if (phase === "idle") return null;
   return (
-    <div className="top-data-progress" role="status" aria-live="polite" aria-label={phase === "complete" ? "Loading complete" : loadingMessage(location)}>
+    <div className="top-data-progress" role="status" aria-live="polite" aria-label={phase === "complete" ? "Completed" : message}>
       <div className="top-data-progress__track" aria-hidden="true">
-        <div className="top-data-progress__bar" style={{ width: `${progress}%` }} />
+        <div className="top-data-progress__bar" style={{ width: `${liveScan?.percent ?? progress}%` }} />
       </div>
-      {phase === "running" && <span className="top-data-progress__message">{loadingMessage(location)}</span>}
+      {phase === "running" && <span className="top-data-progress__message">{message}</span>}
     </div>
   );
 }

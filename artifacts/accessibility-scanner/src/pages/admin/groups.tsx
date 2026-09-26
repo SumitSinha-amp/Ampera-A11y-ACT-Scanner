@@ -11,6 +11,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
+import { useActionProgress } from "@/components/top-loading-progress";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -19,6 +20,7 @@ interface UserGroup { id: number; name: string; description: string | null; role
 interface AppUser { id: number; fullName: string; username: string }
 
 export default function AdminGroupsPage() {
+  const trackAction = useActionProgress();
   const [location, navigate] = useLocation();
   const [groups, setGroups] = useState<UserGroup[]>([]);
   const [allUsers, setAllUsers] = useState<AppUser[]>([]);
@@ -120,7 +122,10 @@ export default function AdminGroupsPage() {
   async function handleDelete() {
     if (!deleteGroup) return;
     try {
-      await fetch(`${BASE}/api/admin/groups/${deleteGroup.id}`, { method: "DELETE", credentials: "include" });
+      await trackAction("Deleting group…", async () => {
+        const response = await fetch(`${BASE}/api/admin/groups/${deleteGroup.id}`, { method: "DELETE", credentials: "include" });
+        if (!response.ok) throw new Error("Failed to delete group");
+      });
       setDeleteGroup(null);
       loadAll();
       toast({ title: "Group deleted" });

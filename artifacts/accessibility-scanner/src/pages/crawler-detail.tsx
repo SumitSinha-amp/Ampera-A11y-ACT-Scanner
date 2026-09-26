@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "wouter";
 import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
+import { useActionProgress } from "@/components/top-loading-progress";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -450,6 +451,7 @@ export default function CrawlerDetailPage() {
   const { id } = useParams();
   const sessionId = parseInt(id as string, 10);
   const { toast } = useToast();
+  const trackAction = useActionProgress();
   const qc = useQueryClient();
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -749,27 +751,30 @@ export default function CrawlerDetailPage() {
   const canExport = user?.permissions?.canExport ?? false;
 
   const exportPages = async () => {
-    const params = new URLSearchParams();
-    if (pagesStatusFilter !== "all") params.set("status", pagesStatusFilter);
-    if (pagesLocaleFilter) params.set("locale", pagesLocaleFilter);
-    if (pagesPageTypeFilter !== "all") params.set("pageType", pagesPageTypeFilter);
-    if (pagesExtensionFilter) params.set("extension", pagesExtensionFilter);
-    const response = await fetch(`${BASE}/api/crawler/sessions/${sessionId}/pages/export?${params}`, {
-      credentials: "include",
-    });
-    if (!response.ok) {
+    try {
+      await trackAction("Exporting crawler pages…", async () => {
+        const params = new URLSearchParams();
+        if (pagesStatusFilter !== "all") params.set("status", pagesStatusFilter);
+        if (pagesLocaleFilter) params.set("locale", pagesLocaleFilter);
+        if (pagesPageTypeFilter !== "all") params.set("pageType", pagesPageTypeFilter);
+        if (pagesExtensionFilter) params.set("extension", pagesExtensionFilter);
+        const response = await fetch(`${BASE}/api/crawler/sessions/${sessionId}/pages/export?${params}`, {
+          credentials: "include",
+        });
+        if (!response.ok) throw new Error("The filtered page report could not be downloaded.");
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `crawler-${sessionId}-pages.csv`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+      });
+    } catch {
       toast({ title: "Export failed", description: "The filtered page report could not be downloaded.", variant: "destructive" });
-      return;
     }
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `crawler-${sessionId}-pages.csv`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
   };
 
   const timezone = (displaySession.config?.timezone as string) || undefined;

@@ -12,6 +12,7 @@ import {
   getGetScanQueryKey,
 } from "@workspace/api-client-react";
 import { useMutation } from "@tanstack/react-query";
+import { LiveScanProgressReporter, useActionProgress } from "@/components/top-loading-progress";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -1076,6 +1077,7 @@ function ExportButtons({
   compact?: boolean;
 }) {
   const { toast } = useToast();
+  const trackAction = useActionProgress();
   const [exporting, setExporting] = useState<"csv" | "excel" | "pdf" | null>(null);
   const scanLabel = scan.name || `scan-${scan.id}`;
   const safeLabel = scanLabel.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
@@ -1091,105 +1093,112 @@ function ExportButtons({
   const exportCsv = useCallback(async () => {
     setExporting("csv");
     try {
-      const resp = await fetchExportData("csv");
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${safeLabel}-a11y-report.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await trackAction("Exporting CSV…", async () => {
+        const resp = await fetchExportData("csv");
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${safeLabel}-a11y-report.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
       toast({ title: "CSV exported" });
     } catch {
       toast({ title: "Export failed", description: "Could not generate CSV.", variant: "destructive" });
     } finally {
       setExporting(null);
     }
-  }, [fetchExportData, safeLabel, toast]);
+  }, [fetchExportData, safeLabel, toast, trackAction]);
 
   const exportExcel = useCallback(async () => {
     setExporting("excel");
     try {
-      const resp = await fetchExportData("excel");
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${safeLabel}-a11y-report.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await trackAction("Exporting Excel…", async () => {
+        const resp = await fetchExportData("excel");
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${safeLabel}-a11y-report.xlsx`;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
       toast({ title: "Excel exported" });
     } catch {
       toast({ title: "Export failed", description: "Could not generate Excel.", variant: "destructive" });
     } finally {
       setExporting(null);
     }
-  }, [fetchExportData, safeLabel, toast]);
+  }, [fetchExportData, safeLabel, toast, trackAction]);
 
   const exportPdf = useCallback(async () => {
     setExporting("pdf");
     try {
-      const resp = await fetchExportData("json");
-      const data = await resp.json() as {
-        scanName: string;
-        selectedRules: string;
-        rows: Array<{
-          url: string; ruleId: string; ruleLabel: string; description: string;
-          impact: string; wcagCriteria: string; wcagLevel: string;
-          selector: string; remediation: string;
-        }>;
-      };
-      const { rows, scanName } = data;
-      const issueCount = rows.filter(r => r.ruleId !== data.selectedRules && r.description !== "No accessibility issues found").length;
-      const pageCount = new Set(rows.map(r => r.url)).size;
+      const issueCount = await trackAction("Exporting PDF…", async () => {
+        const resp = await fetchExportData("json");
+        const data = await resp.json() as {
+          scanName: string;
+          selectedRules: string;
+          rows: Array<{
+            url: string; ruleId: string; ruleLabel: string; description: string;
+            impact: string; wcagCriteria: string; wcagLevel: string;
+            selector: string; remediation: string;
+          }>;
+        };
+        const { rows, scanName } = data;
+        const issueCount = rows.filter(r => r.ruleId !== data.selectedRules && r.description !== "No accessibility issues found").length;
+        const pageCount = new Set(rows.map(r => r.url)).size;
 
-      const { jsPDF } = await import("jspdf");
-      const autoTable = (await import("jspdf-autotable")).default;
-      const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+        const { jsPDF } = await import("jspdf");
+        const autoTable = (await import("jspdf-autotable")).default;
+        const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
 
-      doc.setFontSize(16);
-      doc.text(`Accessibility Report: ${scanName}`, 40, 40);
-      doc.setFontSize(10);
-      doc.setTextColor(120);
-      doc.text(`Generated: ${new Date().toLocaleString()} — ${issueCount} issue${issueCount !== 1 ? "s" : ""} across ${pageCount} page${pageCount !== 1 ? "s" : ""}`, 40, 58);
-      doc.setTextColor(0);
+        doc.setFontSize(16);
+        doc.text(`Accessibility Report: ${scanName}`, 40, 40);
+        doc.setFontSize(10);
+        doc.setTextColor(120);
+        doc.text(`Generated: ${new Date().toLocaleString()} — ${issueCount} issue${issueCount !== 1 ? "s" : ""} across ${pageCount} page${pageCount !== 1 ? "s" : ""}`, 40, 58);
+        doc.setTextColor(0);
 
-      autoTable(doc, {
-        startY: 70,
-        head: [["#", "Page URL", "Rule ID", "Description", "Impact", "WCAG", "Selector", "Remediation"]],
-        body: rows.map((r, i) => [
-          i + 1,
-          r.url,
-          r.ruleId,
-          r.description,
-          r.impact,
-          r.wcagCriteria ? `${r.wcagCriteria} (${r.wcagLevel})` : "",
-          r.selector,
-          r.remediation,
-        ]),
-        styles: { fontSize: 7, cellPadding: 4, overflow: "linebreak" },
-        headStyles: { fillColor: [109, 40, 217], textColor: 255, fontStyle: "bold" },
-        columnStyles: {
-          0: { cellWidth: 22 },
-          1: { cellWidth: 150 },
-          2: { cellWidth: 48 },
-          3: { cellWidth: 170 },
-          4: { cellWidth: 48 },
-          5: { cellWidth: 55 },
-          6: { cellWidth: 120 },
-          7: { cellWidth: 150 },
-        },
-        alternateRowStyles: { fillColor: [248, 246, 255] },
+        autoTable(doc, {
+          startY: 70,
+          head: [["#", "Page URL", "Rule ID", "Description", "Impact", "WCAG", "Selector", "Remediation"]],
+          body: rows.map((r, i) => [
+            i + 1,
+            r.url,
+            r.ruleId,
+            r.description,
+            r.impact,
+            r.wcagCriteria ? `${r.wcagCriteria} (${r.wcagLevel})` : "",
+            r.selector,
+            r.remediation,
+          ]),
+          styles: { fontSize: 7, cellPadding: 4, overflow: "linebreak" },
+          headStyles: { fillColor: [109, 40, 217], textColor: 255, fontStyle: "bold" },
+          columnStyles: {
+            0: { cellWidth: 22 },
+            1: { cellWidth: 150 },
+            2: { cellWidth: 48 },
+            3: { cellWidth: 170 },
+            4: { cellWidth: 48 },
+            5: { cellWidth: 55 },
+            6: { cellWidth: 120 },
+            7: { cellWidth: 150 },
+          },
+          alternateRowStyles: { fillColor: [248, 246, 255] },
+        });
+
+        doc.save(`${safeLabel}-a11y-report.pdf`);
+        return issueCount;
       });
-
-      doc.save(`${safeLabel}-a11y-report.pdf`);
       toast({ title: issueCount === 0 ? "PDF exported — no issues found" : "PDF exported" });
     } catch {
       toast({ title: "Export failed", description: "Could not generate PDF.", variant: "destructive" });
     } finally {
       setExporting(null);
     }
-  }, [fetchExportData, safeLabel, toast]);
+  }, [fetchExportData, safeLabel, toast, trackAction]);
 
   return (
     <DropdownMenu>
@@ -1320,6 +1329,7 @@ export default function ScanDetail() {
   const { id } = useParams();
   const scanId = Number(id);
   const { toast } = useToast();
+  const trackAction = useActionProgress();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
 
@@ -1459,7 +1469,7 @@ export default function ScanDetail() {
   async function exportSmartPDF() {
     const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
     const freshRes = await fetch(`${BASE}/api/scans/${scanId}/smart-analysis`, { credentials: "include" });
-    if (!freshRes.ok) return;
+    if (!freshRes.ok) throw new Error("Smart Analysis PDF could not be generated.");
     const freshData: SmartAnalysisData = await freshRes.json();
 
     const { default: jsPDF } = await import("jspdf");
@@ -1577,7 +1587,7 @@ export default function ScanDetail() {
   async function exportSmartExcel() {
     const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
     const freshRes = await fetch(`${BASE}/api/scans/${scanId}/smart-analysis`, { credentials: "include" });
-    if (!freshRes.ok) return;
+    if (!freshRes.ok) throw new Error("Smart Analysis Excel file could not be generated.");
     const freshData: SmartAnalysisData = await freshRes.json();
     const exportComponents = freshData.components;
 
@@ -2392,6 +2402,14 @@ export default function ScanDetail() {
 
   return (
     <div className="min-h-full space-y-4 pb-4">
+      {isActive && (displayStatus === "running" || displayStatus === "pending" || displayStatus === "paused") && (
+        <LiveScanProgressReporter
+          scanId={scanId}
+          status={displayStatus === "paused" ? "paused" : "running"}
+          percent={progressPercent}
+          authoritative={Boolean(liveStatus)}
+        />
+      )}
       {/* Loading Results Overlay — shown briefly after scan completes while page data loads */}
       {showUpdatingResults && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
@@ -2468,7 +2486,9 @@ export default function ScanDetail() {
                 )}
                 <div className="ml-auto flex items-center gap-1.5">
                   <button
-                    onClick={exportSmartExcel}
+                    onClick={() => void trackAction("Exporting Smart Analysis Excel…", exportSmartExcel).catch(() => {
+                      toast({ title: "Export failed", description: "Could not generate the Excel file.", variant: "destructive" });
+                    })}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/50 transition-colors"
                     title="Export to Excel"
                   >
@@ -2476,7 +2496,9 @@ export default function ScanDetail() {
                     Excel
                   </button>
                   <button
-                    onClick={exportSmartPDF}
+                    onClick={() => void trackAction("Exporting Smart Analysis PDF…", exportSmartPDF).catch(() => {
+                      toast({ title: "Export failed", description: "Could not generate the PDF.", variant: "destructive" });
+                    })}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/30 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/50 transition-colors"
                     title="Export to PDF"
                   >

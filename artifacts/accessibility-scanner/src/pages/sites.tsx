@@ -236,6 +236,7 @@ export default function SitesPage() {
   });
 
   const deleteMutation = useMutation({
+    meta: { activityMessage: "Deleting site…" },
     mutationFn: async (id: number) => {
       const res = await fetch(`${BASE}/api/sites/${id}`, { method: "DELETE", credentials: "include" });
       if (!res.ok) throw new Error("Failed to delete site");

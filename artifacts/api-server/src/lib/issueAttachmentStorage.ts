@@ -92,10 +92,10 @@ export class IssueAttachmentStorageService {
     throw new Error("Cloudflare R2 returned no readable body");
   }
 
-  async prepareUpload(contentType: string): Promise<PreparedAttachmentUpload> {
+  async prepareUpload(contentType: string, folder: "issues" | "branding" = "issues"): Promise<PreparedAttachmentUpload> {
     if (this.provider() === "r2") {
       this.r2Config();
-      const objectName = `issues/${randomUUID()}`;
+      const objectName = `${folder}/${randomUUID()}`;
       return {
         // R2 uploads are proxied through the authenticated API route so the
         // bucket can remain private and does not need browser CORS settings.
@@ -110,7 +110,7 @@ export class IssueAttachmentStorageService {
     if (this.provider() === "azure") {
       const container = this.azureContainer();
       await container.createIfNotExists();
-      const objectName = `issues/${randomUUID()}`;
+      const objectName = `${folder}/${randomUUID()}`;
       return {
         // Azure uploads are proxied through the authenticated API route. This
         // avoids requiring a permissive Blob Storage CORS policy in every
@@ -123,7 +123,7 @@ export class IssueAttachmentStorageService {
       };
     }
 
-    const uploadURL = await this.replitStorage.getObjectEntityUploadURL();
+    const uploadURL = await this.replitStorage.getObjectEntityUploadURL(folder === "branding" ? "branding" : "uploads");
     return {
       uploadURL,
       objectPath: this.replitStorage.normalizeObjectEntityPath(uploadURL),

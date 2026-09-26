@@ -15,6 +15,7 @@ import {
 } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/auth";
 import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
+import { useActionProgress } from "@/components/top-loading-progress";
 import { useSite } from "@/contexts/site";
 import { ProjectSelector } from "@/components/project-selector";
 import { Link, useLocation } from "wouter";
@@ -879,6 +880,7 @@ export default function ScanList() {
   }, [isPolling]);
 
   const deleteScan = useDeleteScan();
+  const trackAction = useActionProgress();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [nameFilter, setNameFilter] = useState("");
@@ -942,6 +944,7 @@ export default function ScanList() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   const bulkDeleteMutation = useMutation({
+    meta: { activityMessage: "Deleting scans…" },
     mutationFn: async (ids: number[]) => {
       const res = await fetch(`${BASE_URL}/api/scans/bulk`, {
         method: "DELETE",
@@ -1146,22 +1149,18 @@ export default function ScanList() {
   }, [activeSite?.id]);
 
   const handleDelete = (id: number) => {
-    deleteScan.mutate(
-      { id },
-      {
-        onSuccess: () => {
-          toast({ title: "Scan deleted" });
-          queryClient.invalidateQueries({ queryKey: getListScansQueryKey() });
-        },
-        onError: () => {
-          toast({
-            title: "Error deleting scan",
-            description: "Could not delete the scan",
-            variant: "destructive",
-          });
-        },
-      },
-    );
+    void trackAction("Deleting scan…", () => deleteScan.mutateAsync({ id }))
+      .then(() => {
+        toast({ title: "Scan deleted" });
+        queryClient.invalidateQueries({ queryKey: getListScansQueryKey() });
+      })
+      .catch(() => {
+        toast({
+          title: "Error deleting scan",
+          description: "Could not delete the scan",
+          variant: "destructive",
+        });
+      });
   };
 
   if (isLoading) {
