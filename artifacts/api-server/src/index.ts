@@ -1988,11 +1988,10 @@
       client.release();
     }
   }
-
+startListening(port);
 runStartupMigrations()
   .then(() => checkDatabaseWritable())
   .then(() => Promise.all([seedDefaultAdmin(), ensureChromeDependencies()]))
-  .then(() => startListening(port))
   .catch((err) => {
     logger.error({ err }, "Startup failed");
     process.exit(1);
