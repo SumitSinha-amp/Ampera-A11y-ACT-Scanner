@@ -9,11 +9,15 @@ import {
 const {
   sendMock,
   getObjectEntityFileMock,
+  getObjectEntityUploadURLMock,
+  normalizeObjectEntityPathMock,
   getObjectMetadataMock,
   deleteObjectMock,
 } = vi.hoisted(() => ({
   sendMock: vi.fn(),
   getObjectEntityFileMock: vi.fn(),
+  getObjectEntityUploadURLMock: vi.fn(),
+  normalizeObjectEntityPathMock: vi.fn(),
   getObjectMetadataMock: vi.fn(),
   deleteObjectMock: vi.fn(),
 }));
@@ -37,8 +41,11 @@ vi.mock("@aws-sdk/client-s3", () => {
 
 vi.mock("./objectStorage", () => ({
   ObjectStorageService: class ObjectStorageService {
-    getObjectEntityUploadURL() {
-      throw new Error("Replit storage should not be used by R2 tests");
+    getObjectEntityUploadURL(folder: string) {
+      return getObjectEntityUploadURLMock(folder);
+    }
+    normalizeObjectEntityPath(uploadURL: string) {
+      return normalizeObjectEntityPathMock(uploadURL);
     }
     getObjectEntityFile(objectPath: string) {
       return getObjectEntityFileMock(objectPath);
@@ -96,6 +103,30 @@ describe("IssueAttachmentStorageService Cloudflare R2 backend", () => {
     expect(prepared.objectPath).toMatch(/^\/r2-objects\/issues\/[0-9a-f-]+$/);
     expect(prepared.uploadHeaders).toEqual({ "Content-Type": "image/png" });
     expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps R2 branding uploads separate from issue attachments", async () => {
+    const prepared = await new IssueAttachmentStorageService().prepareUpload("image/png", "branding");
+
+    expect(prepared.uploadURL).toBeNull();
+    expect(prepared.objectPath).toMatch(/^\/r2-objects\/branding\/[0-9a-f-]+$/);
+    expect(prepared.uploadHeaders).toEqual({ "Content-Type": "image/png" });
+  });
+
+  it("keeps Replit branding uploads separate from other private uploads", async () => {
+    process.env.ISSUE_ATTACHMENT_STORAGE_PROVIDER = "replit";
+    getObjectEntityUploadURLMock.mockResolvedValue("https://upload.example.test/branding-image");
+    normalizeObjectEntityPathMock.mockReturnValue("/objects/branding/example-image");
+
+    const prepared = await new IssueAttachmentStorageService().prepareUpload("image/png", "branding");
+
+    expect(getObjectEntityUploadURLMock).toHaveBeenCalledWith("branding");
+    expect(normalizeObjectEntityPathMock).toHaveBeenCalledWith("https://upload.example.test/branding-image");
+    expect(prepared).toEqual({
+      uploadURL: "https://upload.example.test/branding-image",
+      objectPath: "/objects/branding/example-image",
+      uploadHeaders: { "Content-Type": "image/png" },
+    });
   });
 
   it("uploads to R2 and checks the stored size", async () => {

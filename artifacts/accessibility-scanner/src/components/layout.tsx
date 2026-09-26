@@ -92,6 +92,9 @@ import SettingsPage, {
   applyTheme,
   THEME_LS_KEY,
   THEME_CHANGED_EVENT,
+  SIDEBAR_COLLAPSED_LOGO_VISIBLE_LS_KEY,
+  SIDEBAR_COLLAPSED_LOGO_VISIBLE_CHANGED_EVENT,
+  isSidebarCollapsedLogoVisible,
 } from "@/pages/settings";
 import {
   APP_UPDATES_VERSION,
@@ -191,11 +194,15 @@ function HeaderThemeSwitcher() {
   );
 }
 
-function AppLogo() {
+function AppLogo({ collapsed }: { collapsed: boolean }) {
   const BASE_URL = import.meta.env.BASE_URL as string;
   const BASE = BASE_URL.replace(/\/$/, "");
   const [logoType, setLogoType] = useState<LogoType>("image");
   const [imgUrl, setImgUrl] = useState(() => `${BASE_URL}act-logo.png`);
+  const [collapsedImgUrl, setCollapsedImgUrl] = useState("");
+  const [collapsedImgError, setCollapsedImgError] = useState(false);
+  const [collapsedSize, setCollapsedSize] = useState(32);
+  const [wrapSidebarText, setWrapSidebarText] = useState(true);
   const [text, setText] = useState(DEFAULT_LOGO_TEXT);
   const [subtitle, setSubtitle] = useState(DEFAULT_LOGO_SUBTITLE);
   const [size, setSize] = useState(DEFAULT_LOGO_SIZE);
@@ -206,6 +213,9 @@ function AppLogo() {
     const applyData = (data: {
       type: string;
       imageUrl: string;
+      collapsedImageUrl?: string;
+      collapsedSize?: number;
+      wrapSidebarText?: boolean;
       text: string;
       subtitle?: string;
       size: number | null;
@@ -219,6 +229,13 @@ function AppLogo() {
             : "image",
       );
       setImgUrl(data.imageUrl || `${BASE_URL}act-logo.png`);
+      const collapsedUrl = data.collapsedImageUrl || "";
+      setCollapsedImgUrl(
+        collapsedUrl.startsWith("/api/logo/collapsed-image") ? `${BASE}${collapsedUrl}` : collapsedUrl,
+      );
+      setCollapsedImgError(false);
+      setCollapsedSize(typeof data.collapsedSize === "number" && data.collapsedSize >= 16 && data.collapsedSize <= 48 ? data.collapsedSize : 32);
+      setWrapSidebarText(data.wrapSidebarText !== false);
       setText(data.text || DEFAULT_LOGO_TEXT);
       setSubtitle(data.subtitle || DEFAULT_LOGO_SUBTITLE);
       setSize(typeof data.size === "number" ? data.size : DEFAULT_LOGO_SIZE);
@@ -239,6 +256,9 @@ function AppLogo() {
         e as CustomEvent<{
           type: LogoType;
           imageUrl: string;
+          collapsedImageUrl?: string;
+          collapsedSize?: number;
+          wrapSidebarText?: boolean;
           text: string;
           subtitle?: string;
           size: number;
@@ -260,19 +280,36 @@ function AppLogo() {
     };
   }, [BASE, BASE_URL]);
 
+  if (collapsed && collapsedImgUrl && !collapsedImgError) {
+    return (
+      <img
+        src={collapsedImgUrl}
+        alt=""
+        style={{ height: collapsedSize, "--collapsed-logo-size": `${collapsedSize}px` } as React.CSSProperties}
+        className="w-auto max-w-full object-contain"
+        onError={() => setCollapsedImgError(true)}
+      />
+    );
+  }
+
+  const noWrapClass = !collapsed && !wrapSidebarText ? "sidebar-logo-no-wrap" : "";
+  const fullTextTitle = !collapsed && !wrapSidebarText ? `${text} — ${subtitle}` : undefined;
+  const expandedLogoClass = !collapsed && wrapSidebarText ? "sidebar-logo-stacked" : "";
+  const expandedLogoStyle = { "--expanded-logo-size": `${size}px` } as React.CSSProperties;
+
   if (logoType === "image" && !imgError) {
     return (
-      <span className="flex min-w-0 max-w-full items-center gap-2">
+      <span className={`sidebar-logo-content flex w-full min-w-0 items-center gap-2 ${expandedLogoClass} ${noWrapClass}`} style={expandedLogoStyle} title={fullTextTitle}>
         <img
           src={imgUrl}
           alt=""
-          style={{ height: size, maxWidth: size * 3.5 }}
+          style={{ height: collapsed ? collapsedSize : size, maxWidth: collapsed ? collapsedSize : size * 3.5, "--collapsed-logo-size": `${collapsedSize}px` } as React.CSSProperties}
           className="w-auto shrink-0 object-contain"
           onError={() => setImgError(true)}
           onLoad={() => setImgError(false)}
         />
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="vision-header-logo-text break-words font-bold leading-tight" style={{ fontSize: `clamp(14px, 1.4vw, ${size * 0.55}px)` }}>
+        <span className="sidebar-logo-copy flex min-w-0 flex-1 flex-col">
+          <span className="vision-header-logo-text break-words font-bold leading-tight">
             {text}
           </span>
           <span className="vision-header-logo-subtitle break-words text-[10px] leading-tight text-muted-foreground">
@@ -285,22 +322,21 @@ function AppLogo() {
 
   if (logoType === "image-text") {
     return (
-      <span className="flex min-w-0 max-w-full items-center gap-2">
+      <span className={`sidebar-logo-content flex w-full min-w-0 items-center gap-2 ${expandedLogoClass} ${noWrapClass}`} style={expandedLogoStyle} title={fullTextTitle}>
         {!imgError && (
           <img
             src={imgUrl}
             alt=""
-            style={{ height: size, maxWidth: size * 4 }}
+            style={{ height: collapsed ? collapsedSize : size, maxWidth: collapsed ? collapsedSize : size * 4, "--collapsed-logo-size": `${collapsedSize}px` } as React.CSSProperties}
             className="w-auto object-contain shrink-0"
             onError={() => setImgError(true)}
             onLoad={() => setImgError(false)}
           />
         )}
-        <span className="flex min-w-0 flex-1 flex-col">
+        <span className="sidebar-logo-copy flex min-w-0 flex-1 flex-col">
           <span
             className="vision-header-logo-text break-words font-bold leading-tight"
             style={{
-              fontSize: `clamp(14px, 1.4vw, ${size * 0.55}px)`,
               color: textColor || undefined,
             }}
           >
@@ -315,13 +351,13 @@ function AppLogo() {
   }
 
   return (
-      <span className="flex min-w-0 max-w-full items-center gap-2 font-bold text-foreground vision-header-logo-text">
+      <span className={`sidebar-logo-content flex w-full min-w-0 items-center gap-2 font-bold text-foreground vision-header-logo-text ${expandedLogoClass} ${noWrapClass}`} title={fullTextTitle}>
       <Activity
         className="text-primary shrink-0"
-        style={{ width: size * 0.6, height: size * 0.6 }}
+        style={{ width: collapsed ? collapsedSize : size * 0.6, height: collapsed ? collapsedSize : size * 0.6 }}
       />
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="break-words leading-tight" style={{ fontSize: `clamp(14px, 1.4vw, ${size * 0.55}px)` }}>
+      <span className="sidebar-logo-copy flex min-w-0 flex-1 flex-col">
+        <span className="break-words leading-tight">
           {text}
         </span>
         <span className="vision-header-logo-subtitle break-words text-[10px] font-normal leading-tight text-muted-foreground">
@@ -2579,6 +2615,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarSearch, setSidebarSearch] = useState("");
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const [collapsed, toggleCollapsed] = useSidebarCollapsed();
+  const [showSidebarLogoWhenCollapsed, setShowSidebarLogoWhenCollapsed] = useState(
+    isSidebarCollapsedLogoVisible,
+  );
   const sidebarIsCollapsed = collapsed && !mobileNavigationOpen;
   const { user, logout } = useAuth();
   const adminUser = isAdmin(user);
@@ -2588,6 +2627,27 @@ export function Layout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setMobileNavigationOpen(false);
   }, [location]);
+
+  useEffect(() => {
+    const syncPreference = (event: Event) => {
+      const visible = (event as CustomEvent<{ visible?: boolean }>).detail?.visible;
+      setShowSidebarLogoWhenCollapsed(
+        typeof visible === "boolean" ? visible : isSidebarCollapsedLogoVisible(),
+      );
+    };
+    const syncStorage = (event: StorageEvent) => {
+      if (event.key === SIDEBAR_COLLAPSED_LOGO_VISIBLE_LS_KEY || event.key === null) {
+        setShowSidebarLogoWhenCollapsed(isSidebarCollapsedLogoVisible());
+      }
+    };
+
+    window.addEventListener(SIDEBAR_COLLAPSED_LOGO_VISIBLE_CHANGED_EVENT, syncPreference);
+    window.addEventListener("storage", syncStorage);
+    return () => {
+      window.removeEventListener(SIDEBAR_COLLAPSED_LOGO_VISIBLE_CHANGED_EVENT, syncPreference);
+      window.removeEventListener("storage", syncStorage);
+    };
+  }, []);
 
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 768px)");
@@ -3208,11 +3268,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 collapsed ? "sidebar-shell-collapsed" : "sidebar-shell-expanded"
               } ${mobileNavigationOpen ? "mobile-open" : ""}`}
            >
-              <div className="sidebar-brand-header">
-                <Link href="/scans" className="sidebar-brand-link min-w-0">
-                  <span className="sidebar-brand-logo"><AppLogo /></span>
-                </Link>
-              </div>
+              {(!sidebarIsCollapsed || showSidebarLogoWhenCollapsed) && (
+                <div className="sidebar-brand-header">
+                  <Link href="/scans" className="sidebar-brand-link min-w-0" aria-label="Go to Scan History">
+                    <span className="sidebar-brand-logo"><AppLogo collapsed={sidebarIsCollapsed} /></span>
+                  </Link>
+                </div>
+              )}
               <div className="sidebar-navigation">
                {sidebarIsCollapsed && <div className="sidebar-rail flex flex-col items-center gap-3 py-3">
                <div className="h-px w-7 bg-white/25" />

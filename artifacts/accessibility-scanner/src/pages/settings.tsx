@@ -117,6 +117,8 @@ export const LOGO_TYPE_LS_KEY = "a11y-logo-type";
 export const LOGO_IMAGE_URL_LS_KEY = "a11y-logo-image-url";
 export const LOGO_TEXT_LS_KEY = "a11y-logo-text";
 export const LOGO_SIZE_LS_KEY = "a11y-logo-size";
+export const SIDEBAR_COLLAPSED_LOGO_VISIBLE_LS_KEY = "a11y-sidebar-collapsed-logo-visible";
+export const SIDEBAR_COLLAPSED_LOGO_VISIBLE_CHANGED_EVENT = "a11y-sidebar-collapsed-logo-visible-changed";
 export const DEFAULT_LOGO_TEXT = "Ampera A11y";
 export const DEFAULT_LOGO_SUBTITLE = "Accessibility workspace";
 export const DEFAULT_LOGO_SIZE = 36;
@@ -124,6 +126,27 @@ export const LOGO_SIZE_MIN = 20;
 export const LOGO_SIZE_MAX = 200;
 
 export type LogoType = "image" | "text" | "image-text";
+
+export function isSidebarCollapsedLogoVisible(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_LOGO_VISIBLE_LS_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+export function setSidebarCollapsedLogoVisible(visible: boolean): void {
+  try {
+    localStorage.setItem(SIDEBAR_COLLAPSED_LOGO_VISIBLE_LS_KEY, String(visible));
+  } catch {
+    // Keep the current-session preference usable when storage is unavailable.
+  }
+  window.dispatchEvent(
+    new CustomEvent(SIDEBAR_COLLAPSED_LOGO_VISIBLE_CHANGED_EVENT, {
+      detail: { visible },
+    }),
+  );
+}
 
 export function getLogoType(): LogoType {
   try {
@@ -429,6 +452,68 @@ export function getActiveProxy(): string {
   return localStorage.getItem(ACTIVE_PROXY_KEY) || "";
 }
 
+function SidebarLogoSettingsCard() {
+  const [logoVisibleWhenCollapsed, setLogoVisibleWhenCollapsed] = useState(
+    isSidebarCollapsedLogoVisible,
+  );
+
+  useEffect(() => {
+    const syncPreference = (event: Event) => {
+      const visible = (event as CustomEvent<{ visible?: boolean }>).detail?.visible;
+      setLogoVisibleWhenCollapsed(
+        typeof visible === "boolean" ? visible : isSidebarCollapsedLogoVisible(),
+      );
+    };
+    const syncStorage = (event: StorageEvent) => {
+      if (event.key === SIDEBAR_COLLAPSED_LOGO_VISIBLE_LS_KEY || event.key === null) {
+        setLogoVisibleWhenCollapsed(isSidebarCollapsedLogoVisible());
+      }
+    };
+
+    window.addEventListener(SIDEBAR_COLLAPSED_LOGO_VISIBLE_CHANGED_EVENT, syncPreference);
+    window.addEventListener("storage", syncStorage);
+    return () => {
+      window.removeEventListener(SIDEBAR_COLLAPSED_LOGO_VISIBLE_CHANGED_EVENT, syncPreference);
+      window.removeEventListener("storage", syncStorage);
+    };
+  }, []);
+
+  return (
+    <Card className={SETTINGS_CARD_CLASS}>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <ImageIcon className="h-5 w-5 text-muted-foreground" />
+          <CardTitle>Sidebar logo</CardTitle>
+        </div>
+        <CardDescription>
+          Choose whether the workspace logo stays visible when the sidebar is collapsed.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-border/70 bg-background/50 p-4">
+          <div className="min-w-0 space-y-1">
+            <Label htmlFor="sidebar-collapsed-logo-visible" className="text-sm font-medium">
+              Show logo in collapsed sidebar
+            </Label>
+            <p id="sidebar-collapsed-logo-visible-description" className="text-xs leading-5 text-muted-foreground">
+              Turn this off to hide the logo area in the compact sidebar. The logo remains visible when expanded.
+            </p>
+          </div>
+          <Switch
+            id="sidebar-collapsed-logo-visible"
+            aria-describedby="sidebar-collapsed-logo-visible-description"
+            checked={logoVisibleWhenCollapsed}
+            onCheckedChange={(visible) => {
+              setLogoVisibleWhenCollapsed(visible);
+              setSidebarCollapsedLogoVisible(visible);
+            }}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function LogoSettingsCard() {
   const { toast } = useToast();
   const BASE_URL = import.meta.env.BASE_URL as string;
@@ -436,19 +521,28 @@ function LogoSettingsCard() {
   const [loading, setLoading] = useState(true);
   const [logoType, setLogoTypeState] = useState<LogoType>("image");
   const [logoImageUrl, setLogoImageUrlState] = useState<string>("");
+  const [collapsedLogoImageUrl, setCollapsedLogoImageUrl] = useState("");
+  const [collapsedLogoUrlInput, setCollapsedLogoUrlInput] = useState("");
+  const [collapsedLogoImgError, setCollapsedLogoImgError] = useState(false);
+  const [collapsedLogoUploading, setCollapsedLogoUploading] = useState(false);
+  const [collapsedLogoSize, setCollapsedLogoSize] = useState(32);
+  const savedCollapsedLogoSize = useRef(32);
+  const [wrapSidebarText, setWrapSidebarText] = useState(true);
   const [logoText, setLogoTextState] = useState<string>(DEFAULT_LOGO_TEXT);
   const [logoSubtitle, setLogoSubtitleState] = useState<string>(DEFAULT_LOGO_SUBTITLE);
   const [logoUrlInput, setLogoUrlInput] = useState<string>("");
   const [logoTextInput, setLogoTextInput] = useState<string>(DEFAULT_LOGO_TEXT);
   const [logoSize, setLogoSizeState] = useState<number>(DEFAULT_LOGO_SIZE);
+  const savedLogoSize = useRef(DEFAULT_LOGO_SIZE);
   const [logoTextColor, setLogoTextColorState] = useState<string>("#000000");
   const [logoImgError, setLogoImgError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const collapsedFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch(`${BASE}/api/logo`)
       .then((r) => r.json())
-      .then((data: { type: string; imageUrl: string; text: string; subtitle?: string; size: number | null; textColor?: string }) => {
+      .then((data: { type: string; imageUrl: string; collapsedImageUrl?: string; collapsedSize?: number; wrapSidebarText?: boolean; text: string; subtitle?: string; size: number | null; textColor?: string }) => {
         const type: LogoType = data.type === "text" ? "text" : data.type === "image-text" ? "image-text" : "image";
         const imgUrl = data.imageUrl || `${BASE_URL}act-logo.png`;
         const text = data.text || DEFAULT_LOGO_TEXT;
@@ -456,10 +550,19 @@ function LogoSettingsCard() {
         setLogoTypeState(type);
         setLogoImageUrlState(imgUrl);
         setLogoUrlInput(data.imageUrl || "");
+        const collapsedUrl = data.collapsedImageUrl || "";
+        setCollapsedLogoImageUrl(collapsedUrl.startsWith("/api/logo/collapsed-image") ? `${BASE}${collapsedUrl}` : collapsedUrl);
+        setCollapsedLogoUrlInput(collapsedUrl.startsWith("/api/logo/collapsed-image") ? "" : collapsedUrl);
+        setCollapsedLogoImgError(false);
+        const collapsedSize = typeof data.collapsedSize === "number" && data.collapsedSize >= 16 && data.collapsedSize <= 48 ? data.collapsedSize : 32;
+        setCollapsedLogoSize(collapsedSize);
+        savedCollapsedLogoSize.current = collapsedSize;
+        setWrapSidebarText(data.wrapSidebarText !== false);
         setLogoTextState(text);
         setLogoTextInput(text);
         setLogoSubtitleState(data.subtitle || DEFAULT_LOGO_SUBTITLE);
         setLogoSizeState(size);
+        savedLogoSize.current = size;
         setLogoTextColorState(data.textColor || "#000000");
       })
       .catch(() => {
@@ -468,21 +571,113 @@ function LogoSettingsCard() {
       .finally(() => setLoading(false));
   }, [BASE, BASE_URL]);
 
-  const saveLogo = async (patch: Partial<{ type: LogoType; imageUrl: string; text: string; subtitle: string; size: number; textColor: string }>) => {
+  const saveLogo = async (patch: Partial<{ type: LogoType; imageUrl: string; collapsedImageUrl: string; collapsedImagePath: string; collapsedImageContentType: string; collapsedSize: number; wrapSidebarText: boolean; text: string; subtitle: string; size: number; textColor: string }>): Promise<boolean> => {
     try {
-      await fetch(`${BASE}/api/admin/logo`, {
+      const response = await fetch(`${BASE}/api/admin/logo`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify(patch),
       });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Please try again.");
+      }
+      return true;
     } catch {
-      // silently ignore — local state already updated
+      toast({ title: "Unable to save logo settings", variant: "destructive" });
+      return false;
     }
   };
 
-  const dispatch = (detail: { type: LogoType; imageUrl: string; text: string; subtitle: string; size: number; textColor?: string }) => {
-    window.dispatchEvent(new CustomEvent("a11y-logo-changed", { detail }));
+  const dispatch = (detail: { type: LogoType; imageUrl: string; text: string; subtitle: string; size: number; textColor?: string; collapsedImageUrl?: string; collapsedSize?: number; wrapSidebarText?: boolean }) => {
+    window.dispatchEvent(new CustomEvent("a11y-logo-changed", {
+      detail: { collapsedImageUrl: collapsedLogoImageUrl, collapsedSize: collapsedLogoSize, wrapSidebarText, ...detail },
+    }));
+  };
+
+  const applyCollapsedLogoSize = async (nextSize: number) => {
+    if (nextSize === savedCollapsedLogoSize.current) return;
+    if (!(await saveLogo({ collapsedSize: nextSize }))) {
+      setCollapsedLogoSize(savedCollapsedLogoSize.current);
+      return;
+    }
+    savedCollapsedLogoSize.current = nextSize;
+    setCollapsedLogoSize(nextSize);
+    dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, subtitle: logoSubtitle, size: logoSize, textColor: logoTextColor, collapsedSize: nextSize });
+  };
+
+  const applyCollapsedLogoUrl = async (url: string) => {
+    const trimmed = url.trim();
+    if (trimmed) {
+      try {
+        const parsed = new URL(trimmed);
+        if (!["http:", "https:"].includes(parsed.protocol) || trimmed.length > 2048) throw new Error("Invalid image URL");
+      } catch {
+        toast({ title: "Enter a valid HTTP or HTTPS image URL", variant: "destructive" });
+        return;
+      }
+    }
+    if (!(await saveLogo({ collapsedImageUrl: trimmed, collapsedImagePath: "", collapsedImageContentType: "" }))) return;
+    setCollapsedLogoImageUrl(trimmed);
+    setCollapsedLogoUrlInput(trimmed);
+    setCollapsedLogoImgError(false);
+    dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, subtitle: logoSubtitle, size: logoSize, textColor: logoTextColor, collapsedImageUrl: trimmed });
+    toast({ title: trimmed ? "Collapsed sidebar logo updated" : "Collapsed sidebar logo reset" });
+  };
+
+  const handleCollapsedLogoFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type) || file.size > 2 * 1024 * 1024) {
+      toast({ title: "Choose a JPG, PNG, WebP, or GIF no larger than 2 MB", variant: "destructive" });
+      return;
+    }
+
+    setCollapsedLogoUploading(true);
+    try {
+      const preparedResponse = await fetch(`${BASE}/api/admin/logo/collapsed-image/upload-url`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ size: file.size, contentType: file.type }),
+      });
+      const prepared = await preparedResponse.json().catch(() => ({}));
+      if (!preparedResponse.ok) throw new Error(prepared.error || "Unable to prepare image upload.");
+      if (typeof prepared.objectPath !== "string") throw new Error("Image storage returned no path.");
+
+      const uploadUrl = prepared.uploadURL || `${BASE}/api/admin/logo/collapsed-image/upload?objectPath=${encodeURIComponent(prepared.objectPath)}`;
+      const uploadResponse = await fetch(uploadUrl, {
+        method: "PUT",
+        credentials: prepared.uploadURL ? "omit" : "include",
+        headers: { "Content-Type": file.type, ...(prepared.uploadHeaders ?? {}) },
+        body: file,
+      });
+      if (!uploadResponse.ok) throw new Error("Unable to upload image.");
+      if (!(await saveLogo({ collapsedImagePath: prepared.objectPath, collapsedImageContentType: file.type, collapsedImageUrl: "" }))) return;
+
+      const imageUrl = `${BASE}/api/logo/collapsed-image?v=${encodeURIComponent(prepared.objectPath)}`;
+      setCollapsedLogoImageUrl(imageUrl);
+      setCollapsedLogoUrlInput("");
+      setCollapsedLogoImgError(false);
+      dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, subtitle: logoSubtitle, size: logoSize, textColor: logoTextColor, collapsedImageUrl: imageUrl });
+      toast({ title: "Collapsed sidebar logo uploaded" });
+    } catch (error) {
+      toast({
+        title: "Unable to upload collapsed sidebar logo",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setCollapsedLogoUploading(false);
+    }
+  };
+
+  const applyWrapSidebarText = async (wrap: boolean) => {
+    if (!(await saveLogo({ wrapSidebarText: wrap }))) return;
+    setWrapSidebarText(wrap);
+    dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, subtitle: logoSubtitle, size: logoSize, textColor: logoTextColor, wrapSidebarText: wrap });
   };
 
   const handleLogoTypeChange = async (t: LogoType) => {
@@ -550,10 +745,14 @@ function LogoSettingsCard() {
     toast({ title: "Workspace subtitle updated" });
   };
 
-  const handleLogoSizeChange = async (val: number[]) => {
-    const size = val[0];
+  const applyLogoSize = async (size: number) => {
+    if (size === savedLogoSize.current) return;
+    if (!(await saveLogo({ size }))) {
+      setLogoSizeState(savedLogoSize.current);
+      return;
+    }
+    savedLogoSize.current = size;
     setLogoSizeState(size);
-    await saveLogo({ size });
     dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, subtitle: logoSubtitle, size, textColor: logoTextColor });
   };
 
@@ -614,22 +813,146 @@ function LogoSettingsCard() {
           ))}
         </div>
 
+        <div className="space-y-4 border-t pt-4">
+          <div className="space-y-2">
+            <Label htmlFor="collapsed-logo-url-input">Collapsed sidebar logo image</Label>
+            <p id="collapsed-logo-help" className="text-xs leading-5 text-muted-foreground">
+              Use an optional compact image here. Without one, the collapsed sidebar uses the main logo.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={collapsedFileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                onChange={(event) => void handleCollapsedLogoFile(event)}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-2"
+                disabled={collapsedLogoUploading}
+                onClick={() => collapsedFileInputRef.current?.click()}
+              >
+                <Upload className="h-4 w-4" />
+                {collapsedLogoUploading ? "Uploading…" : "Choose image"}
+              </Button>
+              <span className="text-xs text-muted-foreground">JPG, PNG, WebP, or GIF · up to 2 MB</span>
+            </div>
+            <Label htmlFor="collapsed-logo-url-input" className="flex items-center gap-1.5 text-xs">
+              <LinkIcon className="h-3.5 w-3.5" />
+              Or enter an image URL
+            </Label>
+            <div className="flex flex-wrap gap-2">
+              <Input
+                id="collapsed-logo-url-input"
+                type="url"
+                aria-describedby="collapsed-logo-help"
+                placeholder="https://example.com/compact-logo.png"
+                value={collapsedLogoUrlInput}
+                onChange={(event) => setCollapsedLogoUrlInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void applyCollapsedLogoUrl(collapsedLogoUrlInput);
+                  }
+                }}
+                className="min-w-0 flex-1 font-mono text-sm"
+              />
+              <Button
+                type="button"
+                onClick={() => void applyCollapsedLogoUrl(collapsedLogoUrlInput)}
+                disabled={collapsedLogoUploading || !collapsedLogoUrlInput.trim() || collapsedLogoUrlInput.trim() === collapsedLogoImageUrl}
+              >
+                Apply
+              </Button>
+              {collapsedLogoImageUrl && (
+                <Button type="button" variant="outline" disabled={collapsedLogoUploading} onClick={() => void applyCollapsedLogoUrl("")}>
+                  Use main logo
+                </Button>
+              )}
+            </div>
+            {collapsedLogoImageUrl && (
+              <div className="flex min-h-16 items-center gap-3 rounded-lg border bg-background px-4 py-3">
+                {collapsedLogoImgError ? (
+                  <span className="text-xs text-destructive">The collapsed logo image could not be loaded.</span>
+                ) : (
+                  <img
+                    src={collapsedLogoImageUrl}
+                    alt="Collapsed sidebar logo preview"
+                    className="object-contain"
+                    style={{ width: collapsedLogoSize, height: collapsedLogoSize }}
+                    onError={() => setCollapsedLogoImgError(true)}
+                    onLoad={() => setCollapsedLogoImgError(false)}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="collapsed-logo-size">Collapsed sidebar logo size</Label>
+              <div className="flex items-center gap-2">
+                <span className="w-12 text-right text-sm tabular-nums text-muted-foreground">{collapsedLogoSize}px</span>
+                {collapsedLogoSize !== 32 && (
+                  <Button type="button" variant="ghost" size="sm" className="h-7 gap-1 px-2" onClick={() => void applyCollapsedLogoSize(32)}>
+                    <RotateCcw className="h-3 w-3" />
+                    Reset
+                  </Button>
+                )}
+              </div>
+            </div>
+            <Slider
+              id="collapsed-logo-size"
+              aria-label="Collapsed sidebar logo size"
+              min={16}
+              max={48}
+              step={1}
+              value={[collapsedLogoSize]}
+              onValueChange={([value]) => setCollapsedLogoSize(value)}
+              onValueCommit={([value]) => void applyCollapsedLogoSize(value)}
+            />
+            <p className="text-xs text-muted-foreground">16–48px. Also applies when the collapsed sidebar uses the main logo.</p>
+          </div>
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-border/70 bg-background/50 p-4">
+            <div className="min-w-0 space-y-1">
+              <Label htmlFor="wrap-sidebar-logo-text" className="text-sm font-medium">
+                Place logo text below logo
+              </Label>
+              <p id="wrap-sidebar-logo-text-help" className="text-xs leading-5 text-muted-foreground">
+                On: name and subtitle below the logo, with long text wrapping. Off: beside the logo, truncated if needed.
+              </p>
+            </div>
+            <Switch
+              id="wrap-sidebar-logo-text"
+              aria-describedby="wrap-sidebar-logo-text-help"
+              checked={wrapSidebarText}
+              onCheckedChange={(wrap) => void applyWrapSidebarText(wrap)}
+            />
+          </div>
+        </div>
+
         {logoType === "image" && (
           <div className="space-y-4 pt-1 border-t">
             <div>
               <p className="text-sm font-medium mb-2">Preview</p>
-              <div className="flex items-center gap-3 rounded-lg border bg-background px-4 py-3">
+               <div className={`flex w-full max-w-[220px] min-w-0 gap-2 rounded-lg border bg-background px-4 py-3 ${wrapSidebarText ? "flex-col items-start" : "items-center"}`}>
                 {logoImgError ? (
                   <span className="text-sm text-destructive">Failed to load image</span>
                 ) : (
                   <img
                     src={logoImageUrl}
                     alt="Logo preview"
-                    className="h-8 w-auto max-w-[180px] object-contain"
+                     style={{ height: logoSize, maxWidth: wrapSidebarText ? "100%" : `min(${logoSize}px, 44%)` }}
+                     className="w-auto shrink-0 object-contain"
                     onError={() => setLogoImgError(true)}
                     onLoad={() => setLogoImgError(false)}
                   />
                 )}
+                 <span className={`flex min-w-0 flex-col ${wrapSidebarText ? "w-full" : "w-0 flex-1"}`}>
+                   <span className={`text-[13px] font-bold leading-tight ${wrapSidebarText ? "break-words" : "truncate"}`}>{logoText}</span>
+                   <span className={`text-[9px] leading-tight text-muted-foreground ${wrapSidebarText ? "break-words" : "truncate"}`}>{logoSubtitle}</span>
+                 </span>
               </div>
             </div>
             <div className="space-y-2">
@@ -672,33 +995,36 @@ function LogoSettingsCard() {
             {logoType === "text" && (
               <div>
                 <p className="text-sm font-medium mb-2">Preview</p>
-                <div className="flex items-center gap-2 rounded-lg border bg-background px-4 py-3">
+                <div className={`flex w-full max-w-[220px] min-w-0 gap-2 rounded-lg border bg-background px-4 py-3 ${wrapSidebarText ? "flex-col items-start" : "items-center"}`}>
                   <svg viewBox="0 0 24 24" style={{ width: logoSize * 0.6, height: logoSize * 0.6 }} className="text-primary shrink-0" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
                   </svg>
-                  <span className="font-bold text-foreground" style={{ fontSize: logoSize * 0.55 }}>{logoText}</span>
+                  <span className={`flex min-w-0 flex-col ${wrapSidebarText ? "w-full" : "w-0 flex-1"}`}>
+                    <span className={`text-[13px] font-bold text-foreground ${wrapSidebarText ? "break-words" : "truncate"}`}>{logoText}</span>
+                    <span className={`text-[9px] text-muted-foreground ${wrapSidebarText ? "break-words" : "truncate"}`}>{logoSubtitle}</span>
+                  </span>
                 </div>
               </div>
             )}
             {logoType === "image-text" && (
               <div>
                 <p className="text-sm font-medium mb-2">Preview</p>
-                <div className="flex items-center gap-3 rounded-lg border bg-background px-4 py-3">
+                <div className={`flex w-full max-w-[220px] min-w-0 gap-2 rounded-lg border bg-background px-4 py-3 ${wrapSidebarText ? "flex-col items-start" : "items-center"}`}>
                   {logoImgError ? (
                     <span className="text-sm text-destructive">Failed to load image</span>
                   ) : (
                     <img
                       src={logoImageUrl}
                       alt="Logo preview"
-                      style={{ height: logoSize, maxWidth: logoSize * 4 }}
+                      style={{ height: logoSize, maxWidth: wrapSidebarText ? "100%" : `min(${logoSize}px, 44%)` }}
                       className="w-auto object-contain shrink-0"
                       onError={() => setLogoImgError(true)}
                       onLoad={() => setLogoImgError(false)}
                     />
                   )}
-                   <span className="flex flex-col">
-                     <span className="font-bold" style={{ fontSize: logoSize * 0.55, color: logoTextColor || undefined }}>{logoText}</span>
-                     <span className="text-xs text-muted-foreground">{logoSubtitle}</span>
+                   <span className={`flex min-w-0 flex-col ${wrapSidebarText ? "w-full" : "w-0 flex-1"}`}>
+                     <span className={`text-[13px] font-bold ${wrapSidebarText ? "break-words" : "truncate"}`} style={{ color: logoTextColor || undefined }}>{logoText}</span>
+                     <span className={`text-[9px] text-muted-foreground ${wrapSidebarText ? "break-words" : "truncate"}`}>{logoSubtitle}</span>
                    </span>
                 </div>
               </div>
@@ -825,18 +1151,18 @@ function LogoSettingsCard() {
 
         <div className="space-y-3 pt-4 border-t">
           <div className="flex items-center justify-between">
-            <Label>Logo size</Label>
+            <Label htmlFor="expanded-logo-size">{logoType === "text" ? "Expanded sidebar icon size" : "Expanded sidebar logo image size"}</Label>
             <div className="flex items-center gap-2">
               <span className="text-sm tabular-nums text-muted-foreground w-12 text-right">{logoSize}px</span>
               {logoSize !== DEFAULT_LOGO_SIZE && (
-                   <Button variant="ghost" size="sm" className="h-7 px-2 gap-1 text-muted-foreground" onClick={async () => { setLogoSizeState(DEFAULT_LOGO_SIZE); await saveLogo({ size: DEFAULT_LOGO_SIZE }); dispatch({ type: logoType, imageUrl: logoImageUrl, text: logoText, subtitle: logoSubtitle, size: DEFAULT_LOGO_SIZE }); }}>
+                   <Button variant="ghost" size="sm" className="h-7 px-2 gap-1 text-muted-foreground" onClick={() => void applyLogoSize(DEFAULT_LOGO_SIZE)}>
                   <RotateCcw className="w-3 h-3" />
                   Reset
                 </Button>
               )}
             </div>
           </div>
-          <Slider min={LOGO_SIZE_MIN} max={LOGO_SIZE_MAX} step={1} value={[logoSize]} onValueChange={handleLogoSizeChange} className="w-full" />
+          <Slider id="expanded-logo-size" aria-label={logoType === "text" ? "Expanded sidebar icon size" : "Expanded sidebar logo image size"} min={LOGO_SIZE_MIN} max={LOGO_SIZE_MAX} step={1} value={[logoSize]} onValueChange={([value]) => setLogoSizeState(value)} onValueCommit={([value]) => void applyLogoSize(value)} className="w-full" />
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>{LOGO_SIZE_MIN}px</span>
             <span>{LOGO_SIZE_MAX}px</span>
@@ -1108,6 +1434,7 @@ export default function Settings() {
         {/* ── Appearance tab ──────────────────────────────────────────────── */}
         <TabsContent value="appearance" className="space-y-5 mt-0">
           {canEditLogo && <LogoSettingsCard />}
+          <SidebarLogoSettingsCard />
 
           <Card className={SETTINGS_CARD_CLASS}>
             <CardHeader>

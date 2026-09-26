@@ -810,12 +810,29 @@ html.dark:not(:is(.glass-dark, .glass-vision)) .refined-screen #main-content {
 }
 .refined-screen .sidebar-brand-logo .vision-header-logo-text {
   overflow-wrap: anywhere;
-  font-size: 13px !important;
+  font-size: 13px;
   line-height: 1.15;
 }
 .refined-screen .sidebar-brand-logo .vision-header-logo-subtitle {
   overflow-wrap: anywhere;
   font-size: 9px;
+}
+.refined-screen .sidebar-brand-logo .sidebar-logo-no-wrap .vision-header-logo-text,
+.refined-screen .sidebar-brand-logo .sidebar-logo-no-wrap.vision-header-logo-text,
+.refined-screen .sidebar-brand-logo .sidebar-logo-no-wrap .vision-header-logo-subtitle,
+.refined-screen .sidebar-brand-logo .sidebar-logo-no-wrap .vision-header-logo-text > span {
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: normal;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.refined-screen .sidebar-brand-logo .sidebar-logo-no-wrap.vision-header-logo-text > span > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: normal;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .refined-screen .sidebar-version-badge {
   max-width: 54px;
@@ -831,7 +848,8 @@ html.dark:not(:is(.glass-dark, .glass-vision)) .refined-screen #main-content {
   padding-inline: 0;
 }
 .refined-screen .sidebar-shell-collapsed .sidebar-brand-logo img {
-  max-width: 34px !important;
+  max-width: var(--collapsed-logo-size, 32px) !important;
+  max-height: var(--collapsed-logo-size, 32px) !important;
 }
 .refined-screen .sidebar-shell-collapsed .sidebar-brand-logo .vision-header-logo-text:not(:has(> svg)),
 .refined-screen .sidebar-shell-collapsed .sidebar-brand-logo .vision-header-logo-subtitle,
@@ -1269,6 +1287,49 @@ html.dark:not(:is(.glass-dark, .glass-vision)) .refined-screen #main-content {
 .refined-screen .sidebar-brand-logo img {
   max-width: 38px !important;
 }
+.refined-screen .sidebar-shell-expanded .sidebar-brand-header {
+  height: auto;
+  overflow: visible;
+}
+.refined-screen .sidebar-shell-expanded .sidebar-brand-logo {
+  width: 100%;
+  overflow: visible;
+}
+.refined-screen .sidebar-shell-expanded .sidebar-logo-content {
+  width: 100%;
+  max-width: 100%;
+}
+.refined-screen .sidebar-shell-expanded .sidebar-brand-logo img {
+  max-width: min(var(--expanded-logo-size, 36px), 44%) !important;
+  max-height: var(--expanded-logo-size, 36px) !important;
+}
+.refined-screen .sidebar-shell-expanded .sidebar-logo-copy {
+  width: 0;
+  min-width: 0;
+  flex: 1 1 0%;
+}
+.refined-screen .sidebar-shell-expanded .sidebar-logo-copy > span {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.refined-screen .sidebar-shell-expanded .sidebar-logo-no-wrap .sidebar-logo-copy > span {
+  overflow: hidden;
+  overflow-wrap: normal;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.refined-screen .sidebar-shell-expanded .sidebar-logo-stacked {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.refined-screen .sidebar-shell-expanded .sidebar-logo-stacked img {
+  max-width: 100% !important;
+}
+.refined-screen .sidebar-shell-expanded .sidebar-logo-stacked .sidebar-logo-copy {
+  width: 100%;
+  flex: 0 1 auto;
+}
 .refined-screen .sidebar-shell .sidebar-panel nav {
   padding: 12px 14px;
 }
@@ -1486,10 +1547,6 @@ body:has(.refined-screen) {
     color: #fff !important;
     font-weight: 600;
   }
-  .refined-screen .sidebar-panel-expanded nav .sidebar-nav-item[data-sidebar-active="true"] > span:first-child,
-  .refined-screen .sidebar-panel-expanded nav .sidebar-nav-item[data-sidebar-active="true"] > svg:last-child {
-    color: #fff !important;
-  }
   .refined-screen .sidebar-panel-expanded nav .sidebar-subsection {
     margin-top: 0;
     padding-top: 0;
@@ -1518,15 +1575,8 @@ html:is(.dark, .glass-dark, .glass-vision) .refined-screen {
 .refined-screen .sidebar-flyout * {
   text-shadow: none !important;
 }
-.refined-screen .sidebar-panel-expanded nav .sidebar-nav-item:not([data-sidebar-active="true"]) > span:first-child,
-.refined-screen .sidebar-panel-expanded nav .sidebar-nav-item:not([data-sidebar-active="true"]) svg.lucide {
-  color: var(--sidebar-icon-neutral) !important;
-  stroke: currentColor !important;
-}
-/* Glass-light uses a pale selected surface rather than the solid teal one. */
-html:is(.glass-light, .glass-vision-light) .refined-screen .sidebar-panel-expanded nav .sidebar-nav-item[data-sidebar-active="true"] > span:first-child,
-html:is(.glass-light, .glass-vision-light) .refined-screen .sidebar-panel-expanded nav .sidebar-nav-item[data-sidebar-active="true"] > span:first-child,
-html:is(.glass-light, .glass-vision-light) .refined-screen .sidebar-panel-expanded nav .sidebar-nav-item[data-sidebar-active="true"] svg.lucide {
+.refined-screen .sidebar-panel-expanded nav .sidebar-nav-item:not(:is(:hover, :focus-visible, [data-sidebar-active="true"])) > span:first-child,
+.refined-screen .sidebar-panel-expanded nav .sidebar-nav-item:not(:is(:hover, :focus-visible, [data-sidebar-active="true"])) svg.lucide {
   color: var(--sidebar-icon-neutral) !important;
   stroke: currentColor !important;
 }
@@ -1632,8 +1682,12 @@ html:is(.glass-dark, .glass-vision) .refined-screen .sidebar-panel-expanded nav 
 html:is(.glass-dark, .glass-light, .glass-vision, .glass-vision-light) .refined-screen .sidebar-panel-expanded nav .sidebar-nav-item[data-sidebar-active="true"] :is(svg, span) {
   color: inherit !important;
 }
-html:is(.glass-light, .glass-vision-light) .refined-screen .sidebar-panel-expanded nav .sidebar-nav-item[data-sidebar-active="true"] svg.lucide {
-  color: var(--sidebar-icon-neutral) !important;
+/* Menu icons follow the item's readable foreground on hover and selection,
+   including pale glass surfaces where white icons disappear. */
+.refined-screen .sidebar-panel-expanded nav .sidebar-nav-item:is(:hover, :focus-visible, [data-sidebar-active="true"]) > span:first-child,
+.refined-screen .sidebar-panel-expanded nav .sidebar-nav-item:is(:hover, :focus-visible, [data-sidebar-active="true"]) > span:first-child svg,
+.refined-screen .sidebar-panel-expanded nav .sidebar-nav-item:is(:hover, :focus-visible, [data-sidebar-active="true"]) > svg:last-child {
+  color: inherit !important;
   stroke: currentColor !important;
 }
 html:is(.glass-dark, .glass-light, .glass-vision, .glass-vision-light) .refined-screen .sidebar-utilities .accessibility-mode-control button,

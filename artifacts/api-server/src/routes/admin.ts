@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import net from "net";
@@ -8,6 +8,7 @@ import { eq, asc, inArray, and } from "drizzle-orm";
 import { requireAdmin, requireSuperAdmin } from "../middlewares/authMiddleware";
 import { sendInviteEmail } from "../lib/email";
 import { logger } from "../lib/logger";
+import { IssueAttachmentStorageService } from "../lib/issueAttachmentStorage";
 
 const router: IRouter = Router();
 const userColumns = {
@@ -547,9 +548,43 @@ router.put("/admin/permissions/:userId", requireSuperAdmin, async (req, res): Pr
 
 // ── Logo settings ─────────────────────────────────────────────────────────────
 
+const collapsedLogoStorage = new IssueAttachmentStorageService();
+const COLLAPSED_LOGO_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const COLLAPSED_LOGO_MAX_SIZE = 2 * 1024 * 1024;
+const COLLAPSED_LOGO_OBJECT_PATH = /^\/(?:(?:objects|r2-objects|azure-objects)\/branding)\/[a-f0-9-]{36}$/i;
+
+function requireTrustedBrandingOrigin(req: Request, res: Response, next: NextFunction): void {
+  const origin = req.get("origin");
+  if (!origin) {
+    // Non-browser clients can still use the authenticated API.
+    next();
+    return;
+  }
+  try {
+    const requestOrigin = new URL(`${req.protocol}://${req.get("host")}`).origin;
+    const appOrigin = process.env.APP_PUBLIC_URL ? new URL(process.env.APP_PUBLIC_URL).origin : "";
+    const replitOrigins = (process.env.REPLIT_DOMAINS ?? "")
+      .split(",")
+      .filter(Boolean)
+      .map((domain) => `https://${domain.trim()}`);
+    if ([requestOrigin, appOrigin, ...replitOrigins].includes(new URL(origin).origin)) {
+      next();
+      return;
+    }
+  } catch {
+    // Reject invalid or unrecognized browser origins.
+  }
+  res.status(403).json({ error: "This branding change must come from the app." });
+}
+
 const LOGO_KEYS = [
   "logo_type",
   "logo_image_url",
+  "logo_collapsed_image_url",
+  "logo_collapsed_image_path",
+  "logo_collapsed_image_content_type",
+  "logo_collapsed_size",
+  "logo_sidebar_text_wrap",
   "logo_text",
   "logo_subtitle",
   "logo_size",
@@ -568,21 +603,132 @@ router.get("/logo", async (_req, res): Promise<void> => {
     res.json({
       type: map["logo_type"] ?? "image",
       imageUrl: map["logo_image_url"] ?? "",
+      collapsedImageUrl: map["logo_collapsed_image_path"]
+        ? `/api/logo/collapsed-image?v=${encodeURIComponent(map["logo_collapsed_image_path"])}`
+        : map["logo_collapsed_image_url"] ?? "",
+      collapsedSize: Number.isInteger(Number(map["logo_collapsed_size"])) &&
+        Number(map["logo_collapsed_size"]) >= 16 && Number(map["logo_collapsed_size"]) <= 48
+          ? Number(map["logo_collapsed_size"]) : 32,
+      wrapSidebarText: map["logo_sidebar_text_wrap"] !== "false",
       text: map["logo_text"] ?? "Ampera A11y",
       subtitle: map["logo_subtitle"] ?? "Accessibility workspace",
       size: map["logo_size"] ? parseInt(map["logo_size"], 10) : null,
       textColor: map["logo_text_color"] ?? "",
     });
   } catch {
-    res.json({ type: "image", imageUrl: "", text: "", size: null, textColor: "" });
+    res.json({ type: "image", imageUrl: "", collapsedImageUrl: "", collapsedSize: 32, wrapSidebarText: true, text: "", size: null, textColor: "" });
+  }
+});
+
+router.get("/logo/collapsed-image", async (_req, res): Promise<void> => {
+  try {
+    const rows = await db.select({ key: appSettingsTable.key, value: appSettingsTable.value })
+      .from(appSettingsTable)
+      .where(inArray(appSettingsTable.key, ["logo_collapsed_image_path", "logo_collapsed_image_content_type"]));
+    const map = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+    const imagePath = map.logo_collapsed_image_path;
+    const contentType = map.logo_collapsed_image_content_type;
+    if (!imagePath || !contentType || !COLLAPSED_LOGO_IMAGE_TYPES.has(contentType)) {
+      res.status(404).end();
+      return;
+    }
+    const response = await collapsedLogoStorage.downloadObject(imagePath, contentType);
+    res.status(response.status);
+    response.headers.forEach((value, key) => res.setHeader(key, value));
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Disposition", "inline");
+    if (response.body) {
+      const { Readable } = await import("node:stream");
+      Readable.fromWeb(response.body as any).pipe(res);
+    } else {
+      res.end();
+    }
+  } catch (error) {
+    logger.warn({ err: error }, "Collapsed sidebar logo could not be loaded");
+    res.status(404).end();
+  }
+});
+
+router.post("/admin/logo/collapsed-image/upload-url", requireTrustedBrandingOrigin, requireSuperAdmin, async (req, res): Promise<void> => {
+  const { size, contentType } = req.body ?? {};
+  if (
+    typeof size !== "number" || !Number.isFinite(size) || size <= 0 ||
+    size > COLLAPSED_LOGO_MAX_SIZE || !COLLAPSED_LOGO_IMAGE_TYPES.has(contentType)
+  ) {
+    res.status(400).json({ error: "Choose a JPG, PNG, WebP, or GIF image no larger than 2 MB." });
+    return;
+  }
+  try {
+    const prepared = await collapsedLogoStorage.prepareUpload(contentType, "branding");
+    res.json(prepared);
+  } catch (error) {
+    req.log.error({ err: error }, "Collapsed sidebar logo upload could not be prepared");
+    res.status(503).json({ error: "Image storage is not available." });
+  }
+});
+
+router.put("/admin/logo/collapsed-image/upload", requireTrustedBrandingOrigin, requireSuperAdmin, async (req, res): Promise<void> => {
+  const objectPath = req.query.objectPath;
+  const contentType = req.headers["content-type"];
+  const size = Number(req.headers["content-length"]);
+  if (
+    typeof objectPath !== "string" ||
+    !/^\/(?:r2|azure)-objects\/branding\/[a-f0-9-]{36}$/i.test(objectPath) ||
+    !COLLAPSED_LOGO_IMAGE_TYPES.has(contentType ?? "") ||
+    !Number.isSafeInteger(size) || size <= 0 || size > COLLAPSED_LOGO_MAX_SIZE
+  ) {
+    res.status(400).json({ error: "Invalid collapsed sidebar logo upload." });
+    return;
+  }
+  try {
+    await collapsedLogoStorage.uploadObject(objectPath, req, size, contentType!);
+    res.status(204).end();
+  } catch (error) {
+    req.log.error({ err: error }, "Collapsed sidebar logo upload failed");
+    res.status(502).json({ error: "Unable to upload the image." });
   }
 });
 
 // PUT /api/admin/logo — super_admin only; upserts shared branding settings
-router.put("/admin/logo", requireSuperAdmin, async (req, res): Promise<void> => {
+router.put("/admin/logo", requireTrustedBrandingOrigin, requireSuperAdmin, async (req, res): Promise<void> => {
   const updatedBy = req.session!.user!.id;
-  const { type, imageUrl, text, subtitle, size, textColor } = req.body ?? {};
+  const { type, imageUrl, collapsedImageUrl, collapsedImagePath, collapsedImageContentType, collapsedSize, wrapSidebarText, text, subtitle, size, textColor } = req.body ?? {};
   const now = new Date();
+
+  if (collapsedImageUrl !== undefined && (
+    typeof collapsedImageUrl !== "string" ||
+    collapsedImageUrl.length > 2048 ||
+    (collapsedImageUrl !== "" && !/^https?:\/\/\S+$/i.test(collapsedImageUrl))
+  )) {
+    res.status(400).json({ error: "Enter a valid HTTP or HTTPS image URL." });
+    return;
+  }
+  if (wrapSidebarText !== undefined && typeof wrapSidebarText !== "boolean") {
+    res.status(400).json({ error: "Logo text wrapping must be on or off." });
+    return;
+  }
+  if (collapsedSize !== undefined && (!Number.isInteger(collapsedSize) || collapsedSize < 16 || collapsedSize > 48)) {
+    res.status(400).json({ error: "Collapsed logo size must be between 16 and 48 pixels." });
+    return;
+  }
+  if (collapsedImagePath !== undefined && (
+    typeof collapsedImagePath !== "string" ||
+    (collapsedImagePath !== "" && (
+      !COLLAPSED_LOGO_OBJECT_PATH.test(collapsedImagePath) ||
+      !COLLAPSED_LOGO_IMAGE_TYPES.has(collapsedImageContentType)
+    ))
+  )) {
+    res.status(400).json({ error: "Choose a valid uploaded logo image." });
+    return;
+  }
+  if (collapsedImagePath) {
+    try {
+      await collapsedLogoStorage.verifyObject(collapsedImagePath);
+    } catch {
+      res.status(400).json({ error: "The uploaded logo image could not be found." });
+      return;
+    }
+  }
 
   const rows: { key: string; value: string; updatedAt: Date; updatedBy: number }[] = [];
   if (type === "image" || type === "text" || type === "image-text") {
@@ -590,6 +736,19 @@ router.put("/admin/logo", requireSuperAdmin, async (req, res): Promise<void> => 
   }
   if (typeof imageUrl === "string") {
     rows.push({ key: "logo_image_url", value: imageUrl, updatedAt: now, updatedBy });
+  }
+  if (typeof collapsedImageUrl === "string") {
+    rows.push({ key: "logo_collapsed_image_url", value: collapsedImageUrl, updatedAt: now, updatedBy });
+  }
+  if (typeof collapsedImagePath === "string") {
+    rows.push({ key: "logo_collapsed_image_path", value: collapsedImagePath, updatedAt: now, updatedBy });
+    rows.push({ key: "logo_collapsed_image_content_type", value: collapsedImagePath ? collapsedImageContentType : "", updatedAt: now, updatedBy });
+  }
+  if (typeof wrapSidebarText === "boolean") {
+    rows.push({ key: "logo_sidebar_text_wrap", value: String(wrapSidebarText), updatedAt: now, updatedBy });
+  }
+  if (typeof collapsedSize === "number") {
+    rows.push({ key: "logo_collapsed_size", value: String(collapsedSize), updatedAt: now, updatedBy });
   }
   if (typeof text === "string") {
     rows.push({ key: "logo_text", value: text, updatedAt: now, updatedBy });

@@ -30,8 +30,8 @@ export class ObjectStorageService {
     return dir.replace(/^\/+|\/+$/g, "");
   }
 
-  async getObjectEntityUploadURL(): Promise<string> {
-    const fullPath = `${this.privateDir()}/uploads/${randomUUID()}`;
+  async getObjectEntityUploadURL(folder: "uploads" | "branding" = "uploads"): Promise<string> {
+    const fullPath = `${this.privateDir()}/${folder}/${randomUUID()}`;
     const { bucketName, objectName } = parsePath(fullPath);
     const response = await fetch(`${SIDECAR}/object-storage/signed-object-url`, {
       method: "POST",
