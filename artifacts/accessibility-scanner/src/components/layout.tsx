@@ -78,7 +78,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import SettingsPage, {
   DEFAULT_LOGO_TEXT,
@@ -1484,9 +1484,40 @@ function CollapsedMainMenuItem({
   const [submenuOpen, setSubmenuOpen] = useState<string | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unmountTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const flyoutRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuKey = item.label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const flyoutId = `sidebar-flyout-${menuKey}`;
+  useLayoutEffect(() => {
+    if (!flyoutMounted || !flyoutActive) return;
+    const menu = flyoutRef.current;
+    const container = containerRef.current;
+    if (!menu || !container) return;
+
+    const positionMenu = () => {
+      const anchor = container.getBoundingClientRect();
+      const trigger = triggerRef.current?.getBoundingClientRect() ?? anchor;
+      const menuHeight = menu.offsetHeight;
+      const top = Math.max(12, Math.min(anchor.top, window.innerHeight - menuHeight - 12));
+      menu.style.top = `${top - anchor.top}px`;
+      menu.style.setProperty(
+        "--sidebar-flyout-arrow-top",
+        `${Math.max(8, Math.min(menuHeight - 24, trigger.top + trigger.height / 2 - top - 8))}px`,
+      );
+    };
+
+    positionMenu();
+    const observer = new ResizeObserver(positionMenu);
+    observer.observe(menu);
+    window.addEventListener("resize", positionMenu);
+    window.addEventListener("scroll", positionMenu, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", positionMenu);
+      window.removeEventListener("scroll", positionMenu, true);
+    };
+  }, [flyoutMounted, flyoutActive]);
   useEffect(() => {
     if (flyoutActive) return;
     if (closeTimer.current) clearTimeout(closeTimer.current);
@@ -1538,6 +1569,7 @@ function CollapsedMainMenuItem({
 
   return (
     <div
+      ref={containerRef}
       className="sidebar-rail-menu relative"
       onMouseEnter={openFlyout}
       onMouseLeave={scheduleClose}
@@ -1584,6 +1616,7 @@ function CollapsedMainMenuItem({
       </Button>
       {showFlyout && flyoutActive && flyoutMounted && (
         <div
+          ref={flyoutRef}
           className={`sidebar-flyout ${item.isMenuOnly ? "sidebar-flyout-main-menu" : ""} ${flyoutOpen ? "is-open" : "is-closing"}`}
           id={flyoutId}
           role="menu"

@@ -2064,7 +2064,7 @@ html.a11y-reduced-motion *::after {
   content: "";
   position: absolute;
   z-index: 2;
-  top: 29px;
+  top: var(--sidebar-flyout-arrow-top, 29px);
   left: -9px;
   width: 0;
   height: 0;

@@ -741,9 +741,6 @@ html.dark:not(:is(.glass-dark, .glass-vision)) .refined-screen #main-content {
     height: 32px;
   }
   .refined-screen .sidebar-shell-collapsed .sidebar-flyout {
-    position: fixed;
-    top: 76px;
-    left: calc(max(14px, (100vw - 1480px) / 2) + 82px);
     max-height: calc(100dvh - 90px);
   }
   .refined-screen .sidebar-shell-collapsed .sidebar-flyout-main-menu .sidebar-flyout-body {
@@ -1402,11 +1399,6 @@ body:has(.refined-screen) {
   font-family: "Manrope", system-ui, -apple-system, sans-serif;
 }
 
-@media (min-width: 768px) and (max-height: 760px) {
-  .refined-screen .sidebar-shell-collapsed .sidebar-flyout {
-    left: 80px;
-  }
-}
 @media (min-width: 768px) and (max-width: 1120px) {
   .refined-screen .ampera-header-inner {
     flex-wrap: wrap;
