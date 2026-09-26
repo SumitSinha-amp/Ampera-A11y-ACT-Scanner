@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type ErrorRequestHandler, type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import session from "express-session";
@@ -8,6 +8,7 @@ import { dirname, join } from "path";
 import { existsSync } from "fs";
 import { pool } from "@workspace/db";
 import router from "./routes";
+import healthRouter from "./routes/health";
 import issuesRouter, { ISSUE_ATTACHMENT_ROUTE_MARKER, ISSUE_CREATE_ROUTE_MARKER } from "./routes/issues";
 import { logger } from "./lib/logger";
 
@@ -105,7 +106,12 @@ const BEHIND_HTTPS_PROXY =
   process.env.WEBSITE_SITE_NAME != null ||
   process.env.FORCE_SECURE_COOKIE === "true";
 
-app.use(
+// The liveness endpoint and SPA assets never need a user session. In particular,
+// loading a session before serving them makes even the app shell return 500 when
+// PostgreSQL is temporarily saturated or unavailable. All other /api paths
+// still pass through the session middleware before reaching their routers.
+app.use("/api", healthRouter);
+app.use("/api",
   session({
     store: new PgStore({
       pool,
@@ -131,6 +137,21 @@ app.use(
     },
   })
 );
+
+const handleSessionStoreError: ErrorRequestHandler = (error, _req, res, next) => {
+  if (!(error instanceof Error) || !/timeout exceeded when trying to connect/i.test(error.message)) {
+    next(error);
+    return;
+  }
+  logger.warn({
+    poolTotal: pool.totalCount,
+    poolIdle: pool.idleCount,
+    poolWaiting: pool.waitingCount,
+  }, "Session database connection unavailable");
+  res.setHeader("Retry-After", "5");
+  res.status(503).json({ error: "Database temporarily unavailable. Please try again." });
+};
+app.use("/api", handleSessionStoreError);
 
 // Issue Management is mounted directly at the application boundary. This keeps
 // its routes independent of the aggregate router and makes /api/issues
