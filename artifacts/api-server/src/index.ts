@@ -1989,13 +1989,10 @@
     }
   }
 
-startListening(port);
 runStartupMigrations()
   .then(() => checkDatabaseWritable())
   .then(() => Promise.all([seedDefaultAdmin(), ensureChromeDependencies()]))
-  .then(() => recoverOrphanedScans())
-  .then(() => recoverAIAssessments())
-  .then(() => resumeOrphanedCrawlerSessions())
+  .then(() => startListening(port))
   .catch((err) => {
     logger.error({ err }, "Startup failed");
     process.exit(1);
