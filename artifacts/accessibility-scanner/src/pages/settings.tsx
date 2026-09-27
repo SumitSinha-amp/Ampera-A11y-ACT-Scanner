@@ -536,6 +536,7 @@ function LogoSettingsCard() {
   const savedLogoSize = useRef(DEFAULT_LOGO_SIZE);
   const [logoTextColor, setLogoTextColorState] = useState<string>("#000000");
   const [logoImgError, setLogoImgError] = useState(false);
+  const [logoUploading, setLogoUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const collapsedFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -544,12 +545,12 @@ function LogoSettingsCard() {
       .then((r) => r.json())
       .then((data: { type: string; imageUrl: string; collapsedImageUrl?: string; collapsedSize?: number; wrapSidebarText?: boolean; text: string; subtitle?: string; size: number | null; textColor?: string }) => {
         const type: LogoType = data.type === "text" ? "text" : data.type === "image-text" ? "image-text" : "image";
-        const imgUrl = data.imageUrl || `${BASE_URL}act-logo.png`;
+        const imgUrl = data.imageUrl?.startsWith("/api/logo/image") ? `${BASE}${data.imageUrl}` : data.imageUrl || `${BASE_URL}act-logo.png`;
         const text = data.text || DEFAULT_LOGO_TEXT;
         const size = typeof data.size === "number" ? data.size : DEFAULT_LOGO_SIZE;
         setLogoTypeState(type);
         setLogoImageUrlState(imgUrl);
-        setLogoUrlInput(data.imageUrl || "");
+        setLogoUrlInput(data.imageUrl?.startsWith("http") ? data.imageUrl : "");
         const collapsedUrl = data.collapsedImageUrl || "";
         setCollapsedLogoImageUrl(collapsedUrl.startsWith("/api/logo/collapsed-image") ? `${BASE}${collapsedUrl}` : collapsedUrl);
         setCollapsedLogoUrlInput(collapsedUrl.startsWith("/api/logo/collapsed-image") ? "" : collapsedUrl);
@@ -571,7 +572,7 @@ function LogoSettingsCard() {
       .finally(() => setLoading(false));
   }, [BASE, BASE_URL]);
 
-  const saveLogo = async (patch: Partial<{ type: LogoType; imageUrl: string; collapsedImageUrl: string; collapsedImagePath: string; collapsedImageContentType: string; collapsedSize: number; wrapSidebarText: boolean; text: string; subtitle: string; size: number; textColor: string }>): Promise<boolean> => {
+  const saveLogo = async (patch: Partial<{ type: LogoType; imageUrl: string; imagePath: string; imageContentType: string; collapsedImageUrl: string; collapsedImagePath: string; collapsedImageContentType: string; collapsedSize: number; wrapSidebarText: boolean; text: string; subtitle: string; size: number; textColor: string }>): Promise<boolean> => {
     try {
       const response = await fetch(`${BASE}/api/admin/logo`, {
         method: "PUT",
@@ -626,38 +627,40 @@ function LogoSettingsCard() {
     toast({ title: trimmed ? "Collapsed sidebar logo updated" : "Collapsed sidebar logo reset" });
   };
 
+  const uploadBrandingImage = async (file: File): Promise<string> => {
+    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type) || file.size > 2 * 1024 * 1024) {
+      throw new Error("Choose a JPG, PNG, WebP, or GIF no larger than 2 MB.");
+    }
+    const preparedResponse = await fetch(`${BASE}/api/admin/logo/image/upload-url`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ size: file.size, contentType: file.type }),
+    });
+    const prepared = await preparedResponse.json().catch(() => ({}));
+    if (!preparedResponse.ok) throw new Error(prepared.error || "Unable to prepare image upload.");
+    if (typeof prepared.objectPath !== "string") throw new Error("Image storage returned no path.");
+    const uploadUrl = prepared.uploadURL || `${BASE}/api/admin/logo/image/upload?objectPath=${encodeURIComponent(prepared.objectPath)}`;
+    const uploadResponse = await fetch(uploadUrl, {
+      method: "PUT",
+      credentials: prepared.uploadURL ? "omit" : "include",
+      headers: { "Content-Type": file.type, ...(prepared.uploadHeaders ?? {}) },
+      body: file,
+    });
+    if (!uploadResponse.ok) throw new Error("Unable to upload image.");
+    return prepared.objectPath;
+  };
+
   const handleCollapsedLogoFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type) || file.size > 2 * 1024 * 1024) {
-      toast({ title: "Choose a JPG, PNG, WebP, or GIF no larger than 2 MB", variant: "destructive" });
-      return;
-    }
 
     setCollapsedLogoUploading(true);
     try {
-      const preparedResponse = await fetch(`${BASE}/api/admin/logo/collapsed-image/upload-url`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ size: file.size, contentType: file.type }),
-      });
-      const prepared = await preparedResponse.json().catch(() => ({}));
-      if (!preparedResponse.ok) throw new Error(prepared.error || "Unable to prepare image upload.");
-      if (typeof prepared.objectPath !== "string") throw new Error("Image storage returned no path.");
-
-      const uploadUrl = prepared.uploadURL || `${BASE}/api/admin/logo/collapsed-image/upload?objectPath=${encodeURIComponent(prepared.objectPath)}`;
-      const uploadResponse = await fetch(uploadUrl, {
-        method: "PUT",
-        credentials: prepared.uploadURL ? "omit" : "include",
-        headers: { "Content-Type": file.type, ...(prepared.uploadHeaders ?? {}) },
-        body: file,
-      });
-      if (!uploadResponse.ok) throw new Error("Unable to upload image.");
-      if (!(await saveLogo({ collapsedImagePath: prepared.objectPath, collapsedImageContentType: file.type, collapsedImageUrl: "" }))) return;
-
-      const imageUrl = `${BASE}/api/logo/collapsed-image?v=${encodeURIComponent(prepared.objectPath)}`;
+      const imagePath = await uploadBrandingImage(file);
+      if (!(await saveLogo({ collapsedImagePath: imagePath, collapsedImageContentType: file.type, collapsedImageUrl: "" }))) return;
+      const imageUrl = `${BASE}/api/logo/collapsed-image?v=${encodeURIComponent(imagePath)}`;
       setCollapsedLogoImageUrl(imageUrl);
       setCollapsedLogoUrlInput("");
       setCollapsedLogoImgError(false);
@@ -689,41 +692,51 @@ function LogoSettingsCard() {
 
   const applyLogoUrl = async (url: string) => {
     const trimmed = url.trim();
+    if (trimmed) {
+      try {
+        const parsed = new URL(trimmed);
+        if (!["http:", "https:"].includes(parsed.protocol) || trimmed.length > 2048) throw new Error("Invalid image URL");
+      } catch {
+        toast({ title: "Enter a valid HTTP or HTTPS image URL", variant: "destructive" });
+        return;
+      }
+    }
     const imgUrl = trimmed || `${BASE_URL}act-logo.png`;
+    if (!(await saveLogo({ imageUrl: trimmed, imagePath: "", imageContentType: "" }))) return;
     setLogoImageUrlState(imgUrl);
+    setLogoUrlInput(trimmed);
     setLogoImgError(false);
-    await saveLogo({ imageUrl: trimmed });
     dispatch({ type: logoType, imageUrl: imgUrl, text: logoText, subtitle: logoSubtitle, size: logoSize, textColor: logoTextColor });
     toast({ title: "Logo image updated" });
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast({ title: "Please select an image file", variant: "destructive" });
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const dataUrl = ev.target?.result as string;
-      setLogoImageUrlState(dataUrl);
+    setLogoUploading(true);
+    try {
+      const imagePath = await uploadBrandingImage(file);
+      if (!(await saveLogo({ imagePath, imageContentType: file.type, imageUrl: "" }))) return;
+      const imageUrl = `${BASE}/api/logo/image?v=${encodeURIComponent(imagePath)}`;
+      setLogoImageUrlState(imageUrl);
       setLogoUrlInput("");
       setLogoImgError(false);
-      await saveLogo({ imageUrl: dataUrl });
-      dispatch({ type: logoType, imageUrl: dataUrl, text: logoText, subtitle: logoSubtitle, size: logoSize, textColor: logoTextColor });
+      dispatch({ type: logoType, imageUrl, text: logoText, subtitle: logoSubtitle, size: logoSize, textColor: logoTextColor });
       toast({ title: "Logo image uploaded" });
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
+    } catch (error) {
+      toast({ title: "Unable to upload logo image", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" });
+    } finally {
+      setLogoUploading(false);
+    }
   };
 
   const resetLogoImage = async () => {
     const def = `${BASE_URL}act-logo.png`;
+    if (!(await saveLogo({ imageUrl: "", imagePath: "", imageContentType: "" }))) return;
     setLogoImageUrlState(def);
     setLogoUrlInput("");
     setLogoImgError(false);
-    await saveLogo({ imageUrl: "" });
     dispatch({ type: logoType, imageUrl: def, text: logoText, subtitle: logoSubtitle, size: logoSize, textColor: logoTextColor });
     toast({ title: "Logo reset to default" });
   };
@@ -958,17 +971,17 @@ function LogoSettingsCard() {
             <div className="space-y-2">
               <Label>Upload image file</Label>
               <div className="flex gap-2">
-                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
-                <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()}>
+                <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={(event) => void handleFileUpload(event)} />
+                <Button variant="outline" className="gap-2" disabled={logoUploading} onClick={() => fileInputRef.current?.click()}>
                   <Upload className="w-4 h-4" />
-                  Choose file
+                  {logoUploading ? "Uploading…" : "Choose file"}
                 </Button>
-                <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={resetLogoImage}>
+                <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" disabled={logoUploading} onClick={() => void resetLogoImage()}>
                   <RotateCcw className="w-3.5 h-3.5" />
                   Reset to default
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">PNG, JPG, SVG, or WebP — transparent background recommended.</p>
+              <p className="text-xs text-muted-foreground">PNG, JPG, WebP, or GIF · up to 2 MB — transparent background recommended.</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="logo-url-input" className="flex items-center gap-1.5">
@@ -1116,12 +1129,12 @@ function LogoSettingsCard() {
               <div className="space-y-2">
                 <Label>Image</Label>
                 <div className="flex gap-2">
-                  <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
-                  <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()}>
+                  <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={(event) => void handleFileUpload(event)} />
+                  <Button variant="outline" className="gap-2" disabled={logoUploading} onClick={() => fileInputRef.current?.click()}>
                     <Upload className="w-4 h-4" />
-                    Choose file
+                    {logoUploading ? "Uploading…" : "Choose file"}
                   </Button>
-                  <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={resetLogoImage}>
+                  <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" disabled={logoUploading} onClick={() => void resetLogoImage()}>
                     <RotateCcw className="w-3.5 h-3.5" />
                     Reset image
                   </Button>
@@ -1143,7 +1156,7 @@ function LogoSettingsCard() {
                     <Button onClick={() => applyLogoUrl(logoUrlInput)} disabled={!logoUrlInput.trim()}>Apply</Button>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground">PNG, JPG, SVG, or WebP — transparent background recommended.</p>
+                <p className="text-xs text-muted-foreground">PNG, JPG, WebP, or GIF · up to 2 MB — transparent background recommended.</p>
               </div>
             )}
           </div>

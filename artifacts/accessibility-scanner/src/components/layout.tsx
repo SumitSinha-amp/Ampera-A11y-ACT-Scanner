@@ -228,7 +228,7 @@ function AppLogo({ collapsed }: { collapsed: boolean }) {
             ? "image-text"
             : "image",
       );
-      setImgUrl(data.imageUrl || `${BASE_URL}act-logo.png`);
+      setImgUrl(data.imageUrl?.startsWith("/api/logo/image") ? `${BASE}${data.imageUrl}` : data.imageUrl || `${BASE_URL}act-logo.png`);
       const collapsedUrl = data.collapsedImageUrl || "";
       setCollapsedImgUrl(
         collapsedUrl.startsWith("/api/logo/collapsed-image") ? `${BASE}${collapsedUrl}` : collapsedUrl,

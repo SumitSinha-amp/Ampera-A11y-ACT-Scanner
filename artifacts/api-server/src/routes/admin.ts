@@ -8,7 +8,7 @@ import { eq, asc, inArray, and } from "drizzle-orm";
 import { requireAdmin, requireSuperAdmin } from "../middlewares/authMiddleware";
 import { sendInviteEmail } from "../lib/email";
 import { logger } from "../lib/logger";
-import { IssueAttachmentStorageService } from "../lib/issueAttachmentStorage";
+import { AttachmentStorageConfigurationError, IssueAttachmentStorageService } from "../lib/issueAttachmentStorage";
 
 const router: IRouter = Router();
 const userColumns = {
@@ -580,6 +580,8 @@ function requireTrustedBrandingOrigin(req: Request, res: Response, next: NextFun
 const LOGO_KEYS = [
   "logo_type",
   "logo_image_url",
+  "logo_image_path",
+  "logo_image_content_type",
   "logo_collapsed_image_url",
   "logo_collapsed_image_path",
   "logo_collapsed_image_content_type",
@@ -602,7 +604,9 @@ router.get("/logo", async (_req, res): Promise<void> => {
     }
     res.json({
       type: map["logo_type"] ?? "image",
-      imageUrl: map["logo_image_url"] ?? "",
+      imageUrl: map["logo_image_path"]
+        ? `/api/logo/image?v=${encodeURIComponent(map["logo_image_path"])}`
+        : map["logo_image_url"] ?? "",
       collapsedImageUrl: map["logo_collapsed_image_path"]
         ? `/api/logo/collapsed-image?v=${encodeURIComponent(map["logo_collapsed_image_path"])}`
         : map["logo_collapsed_image_url"] ?? "",
@@ -620,15 +624,15 @@ router.get("/logo", async (_req, res): Promise<void> => {
   }
 });
 
-router.get("/logo/collapsed-image", async (_req, res): Promise<void> => {
+async function serveUploadedLogo(res: Response, pathKey: string, contentTypeKey: string): Promise<void> {
   try {
     const rows = await db.select({ key: appSettingsTable.key, value: appSettingsTable.value })
       .from(appSettingsTable)
-      .where(inArray(appSettingsTable.key, ["logo_collapsed_image_path", "logo_collapsed_image_content_type"]));
+      .where(inArray(appSettingsTable.key, [pathKey, contentTypeKey]));
     const map = Object.fromEntries(rows.map((row) => [row.key, row.value]));
-    const imagePath = map.logo_collapsed_image_path;
-    const contentType = map.logo_collapsed_image_content_type;
-    if (!imagePath || !contentType || !COLLAPSED_LOGO_IMAGE_TYPES.has(contentType)) {
+    const imagePath = map[pathKey];
+    const contentType = map[contentTypeKey];
+    if (!imagePath || !COLLAPSED_LOGO_OBJECT_PATH.test(imagePath) || !contentType || !COLLAPSED_LOGO_IMAGE_TYPES.has(contentType)) {
       res.status(404).end();
       return;
     }
@@ -644,12 +648,20 @@ router.get("/logo/collapsed-image", async (_req, res): Promise<void> => {
       res.end();
     }
   } catch (error) {
-    logger.warn({ err: error }, "Collapsed sidebar logo could not be loaded");
+    logger.warn({ err: error }, "Uploaded workspace logo could not be loaded");
     res.status(404).end();
   }
+}
+
+router.get("/logo/image", async (_req, res): Promise<void> => {
+  await serveUploadedLogo(res, "logo_image_path", "logo_image_content_type");
 });
 
-router.post("/admin/logo/collapsed-image/upload-url", requireTrustedBrandingOrigin, requireSuperAdmin, async (req, res): Promise<void> => {
+router.get("/logo/collapsed-image", async (_req, res): Promise<void> => {
+  await serveUploadedLogo(res, "logo_collapsed_image_path", "logo_collapsed_image_content_type");
+});
+
+router.post(["/admin/logo/image/upload-url", "/admin/logo/collapsed-image/upload-url"], requireTrustedBrandingOrigin, requireSuperAdmin, async (req, res): Promise<void> => {
   const { size, contentType } = req.body ?? {};
   if (
     typeof size !== "number" || !Number.isFinite(size) || size <= 0 ||
@@ -662,12 +674,16 @@ router.post("/admin/logo/collapsed-image/upload-url", requireTrustedBrandingOrig
     const prepared = await collapsedLogoStorage.prepareUpload(contentType, "branding");
     res.json(prepared);
   } catch (error) {
-    req.log.error({ err: error }, "Collapsed sidebar logo upload could not be prepared");
-    res.status(503).json({ error: "Image storage is not available." });
+    req.log.error({ err: error }, "Workspace logo upload could not be prepared");
+    res.status(503).json({
+      error: error instanceof AttachmentStorageConfigurationError
+        ? "Image storage is not configured. Check the selected storage provider and its credentials on the server."
+        : "Image storage is not available.",
+    });
   }
 });
 
-router.put("/admin/logo/collapsed-image/upload", requireTrustedBrandingOrigin, requireSuperAdmin, async (req, res): Promise<void> => {
+router.put(["/admin/logo/image/upload", "/admin/logo/collapsed-image/upload"], requireTrustedBrandingOrigin, requireSuperAdmin, async (req, res): Promise<void> => {
   const objectPath = req.query.objectPath;
   const contentType = req.headers["content-type"];
   const size = Number(req.headers["content-length"]);
@@ -677,14 +693,14 @@ router.put("/admin/logo/collapsed-image/upload", requireTrustedBrandingOrigin, r
     !COLLAPSED_LOGO_IMAGE_TYPES.has(contentType ?? "") ||
     !Number.isSafeInteger(size) || size <= 0 || size > COLLAPSED_LOGO_MAX_SIZE
   ) {
-    res.status(400).json({ error: "Invalid collapsed sidebar logo upload." });
+    res.status(400).json({ error: "Invalid workspace logo upload." });
     return;
   }
   try {
     await collapsedLogoStorage.uploadObject(objectPath, req, size, contentType!);
     res.status(204).end();
   } catch (error) {
-    req.log.error({ err: error }, "Collapsed sidebar logo upload failed");
+    req.log.error({ err: error }, "Workspace logo upload failed");
     res.status(502).json({ error: "Unable to upload the image." });
   }
 });
@@ -692,9 +708,29 @@ router.put("/admin/logo/collapsed-image/upload", requireTrustedBrandingOrigin, r
 // PUT /api/admin/logo — super_admin only; upserts shared branding settings
 router.put("/admin/logo", requireTrustedBrandingOrigin, requireSuperAdmin, async (req, res): Promise<void> => {
   const updatedBy = req.session!.user!.id;
-  const { type, imageUrl, collapsedImageUrl, collapsedImagePath, collapsedImageContentType, collapsedSize, wrapSidebarText, text, subtitle, size, textColor } = req.body ?? {};
+  const { type, imageUrl, imagePath, imageContentType, collapsedImageUrl, collapsedImagePath, collapsedImageContentType, collapsedSize, wrapSidebarText, text, subtitle, size, textColor } = req.body ?? {};
   const now = new Date();
 
+  if (imageUrl !== undefined && (typeof imageUrl !== "string" || imageUrl.length > 2048 ||
+    (imageUrl !== "" && !/^https?:\/\/\S+$/i.test(imageUrl)))) {
+    res.status(400).json({ error: "Enter a valid HTTP or HTTPS logo image URL." });
+    return;
+  }
+  if (imagePath !== undefined && (
+    typeof imagePath !== "string" ||
+    (imagePath !== "" && (!COLLAPSED_LOGO_OBJECT_PATH.test(imagePath) || !COLLAPSED_LOGO_IMAGE_TYPES.has(imageContentType)))
+  )) {
+    res.status(400).json({ error: "Choose a valid uploaded logo image." });
+    return;
+  }
+  if (imagePath) {
+    try {
+      await collapsedLogoStorage.verifyObject(imagePath);
+    } catch {
+      res.status(400).json({ error: "The uploaded logo image could not be found." });
+      return;
+    }
+  }
   if (collapsedImageUrl !== undefined && (
     typeof collapsedImageUrl !== "string" ||
     collapsedImageUrl.length > 2048 ||
@@ -736,6 +772,10 @@ router.put("/admin/logo", requireTrustedBrandingOrigin, requireSuperAdmin, async
   }
   if (typeof imageUrl === "string") {
     rows.push({ key: "logo_image_url", value: imageUrl, updatedAt: now, updatedBy });
+  }
+  if (typeof imagePath === "string") {
+    rows.push({ key: "logo_image_path", value: imagePath, updatedAt: now, updatedBy });
+    rows.push({ key: "logo_image_content_type", value: imagePath ? imageContentType : "", updatedAt: now, updatedBy });
   }
   if (typeof collapsedImageUrl === "string") {
     rows.push({ key: "logo_collapsed_image_url", value: collapsedImageUrl, updatedAt: now, updatedBy });
