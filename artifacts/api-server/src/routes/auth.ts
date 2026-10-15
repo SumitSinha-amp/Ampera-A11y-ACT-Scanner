@@ -13,6 +13,7 @@ import { ObjectStorageService } from "../lib/objectStorage";
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
 const userColumns = {
+  archived: usersTable.archived,
   id: usersTable.id, email: usersTable.email, username: usersTable.username, passwordHash: usersTable.passwordHash,
   fullName: usersTable.fullName, profileImageUrl: usersTable.profileImageUrl, profileImageContentType: usersTable.profileImageContentType,
   role: usersTable.role, isActive: usersTable.isActive, mustResetPassword: usersTable.mustResetPassword,
@@ -32,7 +33,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     .from(usersTable)
     .where(or(eq(usersTable.username, username), eq(usersTable.email, username)));
 
-  if (!user || !user.isActive) {
+  if (!user || !user.isActive || user.archived) {
     res.status(401).json({ error: "Invalid credentials" });
     return;
   }
@@ -228,7 +229,7 @@ router.post("/auth/reset-password", async (req, res): Promise<void> => {
     .from(usersTable)
     .where(eq(usersTable.inviteToken, token));
 
-  if (!user) {
+  if (!user || user.archived) {
     res.status(400).json({ error: "Invalid or expired reset token" });
     return;
   }

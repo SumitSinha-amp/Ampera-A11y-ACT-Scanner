@@ -5,6 +5,7 @@ import { z } from "zod/v4";
 
 export const projectsTable = pgTable("projects", {
   id: serial("id").primaryKey(),
+  archived: boolean("archived").notNull().default(false),
   name: text("name").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

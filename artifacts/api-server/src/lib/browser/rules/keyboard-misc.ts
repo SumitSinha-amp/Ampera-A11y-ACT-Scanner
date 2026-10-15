@@ -2,6 +2,7 @@ import type { ScanRawResult, PushStatFn } from "../types";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
 import { getAlfaPointerTargets, hasAlfaImageTargetSize, hasAlfaTargetSize, hasAlfaTargetSpacing } from "../alfa-helpers";
 import { isActuallyTabbable, isIncludedInAccessibilityTree, isProgrammaticallyHidden, isVisible } from "../visibility";
+import { runEmptyContainerRule } from "./empty-containers";
 
 export function runKeyboardMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: boolean, pushStat: PushStatFn): void {
   // ACT-R49: Auto-playing media has no mechanism to pause or stop (WCAG 1.4.2)
@@ -84,33 +85,9 @@ export function runKeyboardMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_
   // ════════════════════════════════════════════════════════════════════════
 
   // ════════════════════════════════════════════════════════════════════════
-  // ACT-R68: Empty container element
+  // ACT-R68: Element owns children required by its semantic role
   // ════════════════════════════════════════════════════════════════════════
-  {
-    document.querySelectorAll("div,section,article,aside,header,footer,main,nav").forEach((el) => {
-      if (!isVisible(el)) return;
-      if ((el.textContent ?? "").trim()) return;
-      // Empty layout scaffolding is not an accessibility failure. Exclude
-      // common clearfix/grid placeholders, metadata nodes, media shells, and
-      // live-region buffers that are intentionally empty at scan time.
-      const className = typeof el.className === "string" ? el.className : "";
-      const id = el.id || "";
-      const style = window.getComputedStyle(el);
-      if (
-        el.hasAttribute("aria-hidden") ||
-        el.hasAttribute("hidden") ||
-        el.hasAttribute("data-path") ||
-        /(^|[\s_-])(clearfix|clear|grid|responsivegrid|aem-grid|panel|wrapper|section|column-control|layout-container|content-height|parbase|breadcrumb|poster|video|player)([\s_-]|$)/i.test(className) ||
-        /(^|[-_])(live|path|mobile|test|placeholder|poster|player|video|breadcrumb|clearfix|clear)([-_]|$)/i.test(id) ||
-        style.position === "absolute" ||
-        style.position === "fixed" ||
-        el.getBoundingClientRect().width <= 1 ||
-        el.getBoundingClientRect().height <= 1
-      ) return;
-      if (el.querySelector("img,svg,video,audio,canvas,iframe,object,embed,input,button,[aria-label],[aria-labelledby]")) return;
-      results.push({ ruleId: "ACT-R68", type: "Issue", impact: "moderate", description: "Container element is empty", element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-    });
-  }
+  runEmptyContainerRule(results);
 
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R78: Heading element has no text content (Best Practice)

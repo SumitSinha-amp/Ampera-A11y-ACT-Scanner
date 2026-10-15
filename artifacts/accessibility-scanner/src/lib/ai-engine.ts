@@ -218,20 +218,17 @@ const handlers: Record<string, Handler> = {
     };
   },
 
-  "ACT-R55": ({ el }) => {
-    const inputType = attr(el, "type") || "text";
-    const name = attr(el, "name") || attr(el, "autocomplete") || "";
+  "ACT-R55": () => {
     return {
-      why: `This input (type="${inputType}") is missing the <code>autocomplete</code> attribute. Browsers and assistive technologies need this to help users with cognitive disabilities auto-fill common personal data.`,
-      howToFix: `Add the <code>autocomplete</code> attribute with the appropriate token for this field type.`,
-      codeExample: codeBlock(`<!-- Common autocomplete values -->
-<input type="text" autocomplete="name" />
-<input type="email" autocomplete="email" />
-<input type="tel" autocomplete="tel" />
-<input type="text" autocomplete="street-address" />
-<input type="text" autocomplete="postal-code" />
-<input type="password" autocomplete="current-password" />`),
-      confidence: name ? HIGH : MED,
+      why: `These landmarks have the same role and accessible name, or are all unnamed. Screen-reader users may not be able to distinguish their purposes. ACT-R55 asks whether their content is equivalent; that requires human review and is not established by matching HTML.`,
+      howToFix: `Review every landmark in the reported group. If they serve different purposes, provide concise distinguishing names using aria-label or aria-labelledby. Equivalent repeated landmarks can share a name. Keep the landmark semantics; do not hide useful navigation merely to clear the review question.`,
+      codeExample: codeBlock(`<nav aria-label="Primary">
+  <a href="/destinations">Destinations</a>
+</nav>
+<nav aria-label="Account">
+  <a href="/account">My account</a>
+</nav>`),
+      confidence: MED,
       needsExternalAI: false,
     };
   },
@@ -495,31 +492,21 @@ h2 { color: #767676; font-size: 24px; }  /* 4.54:1 — pass */`),
     };
   },
 
-  // ── Text Spacing ──────────────────────────────────────────────────────────────
+  // ── Required owned roles ──────────────────────────────────────────────────────
 
-  "ACT-R68": ({ el }) => {
-    const tag = el.tag || "div";
+  "ACT-R68": () => {
     return {
-      why: `This element has a fixed height that clips its text content when user-defined spacing overrides are applied (per WCAG 1.4.12 Text Spacing). Users who override line-height or letter-spacing for readability will see truncated content.`,
-      howToFix: `Remove fixed <code>height</code> on text containers. Use <code>min-height</code> instead, and avoid <code>overflow: hidden</code> without a scrollable fallback.`,
-      codeExample: codeBlock(`/* Failing pattern */
-.card {
-  height: 80px;         /* fixed — clips when text spacing increases */
-  overflow: hidden;
-}
+      why: `The element does not own the children required by its semantic role. Assistive technologies rely on these relationships to identify and navigate lists, menus, tables, and composite widgets. Ordinary text or graphics cannot substitute for required child roles.`,
+      howToFix: `Inspect the reported role and expected child-role paths. Prefer valid native HTML; otherwise provide the matching accessible child roles, either as accessibility-tree children or through valid aria-owns references. Do not hide the problem with decorative content or remove useful controls. Use aria-busy="true" only while a component is genuinely being updated.`,
+      codeExample: codeBlock(`<!-- Prefer native list semantics. -->
+<ul>
+  <li>First item</li>
+</ul>
 
-/* Fixed */
-.card {
-  min-height: 80px;     /* grows with content */
-  /* overflow: hidden;  — removed */
-}
-
-/* If overflow hidden is needed for layout, use max-height + overflow-y: auto */
-.card {
-  min-height: 80px;
-  max-height: 200px;
-  overflow-y: auto;
-}`),
+<!-- A custom listbox must own options. -->
+<div role="listbox" aria-label="Destination">
+  <div role="option" aria-selected="false">London</div>
+</div>`),
       confidence: HIGH,
       needsExternalAI: false,
     };

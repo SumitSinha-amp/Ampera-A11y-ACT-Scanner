@@ -30,6 +30,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { useAuth, isSuperAdmin } from "@/contexts/auth";
+import { REPLAY_HIGHLIGHT_CONTROLLER } from "@/lib/replay-highlight";
 import {
   HTML_REPLAY_CHANGED_EVENT,
   HTML_REPLAY_LS_KEY,
@@ -240,6 +241,21 @@ export function HtmlReplayView({
   const [html, setHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const replayFrameRef = useRef<HTMLIFrameElement>(null);
+  const updateReplayHighlight = useCallback(() => {
+    // Opaque sandbox origins require "*". The controller accepts messages
+    // only from its parent, and this targets only this frame's window.
+    replayFrameRef.current?.contentWindow?.postMessage({
+      type: "ampera:replay-highlight",
+      selector: selector ?? null,
+      showHighlight,
+      focus: true,
+    }, "*");
+  }, [selector, showHighlight]);
+
+  useEffect(() => {
+    updateReplayHighlight();
+  }, [updateReplayHighlight, focusTrigger]);
 
   useEffect(() => {
     let active = true;
@@ -280,16 +296,6 @@ export function HtmlReplayView({
             }
           }
         });
-        if (showHighlight && selector) {
-          try {
-            const target = documentSnapshot.querySelector(selector);
-            if (target instanceof HTMLElement) {
-              target.setAttribute("data-a11y-replay-highlight", "true");
-            }
-          } catch {
-            // Unsupported selectors render without a replay highlight.
-          }
-        }
         const base = documentSnapshot.createElement("base");
         base.href = baseUrl;
         documentSnapshot.head.prepend(base);
@@ -309,19 +315,7 @@ export function HtmlReplayView({
         documentSnapshot.head.append(replayStyles);
         const replayController = documentSnapshot.createElement("script");
         replayController.setAttribute("nonce", "YTExeS1yZXBsYXk");
-        replayController.textContent = `
-          (() => {
-            const focusHighlight = () => {
-              const target = document.querySelector('[data-a11y-replay-highlight="true"]');
-              if (target) target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-            };
-            if (document.readyState === 'loading') {
-              document.addEventListener('DOMContentLoaded', () => requestAnimationFrame(focusHighlight), { once: true });
-            } else {
-              requestAnimationFrame(focusHighlight);
-            }
-          })();
-        `;
+        replayController.textContent = REPLAY_HIGHLIGHT_CONTROLLER;
         documentSnapshot.body.append(replayController);
         setHtml(`<!doctype html>\n${documentSnapshot.documentElement.outerHTML}`);
         setLoading(false);
@@ -334,7 +328,7 @@ export function HtmlReplayView({
     return () => {
       active = false;
     };
-  }, [pageId, interactionStateId, selector, showHighlight]);
+  }, [pageId, interactionStateId]);
 
   if (loading) {
     return (
@@ -359,7 +353,8 @@ export function HtmlReplayView({
 
   return (
     <iframe
-      key={focusTrigger}
+      ref={replayFrameRef}
+      onLoad={updateReplayHighlight}
       srcDoc={html}
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"

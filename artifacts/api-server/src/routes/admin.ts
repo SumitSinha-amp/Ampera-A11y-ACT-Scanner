@@ -4,7 +4,7 @@ import crypto from "crypto";
 import net from "net";
 import { db } from "@workspace/db";
 import { usersTable, userGroupsTable, userGroupMembersTable, userPermissionsTable, appSettingsTable } from "@workspace/db";
-import { eq, asc, inArray, and } from "drizzle-orm";
+import { eq, asc, inArray, and, sql } from "drizzle-orm";
 import { requireAdmin, requireSuperAdmin } from "../middlewares/authMiddleware";
 import { sendInviteEmail } from "../lib/email";
 import { logger } from "../lib/logger";
@@ -57,6 +57,7 @@ router.get("/admin/users", requireAdmin, async (req, res): Promise<void> => {
       createdAt: usersTable.createdAt,
     })
     .from(usersTable)
+    .where(eq(usersTable.archived, false))
     .orderBy(asc(usersTable.fullName));
 
   // Attach group memberships
@@ -224,7 +225,10 @@ router.delete("/admin/users/:id", requireSuperAdmin, async (req, res): Promise<v
     return;
   }
 
-  await db.delete(usersTable).where(eq(usersTable.id, id));
+  await db.transaction(async (tx) => {
+    await tx.update(usersTable).set({ archived: true, isActive: false }).where(eq(usersTable.id, id));
+    await tx.execute(sql`DELETE FROM session WHERE sess->'user'->>'id' = ${String(id)}`);
+  });
   res.status(204).send();
 });
 

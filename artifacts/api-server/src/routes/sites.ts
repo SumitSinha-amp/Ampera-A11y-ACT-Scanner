@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import type { PoolClient } from "pg";
+import type { DatabasePoolClient as PoolClient } from "@workspace/db";
 import { db, pool } from "@workspace/db";
 import {
   sitesTable,
@@ -145,7 +145,7 @@ router.get("/sites", requireAuth, async (req: Request, res: Response): Promise<v
     return;
   }
 
-  const rows = await db.select(siteColumns).from(sitesTable).orderBy(desc(sitesTable.createdAt));
+  const rows = await db.select(siteColumns).from(sitesTable).where(eq(sitesTable.archived, false)).orderBy(desc(sitesTable.createdAt));
 
   if (rows.length === 0) {
     res.json({ sites: rows });
@@ -433,7 +433,7 @@ router.delete("/sites/:id", requireAuth, async (req: Request, res: Response): Pr
   const access = await canAccessSite(userId, userIdStr, role, siteId);
   if (!access || access === "member") { res.status(403).json({ error: "Forbidden" }); return; }
 
-  await db.delete(sitesTable).where(eq(sitesTable.id, siteId));
+  await db.update(sitesTable).set({ archived: true, scheduleEnabled: false, updatedAt: new Date() }).where(eq(sitesTable.id, siteId));
   res.json({ ok: true });
 });
 

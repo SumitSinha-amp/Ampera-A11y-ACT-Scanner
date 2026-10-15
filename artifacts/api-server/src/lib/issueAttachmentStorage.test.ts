@@ -106,11 +106,14 @@ describe("IssueAttachmentStorageService Cloudflare R2 backend", () => {
   });
 
   it("keeps R2 branding uploads separate from issue attachments", async () => {
+    // Azure App Service also sets WEBSITE_SITE_NAME; explicit R2 must win.
+    process.env.WEBSITE_SITE_NAME = "scanner";
     const prepared = await new IssueAttachmentStorageService().prepareUpload("image/png", "branding");
 
     expect(prepared.uploadURL).toBeNull();
     expect(prepared.objectPath).toMatch(/^\/r2-objects\/branding\/[0-9a-f-]+$/);
     expect(prepared.uploadHeaders).toEqual({ "Content-Type": "image/png" });
+    expect(getObjectEntityUploadURLMock).not.toHaveBeenCalled();
   });
 
   it("keeps Replit branding uploads separate from other private uploads", async () => {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { DatabaseStorageSettings } from "@/components/database-storage";
 import { useLocation } from "wouter";
 import {
   Card,
@@ -181,7 +182,7 @@ export function getLogoSize(): number {
 }
 
 export const THEME_LS_KEY = "a11y-theme";
-export type Theme = "light" | "dark" | "system" | "glass-dark" | "glass-light" | "glass-vision" | "glass-vision-light";
+export type Theme = "light" | "dark" | "system" | "glass-dark" | "glass-light" | "glass-vision" | "glass-vision-light" | "liquid-glass";
 
 export const ACCENT_LS_KEY = "a11y-accent";
 export type AccentColor =
@@ -353,6 +354,23 @@ export function applyAccentColor(accent: AccentColor | string) {
   }
 
   const root = document.documentElement;
+  if (savedTheme === "liquid-glass") {
+    // Scoped accessible cool-blue action palette; saved accent is untouched.
+    const blue = "212 86% 36%";
+    root.style.setProperty("--chrome-accent", blue);
+    root.style.setProperty("--chrome-accent-color", "#0d57ac");
+    root.style.setProperty("--chrome-accent-foreground", "0 0% 100%");
+    root.style.setProperty("--shell-text-shadow", "none");
+    root.style.setProperty("--shell-interaction-color", "white");
+    root.style.setProperty("--app-accent", blue);
+    root.style.setProperty("--primary", blue);
+    root.style.setProperty("--ring", blue);
+    root.style.setProperty("--sidebar-primary", blue);
+    root.style.setProperty("--sidebar-ring", blue);
+    root.style.setProperty("--primary-foreground", "0 0% 100%");
+    root.dataset.accent = "liquid-glass";
+    return;
+  }
   root.style.setProperty("--chrome-accent", chromeAccent);
   root.style.setProperty("--chrome-accent-color", chromeColor);
   root.style.setProperty("--chrome-accent-foreground", chromeForeground);
@@ -374,7 +392,7 @@ export function getSavedTheme(): Theme {
     if (
       v === "light" || v === "dark" || v === "system" ||
       v === "glass-dark" || v === "glass-light" || v === "glass-vision" ||
-      v === "glass-vision-light"
+      v === "glass-vision-light" || v === "liquid-glass"
     ) return v;
   } catch {
     /* ignore */
@@ -394,6 +412,7 @@ export function applyTheme(theme: Theme) {
   document.documentElement.classList.toggle("glass-light", theme === "glass-light");
   document.documentElement.classList.toggle("glass-vision", theme === "glass-vision");
   document.documentElement.classList.toggle("glass-vision-light", theme === "glass-vision-light");
+  document.documentElement.classList.toggle("liquid-glass", theme === "liquid-glass");
 
   // Reapply the persisted accent after changing themes. Standard Light/Dark
   // use it on navigation; every header uses its theme's own surface.
@@ -1282,6 +1301,7 @@ export default function Settings() {
       "glass-light": "Glass Light",
       "glass-vision": "Vision Pro",
       "glass-vision-light": "Vision Pro Light",
+      "liquid-glass": "Liquid Glass",
     };
     toast({ title: `Theme set to ${labels[t]}` });
   };
@@ -1446,6 +1466,7 @@ export default function Settings() {
 
         {/* ── Appearance tab ──────────────────────────────────────────────── */}
         <TabsContent value="appearance" className="space-y-5 mt-0">
+          <DatabaseStorageSettings />
           {canEditLogo && <LogoSettingsCard />}
           <SidebarLogoSettingsCard />
 
@@ -1519,6 +1540,13 @@ export default function Settings() {
                         icon: Sparkles,
                         desc: "Bright spatial glass",
                         gradient: "from-sky-100 via-cyan-50 to-slate-200",
+                      },
+                      {
+                        value: "liquid-glass" as Theme,
+                        label: "Liquid Glass",
+                        icon: Sparkles,
+                        desc: "Frosted blue-white",
+                        gradient: "from-sky-100 via-blue-50 to-white",
                       },
                     ]
                   ).map(({ value, label, icon: Icon, desc, gradient }) => (

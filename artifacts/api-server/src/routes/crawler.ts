@@ -42,6 +42,7 @@ const crawlerSessionColumns = {
   pausedAt: crawlerSessionsTable.pausedAt, errorMessage: crawlerSessionsTable.errorMessage,
 };
 const siteColumns = {
+  archived: sitesTable.archived,
   id: sitesTable.id, userId: sitesTable.userId, name: sitesTable.name, baseUrl: sitesTable.baseUrl, description: sitesTable.description,
   defaultScope: sitesTable.defaultScope, sitemapUrl: sitesTable.sitemapUrl, crawlType: sitesTable.crawlType, maxPages: sitesTable.maxPages,
   maxDepth: sitesTable.maxDepth, respectRobotsTxt: sitesTable.respectRobotsTxt, assetMode: sitesTable.assetMode,
@@ -359,7 +360,7 @@ router.post("/crawler/sessions", requireAuth, async (req: Request, res: Response
     const [siteRow] = await db
       .select(siteColumns)
       .from(sitesTable)
-      .where(eq(sitesTable.id, data.siteId))
+      .where(and(eq(sitesTable.id, data.siteId), eq(sitesTable.archived, false)))
       .limit(1);
     if (!siteRow) {
       res.status(400).json({ error: "The specified site does not exist" });

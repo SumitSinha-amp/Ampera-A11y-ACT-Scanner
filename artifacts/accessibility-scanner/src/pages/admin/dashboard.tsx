@@ -160,8 +160,8 @@ export default function AdminDashboardPage() {
         />
       </section>
 
-      <section className="relative grid gap-4 lg:grid-cols-[1.5fr_1fr]">
-        <article className="ampera-card animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both" style={{ animationDelay: "200ms" }}>
+      <section className="relative grid grid-cols-1 gap-4 lg:grid-cols-[1.5fr_1fr]">
+        <article className="ampera-card min-w-0 animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both" style={{ animationDelay: "200ms" }}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-foreground">Recent users</h3>
             <Link href="/admin/users" className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">

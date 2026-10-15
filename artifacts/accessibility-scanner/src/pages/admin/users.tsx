@@ -210,13 +210,13 @@ export default function AdminUsersPage() {
     try {
       await trackAction("Deleting user…", async () => {
         const response = await fetch(`${BASE}/api/admin/users/${deleteUser.id}`, { method: "DELETE", credentials: "include" });
-        if (!response.ok) throw new Error("Failed to delete user");
+        if (!response.ok) throw new Error("Failed to archive user");
       });
       setDeleteUser(null);
       loadAll();
-      toast({ title: "User deleted" });
+      toast({ title: "User archived", description: "A super admin can restore it from Data Protection." });
     } catch {
-      toast({ title: "Failed to delete user", variant: "destructive" });
+      toast({ title: "Failed to archive user", variant: "destructive" });
     }
   }
 
@@ -339,7 +339,7 @@ export default function AdminUsersPage() {
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
                         {isSuperAdmin && u.id !== currentUser?.id && (
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteUser(u)} title="Delete user">
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteUser(u)} title="Archive user" aria-label="Archive user">
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
                         )}
@@ -455,12 +455,12 @@ export default function AdminUsersPage() {
       <Dialog open={!!deleteUser} onOpenChange={v => !v && setDeleteUser(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete User</DialogTitle>
-            <DialogDescription>Are you sure you want to delete <strong>{deleteUser?.fullName}</strong>? This action cannot be undone.</DialogDescription>
+            <DialogTitle>Archive User</DialogTitle>
+            <DialogDescription>Archive <strong>{deleteUser?.fullName}</strong>? They will lose access immediately. The record and its history are kept, and a super admin can restore it from Data Protection.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteUser(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            <Button variant="destructive" onClick={handleDelete}>Archive</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -58,12 +58,12 @@ router.get("/projects", requireAuth, async (req, res): Promise<void> => {
           .from(projectsTable)
           .leftJoin(projectSitesTable, eq(projectSitesTable.projectId, projectsTable.id))
           .where(
-            accessibleSiteIds.length > 0
+            and(eq(projectsTable.archived, false), accessibleSiteIds.length > 0
               ? or(
                   inArray(projectSitesTable.siteId, accessibleSiteIds),
                   isNull(projectSitesTable.id),
                 )
-              : isNull(projectSitesTable.id),
+              : isNull(projectSitesTable.id)),
           )
           .orderBy(asc(projectsTable.name))
       : await db
@@ -74,7 +74,7 @@ router.get("/projects", requireAuth, async (req, res): Promise<void> => {
           })
           .from(projectsTable)
           .innerJoin(projectSitesTable, eq(projectSitesTable.projectId, projectsTable.id))
-          .where(inArray(projectSitesTable.siteId, accessibleSiteIds))
+          .where(and(inArray(projectSitesTable.siteId, accessibleSiteIds), eq(projectsTable.archived, false)))
           .orderBy(asc(projectsTable.name))
     : await db
         .selectDistinct({
@@ -85,7 +85,7 @@ router.get("/projects", requireAuth, async (req, res): Promise<void> => {
         .from(projectsTable)
         .leftJoin(projectSitesTable, eq(projectSitesTable.projectId, projectsTable.id))
         .leftJoin(scanSessionsTable, eq(scanSessionsTable.projectId, projectsTable.id))
-        .where(or(
+        .where(and(eq(projectsTable.archived, false), or(
           eq(projectSitesTable.siteId, siteId),
           // Legacy projects may have a scan tied to the site before the
           // project_sites association was backfilled.
@@ -93,7 +93,7 @@ router.get("/projects", requireAuth, async (req, res): Promise<void> => {
             isNull(projectSitesTable.id),
             eq(scanSessionsTable.siteId, siteId),
           ),
-        ))
+        )))
         .orderBy(asc(projectsTable.name));
 
   const projectIds = projects.map((project) => project.id);
@@ -279,7 +279,7 @@ router.delete("/projects/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  await db.delete(projectsTable).where(eq(projectsTable.id, id));
+  await db.update(projectsTable).set({ archived: true }).where(eq(projectsTable.id, id));
   res.status(204).send();
 });
 

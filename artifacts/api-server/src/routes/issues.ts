@@ -373,10 +373,18 @@ router.post("/issues", requireAuth, async (req, res) => {
     res.status(403).json({ error: "You do not have access to this site" }); return;
   }
   const userId = Number(req.session!.user!.id);
-  const [created] = await db.insert(appIssuesTable).values({ ...data, issueKey: "PENDING", reporterId: userId }).returning();
-  const issueKey = `AMP-${String(created.id).padStart(4, "0")}`;
-  const [issue] = await db.update(appIssuesTable).set({ issueKey }).where(eq(appIssuesTable.id, created.id)).returning();
-  await db.insert(appIssueActivityTable).values({ issueId: issue.id, actorId: userId, action: "created", details: { title: issue.title } });
+  const issue = await db.transaction(async (tx) => {
+    // Recovery preserves issue keys while remapping internal IDs. Allocate a
+    // unique key independently, including across concurrent API instances.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(734221921)`);
+    const [created] = await tx.insert(appIssuesTable).values({ ...data, issueKey: "PENDING", reporterId: userId }).returning();
+    const maximum = await tx.execute(sql`SELECT COALESCE(MAX(substring(issue_key FROM '^AMP-([0-9]{1,12})$')::bigint),0)::text AS maximum FROM app_issues`);
+    const next = Math.max(created.id, Number(maximum.rows[0]?.maximum ?? 0) + 1);
+    const issueKey = `AMP-${String(next).padStart(4, "0")}`;
+    const [record] = await tx.update(appIssuesTable).set({ issueKey }).where(eq(appIssuesTable.id, created.id)).returning();
+    await tx.insert(appIssueActivityTable).values({ issueId: record.id, actorId: userId, action: "created", details: { title: record.title } });
+    return record;
+  });
   if (issue.assigneeId) {
     await notifyIssueEvent({
       event: "assigned",
@@ -839,7 +847,12 @@ router.delete("/issues/:id", requireAuth, async (req, res) => {
   if (req.session!.user!.role !== "super_admin" && !(await requireIssuePermission(req, res, "canManageIssues"))) return;
   const issue = await canSeeIssue(req, Number(req.params.id));
   if (!issue) { res.status(404).json({ error: "Issue not found" }); return; }
-  await db.update(appIssuesTable).set({ archived: true, updatedAt: new Date() }).where(eq(appIssuesTable.id, issue.id));
+  await db.transaction(async (tx) => {
+    await tx.update(appIssuesTable).set({ archived: true, updatedAt: new Date() }).where(eq(appIssuesTable.id, issue.id));
+    await tx.insert(appIssueActivityTable).values({
+      issueId: issue.id, actorId: Number(req.session!.user!.id), action: "archived", details: {},
+    });
+  });
   res.status(204).send();
 });
 
@@ -849,15 +862,13 @@ router.post("/issues/:id/restore", requireAuth, async (req, res) => {
   if (!issue) { res.status(404).json({ error: "Issue not found" }); return; }
   if (!issue.archived) { res.status(400).json({ error: "Issue is not archived" }); return; }
   const updatedAt = new Date();
-  const [restored] = await db.update(appIssuesTable)
-    .set({ archived: false, updatedAt })
-    .where(eq(appIssuesTable.id, issue.id))
-    .returning();
-  await db.insert(appIssueActivityTable).values({
-    issueId: issue.id,
-    actorId: Number(req.session!.user!.id),
-    action: "restored",
-    details: {},
+  const restored = await db.transaction(async (tx) => {
+    const [record] = await tx.update(appIssuesTable)
+      .set({ archived: false, updatedAt }).where(eq(appIssuesTable.id, issue.id)).returning();
+    await tx.insert(appIssueActivityTable).values({
+      issueId: issue.id, actorId: Number(req.session!.user!.id), action: "restored", details: {},
+    });
+    return record;
   });
   res.json(restored);
 });

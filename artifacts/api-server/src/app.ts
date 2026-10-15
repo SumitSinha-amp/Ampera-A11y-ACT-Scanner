@@ -6,7 +6,8 @@ import connectPgSimple from "connect-pg-simple";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { existsSync } from "fs";
-import { pool } from "@workspace/db";
+import { pool, withAuditContext } from "@workspace/db";
+import { randomUUID } from "node:crypto";
 import router from "./routes";
 import healthRouter from "./routes/health";
 import issuesRouter, { ISSUE_ATTACHMENT_ROUTE_MARKER, ISSUE_CREATE_ROUTE_MARKER } from "./routes/issues";
@@ -152,6 +153,14 @@ const handleSessionStoreError: ErrorRequestHandler = (error, _req, res, next) =>
   res.status(503).json({ error: "Database temporarily unavailable. Please try again." });
 };
 app.use("/api", handleSessionStoreError);
+app.use("/api", (req, _res, next) => {
+  if (!req.session?.user || ["GET", "HEAD", "OPTIONS"].includes(req.method)) { next(); return; }
+  withAuditContext({
+    actorId: String(req.session.user.id), requestId: randomUUID(),
+    // Never persist request queries, headers, tokens or credentials as provenance.
+    source: `${req.method} ${req.path}`.slice(0, 250),
+  }, next);
+});
 
 // Issue Management is mounted directly at the application boundary. This keeps
 // its routes independent of the aggregate router and makes /api/issues

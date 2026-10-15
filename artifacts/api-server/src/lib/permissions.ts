@@ -187,7 +187,7 @@ export async function getEffectiveSites(
       name: sitesTable.name,
       baseUrl: sitesTable.baseUrl,
       description: sitesTable.description,
-    }).from(sitesTable).orderBy(sitesTable.name);
+    }).from(sitesTable).where(eq(sitesTable.archived, false)).orderBy(sitesTable.name);
     const siteIds = all.map((s) => s.id);
     const pageCounts = await getPageCounts(siteIds);
     return all.map((s) => ({ ...s, role: "admin" as const, pageCount: pageCounts.get(s.id) ?? 0 }));
@@ -241,7 +241,7 @@ export async function getEffectiveSites(
       description: sitesTable.description,
     })
     .from(sitesTable)
-    .where(inArray(sitesTable.id, [...allSiteIds]))
+    .where(and(inArray(sitesTable.id, [...allSiteIds]), eq(sitesTable.archived, false)))
     .orderBy(sitesTable.name);
 
   const pageCounts = await getPageCounts(sites.map((s) => s.id));
@@ -266,6 +266,9 @@ export async function canAccessSite(
   role: string,
   siteId: number,
 ): Promise<"admin" | "owner" | "member" | null> {
+  const [activeSite] = await db.select({ id: sitesTable.id }).from(sitesTable)
+    .where(and(eq(sitesTable.id, siteId), eq(sitesTable.archived, false))).limit(1);
+  if (!activeSite) return null;
   if (role === "super_admin" || role === "admin") return "admin";
 
   // Direct access via site_user_access

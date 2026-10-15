@@ -24,6 +24,8 @@ const browserRulePaths = [
   "artifacts/api-server/src/lib/browser/rules/document-language.ts",
   "artifacts/api-server/src/lib/browser/rules/headings-landmarks.ts",
   "artifacts/api-server/src/lib/browser/rules/keyboard-misc.ts",
+  "artifacts/api-server/src/lib/browser/rules/empty-containers.ts",
+  "artifacts/api-server/src/lib/browser/rules/control-group-names.ts",
   "artifacts/api-server/src/lib/browser/rules/links-contrast.ts",
   "artifacts/api-server/src/lib/browser/rules/media.ts",
   "artifacts/api-server/src/lib/browser/rules/names.ts",
@@ -74,9 +76,7 @@ const browserEntrySource = read("artifacts/api-server/src/lib/browser/index.ts")
     expect(browserIds.has("ACT-R68")).toBe(true);
     expect(browserSource).toContain('isLinkText ? "ACT-R88" : "ACT-R69"');
     expect(browserSource).toContain('isLinkText ? "ACT-R89" : "ACT-R66"');
-    expect(browserSource).not.toContain(
-      'ruleId: "ACT-R68", type: "Issue", impact: "serious", description: `Element with role=',
-    );
+    expect(browserSource).toContain("const REQUIRED_CHILDREN:");
   });
 
   it("keeps the SIA media-alternative metadata and R31 mapping aligned", () => {
@@ -165,21 +165,57 @@ const browserEntrySource = read("artifacts/api-server/src/lib/browser/index.ts")
     expect(browserSource).toContain("ariaValueError(name, value)");
   });
 
-  it("keeps ACT-R99 as a targeted missing-main-landmark check", () => {
+  it("keeps ACT-R99 as a page-level missing-main-landmark issue", () => {
     expect(browserSource).toContain('ruleId: "ACT-R99"');
     expect(browserSource).toContain(
       "document.querySelectorAll(\"main, [role='main']\")",
     );
-    expect(browserSource).toContain('preferredIds = ["content", "main", "appForm"]');
+    expect(browserSource).not.toContain('preferredIds = ["content", "main", "appForm"]');
     expect(browserSource).toContain(
-      "Primary content is contained in <${tag}${identifier}> without a main landmark",
+      'Document has no main landmark — add a <main> element or role="main" around the primary content',
     );
+    expect(browserSource).toContain("runMissingMainLandmarkRule(results)");
     expect(read("artifacts/api-server/src/lib/scanner.ts")).toContain(
       'description: "Document has no main landmark"',
     );
     expect(
       read("artifacts/accessibility-scanner/src/lib/actRules.ts"),
     ).toContain('title: "Document has no main landmark"');
+  });
+
+  it("keeps ACT-R68 aligned with Siteimprove required-owned-role semantics", () => {
+    const source = read("artifacts/api-server/src/lib/browser/rules/empty-containers.ts");
+    expect(source).toContain('type: "Issue"');
+    expect(source).toContain('list: [["listitem"]]');
+    expect(source).toContain('getAttribute("aria-owns")');
+    expect(source).toContain('getAttribute("aria-busy") === "true"');
+    expect(source).not.toContain("SCAFFOLD");
+    expect(read("artifacts/accessibility-scanner/src/lib/ai-engine.ts")).toContain(
+      "The element does not own the children required by its semantic role.",
+    );
+  });
+
+  it("runs all ACT-R60 detectors in the selected tables-forms family", () => {
+    expect(read("artifacts/api-server/src/lib/browser/rules/tables-forms.ts"))
+      .toContain("runControlGroupNameRule(results, pushStat)");
+    expect(read("artifacts/api-server/src/lib/browser/rules/structure-misc.ts"))
+      .not.toContain('ruleId: "ACT-R60"');
+    expect(read("artifacts/api-server/src/lib/browser/rules/control-group-names.ts"))
+      .toContain('ruleId: "ACT-R60", type: "Issue"');
+  });
+
+  it("keeps ACT-R55 a group-level content-equivalence review, not an autocomplete fix", () => {
+    const source = read("artifacts/api-server/src/lib/browser/rules/headings-landmarks.ts");
+    expect(source).toContain("for (const duplicateGroup of findDuplicateLandmarkNames(landmarks))");
+    expect(source).toContain('ruleId: "ACT-R55"');
+    expect(source).toContain('type: "Potential Issue"');
+    expect(source).toContain("have the same or equivalent content?");
+    expect(source).not.toContain("landmarkFingerprint");
+    expect(source).not.toContain("isCarouselPattern");
+    const aiSource = read("artifacts/accessibility-scanner/src/lib/ai-engine.ts");
+    const guidance = aiSource.slice(aiSource.indexOf('"ACT-R55":'), aiSource.indexOf('"ACT-R74":'));
+    expect(guidance).toContain("Review every landmark in the reported group");
+    expect(guidance).not.toContain("autocomplete");
   });
 
   it("does not emit the manual R24 video-transcript question automatically", () => {

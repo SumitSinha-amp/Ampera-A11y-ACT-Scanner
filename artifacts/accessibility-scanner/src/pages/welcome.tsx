@@ -127,21 +127,21 @@ export default function WelcomePage() {
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-base font-semibold">
-                    Clearer dashboards and loading feedback in {APP_VERSION}
+                    Data protection and smoother scanning in {APP_VERSION}
                   </h2>
                   <Badge variant="outline" className="text-[10px]">
                     New
                   </Badge>
                 </div>
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                  Crawler history, QA dashboards, and other data-heavy pages now
-                  share the Accessibility Overview's statistics and chart styling.
-                  Shared loading placeholders keep users informed while preserving
-                  clear differences between loading, empty results, and errors.
+                  New data protection tools give Super Admins independent Issue
+                  Management backups, recovery previews, and audited restoration.
+                  Inspect HTML replay occurrences without reloading, and follow
+                  synchronized scan progress that freezes while paused.
                 </p>
                 <Link href="/app-updates">
                   <Button variant="link" className="h-auto px-0 text-xs text-cyan-700 dark:text-cyan-300">
-                    Explore the dashboard updates
+                    Explore the latest updates
                     <ArrowRight className="ml-1 h-3 w-3" />
                   </Button>
                 </Link>

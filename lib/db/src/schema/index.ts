@@ -4,3 +4,4 @@ export * from "./crawler";
 export * from "./site-access";
 export * from "./notifications";
 export * from "./issues";
+export * from "./data-protection";

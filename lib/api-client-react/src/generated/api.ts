@@ -19,12 +19,23 @@ import type {
 import type {
   CreateProjectBody,
   CreateScanBody,
+  DatabaseStorageConfig,
+  DatabaseStorageStatus,
   ErrorResponse,
+  GetDataProtectionArchived200,
+  GetDataProtectionArchivedParams,
+  GetDataProtectionEvents200,
+  GetDataProtectionEventsParams,
+  GetDatabaseStorageAzureTemplate200,
+  GetIssueRecoveryBackupsParams,
   GrantSiteGroupAccess201,
   GrantSiteGroupBody,
   GrantSiteUserAccess201,
   GrantSiteUserBody,
   HealthStatus,
+  IssueRecoveryCatalogue,
+  IssueRecoveryPreview,
+  IssueRecoveryRestoration,
   ListProjectsParams,
   ListScansParams,
   MySitesResponse,
@@ -32,6 +43,13 @@ import type {
   ParseSitemapResponse,
   Project,
   ProjectSiteBody,
+  ProtectionAuditEvent,
+  ProtectionCheckpoint,
+  ProtectionOperationResult,
+  ProtectionRecoveryExport,
+  ProtectionRecoveryInput,
+  ProtectionRestoration,
+  ProtectionStatus,
   RetryAIAssessment200,
   ScanReport,
   ScanSession,
@@ -49,6 +67,328 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+/**
+ * @summary Get Azure storage configuration and latest reading (administrators only)
+ */
+export const getGetDatabaseStorageUrl = () => {
+  return `/api/admin/database-storage`;
+};
+
+export const getDatabaseStorage = async (
+  options?: RequestInit,
+): Promise<DatabaseStorageStatus> => {
+  return customFetch<DatabaseStorageStatus>(getGetDatabaseStorageUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetDatabaseStorageQueryKey = () => {
+  return [`/api/admin/database-storage`] as const;
+};
+
+export const getGetDatabaseStorageQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDatabaseStorage>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDatabaseStorage>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetDatabaseStorageQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDatabaseStorage>>
+  > = ({ signal }) => getDatabaseStorage({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDatabaseStorage>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDatabaseStorageQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDatabaseStorage>>
+>;
+export type GetDatabaseStorageQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get Azure storage configuration and latest reading (administrators only)
+ */
+
+export function useGetDatabaseStorage<
+  TData = Awaited<ReturnType<typeof getDatabaseStorage>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDatabaseStorage>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDatabaseStorageQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Configure Azure storage monitoring (super administrators only)
+ */
+export const getUpdateDatabaseStorageUrl = () => {
+  return `/api/admin/database-storage`;
+};
+
+export const updateDatabaseStorage = async (
+  databaseStorageConfig: DatabaseStorageConfig,
+  options?: RequestInit,
+): Promise<DatabaseStorageStatus> => {
+  return customFetch<DatabaseStorageStatus>(getUpdateDatabaseStorageUrl(), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(databaseStorageConfig),
+  });
+};
+
+export const getUpdateDatabaseStorageMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateDatabaseStorage>>,
+    TError,
+    { data: BodyType<DatabaseStorageConfig> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateDatabaseStorage>>,
+  TError,
+  { data: BodyType<DatabaseStorageConfig> },
+  TContext
+> => {
+  const mutationKey = ["updateDatabaseStorage"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateDatabaseStorage>>,
+    { data: BodyType<DatabaseStorageConfig> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateDatabaseStorage(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateDatabaseStorageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateDatabaseStorage>>
+>;
+export type UpdateDatabaseStorageMutationBody = BodyType<DatabaseStorageConfig>;
+export type UpdateDatabaseStorageMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Configure Azure storage monitoring (super administrators only)
+ */
+export const useUpdateDatabaseStorage = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateDatabaseStorage>>,
+    TError,
+    { data: BodyType<DatabaseStorageConfig> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateDatabaseStorage>>,
+  TError,
+  { data: BodyType<DatabaseStorageConfig> },
+  TContext
+> => {
+  return useMutation(getUpdateDatabaseStorageMutationOptions(options));
+};
+
+/**
+ * @summary Refresh Azure storage metrics (super administrators only)
+ */
+export const getCheckDatabaseStorageUrl = () => {
+  return `/api/admin/database-storage/check`;
+};
+
+export const checkDatabaseStorage = async (
+  options?: RequestInit,
+): Promise<DatabaseStorageStatus> => {
+  return customFetch<DatabaseStorageStatus>(getCheckDatabaseStorageUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getCheckDatabaseStorageMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof checkDatabaseStorage>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof checkDatabaseStorage>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["checkDatabaseStorage"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof checkDatabaseStorage>>,
+    void
+  > = () => {
+    return checkDatabaseStorage(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CheckDatabaseStorageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof checkDatabaseStorage>>
+>;
+
+export type CheckDatabaseStorageMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Refresh Azure storage metrics (super administrators only)
+ */
+export const useCheckDatabaseStorage = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof checkDatabaseStorage>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof checkDatabaseStorage>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getCheckDatabaseStorageMutationOptions(options));
+};
+
+/**
+ * @summary Download an Azure Monitor email alert deployment template
+ */
+export const getGetDatabaseStorageAzureTemplateUrl = () => {
+  return `/api/admin/database-storage/azure-template`;
+};
+
+export const getDatabaseStorageAzureTemplate = async (
+  options?: RequestInit,
+): Promise<GetDatabaseStorageAzureTemplate200> => {
+  return customFetch<GetDatabaseStorageAzureTemplate200>(
+    getGetDatabaseStorageAzureTemplateUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetDatabaseStorageAzureTemplateQueryKey = () => {
+  return [`/api/admin/database-storage/azure-template`] as const;
+};
+
+export const getGetDatabaseStorageAzureTemplateQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDatabaseStorageAzureTemplate>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDatabaseStorageAzureTemplate>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetDatabaseStorageAzureTemplateQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDatabaseStorageAzureTemplate>>
+  > = ({ signal }) =>
+    getDatabaseStorageAzureTemplate({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDatabaseStorageAzureTemplate>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDatabaseStorageAzureTemplateQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDatabaseStorageAzureTemplate>>
+>;
+export type GetDatabaseStorageAzureTemplateQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Download an Azure Monitor email alert deployment template
+ */
+
+export function useGetDatabaseStorageAzureTemplate<
+  TData = Awaited<ReturnType<typeof getDatabaseStorageAzureTemplate>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDatabaseStorageAzureTemplate>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDatabaseStorageAzureTemplateQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary List projects
@@ -2023,4 +2363,1270 @@ export const useParseSitemap = <
   TContext
 > => {
   return useMutation(getParseSitemapMutationOptions(options));
+};
+
+export const getGetDataProtectionUrl = () => {
+  return `/api/admin/data-protection`;
+};
+
+export const getDataProtection = async (
+  options?: RequestInit,
+): Promise<ProtectionStatus> => {
+  return customFetch<ProtectionStatus>(getGetDataProtectionUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetDataProtectionQueryKey = () => {
+  return [`/api/admin/data-protection`] as const;
+};
+
+export const getGetDataProtectionQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDataProtection>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDataProtection>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetDataProtectionQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDataProtection>>
+  > = ({ signal }) => getDataProtection({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDataProtection>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDataProtectionQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDataProtection>>
+>;
+export type GetDataProtectionQueryError = ErrorType<unknown>;
+
+export function useGetDataProtection<
+  TData = Awaited<ReturnType<typeof getDataProtection>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDataProtection>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDataProtectionQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getGetDataProtectionEventsUrl = (
+  params?: GetDataProtectionEventsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/data-protection/events?${stringifiedParams}`
+    : `/api/admin/data-protection/events`;
+};
+
+export const getDataProtectionEvents = async (
+  params?: GetDataProtectionEventsParams,
+  options?: RequestInit,
+): Promise<GetDataProtectionEvents200> => {
+  return customFetch<GetDataProtectionEvents200>(
+    getGetDataProtectionEventsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetDataProtectionEventsQueryKey = (
+  params?: GetDataProtectionEventsParams,
+) => {
+  return [
+    `/api/admin/data-protection/events`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetDataProtectionEventsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDataProtectionEvents>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetDataProtectionEventsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDataProtectionEvents>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetDataProtectionEventsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDataProtectionEvents>>
+  > = ({ signal }) =>
+    getDataProtectionEvents(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDataProtectionEvents>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDataProtectionEventsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDataProtectionEvents>>
+>;
+export type GetDataProtectionEventsQueryError = ErrorType<unknown>;
+
+export function useGetDataProtectionEvents<
+  TData = Awaited<ReturnType<typeof getDataProtectionEvents>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetDataProtectionEventsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDataProtectionEvents>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDataProtectionEventsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getGetDataProtectionArchivedUrl = (
+  params?: GetDataProtectionArchivedParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/data-protection/archived?${stringifiedParams}`
+    : `/api/admin/data-protection/archived`;
+};
+
+export const getDataProtectionArchived = async (
+  params?: GetDataProtectionArchivedParams,
+  options?: RequestInit,
+): Promise<GetDataProtectionArchived200> => {
+  return customFetch<GetDataProtectionArchived200>(
+    getGetDataProtectionArchivedUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetDataProtectionArchivedQueryKey = (
+  params?: GetDataProtectionArchivedParams,
+) => {
+  return [
+    `/api/admin/data-protection/archived`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetDataProtectionArchivedQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDataProtectionArchived>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetDataProtectionArchivedParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDataProtectionArchived>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetDataProtectionArchivedQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDataProtectionArchived>>
+  > = ({ signal }) =>
+    getDataProtectionArchived(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDataProtectionArchived>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDataProtectionArchivedQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDataProtectionArchived>>
+>;
+export type GetDataProtectionArchivedQueryError = ErrorType<unknown>;
+
+export function useGetDataProtectionArchived<
+  TData = Awaited<ReturnType<typeof getDataProtectionArchived>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetDataProtectionArchivedParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDataProtectionArchived>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDataProtectionArchivedQueryOptions(
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getRestoreDataProtectionRecordUrl = () => {
+  return `/api/admin/data-protection/restore`;
+};
+
+export const restoreDataProtectionRecord = async (
+  protectionRestoration: ProtectionRestoration,
+  options?: RequestInit,
+): Promise<ProtectionOperationResult> => {
+  return customFetch<ProtectionOperationResult>(
+    getRestoreDataProtectionRecordUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(protectionRestoration),
+    },
+  );
+};
+
+export const getRestoreDataProtectionRecordMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof restoreDataProtectionRecord>>,
+    TError,
+    { data: BodyType<ProtectionRestoration> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof restoreDataProtectionRecord>>,
+  TError,
+  { data: BodyType<ProtectionRestoration> },
+  TContext
+> => {
+  const mutationKey = ["restoreDataProtectionRecord"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof restoreDataProtectionRecord>>,
+    { data: BodyType<ProtectionRestoration> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return restoreDataProtectionRecord(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RestoreDataProtectionRecordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof restoreDataProtectionRecord>>
+>;
+export type RestoreDataProtectionRecordMutationBody =
+  BodyType<ProtectionRestoration>;
+export type RestoreDataProtectionRecordMutationError = ErrorType<unknown>;
+
+export const useRestoreDataProtectionRecord = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof restoreDataProtectionRecord>>,
+    TError,
+    { data: BodyType<ProtectionRestoration> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof restoreDataProtectionRecord>>,
+  TError,
+  { data: BodyType<ProtectionRestoration> },
+  TContext
+> => {
+  return useMutation(getRestoreDataProtectionRecordMutationOptions(options));
+};
+
+export const getCreateDataProtectionCheckpointUrl = () => {
+  return `/api/admin/data-protection/checkpoint`;
+};
+
+export const createDataProtectionCheckpoint = async (
+  options?: RequestInit,
+): Promise<ProtectionCheckpoint> => {
+  return customFetch<ProtectionCheckpoint>(
+    getCreateDataProtectionCheckpointUrl(),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getCreateDataProtectionCheckpointMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createDataProtectionCheckpoint>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createDataProtectionCheckpoint>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["createDataProtectionCheckpoint"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createDataProtectionCheckpoint>>,
+    void
+  > = () => {
+    return createDataProtectionCheckpoint(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateDataProtectionCheckpointMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createDataProtectionCheckpoint>>
+>;
+
+export type CreateDataProtectionCheckpointMutationError = ErrorType<unknown>;
+
+export const useCreateDataProtectionCheckpoint = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createDataProtectionCheckpoint>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createDataProtectionCheckpoint>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getCreateDataProtectionCheckpointMutationOptions(options));
+};
+
+export const getVerifyDataProtectionStorageUrl = () => {
+  return `/api/admin/data-protection/storage-check`;
+};
+
+export const verifyDataProtectionStorage = async (
+  options?: RequestInit,
+): Promise<ProtectionOperationResult> => {
+  return customFetch<ProtectionOperationResult>(
+    getVerifyDataProtectionStorageUrl(),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getVerifyDataProtectionStorageMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof verifyDataProtectionStorage>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof verifyDataProtectionStorage>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["verifyDataProtectionStorage"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof verifyDataProtectionStorage>>,
+    void
+  > = () => {
+    return verifyDataProtectionStorage(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type VerifyDataProtectionStorageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof verifyDataProtectionStorage>>
+>;
+
+export type VerifyDataProtectionStorageMutationError = ErrorType<unknown>;
+
+export const useVerifyDataProtectionStorage = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof verifyDataProtectionStorage>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof verifyDataProtectionStorage>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getVerifyDataProtectionStorageMutationOptions(options));
+};
+
+export const getRetryDataProtectionEvidenceUrl = () => {
+  return `/api/admin/data-protection/retry`;
+};
+
+export const retryDataProtectionEvidence = async (
+  options?: RequestInit,
+): Promise<ProtectionStatus> => {
+  return customFetch<ProtectionStatus>(getRetryDataProtectionEvidenceUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRetryDataProtectionEvidenceMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof retryDataProtectionEvidence>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof retryDataProtectionEvidence>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["retryDataProtectionEvidence"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof retryDataProtectionEvidence>>,
+    void
+  > = () => {
+    return retryDataProtectionEvidence(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RetryDataProtectionEvidenceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof retryDataProtectionEvidence>>
+>;
+
+export type RetryDataProtectionEvidenceMutationError = ErrorType<unknown>;
+
+export const useRetryDataProtectionEvidence = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof retryDataProtectionEvidence>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof retryDataProtectionEvidence>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRetryDataProtectionEvidenceMutationOptions(options));
+};
+
+export const getCreateDataProtectionExportUrl = () => {
+  return `/api/admin/data-protection/exports`;
+};
+
+export const createDataProtectionExport = async (
+  protectionRecoveryInput: ProtectionRecoveryInput,
+  options?: RequestInit,
+): Promise<ProtectionRecoveryExport> => {
+  return customFetch<ProtectionRecoveryExport>(
+    getCreateDataProtectionExportUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(protectionRecoveryInput),
+    },
+  );
+};
+
+export const getCreateDataProtectionExportMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createDataProtectionExport>>,
+    TError,
+    { data: BodyType<ProtectionRecoveryInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createDataProtectionExport>>,
+  TError,
+  { data: BodyType<ProtectionRecoveryInput> },
+  TContext
+> => {
+  const mutationKey = ["createDataProtectionExport"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createDataProtectionExport>>,
+    { data: BodyType<ProtectionRecoveryInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createDataProtectionExport(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateDataProtectionExportMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createDataProtectionExport>>
+>;
+export type CreateDataProtectionExportMutationBody =
+  BodyType<ProtectionRecoveryInput>;
+export type CreateDataProtectionExportMutationError = ErrorType<unknown>;
+
+export const useCreateDataProtectionExport = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createDataProtectionExport>>,
+    TError,
+    { data: BodyType<ProtectionRecoveryInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createDataProtectionExport>>,
+  TError,
+  { data: BodyType<ProtectionRecoveryInput> },
+  TContext
+> => {
+  return useMutation(getCreateDataProtectionExportMutationOptions(options));
+};
+
+export const getVerifyDataProtectionExportUrl = (id: string) => {
+  return `/api/admin/data-protection/exports/${id}/verify`;
+};
+
+export const verifyDataProtectionExport = async (
+  id: string,
+  protectionRecoveryInput: ProtectionRecoveryInput,
+  options?: RequestInit,
+): Promise<ProtectionOperationResult> => {
+  return customFetch<ProtectionOperationResult>(
+    getVerifyDataProtectionExportUrl(id),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(protectionRecoveryInput),
+    },
+  );
+};
+
+export const getVerifyDataProtectionExportMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof verifyDataProtectionExport>>,
+    TError,
+    { id: string; data: BodyType<ProtectionRecoveryInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof verifyDataProtectionExport>>,
+  TError,
+  { id: string; data: BodyType<ProtectionRecoveryInput> },
+  TContext
+> => {
+  const mutationKey = ["verifyDataProtectionExport"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof verifyDataProtectionExport>>,
+    { id: string; data: BodyType<ProtectionRecoveryInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return verifyDataProtectionExport(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type VerifyDataProtectionExportMutationResult = NonNullable<
+  Awaited<ReturnType<typeof verifyDataProtectionExport>>
+>;
+export type VerifyDataProtectionExportMutationBody =
+  BodyType<ProtectionRecoveryInput>;
+export type VerifyDataProtectionExportMutationError = ErrorType<unknown>;
+
+export const useVerifyDataProtectionExport = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof verifyDataProtectionExport>>,
+    TError,
+    { id: string; data: BodyType<ProtectionRecoveryInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof verifyDataProtectionExport>>,
+  TError,
+  { id: string; data: BodyType<ProtectionRecoveryInput> },
+  TContext
+> => {
+  return useMutation(getVerifyDataProtectionExportMutationOptions(options));
+};
+
+export const getDownloadDataProtectionExportUrl = (id: string) => {
+  return `/api/admin/data-protection/exports/${id}/download`;
+};
+
+export const downloadDataProtectionExport = async (
+  id: string,
+  options?: RequestInit,
+): Promise<Blob> => {
+  return customFetch<Blob>(getDownloadDataProtectionExportUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getDownloadDataProtectionExportQueryKey = (id: string) => {
+  return [`/api/admin/data-protection/exports/${id}/download`] as const;
+};
+
+export const getDownloadDataProtectionExportQueryOptions = <
+  TData = Awaited<ReturnType<typeof downloadDataProtectionExport>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof downloadDataProtectionExport>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getDownloadDataProtectionExportQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof downloadDataProtectionExport>>
+  > = ({ signal }) =>
+    downloadDataProtectionExport(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof downloadDataProtectionExport>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type DownloadDataProtectionExportQueryResult = NonNullable<
+  Awaited<ReturnType<typeof downloadDataProtectionExport>>
+>;
+export type DownloadDataProtectionExportQueryError = ErrorType<unknown>;
+
+export function useDownloadDataProtectionExport<
+  TData = Awaited<ReturnType<typeof downloadDataProtectionExport>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof downloadDataProtectionExport>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getDownloadDataProtectionExportQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getDownloadDataProtectionEvidenceUrl = (id: string) => {
+  return `/api/admin/data-protection/events/${id}/evidence`;
+};
+
+export const downloadDataProtectionEvidence = async (
+  id: string,
+  options?: RequestInit,
+): Promise<ProtectionAuditEvent> => {
+  return customFetch<ProtectionAuditEvent>(
+    getDownloadDataProtectionEvidenceUrl(id),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getDownloadDataProtectionEvidenceQueryKey = (id: string) => {
+  return [`/api/admin/data-protection/events/${id}/evidence`] as const;
+};
+
+export const getDownloadDataProtectionEvidenceQueryOptions = <
+  TData = Awaited<ReturnType<typeof downloadDataProtectionEvidence>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof downloadDataProtectionEvidence>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getDownloadDataProtectionEvidenceQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof downloadDataProtectionEvidence>>
+  > = ({ signal }) =>
+    downloadDataProtectionEvidence(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof downloadDataProtectionEvidence>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type DownloadDataProtectionEvidenceQueryResult = NonNullable<
+  Awaited<ReturnType<typeof downloadDataProtectionEvidence>>
+>;
+export type DownloadDataProtectionEvidenceQueryError = ErrorType<unknown>;
+
+export function useDownloadDataProtectionEvidence<
+  TData = Awaited<ReturnType<typeof downloadDataProtectionEvidence>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof downloadDataProtectionEvidence>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getDownloadDataProtectionEvidenceQueryOptions(
+    id,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getGetIssueRecoveryBackupsUrl = (
+  params?: GetIssueRecoveryBackupsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/data-protection/issue-backups?${stringifiedParams}`
+    : `/api/admin/data-protection/issue-backups`;
+};
+
+export const getIssueRecoveryBackups = async (
+  params?: GetIssueRecoveryBackupsParams,
+  options?: RequestInit,
+): Promise<IssueRecoveryCatalogue> => {
+  return customFetch<IssueRecoveryCatalogue>(
+    getGetIssueRecoveryBackupsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetIssueRecoveryBackupsQueryKey = (
+  params?: GetIssueRecoveryBackupsParams,
+) => {
+  return [
+    `/api/admin/data-protection/issue-backups`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetIssueRecoveryBackupsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getIssueRecoveryBackups>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetIssueRecoveryBackupsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getIssueRecoveryBackups>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetIssueRecoveryBackupsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getIssueRecoveryBackups>>
+  > = ({ signal }) =>
+    getIssueRecoveryBackups(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getIssueRecoveryBackups>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetIssueRecoveryBackupsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getIssueRecoveryBackups>>
+>;
+export type GetIssueRecoveryBackupsQueryError = ErrorType<unknown>;
+
+export function useGetIssueRecoveryBackups<
+  TData = Awaited<ReturnType<typeof getIssueRecoveryBackups>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetIssueRecoveryBackupsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getIssueRecoveryBackups>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetIssueRecoveryBackupsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getCreateIssueRecoveryBackupUrl = () => {
+  return `/api/admin/data-protection/issue-backups`;
+};
+
+export const createIssueRecoveryBackup = async (
+  options?: RequestInit,
+): Promise<ProtectionOperationResult> => {
+  return customFetch<ProtectionOperationResult>(
+    getCreateIssueRecoveryBackupUrl(),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getCreateIssueRecoveryBackupMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createIssueRecoveryBackup>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createIssueRecoveryBackup>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["createIssueRecoveryBackup"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createIssueRecoveryBackup>>,
+    void
+  > = () => {
+    return createIssueRecoveryBackup(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateIssueRecoveryBackupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createIssueRecoveryBackup>>
+>;
+
+export type CreateIssueRecoveryBackupMutationError = ErrorType<unknown>;
+
+export const useCreateIssueRecoveryBackup = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createIssueRecoveryBackup>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createIssueRecoveryBackup>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getCreateIssueRecoveryBackupMutationOptions(options));
+};
+
+export const getPreviewIssueRecoveryBackupUrl = (id: string) => {
+  return `/api/admin/data-protection/issue-backups/${id}/preview`;
+};
+
+export const previewIssueRecoveryBackup = async (
+  id: string,
+  options?: RequestInit,
+): Promise<IssueRecoveryPreview> => {
+  return customFetch<IssueRecoveryPreview>(
+    getPreviewIssueRecoveryBackupUrl(id),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getPreviewIssueRecoveryBackupMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewIssueRecoveryBackup>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof previewIssueRecoveryBackup>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["previewIssueRecoveryBackup"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof previewIssueRecoveryBackup>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return previewIssueRecoveryBackup(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreviewIssueRecoveryBackupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof previewIssueRecoveryBackup>>
+>;
+
+export type PreviewIssueRecoveryBackupMutationError = ErrorType<unknown>;
+
+export const usePreviewIssueRecoveryBackup = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewIssueRecoveryBackup>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof previewIssueRecoveryBackup>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getPreviewIssueRecoveryBackupMutationOptions(options));
+};
+
+export const getRestoreIssueRecoveryBackupUrl = (id: string) => {
+  return `/api/admin/data-protection/issue-backups/${id}/restore`;
+};
+
+export const restoreIssueRecoveryBackup = async (
+  id: string,
+  issueRecoveryRestoration: IssueRecoveryRestoration,
+  options?: RequestInit,
+): Promise<ProtectionOperationResult> => {
+  return customFetch<ProtectionOperationResult>(
+    getRestoreIssueRecoveryBackupUrl(id),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(issueRecoveryRestoration),
+    },
+  );
+};
+
+export const getRestoreIssueRecoveryBackupMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof restoreIssueRecoveryBackup>>,
+    TError,
+    { id: string; data: BodyType<IssueRecoveryRestoration> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof restoreIssueRecoveryBackup>>,
+  TError,
+  { id: string; data: BodyType<IssueRecoveryRestoration> },
+  TContext
+> => {
+  const mutationKey = ["restoreIssueRecoveryBackup"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof restoreIssueRecoveryBackup>>,
+    { id: string; data: BodyType<IssueRecoveryRestoration> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return restoreIssueRecoveryBackup(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RestoreIssueRecoveryBackupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof restoreIssueRecoveryBackup>>
+>;
+export type RestoreIssueRecoveryBackupMutationBody =
+  BodyType<IssueRecoveryRestoration>;
+export type RestoreIssueRecoveryBackupMutationError = ErrorType<unknown>;
+
+export const useRestoreIssueRecoveryBackup = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof restoreIssueRecoveryBackup>>,
+    TError,
+    { id: string; data: BodyType<IssueRecoveryRestoration> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof restoreIssueRecoveryBackup>>,
+  TError,
+  { id: string; data: BodyType<IssueRecoveryRestoration> },
+  TContext
+> => {
+  return useMutation(getRestoreIssueRecoveryBackupMutationOptions(options));
 };

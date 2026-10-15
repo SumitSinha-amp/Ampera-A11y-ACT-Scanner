@@ -17,6 +17,60 @@ tags:
   - name: projects
     description: Project and site association management
 paths:
+  /admin/database-storage:
+    get:
+      operationId: getDatabaseStorage
+      tags: [Admin]
+      summary: Get Azure storage configuration and latest reading (administrators only)
+      responses:
+        "200":
+          description: Storage monitoring status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatabaseStorageStatus"
+    put:
+      operationId: updateDatabaseStorage
+      tags: [Admin]
+      summary: Configure Azure storage monitoring (super administrators only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DatabaseStorageConfig"
+      responses:
+        "200":
+          description: Updated status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatabaseStorageStatus"
+  /admin/database-storage/check:
+    post:
+      operationId: checkDatabaseStorage
+      tags: [Admin]
+      summary: Refresh Azure storage metrics (super administrators only)
+      responses:
+        "200":
+          description: Latest status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatabaseStorageStatus"
+  /admin/database-storage/azure-template:
+    get:
+      operationId: getDatabaseStorageAzureTemplate
+      tags: [Admin]
+      summary: Download an Azure Monitor email alert deployment template
+      responses:
+        "200":
+          description: Azure Resource Manager template
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
   /projects:
     get:
       operationId: listProjects
@@ -595,8 +649,367 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /admin/data-protection:
+    get:
+      operationId: getDataProtection
+      responses:
+        "200":
+          description: Protection status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProtectionStatus" }
+  /admin/data-protection/events:
+    get:
+      operationId: getDataProtectionEvents
+      parameters:
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: entity, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events, page, hasMore]
+                properties:
+                  events: { type: array, items: { $ref: "#/components/schemas/ProtectionAuditEvent" } }
+                  page: { type: integer }
+                  hasMore: { type: boolean }
+  /admin/data-protection/archived:
+    get:
+      operationId: getDataProtectionArchived
+      parameters:
+        - { name: entity, in: query, schema: { type: string, enum: [projects, sites, users, app_issues] } }
+        - { name: page, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: Archived records
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entity, records, page, hasMore]
+                properties:
+                  entity: { type: string }
+                  records: { type: array, items: { $ref: "#/components/schemas/ProtectionArchivedRecord" } }
+                  page: { type: integer }
+                  hasMore: { type: boolean }
+  /admin/data-protection/restore:
+    post:
+      operationId: restoreDataProtectionRecord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProtectionRestoration" }
+      responses:
+        "200":
+          description: Restored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProtectionOperationResult" }
+  /admin/data-protection/checkpoint:
+    post:
+      operationId: createDataProtectionCheckpoint
+      responses:
+        "200":
+          description: Checkpoint recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProtectionCheckpoint" }
+  /admin/data-protection/storage-check:
+    post:
+      operationId: verifyDataProtectionStorage
+      responses:
+        "200":
+          description: Independent storage verified
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProtectionOperationResult" }
+  /admin/data-protection/retry:
+    post:
+      operationId: retryDataProtectionEvidence
+      responses:
+        "200":
+          description: Evidence retry status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProtectionStatus" }
+  /admin/data-protection/exports:
+    post:
+      operationId: createDataProtectionExport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProtectionRecoveryInput" }
+      responses:
+        "201":
+          description: Encrypted business metadata export
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProtectionRecoveryExport" }
+  /admin/data-protection/exports/{id}/verify:
+    post:
+      operationId: verifyDataProtectionExport
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProtectionRecoveryInput" }
+      responses:
+        "200":
+          description: Integrity verified; no records changed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProtectionOperationResult" }
+  /admin/data-protection/exports/{id}/download:
+    get:
+      operationId: downloadDataProtectionExport
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Encrypted file
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+  /admin/data-protection/events/{id}/evidence:
+    get:
+      operationId: downloadDataProtectionEvidence
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Independent audit evidence
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProtectionAuditEvent" }
+  /admin/data-protection/issue-backups:
+    get:
+      operationId: getIssueRecoveryBackups
+      parameters:
+        - { name: cursor, in: query, schema: { type: string, maxLength: 2048 } }
+      responses:
+        "200":
+          description: Independent R2 backup catalogue and scheduled backup status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssueRecoveryCatalogue" }
+    post:
+      operationId: createIssueRecoveryBackup
+      responses:
+        "202":
+          description: Backup started; poll catalogue status for completion
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProtectionOperationResult" }
+  /admin/data-protection/issue-backups/{id}/preview:
+    post:
+      operationId: previewIssueRecoveryBackup
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Read-only restore preview
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssueRecoveryPreview" }
+  /admin/data-protection/issue-backups/{id}/restore:
+    post:
+      operationId: restoreIssueRecoveryBackup
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IssueRecoveryRestoration" }
+      responses:
+        "200":
+          description: Missing issue records restored transactionally; existing content not overwritten
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProtectionOperationResult" }
 components:
   schemas:
+    IssueRecoveryRestoration:
+      type: object
+      required: [previewHash, reason, confirmation]
+      properties:
+        previewHash: { type: string }
+        reason: { type: string, minLength: 5, maxLength: 500 }
+        confirmation: { type: string, enum: [RESTORE ISSUES] }
+    IssueRecoveryBackup:
+      type: object
+      required: [id, createdAt, sizeBytes]
+      properties:
+        id: { type: string }
+        createdAt: { type: ["string", "null"], format: date-time }
+        sizeBytes: { type: integer }
+    IssueRecoveryCatalogue:
+      type: object
+      required: [namespace, intervalMinutes, state, backups, nextCursor]
+      properties:
+        namespace: { type: string }
+        intervalMinutes: { type: integer }
+        state:
+          type: object
+          additionalProperties: true
+          properties:
+            running: { type: ["boolean", "null"] }
+            last_backup_at: { type: ["string", "null"], format: date-time }
+            last_backup_id: { type: ["string", "null"] }
+            last_started_at: { type: ["string", "null"], format: date-time }
+            last_error: { type: ["string", "null"] }
+            counts: { type: object, additionalProperties: { type: integer } }
+        backups:
+          type: array
+          items: { $ref: "#/components/schemas/IssueRecoveryBackup" }
+        nextCursor: { type: ["string", "null"] }
+    IssueRecoveryPreview:
+      type: object
+      required: [backupId, createdAt, previewHash, counts, backupCounts, existingIssues, attachmentsToRelink, warnings, conflicts, canRestore]
+      properties:
+        backupId: { type: string }
+        createdAt: { type: string, format: date-time }
+        previewHash: { type: string }
+        counts: { type: object, additionalProperties: { type: integer } }
+        backupCounts: { type: object, additionalProperties: { type: integer } }
+        existingIssues: { type: integer }
+        attachmentsToRelink: { type: integer }
+        warnings: { type: array, items: { type: string } }
+        conflicts: { type: array, items: { type: string } }
+        canRestore: { type: boolean }
+    ProtectionOperationResult:
+      type: object
+      additionalProperties: true
+    ProtectionRestoration:
+      type: object
+      required: [entity, id, reason]
+      properties:
+        entity: { type: string, enum: [projects, sites, users, app_issues] }
+        id: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 5, maxLength: 500 }
+    ProtectionRecoveryInput:
+      type: object
+      required: [passphrase]
+      properties:
+        passphrase: { type: string, minLength: 16, maxLength: 512 }
+    ProtectionArchivedRecord:
+      type: object
+      required: [id, label, created_at]
+      properties:
+        id: { type: integer }
+        label: { type: ["string", "null"] }
+        created_at: { type: string, format: date-time }
+    ProtectionAuditEvent:
+      type: object
+      required: [id, created_at, entity_type, entity_id, action, source, database_actor]
+      properties:
+        id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        entity_type: { type: string }
+        entity_id: { type: string }
+        action: { type: string }
+        actor_id: { type: ["string", "null"] }
+        database_actor: { type: string }
+        source: { type: string }
+        details: { type: object, additionalProperties: true }
+        uploaded_at: { type: ["string", "null"], format: date-time }
+        object_key: { type: ["string", "null"] }
+        attempts: { type: integer }
+        last_error: { type: ["string", "null"] }
+    ProtectionCheckpoint:
+      type: object
+      required: [id, checked_at, counts, warnings]
+      properties:
+        id: { type: string }
+        checked_at: { type: string, format: date-time }
+        counts: { type: object, additionalProperties: { type: integer } }
+        warnings: { type: array, items: { type: string } }
+    ProtectionRecoveryExport:
+      type: object
+      required: [id, created_at, size_bytes, counts, sha256]
+      properties:
+        id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        size_bytes: { type: integer }
+        counts: { type: object, additionalProperties: { type: integer } }
+        sha256: { type: string }
+    ProtectionStatus:
+      type: object
+      required: [storage, audit, database, checkpoint, exports]
+      properties:
+        storage:
+          type: object
+          required: [configured, bucket, verifiedAt, error]
+          properties:
+            configured: { type: boolean }
+            bucket: { type: ["string", "null"] }
+            verifiedAt: { type: ["string", "null"], format: date-time }
+            error: { type: ["string", "null"] }
+        audit:
+          type: object
+          required: [total, pending, failed]
+          properties:
+            total: { type: integer }
+            pending: { type: integer }
+            failed: { type: integer }
+            oldest_pending_at: { type: ["string", "null"], format: date-time }
+            last_uploaded_at: { type: ["string", "null"], format: date-time }
+        database:
+          type: object
+          required: [role, superuser, owner, can_create, restrictedRuntime, startupMigrationsEnabled]
+          properties:
+            role: { type: string }
+            superuser: { type: boolean }
+            owner: { type: boolean }
+            can_create: { type: boolean }
+            restrictedRuntime: { type: boolean }
+            startupMigrationsEnabled: { type: boolean }
+        checkpoint:
+          oneOf:
+            - { $ref: "#/components/schemas/ProtectionCheckpoint" }
+            - { type: "null" }
+        exports: { type: array, items: { $ref: "#/components/schemas/ProtectionRecoveryExport" } }
+    DatabaseStorageConfig:
+      type: object
+      required: [enabled, resourceId]
+      properties:
+        enabled:
+          type: boolean
+        resourceId:
+          type: string
+          maxLength: 500
+    DatabaseStorageStatus:
+      type: object
+      required: [enabled, resourceId, thresholdGb, thresholdBytes, status, message, identityAvailable, freeBytes, sampledAt, checkedAt]
+      properties:
+        enabled:
+          type: boolean
+        resourceId:
+          type: string
+        thresholdGb:
+          type: number
+        thresholdBytes:
+          type: number
+        status:
+          type: string
+          enum: [disabled, pending, healthy, low, unavailable, stale]
+        message:
+          type: string
+        identityAvailable:
+          type: boolean
+        freeBytes:
+          type: [number, "null"]
+        sampledAt:
+          type: [string, "null"]
+        checkedAt:
+          type: [string, "null"]
     HealthStatus:
       type: object
       properties:

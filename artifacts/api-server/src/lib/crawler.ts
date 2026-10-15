@@ -2217,6 +2217,7 @@ export async function runScheduledCrawls(): Promise<number> {
     .from(sitesTable)
     .where(and(
       eq(sitesTable.scheduleEnabled, true),
+      eq(sitesTable.archived, false),
       lte(sitesTable.nextCrawlAt, new Date()),
       eq(sitesTable.lifecycleStatus, "idle"),
     ))

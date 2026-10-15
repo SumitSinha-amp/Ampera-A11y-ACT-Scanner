@@ -1422,11 +1422,11 @@ html[data-bg-image="on"]:not(.dark):not(.glass-light):not(.glass-vision-light) b
 
 /* Standard Light/System themes use the normal solid surface. Background
    imagery is reserved for the explicitly selected glass/spatial treatments. */
-html[data-bg-image="on"]:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light),
-html[data-bg-image="on"]:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light) body {
+html[data-bg-image="on"]:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light):not(.liquid-glass),
+html[data-bg-image="on"]:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light):not(.liquid-glass) body {
   background: hsl(var(--background)) !important;
 }
-html[data-bg-image="on"]:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light) body::before {
+html[data-bg-image="on"]:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light):not(.liquid-glass) body::before {
   display: none !important;
 }
 
@@ -4031,15 +4031,15 @@ html.glass-vision-light .sidebar-search-input::placeholder {
 }
 
 /* Standard Light/System shell: use the normal solid theme surface. */
-html:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light) body {
+html:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light):not(.liquid-glass) body {
   background: hsl(var(--background)) !important;
 }
 
-html:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light) .app-shell {
+html:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light):not(.liquid-glass) .app-shell {
   background: hsl(var(--background)) !important;
 }
 
-html:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light) .app-shell .bg-card {
+html:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light):not(.liquid-glass) .app-shell .bg-card {
   background-color: rgba(255, 255, 255, 0.78);
   border-color: rgba(211, 214, 231, 0.78);
   box-shadow:
@@ -4049,7 +4049,7 @@ html:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass
   -webkit-backdrop-filter: blur(18px) saturate(145%);
 }
 
-html:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light) .ampera-header {
+html:not(.dark):not(.glass-dark):not(.glass-light):not(.glass-vision):not(.glass-vision-light):not(.liquid-glass) .ampera-header {
   background-color: rgba(255, 255, 255, 0.76);
   border-color: rgba(211, 214, 231, 0.72);
 }

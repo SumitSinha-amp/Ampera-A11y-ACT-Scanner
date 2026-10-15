@@ -9,6 +9,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { ObjectStorageService } from "./objectStorage";
+import { readEvidence } from "./evidenceStorage";
 
 const AZURE_OBJECT_PREFIX = "/azure-objects/";
 const R2_OBJECT_PREFIX = "/r2-objects/";
@@ -167,6 +168,11 @@ export class IssueAttachmentStorageService {
   }
 
   async verifyObject(objectPath: string, expectedSize?: number): Promise<void> {
+    if (objectPath.startsWith("/evidence-objects/")) {
+      const bytes = await this.recoveryFile(objectPath);
+      if (expectedSize !== undefined && bytes.length !== expectedSize) throw new Error("Recovery attachment size mismatch");
+      return;
+    }
     if (objectPath.startsWith(R2_OBJECT_PREFIX)) {
       const { client, bucket } = this.r2Config();
       const properties = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: this.r2Key(objectPath) }));
@@ -198,6 +204,12 @@ export class IssueAttachmentStorageService {
   }
 
   async downloadObject(objectPath: string, contentType: string): Promise<Response> {
+    if (objectPath.startsWith("/evidence-objects/")) {
+      const bytes = await this.recoveryFile(objectPath);
+      return new Response(new Uint8Array(bytes), { headers: {
+        "Content-Type": contentType || "application/octet-stream", "Cache-Control": "private, max-age=300",
+      } });
+    }
     if (objectPath.startsWith(R2_OBJECT_PREFIX)) {
       const { client, bucket } = this.r2Config();
       const download = await client.send(new GetObjectCommand({ Bucket: bucket, Key: this.r2Key(objectPath) }));
@@ -225,5 +237,11 @@ export class IssueAttachmentStorageService {
 
     const file = await this.replitStorage.getObjectEntityFile(objectPath);
     return this.replitStorage.downloadObject(file, 300, contentType);
+  }
+  private recoveryFile(objectPath: string) {
+    if (!/^\/evidence-objects\/recovery\/issues\/[a-zA-Z0-9_-]{1,60}\/files\/[a-f0-9]{64}$/.test(objectPath)) {
+      throw new Error("Invalid recovery attachment path");
+    }
+    return readEvidence(objectPath.slice("/evidence-objects/".length), true);
   }
 }

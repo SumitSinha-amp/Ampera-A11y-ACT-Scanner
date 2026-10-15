@@ -3,18 +3,11 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth";
 import { APP_VERSION } from "@/lib/app-version";
 import {
-  Accessibility,
-  AudioLines,
-  Captions,
   Eye,
   EyeOff,
-  Focus,
   Keyboard,
-  Languages,
   Loader2,
-  Move3D,
   ScanFace,
-  SkipForward,
   Volume2,
 } from "lucide-react";
 
@@ -22,79 +15,6 @@ const APP_NAME = "Ampera A11y ACT Platform";
 // Keep the login logo in the static public directory so it is included in
 // Azure deployments without depending on the authenticated logo API.
 const AMPERA_LOGO_SRC = `${import.meta.env.BASE_URL}ampera-logo.png`;
-
-const introIcons = [
-  { label: "Accessibility", icon: Accessibility, color: "#ef6f61", position: "left-[10%] top-[19%]" },
-  { label: "Hearing", icon: AudioLines, color: "#0d9488", position: "left-[29%] top-[9%]" },
-  { label: "Vision", icon: Eye, color: "#3b82f6", position: "right-[13%] top-[17%]" },
-  { label: "Keyboard access", icon: Keyboard, color: "#e7a93b", position: "left-[5%] top-[49%]" },
-  { label: "Captions", icon: Captions, color: "#8b5cf6", position: "right-[7%] top-[44%]" },
-  { label: "Sign language", icon: Languages, color: "#ec4899", position: "left-[19%] bottom-[18%]" },
-  { label: "Cognitive clarity", icon: Focus, color: "#14b8a6", position: "right-[23%] bottom-[11%]" },
-  { label: "Mobility", icon: Move3D, color: "#f97316", position: "right-[3%] bottom-[27%]" },
-] as const;
-
-function AccessibilityIntro({ onSkip }: { onSkip: () => void }) {
-  const [visibleIconCount, setVisibleIconCount] = useState(0);
-
-  useEffect(() => {
-    const sequence = window.setInterval(() => {
-      setVisibleIconCount((count) => {
-        if (count >= introIcons.length) {
-          window.clearInterval(sequence);
-          return count;
-        }
-        return count + 1;
-      });
-    }, 500);
-
-    return () => window.clearInterval(sequence);
-  }, []);
-
-  return (
-    <div className="login-intro fixed inset-0 z-50 flex min-h-[100dvh] items-center justify-center overflow-hidden bg-[#fffaf7] px-6 text-center">
-      <div className="login-intro-wash absolute inset-0" aria-hidden="true" />
-      <div className="relative z-10 flex max-w-md flex-col items-center">
-        <div className="login-intro-brand">
-          <img src={AMPERA_LOGO_SRC} alt="Ampera" className="h-auto w-[190px] object-contain" />
-          <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[#64748b]">
-            A11y ACT Platform
-          </p>
-        </div>
-        <h1 className="mt-4 font-display text-2xl font-bold tracking-tight text-[#152b54] sm:text-3xl">
-          Access for everyone.
-        </h1>
-        <p className="mt-2 max-w-xs text-sm leading-6 text-[#64748b]">
-          Preparing your accessible workspace
-        </p>
-        <div className="relative mt-12 h-28 w-full max-w-sm sm:mt-16" aria-hidden="true">
-          {introIcons.map(({ label, icon: Icon, color, position }, index) => (
-            <span
-              key={label}
-              className={`login-intro-icon absolute ${position} flex h-11 w-11 items-center justify-center rounded-2xl shadow-[0_10px_24px_rgba(21,43,84,0.12)] ${index < visibleIconCount ? "is-visible" : ""}`}
-              style={{ backgroundColor: color }}
-            >
-              <Icon className="h-5 w-5 text-white" strokeWidth={1.8} />
-            </span>
-          ))}
-          <span className="login-intro-line absolute left-1/2 top-1/2 h-px w-24 -translate-x-1/2 bg-gradient-to-r from-[#ef6f61] via-[#8b5cf6] to-[#14b8a6]" />
-          <span className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#152b54] ring-8 ring-[#152b54]/10" />
-        </div>
-        <p className="mt-10 font-mono text-[10px] font-medium tracking-[0.18em] text-[#94a3b8]">
-          VERSION {APP_VERSION}
-        </p>
-        <button
-          type="button"
-          onClick={onSkip}
-          className="login-intro-skip mt-6 inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold text-[#64748b] transition hover:bg-white hover:text-[#152b54] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6] focus-visible:ring-offset-2"
-        >
-          Skip intro
-          <SkipForward className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
-      </div>
-    </div>
-  );
-}
 
 function InclusiveIllustration() {
   return (
@@ -184,20 +104,9 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showIntro, setShowIntro] = useState(true);
   const errorId = useId();
   const { login, user } = useAuth();
   const [, setLocation] = useLocation();
-
-  useEffect(() => {
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduceMotion) {
-      setShowIntro(false);
-      return;
-    }
-    const timeout = window.setTimeout(() => setShowIntro(false), 5600);
-    return () => window.clearTimeout(timeout);
-  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -223,7 +132,6 @@ export default function LoginPage() {
 
   return (
     <div className="login-page min-h-[100dvh] overflow-hidden bg-[#fffaf7] text-[#152b54]" style={{ colorScheme: "light" }}>
-      {showIntro && <AccessibilityIntro onSkip={() => setShowIntro(false)} />}
       <main className="grid min-h-[100dvh] lg:grid-cols-[1.08fr_0.92fr]">
         <section className="login-visual relative flex min-h-[430px] flex-col overflow-hidden px-6 pb-8 pt-8 sm:px-10 lg:min-h-[100dvh] lg:px-14 lg:pb-12 lg:pt-10 xl:px-20">
           <div className="login-visual-wash absolute inset-0" aria-hidden="true" />

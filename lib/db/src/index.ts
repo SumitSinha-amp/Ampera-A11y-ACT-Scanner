@@ -1,6 +1,9 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "./schema";
+import { instrumentAuditPool } from "./audit-context";
+export { withAuditContext } from "./audit-context";
+export type { PoolClient as DatabasePoolClient } from "pg";
 
 const { Pool } = pg;
 
@@ -25,6 +28,7 @@ export const pool = new Pool({
   keepAlive: true,
   keepAliveInitialDelayMillis: 60_000,
 });
+instrumentAuditPool(pool);
 
 pool.on("error", (err) => {
   console.error(

@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const sitesTable = pgTable("sites", {
   id: serial("id").primaryKey(),
+  archived: boolean("archived").notNull().default(false),
   userId: text("user_id"),
   name: text("name").notNull(),
   baseUrl: text("base_url").notNull(),

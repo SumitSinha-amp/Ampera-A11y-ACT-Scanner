@@ -8,6 +8,90 @@
 import * as zod from "zod";
 
 /**
+ * @summary Get Azure storage configuration and latest reading (administrators only)
+ */
+export const GetDatabaseStorageResponse = zod.object({
+  enabled: zod.boolean(),
+  resourceId: zod.string(),
+  thresholdGb: zod.number(),
+  thresholdBytes: zod.number(),
+  status: zod.enum([
+    "disabled",
+    "pending",
+    "healthy",
+    "low",
+    "unavailable",
+    "stale",
+  ]),
+  message: zod.string(),
+  identityAvailable: zod.boolean(),
+  freeBytes: zod.number().nullable(),
+  sampledAt: zod.string().nullable(),
+  checkedAt: zod.string().nullable(),
+});
+
+/**
+ * @summary Configure Azure storage monitoring (super administrators only)
+ */
+export const updateDatabaseStorageBodyResourceIdMax = 500;
+
+export const UpdateDatabaseStorageBody = zod.object({
+  enabled: zod.boolean(),
+  resourceId: zod.string().max(updateDatabaseStorageBodyResourceIdMax),
+});
+
+export const UpdateDatabaseStorageResponse = zod.object({
+  enabled: zod.boolean(),
+  resourceId: zod.string(),
+  thresholdGb: zod.number(),
+  thresholdBytes: zod.number(),
+  status: zod.enum([
+    "disabled",
+    "pending",
+    "healthy",
+    "low",
+    "unavailable",
+    "stale",
+  ]),
+  message: zod.string(),
+  identityAvailable: zod.boolean(),
+  freeBytes: zod.number().nullable(),
+  sampledAt: zod.string().nullable(),
+  checkedAt: zod.string().nullable(),
+});
+
+/**
+ * @summary Refresh Azure storage metrics (super administrators only)
+ */
+export const CheckDatabaseStorageResponse = zod.object({
+  enabled: zod.boolean(),
+  resourceId: zod.string(),
+  thresholdGb: zod.number(),
+  thresholdBytes: zod.number(),
+  status: zod.enum([
+    "disabled",
+    "pending",
+    "healthy",
+    "low",
+    "unavailable",
+    "stale",
+  ]),
+  message: zod.string(),
+  identityAvailable: zod.boolean(),
+  freeBytes: zod.number().nullable(),
+  sampledAt: zod.string().nullable(),
+  checkedAt: zod.string().nullable(),
+});
+
+/**
+ * @summary Download an Azure Monitor email alert deployment template
+ */
+export const GetDatabaseStorageAzureTemplateResponse = zod.record(
+  zod.string(),
+  zod.unknown(),
+);
+
+/**
  * @summary List projects
  */
 
@@ -681,3 +765,282 @@ export const ParseSitemapResponse = zod.object({
   urls: zod.array(zod.string()),
   count: zod.number(),
 });
+
+export const GetDataProtectionResponse = zod.object({
+  storage: zod.object({
+    configured: zod.boolean(),
+    bucket: zod.string().nullable(),
+    verifiedAt: zod.coerce.date().nullable(),
+    error: zod.string().nullable(),
+  }),
+  audit: zod.object({
+    total: zod.number(),
+    pending: zod.number(),
+    failed: zod.number(),
+    oldest_pending_at: zod.coerce.date().nullish(),
+    last_uploaded_at: zod.coerce.date().nullish(),
+  }),
+  database: zod.object({
+    role: zod.string(),
+    superuser: zod.boolean(),
+    owner: zod.boolean(),
+    can_create: zod.boolean(),
+    restrictedRuntime: zod.boolean(),
+    startupMigrationsEnabled: zod.boolean(),
+  }),
+  checkpoint: zod.union([
+    zod.object({
+      id: zod.string(),
+      checked_at: zod.coerce.date(),
+      counts: zod.record(zod.string(), zod.number()),
+      warnings: zod.array(zod.string()),
+    }),
+    zod.null(),
+  ]),
+  exports: zod.array(
+    zod.object({
+      id: zod.string().uuid(),
+      created_at: zod.coerce.date(),
+      size_bytes: zod.number(),
+      counts: zod.record(zod.string(), zod.number()),
+      sha256: zod.string(),
+    }),
+  ),
+});
+
+export const GetDataProtectionEventsQueryParams = zod.object({
+  page: zod.coerce.number().optional(),
+  entity: zod.coerce.string().optional(),
+});
+
+export const GetDataProtectionEventsResponse = zod.object({
+  events: zod.array(
+    zod.object({
+      id: zod.string().uuid(),
+      created_at: zod.coerce.date(),
+      entity_type: zod.string(),
+      entity_id: zod.string(),
+      action: zod.string(),
+      actor_id: zod.string().nullish(),
+      database_actor: zod.string(),
+      source: zod.string(),
+      details: zod.record(zod.string(), zod.unknown()).optional(),
+      uploaded_at: zod.coerce.date().nullish(),
+      object_key: zod.string().nullish(),
+      attempts: zod.number().optional(),
+      last_error: zod.string().nullish(),
+    }),
+  ),
+  page: zod.number(),
+  hasMore: zod.boolean(),
+});
+
+export const GetDataProtectionArchivedQueryParams = zod.object({
+  entity: zod.enum(["projects", "sites", "users", "app_issues"]).optional(),
+  page: zod.coerce.number().optional(),
+});
+
+export const GetDataProtectionArchivedResponse = zod.object({
+  entity: zod.string(),
+  records: zod.array(
+    zod.object({
+      id: zod.number(),
+      label: zod.string().nullable(),
+      created_at: zod.coerce.date(),
+    }),
+  ),
+  page: zod.number(),
+  hasMore: zod.boolean(),
+});
+
+export const restoreDataProtectionRecordBodyReasonMin = 5;
+export const restoreDataProtectionRecordBodyReasonMax = 500;
+
+export const RestoreDataProtectionRecordBody = zod.object({
+  entity: zod.enum(["projects", "sites", "users", "app_issues"]),
+  id: zod.number().min(1),
+  reason: zod
+    .string()
+    .min(restoreDataProtectionRecordBodyReasonMin)
+    .max(restoreDataProtectionRecordBodyReasonMax),
+});
+
+export const RestoreDataProtectionRecordResponse = zod.record(
+  zod.string(),
+  zod.unknown(),
+);
+
+export const CreateDataProtectionCheckpointResponse = zod.object({
+  id: zod.string(),
+  checked_at: zod.coerce.date(),
+  counts: zod.record(zod.string(), zod.number()),
+  warnings: zod.array(zod.string()),
+});
+
+export const VerifyDataProtectionStorageResponse = zod.record(
+  zod.string(),
+  zod.unknown(),
+);
+
+export const RetryDataProtectionEvidenceResponse = zod.object({
+  storage: zod.object({
+    configured: zod.boolean(),
+    bucket: zod.string().nullable(),
+    verifiedAt: zod.coerce.date().nullable(),
+    error: zod.string().nullable(),
+  }),
+  audit: zod.object({
+    total: zod.number(),
+    pending: zod.number(),
+    failed: zod.number(),
+    oldest_pending_at: zod.coerce.date().nullish(),
+    last_uploaded_at: zod.coerce.date().nullish(),
+  }),
+  database: zod.object({
+    role: zod.string(),
+    superuser: zod.boolean(),
+    owner: zod.boolean(),
+    can_create: zod.boolean(),
+    restrictedRuntime: zod.boolean(),
+    startupMigrationsEnabled: zod.boolean(),
+  }),
+  checkpoint: zod.union([
+    zod.object({
+      id: zod.string(),
+      checked_at: zod.coerce.date(),
+      counts: zod.record(zod.string(), zod.number()),
+      warnings: zod.array(zod.string()),
+    }),
+    zod.null(),
+  ]),
+  exports: zod.array(
+    zod.object({
+      id: zod.string().uuid(),
+      created_at: zod.coerce.date(),
+      size_bytes: zod.number(),
+      counts: zod.record(zod.string(), zod.number()),
+      sha256: zod.string(),
+    }),
+  ),
+});
+
+export const createDataProtectionExportBodyPassphraseMin = 16;
+export const createDataProtectionExportBodyPassphraseMax = 512;
+
+export const CreateDataProtectionExportBody = zod.object({
+  passphrase: zod
+    .string()
+    .min(createDataProtectionExportBodyPassphraseMin)
+    .max(createDataProtectionExportBodyPassphraseMax),
+});
+
+export const VerifyDataProtectionExportParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const verifyDataProtectionExportBodyPassphraseMin = 16;
+export const verifyDataProtectionExportBodyPassphraseMax = 512;
+
+export const VerifyDataProtectionExportBody = zod.object({
+  passphrase: zod
+    .string()
+    .min(verifyDataProtectionExportBodyPassphraseMin)
+    .max(verifyDataProtectionExportBodyPassphraseMax),
+});
+
+export const VerifyDataProtectionExportResponse = zod.record(
+  zod.string(),
+  zod.unknown(),
+);
+
+export const DownloadDataProtectionExportParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const DownloadDataProtectionEvidenceParams = zod.object({
+  id: zod.coerce.string().uuid(),
+});
+
+export const DownloadDataProtectionEvidenceResponse = zod.object({
+  id: zod.string().uuid(),
+  created_at: zod.coerce.date(),
+  entity_type: zod.string(),
+  entity_id: zod.string(),
+  action: zod.string(),
+  actor_id: zod.string().nullish(),
+  database_actor: zod.string(),
+  source: zod.string(),
+  details: zod.record(zod.string(), zod.unknown()).optional(),
+  uploaded_at: zod.coerce.date().nullish(),
+  object_key: zod.string().nullish(),
+  attempts: zod.number().optional(),
+  last_error: zod.string().nullish(),
+});
+
+export const getIssueRecoveryBackupsQueryCursorMax = 2048;
+
+export const GetIssueRecoveryBackupsQueryParams = zod.object({
+  cursor: zod.coerce
+    .string()
+    .max(getIssueRecoveryBackupsQueryCursorMax)
+    .optional(),
+});
+
+export const GetIssueRecoveryBackupsResponse = zod.object({
+  namespace: zod.string(),
+  intervalMinutes: zod.number(),
+  state: zod.object({
+    running: zod.boolean().nullish(),
+    last_backup_at: zod.coerce.date().nullish(),
+    last_backup_id: zod.string().nullish(),
+    last_started_at: zod.coerce.date().nullish(),
+    last_error: zod.string().nullish(),
+    counts: zod.record(zod.string(), zod.number()).optional(),
+  }),
+  backups: zod.array(
+    zod.object({
+      id: zod.string(),
+      createdAt: zod.coerce.date().nullable(),
+      sizeBytes: zod.number(),
+    }),
+  ),
+  nextCursor: zod.string().nullable(),
+});
+
+export const PreviewIssueRecoveryBackupParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const PreviewIssueRecoveryBackupResponse = zod.object({
+  backupId: zod.string(),
+  createdAt: zod.coerce.date(),
+  previewHash: zod.string(),
+  counts: zod.record(zod.string(), zod.number()),
+  backupCounts: zod.record(zod.string(), zod.number()),
+  existingIssues: zod.number(),
+  attachmentsToRelink: zod.number(),
+  warnings: zod.array(zod.string()),
+  conflicts: zod.array(zod.string()),
+  canRestore: zod.boolean(),
+});
+
+export const RestoreIssueRecoveryBackupParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const restoreIssueRecoveryBackupBodyReasonMin = 5;
+export const restoreIssueRecoveryBackupBodyReasonMax = 500;
+
+export const RestoreIssueRecoveryBackupBody = zod.object({
+  previewHash: zod.string(),
+  reason: zod
+    .string()
+    .min(restoreIssueRecoveryBackupBodyReasonMin)
+    .max(restoreIssueRecoveryBackupBodyReasonMax),
+  confirmation: zod.enum(["RESTORE ISSUES"]),
+});
+
+export const RestoreIssueRecoveryBackupResponse = zod.record(
+  zod.string(),
+  zod.unknown(),
+);

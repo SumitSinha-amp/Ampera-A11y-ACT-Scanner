@@ -29,7 +29,7 @@
 }
 
 /* Light and system-light share the white Ampera workspace. */
-:root:not(:is(.dark, .glass-light, .glass-dark, .glass-vision, .glass-vision-light)) {
+:root:not(:is(.dark, .glass-light, .glass-dark, .glass-vision, .glass-vision-light, .liquid-glass)) {
   --background: 0 0% 100%;
   --foreground: 204 29% 14%;
   --border: 166 15% 91%;
@@ -283,6 +283,11 @@ body:has(.app-shell) #root {
   font-weight: 700;
 }
 
+/* Solid primary tabs need their contrasting foreground, not accent-on-accent. */
+.app-shell [role="tab"][data-state="active"][class~="data-[state=active]:bg-primary"] {
+  color: hsl(var(--primary-foreground));
+}
+
 /* Radix portal content is outside the shell; target semantic slots only. */
 html :is(
   [data-slot="dialog-content"],
@@ -341,7 +346,7 @@ html :is([data-slot="tooltip-content"], [role="tooltip"]) {
 }
 
 /* Standard themes keep portal surfaces opaque; no decorative light gradients. */
-html:not(:is(.glass-light, .glass-dark, .glass-vision, .glass-vision-light)) :is(
+html:not(:is(.glass-light, .glass-dark, .glass-vision, .glass-vision-light, .liquid-glass)) :is(
   [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"],
   [data-slot="drawer-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"],
   [data-slot="context-menu-content"], [data-slot="select-content"], [data-slot="command"],

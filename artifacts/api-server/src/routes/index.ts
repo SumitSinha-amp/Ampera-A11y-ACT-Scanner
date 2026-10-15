@@ -13,6 +13,8 @@ import qaRouter from "./qa";
 import decisionsRouter from "./decisions";
 import notificationsRouter from "./notifications";
 import docsRouter from "./docs";
+import databaseStorageRouter from "./database-storage";
+import dataProtectionRouter from "./data-protection";
 
 const router: IRouter = Router();
 
@@ -30,5 +32,7 @@ router.use(qaRouter);
 router.use(decisionsRouter);
 router.use(notificationsRouter);
 router.use(docsRouter);
+router.use(databaseStorageRouter);
+router.use(dataProtectionRouter);
 
 export default router;

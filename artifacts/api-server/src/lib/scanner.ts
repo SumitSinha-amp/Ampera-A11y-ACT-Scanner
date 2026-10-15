@@ -7,6 +7,7 @@ import path from "path";
 import os from "os";
 import { logger } from "./logger";
 import { runPixelContrastPass } from "./pixel-contrast.js";
+import { mergeContrastFindings } from "./contrast-issue-merge.js";
 import {
   hashPreflightHtml,
   hashRenderedDom,
@@ -865,7 +866,7 @@ const RULE_DESCRIPTIONS: Record<
     type: "Potential Issue",
     description: "Do page sections with the same name serve the same purpose?",
     remediation:
-      "Give each landmark region a unique accessible name via aria-label or aria-labelledby",
+      "Review same-role landmarks sharing a name, including unnamed landmarks, for equivalent content and purpose. Give different-purpose landmarks distinguishing aria-label or aria-labelledby names. Do not infer equivalence from matching HTML or carousel classes alone.",
   },
   "ACT-R56": {
     type: "Potential Issue",
@@ -890,9 +891,9 @@ const RULE_DESCRIPTIONS: Record<
     remediation: "Add meaningful heading structure",
   },
   "ACT-R60": {
-    type: "Best Practice",
+    type: "Issue",
     description: "Groups have an accessible name",
-    remediation: "Use <fieldset> and <legend> to group related controls",
+    remediation: "Use a fieldset with a meaningful legend or a semantic group/radiogroup named with aria-label or aria-labelledby. Individual control labels, visible headings without an explicit association, and radio name attributes do not provide a group name.",
   },
   "ACT-R61": {
     type: "Best Practice",
@@ -938,9 +939,9 @@ const RULE_DESCRIPTIONS: Record<
   },
   "ACT-R68": {
     type: "Issue",
-    description: "Container element is empty",
+    description: "Element does not own the children required by its semantic role",
     remediation:
-      "Remove empty containers or provide meaningful content and appropriate semantics",
+      "Provide accessible owned children with the roles required by the container (for example, listitem in list, option in listbox, or row in table). Use valid native HTML or aria-owns where appropriate. Text, labels, controls, and decorative content do not replace required child roles.",
   },
   "ACT-R69": {
     type: "Potential Issue",
@@ -1126,7 +1127,7 @@ const RULE_DESCRIPTIONS: Record<
     remediation: "Ensure main content starts with a heading",
   },
   "ACT-R99": {
-    type: "Potential Issue",
+    type: "Issue",
     description: "Document has no main landmark",
     remediation: "Add a <main> element to define primary content",
   },
@@ -3377,31 +3378,27 @@ async function _scanPageInternal(
         const shouldRunPixelContrast =
           selectedRuleSet === null ||
           Array.from(PIXEL_RULE_IDS).some((ruleId) => isRuleSelected(ruleId, selectedRuleSet));
-        const pixelIssues = shouldRunPixelContrast
-          ? (await runPixelContrastPass(page, logger)).filter(
-              (issue) =>
-                isRuleSelected(issue.ruleId, selectedRuleSet),
-            )
-          : [];
+        let pixelIssues: Awaited<ReturnType<typeof runPixelContrastPass>> = [];
+        if (shouldRunPixelContrast) {
+          // The document can remain viewport-height while the real content
+          // scrolls inside a fixed shell. Use the same capture layout as the
+          // evidence snapshot, and restore it even when pixel sampling fails.
+          const contrastLayout = await expandPageScrollerForSnapshot(page);
+          try {
+            pixelIssues = (await runPixelContrastPass(page, logger)).filter(
+              (issue) => isRuleSelected(issue.ruleId, selectedRuleSet),
+            );
+          } finally {
+            await restoreSnapshotLayout(page, contrastLayout);
+          }
+        }
         if (pixelIssues.length > 0) {
-          // Remove Potential Issue stubs for the same selectors — the pixel
-          // pass either promotes them to confirmed or dismisses them.
-          const pixelSelectors = new Set(pixelIssues.map((pi) => pi.selector));
-          issues = issues.filter(
-            (issue) =>
-              !(
-                PIXEL_RULE_IDS.has(issue.ruleId) &&
-                issue.type === "Potential Issue" &&
-                issue.selector != null &&
-                pixelSelectors.has(issue.selector)
-              ),
-          );
-
-          // Merge pixel issues as confirmed Issues, enriched with WCAG metadata.
-          for (const pi of pixelIssues) {
+          // Enrich first, then merge by rule + selector + interaction state.
+          // Both confirmed CSS findings and review stubs can overlap pixels.
+          const enrichedPixelIssues: ScanIssue[] = pixelIssues.map((pi) => {
             const wcag = WCAG_MAPPING[pi.ruleId];
             const desc = RULE_DESCRIPTIONS[pi.ruleId];
-            issues.push({
+            return {
               ruleId: pi.ruleId,
               type: "Issue",
               impact: pi.impact,
@@ -3418,8 +3415,9 @@ async function _scanPageInternal(
               bboxWidth: pi.bboxW,
               bboxHeight: pi.bboxH,
               falsePositive: false,
-            });
-          }
+            };
+          });
+          issues = mergeContrastFindings(issues, enrichedPixelIssues);
           logger.info(
             { url, pixelIssues: pixelIssues.length },
             "Pixel contrast pass added confirmed issues",

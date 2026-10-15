@@ -244,7 +244,7 @@ const ALL_RULES: { id: string; label: string }[] = [
   { id: "ACT-R65", label: "Focus indicator missing (WCAG 2.4.7)" },
   { id: "ACT-R66", label: "Enhanced contrast insufficient (WCAG 1.4.6)" },
   { id: "ACT-R67", label: "Decorative image exposed (WCAG 1.1.1)" },
-  { id: "ACT-R68", label: "Empty container element (WCAG 1.3.1)" },
+  { id: "ACT-R68", label: "Required semantic child roles (WCAG 1.3.1)" },
   { id: "ACT-R69", label: "Text contrast insufficient (WCAG 1.4.3)" },
   {
     id: "ACT-R70",

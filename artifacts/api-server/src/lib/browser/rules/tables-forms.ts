@@ -1,7 +1,7 @@
 import type { ScanRawResult, PushStatFn } from "../types";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
-import { getAccessibleName } from "../accname";
-import { isActuallyTabbable, isIncludedInAccessibilityTree, isVisible } from "../visibility";
+import { isActuallyTabbable, isVisible } from "../visibility";
+import { runControlGroupNameRule } from "./control-group-names";
 
 export function runTablesFormsRules(results: ScanRawResult[], pushStat: PushStatFn): void {
   // ACT-R45: headers attribute refers to valid cells in the same table.
@@ -114,16 +114,9 @@ export function runTablesFormsRules(results: ScanRawResult[], pushStat: PushStat
   });
 
   // ════════════════════════════════════════════════════════════════════════
-  // ACT-R60: Fieldset without legend (WCAG 1.3.1)
+  // ACT-R60: Related control groups need a programmatic group name
   // ════════════════════════════════════════════════════════════════════════
-  document.querySelectorAll("fieldset").forEach((el) => {
-    if (!isVisible(el)) return;
-    const namedGroup = isIncludedInAccessibilityTree(el) && !!getAccessibleName(el);
-    const inputDescendants = Array.from(el.querySelectorAll("input, select, textarea")).filter((input) => isIncludedInAccessibilityTree(input));
-    if (inputDescendants.length >= 2 && !namedGroup) {
-      results.push({ ruleId: "ACT-R60", type: "Issue", impact: "serious", description: "Form group with multiple inputs has no accessible name — add a legend or accessible label", element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-    }
-  });
+  runControlGroupNameRule(results, pushStat);
 
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R84: Scrollable element not keyboard accessible (WCAG 2.1.1)
@@ -219,8 +212,6 @@ export function runTablesFormsRules(results: ScanRawResult[], pushStat: PushStat
     pushStat("ACT-R46", tableEls, "element");
     pushStat("ACT-R76", tableEls, "element");
   }
-  const fieldsetEls = document.querySelectorAll("fieldset").length;
-  if (fieldsetEls > 0) pushStat("ACT-R60", fieldsetEls, "element");
   const invalidInputEls = document.querySelectorAll("input[aria-invalid='true'],textarea[aria-invalid='true'],select[aria-invalid='true']").length;
   if (invalidInputEls > 0) pushStat("ACT-R82", invalidInputEls, "element");
   const scrollableEls = document.querySelectorAll("[style*='overflow'],[class*='scroll'],[class*='overflow']").length;

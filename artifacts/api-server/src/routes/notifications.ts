@@ -56,6 +56,7 @@ router.get("/notifications", requireAuth, async (req, res): Promise<void> => {
             SELECT 1 FROM notification_recipients target
             WHERE target.notification_id = n.id AND target.user_id = $1
               AND (n.type <> 'issue' OR $3::boolean = TRUE)
+              AND (n.type <> 'database_storage' OR $2::boolean = TRUE)
          )
           OR (
             $2::boolean = TRUE
@@ -110,6 +111,7 @@ router.put("/notifications/read-all", requireAuth, async (req, res): Promise<voi
            SELECT 1 FROM notification_recipients target
            WHERE target.notification_id = n.id AND target.user_id = $1
              AND (n.type <> 'issue' OR $3::boolean = TRUE)
+             AND (n.type <> 'database_storage' OR $2::boolean = TRUE)
          )
          OR (
            $2::boolean = TRUE
@@ -149,6 +151,7 @@ router.put("/notifications/:id/read", requireAuth, async (req, res): Promise<voi
              SELECT 1 FROM notification_recipients target
              WHERE target.notification_id = n.id AND target.user_id = $1
                AND (n.type <> 'issue' OR $4::boolean = TRUE)
+               AND (n.type <> 'database_storage' OR $3::boolean = TRUE)
            )
            OR (
              $3::boolean = TRUE
@@ -190,6 +193,7 @@ router.delete("/notifications/clear-all", requireAuth, async (req, res): Promise
            SELECT 1 FROM notification_recipients target
            WHERE target.notification_id = n.id AND target.user_id = $1
              AND (n.type <> 'issue' OR $3::boolean = TRUE)
+             AND (n.type <> 'database_storage' OR $2::boolean = TRUE)
          )
          OR (
            $2::boolean = TRUE

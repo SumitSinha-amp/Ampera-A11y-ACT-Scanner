@@ -5,6 +5,225 @@
  * Accessibility Scanner API
  * OpenAPI spec version: 0.1.0
  */
+export type IssueRecoveryRestorationConfirmation =
+  (typeof IssueRecoveryRestorationConfirmation)[keyof typeof IssueRecoveryRestorationConfirmation];
+
+export const IssueRecoveryRestorationConfirmation = {
+  RESTORE_ISSUES: "RESTORE ISSUES",
+} as const;
+
+export interface IssueRecoveryRestoration {
+  previewHash: string;
+  /**
+   * @minLength 5
+   * @maxLength 500
+   */
+  reason: string;
+  confirmation: IssueRecoveryRestorationConfirmation;
+}
+
+export interface IssueRecoveryBackup {
+  id: string;
+  /** @nullable */
+  createdAt: string | null;
+  sizeBytes: number;
+}
+
+export type IssueRecoveryCatalogueStateCounts = { [key: string]: number };
+
+export type IssueRecoveryCatalogueState = {
+  /** @nullable */
+  running?: boolean | null;
+  /** @nullable */
+  last_backup_at?: string | null;
+  /** @nullable */
+  last_backup_id?: string | null;
+  /** @nullable */
+  last_started_at?: string | null;
+  /** @nullable */
+  last_error?: string | null;
+  counts?: IssueRecoveryCatalogueStateCounts;
+  [key: string]: unknown;
+};
+
+export interface IssueRecoveryCatalogue {
+  namespace: string;
+  intervalMinutes: number;
+  state: IssueRecoveryCatalogueState;
+  backups: IssueRecoveryBackup[];
+  /** @nullable */
+  nextCursor: string | null;
+}
+
+export type IssueRecoveryPreviewCounts = { [key: string]: number };
+
+export type IssueRecoveryPreviewBackupCounts = { [key: string]: number };
+
+export interface IssueRecoveryPreview {
+  backupId: string;
+  createdAt: string;
+  previewHash: string;
+  counts: IssueRecoveryPreviewCounts;
+  backupCounts: IssueRecoveryPreviewBackupCounts;
+  existingIssues: number;
+  attachmentsToRelink: number;
+  warnings: string[];
+  conflicts: string[];
+  canRestore: boolean;
+}
+
+export interface ProtectionOperationResult {
+  [key: string]: unknown;
+}
+
+export type ProtectionRestorationEntity =
+  (typeof ProtectionRestorationEntity)[keyof typeof ProtectionRestorationEntity];
+
+export const ProtectionRestorationEntity = {
+  projects: "projects",
+  sites: "sites",
+  users: "users",
+  app_issues: "app_issues",
+} as const;
+
+export interface ProtectionRestoration {
+  entity: ProtectionRestorationEntity;
+  /** @minimum 1 */
+  id: number;
+  /**
+   * @minLength 5
+   * @maxLength 500
+   */
+  reason: string;
+}
+
+export interface ProtectionRecoveryInput {
+  /**
+   * @minLength 16
+   * @maxLength 512
+   */
+  passphrase: string;
+}
+
+export interface ProtectionArchivedRecord {
+  id: number;
+  /** @nullable */
+  label: string | null;
+  created_at: string;
+}
+
+export type ProtectionAuditEventDetails = { [key: string]: unknown };
+
+export interface ProtectionAuditEvent {
+  id: string;
+  created_at: string;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  /** @nullable */
+  actor_id?: string | null;
+  database_actor: string;
+  source: string;
+  details?: ProtectionAuditEventDetails;
+  /** @nullable */
+  uploaded_at?: string | null;
+  /** @nullable */
+  object_key?: string | null;
+  attempts?: number;
+  /** @nullable */
+  last_error?: string | null;
+}
+
+export type ProtectionCheckpointCounts = { [key: string]: number };
+
+export interface ProtectionCheckpoint {
+  id: string;
+  checked_at: string;
+  counts: ProtectionCheckpointCounts;
+  warnings: string[];
+}
+
+export type ProtectionRecoveryExportCounts = { [key: string]: number };
+
+export interface ProtectionRecoveryExport {
+  id: string;
+  created_at: string;
+  size_bytes: number;
+  counts: ProtectionRecoveryExportCounts;
+  sha256: string;
+}
+
+export type ProtectionStatusStorage = {
+  configured: boolean;
+  /** @nullable */
+  bucket: string | null;
+  /** @nullable */
+  verifiedAt: string | null;
+  /** @nullable */
+  error: string | null;
+};
+
+export type ProtectionStatusAudit = {
+  total: number;
+  pending: number;
+  failed: number;
+  /** @nullable */
+  oldest_pending_at?: string | null;
+  /** @nullable */
+  last_uploaded_at?: string | null;
+};
+
+export type ProtectionStatusDatabase = {
+  role: string;
+  superuser: boolean;
+  owner: boolean;
+  can_create: boolean;
+  restrictedRuntime: boolean;
+  startupMigrationsEnabled: boolean;
+};
+
+export interface ProtectionStatus {
+  storage: ProtectionStatusStorage;
+  audit: ProtectionStatusAudit;
+  database: ProtectionStatusDatabase;
+  checkpoint: ProtectionCheckpoint | null;
+  exports: ProtectionRecoveryExport[];
+}
+
+export interface DatabaseStorageConfig {
+  enabled: boolean;
+  /** @maxLength 500 */
+  resourceId: string;
+}
+
+export type DatabaseStorageStatusStatus =
+  (typeof DatabaseStorageStatusStatus)[keyof typeof DatabaseStorageStatusStatus];
+
+export const DatabaseStorageStatusStatus = {
+  disabled: "disabled",
+  pending: "pending",
+  healthy: "healthy",
+  low: "low",
+  unavailable: "unavailable",
+  stale: "stale",
+} as const;
+
+export interface DatabaseStorageStatus {
+  enabled: boolean;
+  resourceId: string;
+  thresholdGb: number;
+  thresholdBytes: number;
+  status: DatabaseStorageStatusStatus;
+  message: string;
+  identityAvailable: boolean;
+  /** @nullable */
+  freeBytes: number | null;
+  /** @nullable */
+  sampledAt: string | null;
+  /** @nullable */
+  checkedAt: string | null;
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -583,6 +802,8 @@ export interface GrantSiteGroupBody {
   groupId: number;
 }
 
+export type GetDatabaseStorageAzureTemplate200 = { [key: string]: unknown };
+
 export type ListProjectsParams = {
   /**
    * @minimum 1
@@ -612,4 +833,44 @@ export type GrantSiteUserAccess201 = {
 
 export type GrantSiteGroupAccess201 = {
   ok: boolean;
+};
+
+export type GetDataProtectionEventsParams = {
+  page?: number;
+  entity?: string;
+};
+
+export type GetDataProtectionEvents200 = {
+  events: ProtectionAuditEvent[];
+  page: number;
+  hasMore: boolean;
+};
+
+export type GetDataProtectionArchivedParams = {
+  entity?: GetDataProtectionArchivedEntity;
+  page?: number;
+};
+
+export type GetDataProtectionArchivedEntity =
+  (typeof GetDataProtectionArchivedEntity)[keyof typeof GetDataProtectionArchivedEntity];
+
+export const GetDataProtectionArchivedEntity = {
+  projects: "projects",
+  sites: "sites",
+  users: "users",
+  app_issues: "app_issues",
+} as const;
+
+export type GetDataProtectionArchived200 = {
+  entity: string;
+  records: ProtectionArchivedRecord[];
+  page: number;
+  hasMore: boolean;
+};
+
+export type GetIssueRecoveryBackupsParams = {
+  /**
+   * @maxLength 2048
+   */
+  cursor?: string;
 };

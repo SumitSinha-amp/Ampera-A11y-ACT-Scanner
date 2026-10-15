@@ -6,6 +6,22 @@ import { isProgrammaticallyHidden, isRendered, isVisible } from "../visibility";
 
 type LandmarkIdentity = { role: string; name: string };
 
+export function runMissingMainLandmarkRule(results: ScanRawResult[]): void {
+  const mainLandmarks = Array.from(
+    document.querySelectorAll("main, [role='main']"),
+  ).filter((el) => isRendered(el) && !isProgrammaticallyHidden(el));
+  if (mainLandmarks.length > 0) return;
+  results.push({
+    ruleId: "ACT-R99",
+    type: "Issue",
+    impact: "moderate",
+    description: 'Document has no main landmark — add a <main> element or role="main" around the primary content',
+    element: outerHtmlSnippet(document.body),
+    elementContext: elementContextForAI(document.body),
+    selector: "body",
+  });
+}
+
 export function findDuplicateLandmarkNames<T extends LandmarkIdentity>(
   landmarks: readonly T[],
 ): T[][] {
@@ -189,55 +205,33 @@ export function runHeadingsLandmarksRules(results: ScanRawResult[], EMIT_MANUAL_
       document.querySelectorAll(sel).forEach((el) => {
         if (isProgrammaticallyHidden(el)) return;
         const name = (el.getAttribute("aria-label") || document.getElementById(el.getAttribute("aria-labelledby") || "")?.textContent?.trim() || el.getAttribute("title") || "").toLowerCase().trim();
+        // An unnamed form or implicitly unnamed section is not a landmark.
+        // Explicit role=region remains applicable to the separate naming checks.
+        if ((role === "form" || (el.tagName === "SECTION" && !el.hasAttribute("role"))) && !name) return;
         landmarks.push({ el, role, name });
       });
     }
-    const byRoleName: Record<string, LandmarkInfo[]> = {};
-    for (const info of landmarks) {
-      if (!info.name) continue;
-      const key = `${info.role}:${info.name}`;
-      byRoleName[key] = byRoleName[key] || [];
-      byRoleName[key].push(info);
-    }
-    // Landmark content fingerprint — headings + link hrefs + trimmed text prefix
-    const landmarkFingerprint = (el: Element): string => {
-      const headings = Array.from(el.querySelectorAll("h1,h2,h3,h4,h5,h6"))
-        .map((h) => h.textContent?.trim().toLowerCase().slice(0, 80)).join("|");
-      const links = Array.from(el.querySelectorAll("a[href]"))
-        .map((a) => (a.getAttribute("href") || "").replace(/[?#].*/, "").toLowerCase().slice(0, 60)).join("|");
-      const text = (el.textContent || "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 200);
-      return `${headings}||${links}||${text}`;
-    };
-    // Known carousel/slider patterns — don't flag same-name regions that are intentional repeating slide containers
-    const isCarouselPattern = (nameStr: string, group: { el: Element }[]): boolean => {
-      const lower = nameStr.toLowerCase();
-      if (/carousel|slide|slider|rotator|banner/.test(lower)) return true;
-      return group.some((g) => {
-        const p = g.el.parentElement;
-        return p && (
-          p.classList.contains("carousel") || p.classList.contains("slider") ||
-          !!p.querySelector('[role="tablist"]') || !!p.querySelector("[aria-roledescription]")
-        );
-      });
-    };
-    for (const [key, group] of Object.entries(byRoleName)) {
-      if (group.length < 2) continue;
-      const [roleStr, ...nameParts] = key.split(":");
-      const nameStr = nameParts.join(":");
-      // Skip known carousel/slider patterns
-      if (isCarouselPattern(nameStr, group)) continue;
-      // ACT-R55 spec: only flag when same-named landmarks have DIFFERENT content (misleading name)
-      const fingerprints = group.map((g) => landmarkFingerprint(g.el));
-      const uniqueFingerprints = new Set(fingerprints);
-      if (uniqueFingerprints.size < 2) continue; // identical content → repeated component, not an issue
-      for (const { el } of group) {
-        results.push({ ruleId: "ACT-R55", type: "Potential Issue", impact: "moderate", description: `Multiple "${roleStr}" landmark regions share the accessible name "${nameStr}" but contain different content`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-      }
-    }
-    // ACT-R56: landmarks with the same role must have unique accessible names.
-    // The empty accessible name participates in comparison, so two unnamed
-    // navigation or banner landmarks fail just like two equally named ones.
     for (const duplicateGroup of findDuplicateLandmarkNames(landmarks)) {
+      // Alfa R55 includes the empty name and asks a manual content-equivalence
+      // question once per group. Fingerprints/carousel classes cannot answer
+      // that question, so they must not silently suppress applicable groups.
+      const first = duplicateGroup[0];
+      const sharedName = first.name
+        ? `the accessible name "${first.name}"`
+        : "no accessible name";
+      results.push({
+        ruleId: "ACT-R55",
+        type: "Potential Issue",
+        impact: "moderate",
+        description: `Do these ${duplicateGroup.length} "${first.role}" landmarks with ${sharedName} have the same or equivalent content? Review this group and give landmarks distinct names when their purposes differ.`,
+        element: outerHtmlSnippet(first.el),
+        elementContext: duplicateGroup.map(({ el }, index) =>
+          `Landmark ${index + 1}: ${getSelector(el)}\n${elementContextForAI(el)}`,
+        ).join("\n\n").slice(0, 12000),
+        selector: getSelector(first.el),
+      });
+
+      // R56 remains a separate per-landmark duplicate-name finding.
       for (const info of duplicateGroup) {
         const duplicateName = info.name
           ? `the accessible name "${info.name}"`
@@ -372,51 +366,7 @@ export function runHeadingsLandmarksRules(results: ScanRawResult[], EMIT_MANUAL_
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R99: Primary content is not exposed as a main landmark (WCAG 1.3.1)
   // ════════════════════════════════════════════════════════════════════════
-  {
-    const mainLandmarks = Array.from(
-      document.querySelectorAll("main, [role='main']"),
-    ).filter((el) => isRendered(el));
-
-    if (mainLandmarks.length === 0) {
-      // Prefer the page-level generic wrapper used by older sites. These
-      // selectors intentionally identify one primary content container rather
-      // than reporting every generic div on a page without <main>.
-      const preferredIds = ["content", "main", "appForm"];
-      const namedCandidates = preferredIds
-        .map((id) => document.getElementById(id))
-        .filter((el): el is HTMLElement => {
-          if (!el || !isRendered(el)) return false;
-          if (el.closest("header, nav, aside, footer")) return false;
-          return (el.textContent || "").trim().length >= 80;
-        });
-      const classCandidates = Array.from(
-        document.querySelectorAll(
-          "[class~='content'],[class~='main'],[class~='primary-content'],[class~='page-content']",
-        ),
-      ).filter((el) => {
-        if (!isRendered(el)) return false;
-        if (el.closest("header, nav, aside, footer")) return false;
-        return (el.textContent || "").trim().length >= 80;
-      });
-      const contentContainer = namedCandidates[0] ?? classCandidates[0];
-
-      if (contentContainer) {
-        const tag = contentContainer.tagName.toLowerCase();
-        const identifier = contentContainer.id
-          ? `#${contentContainer.id}`
-          : "";
-        results.push({
-          ruleId: "ACT-R99",
-          type: "Potential Issue",
-          impact: "moderate",
-          description: `Primary content is contained in <${tag}${identifier}> without a main landmark`,
-          element: outerHtmlSnippet(contentContainer),
-          elementContext: elementContextForAI(contentContainer),
-          selector: getSelector(contentContainer),
-        });
-      }
-    }
-  }
+  runMissingMainLandmarkRule(results);
 
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R97: Collapsible element aria-expanded/aria-controls broken (WCAG 4.1.2)

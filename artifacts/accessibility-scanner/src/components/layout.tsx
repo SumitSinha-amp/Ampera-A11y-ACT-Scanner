@@ -112,6 +112,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { APP_WALKTHROUGH_EVENT } from "@/lib/walkthrough";
 import "../refined-shell.css";
+import { DatabaseStorageWarning } from "./database-storage";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 export const OPEN_SETTINGS_EVENT = "a11y-open-settings";
@@ -133,6 +134,7 @@ const THEME_OPTIONS: { value: Theme; label: string }[] = [
   { value: "glass-light", label: "Glass Light" },
   { value: "glass-vision", label: "Vision Pro" },
   { value: "glass-vision-light", label: "Vision Pro Light" },
+  { value: "liquid-glass", label: "Liquid Glass" },
 ];
 
 function HeaderThemeSwitcher() {
@@ -1952,6 +1954,9 @@ function MainMenuContent({
                 items: [
                   { label: "Permissions", href: "/admin/permissions", icon: <ShieldCheck className="h-4 w-4" /> },
                   { label: "Site manager", href: "/admin/site-manager", icon: <Building2 className="h-4 w-4" /> },
+                  ...(user?.role === "super_admin"
+                    ? [{ label: "Data protection", href: "/admin/data-protection", icon: <FileCheck2 className="h-4 w-4" /> }]
+                    : []),
                 ],
               },
             ],
@@ -2038,6 +2043,13 @@ function MainMenuContent({
             },
           ]
         : []),
+      ...(user?.role === "super_admin" ? [{
+        label: "Data protection",
+        href: "/admin/data-protection",
+        description: "Audit evidence, archived records, checkpoints, and encrypted exports",
+        icon: <FileCheck2 className="h-4 w-4" />,
+        keywords: ["data protection", "audit", "evidence", "archive", "restore", "export", "checkpoint", "r2"],
+      }] : []),
       ...(user?.permissions?.canCreateIssue ? [{
         label: "New issue",
         href: "/issues?create=1",
@@ -2614,6 +2626,15 @@ function AdminSidebarContent({
           collapsed={collapsed}
         />
       )}
+      {superAdminUser && (
+        <NavItem
+          href="/admin/data-protection"
+          icon={<FileCheck2 className="w-4 h-4 shrink-0" />}
+          label="Data Protection"
+          active={location === "/admin/data-protection"}
+          collapsed={collapsed}
+        />
+      )}
     </div>
   );
 }
@@ -2932,6 +2953,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
           { label: "Groups", href: "/admin/groups" },
           { label: "Admin Settings", href: "/admin/settings" },
         ]
+      : []),
+    ...(superAdminUser
+      ? [{ label: "Data Protection", href: "/admin/data-protection" }]
       : []),
     ...(canManageSites
       ? [{ label: "Manage Sites", href: "/crawler/sites" }]
@@ -3477,15 +3501,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <main
             id="main-content"
             tabIndex={-1}
-              className={`flex-1 min-w-0 ${
+              className={`flex-1 min-h-0 min-w-0 ${
               location === "/welcome"
                 ? "flex flex-col overflow-hidden"
                 : "overflow-auto app-scrollbar"
             }`}
           >
             <div
-              className={`w-full p-3 md:p-5 ${
-                location === "/welcome" ? "h-full min-h-0" : ""
+              className={`app-page-content w-full min-w-0 p-3 pb-6 md:p-5 md:pb-8 ${
+                location === "/welcome" ? "h-full min-h-0 flex flex-col" : ""
               }`}
             >
               {location !== "/welcome" &&
@@ -3528,7 +3552,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   </Link>
                 );
                 })()}
-              {children}
+              <DatabaseStorageWarning />
+              {location === "/welcome" ? <div className="min-h-0 flex-1">{children}</div> : children}
             </div>
           </main>
         </div>

@@ -14,6 +14,8 @@ export interface ContrastCandidate {
   bboxY: number;
   bboxW: number;
   bboxH: number;
+  isLargeText?: boolean;
+  isLinkText?: boolean;
 }
 
 export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: boolean, pushStat: PushStatFn): void {
@@ -76,13 +78,17 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
         const sel = getSelector(el);
         if (sel) {
           const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          const fontSize = parseFloat(style.fontSize);
           pixelCandidates.push({
             selector: sel,
-            textColor: window.getComputedStyle(el).color,
+            textColor: style.color,
             bboxX: Math.round(rect.left + window.scrollX),
             bboxY: Math.round(rect.top + window.scrollY),
             bboxW: Math.round(rect.width),
             bboxH: Math.round(rect.height),
+            isLargeText: fontSize >= 24 || (fontSize >= 18.67 && parseFloat(style.fontWeight) >= 700),
+            isLinkText: !!el.closest("a[href]"),
           });
         }
         // Alfa/Siteimprove treats unresolved visual-state contrast as a

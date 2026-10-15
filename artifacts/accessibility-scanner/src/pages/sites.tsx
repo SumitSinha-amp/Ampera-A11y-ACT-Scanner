@@ -239,15 +239,15 @@ export default function SitesPage() {
     meta: { activityMessage: "Deleting site…" },
     mutationFn: async (id: number) => {
       const res = await fetch(`${BASE}/api/sites/${id}`, { method: "DELETE", credentials: "include" });
-      if (!res.ok) throw new Error("Failed to delete site");
+      if (!res.ok) throw new Error("Failed to archive site");
     },
     onSuccess: () => {
-      toast({ title: "Site deleted" });
+      toast({ title: "Site archived", description: "A super admin can restore it from Data Protection." });
       qc.invalidateQueries({ queryKey: ["sites"] });
       qc.invalidateQueries({ queryKey: ["my-sites"] });
       qc.invalidateQueries({ queryKey: ["my-sites-legacy"] });
     },
-    onError: () => { toast({ title: "Failed to delete site", variant: "destructive" }); },
+    onError: () => { toast({ title: "Failed to archive site", variant: "destructive" }); },
   });
 
   const sites = data?.sites ?? [];
@@ -336,7 +336,7 @@ export default function SitesPage() {
                         onClick={() => setDeleteId(site.id)}
                         className="gap-2 text-destructive focus:text-destructive"
                       >
-                        <Trash2 className="w-4 h-4" /> Delete
+                        <Trash2 className="w-4 h-4" /> Archive
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -418,9 +418,9 @@ export default function SitesPage() {
       <AlertDialog open={deleteId !== null} onOpenChange={(o) => { if (!o) setDeleteId(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete site?</AlertDialogTitle>
+            <AlertDialogTitle>Archive site?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the site record. Existing crawler scans linked to this site will not be deleted.
+              The site is hidden from the workspace but not erased. Crawler scans and results linked to it are kept, and a super admin can restore it from Data Protection.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -429,7 +429,7 @@ export default function SitesPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => { if (deleteId !== null) { deleteMutation.mutate(deleteId); setDeleteId(null); } }}
             >
-              Delete
+              Archive
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

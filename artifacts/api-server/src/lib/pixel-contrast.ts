@@ -29,6 +29,8 @@ export interface ContrastCandidate {
   bboxY: number;
   bboxW: number;
   bboxH: number;
+  isLargeText?: boolean;
+  isLinkText?: boolean;
 }
 
 /** A new contrast issue produced by the pixel pass */
@@ -135,7 +137,20 @@ export async function runPixelContrastPass(
   let candidates: ContrastCandidate[] = [];
   try {
     candidates = await page.evaluate(
-      () => (window as any).__amperaContrastCandidates ?? [],
+      () => ((window as any).__amperaContrastCandidates ?? []).map((candidate: ContrastCandidate) => {
+        // The scanner temporarily expands viewport-sized inner scrollers
+        // before this pass. Read boxes again in that capture layout.
+        const el = document.querySelector(candidate.selector);
+        if (!el) return candidate;
+        const rect = el.getBoundingClientRect();
+        return {
+          ...candidate,
+          bboxX: Math.round(rect.left + window.scrollX),
+          bboxY: Math.round(rect.top + window.scrollY),
+          bboxW: Math.round(rect.width),
+          bboxH: Math.round(rect.height),
+        };
+      }),
     );
   } catch (err) {
     logger.warn({ err }, "pixel-contrast: failed to read candidates from page");
@@ -155,12 +170,26 @@ export async function runPixelContrastPass(
   let png: PNG;
   try {
     const client = await page.createCDPSession();
-    const { data: base64 } = await client.send("Page.captureScreenshot", {
-      format: "png",
-      captureBeyondViewport: true,
-      fromSurface: true,
-    });
-    await client.detach();
+    let base64: string;
+    try {
+      // captureBeyondViewport alone still captures only the viewport when no
+      // clip is supplied. Candidate boxes use document coordinates.
+      const { cssContentSize } = await client.send("Page.getLayoutMetrics");
+      ({ data: base64 } = await client.send("Page.captureScreenshot", {
+        format: "png",
+        captureBeyondViewport: true,
+        fromSurface: true,
+        clip: {
+          x: 0,
+          y: 0,
+          width: Math.ceil(cssContentSize.width),
+          height: Math.ceil(cssContentSize.height),
+          scale: 1,
+        },
+      }));
+    } finally {
+      await client.detach();
+    }
     const pngBuffer = Buffer.from(base64, "base64");
     png = await decodePng(pngBuffer);
     logger.info(
@@ -197,16 +226,28 @@ export async function runPixelContrastPass(
     const bgLum = luminance(...bgRgb);
     const ratio = contrastRatio(fgLum, bgLum);
 
-    // Determine whether the element has large text (requires additional evaluate).
-    // We keep this lightweight — use the stored bbox height as a proxy when
-    // evaluating in-page is not worth the round-trip.
-    const isLargeText = candidate.bboxH >= 32; // rough proxy: ≥32 px line height
+    // A multiline small-text box is not large text, and selector prefixes do
+    // not establish whether a nested element belongs to a link. New bundles
+    // supply semantic metadata; resolve it for older candidate producers too.
+    const metadata =
+      candidate.isLargeText !== undefined && candidate.isLinkText !== undefined
+        ? candidate
+        : await page.evaluate((selector) => {
+            const el = document.querySelector(selector);
+            if (!el) return { isLargeText: false, isLinkText: false };
+            const style = getComputedStyle(el);
+            const size = parseFloat(style.fontSize);
+            return {
+              isLargeText: size >= 24 || (size >= 18.67 && parseFloat(style.fontWeight) >= 700),
+              isLinkText: !!el.closest("a[href]"),
+            };
+          }, candidate.selector);
+    const isLargeText = metadata.isLargeText;
     const aaMin  = isLargeText ? 3   : 4.5;
     const aaaMin = isLargeText ? 4.5 : 7;
 
-    const isLinkSelector = /^a[^a-zA-Z]|^a$/.test(candidate.selector.trim());
-    const aaRuleId  = isLinkSelector ? "ACT-R88" : "ACT-R69";
-    const aaaRuleId = isLinkSelector ? "ACT-R89" : "ACT-R66";
+    const aaRuleId  = metadata.isLinkText ? "ACT-R88" : "ACT-R69";
+    const aaaRuleId = metadata.isLinkText ? "ACT-R89" : "ACT-R66";
 
     if (ratio < aaMin) {
       newIssues.push({

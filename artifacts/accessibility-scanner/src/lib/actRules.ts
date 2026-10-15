@@ -326,9 +326,10 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       'Dynamic status updates (form confirmations, loading states, error counts) must use role="status", aria-live, or an equivalent so screen readers announce them without moving focus.',
   },
   "ACT-R55": {
-    title: "Landmark regions have duplicate accessible names",
+    title: "Landmarks with the same name serve the same purpose",
+    potentialTitle: "Do these same-role landmarks have the same or equivalent content?",
     detail:
-      'Multiple landmark regions sharing the same name (e.g., two <section> elements both labelled "Products") make it impossible to distinguish them through assistive-technology navigation.',
+      "Landmarks with the same role and accessible name, including multiple unnamed landmarks, require a group-level review of whether their content and purpose are equivalent. If their purposes differ, give them distinguishing accessible names. This is a manual-review question, not an automatic conclusion that their content differs; duplicate-name checks are separately reported under ACT-R56.",
   },
   "ACT-R56": {
     title: "Landmarks of same type have a unique accessible name",
@@ -353,7 +354,7 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
   "ACT-R60": {
     title: "Groups have an accessible name",
     detail:
-      "Groups of related controls — radio buttons, checkboxes — must be wrapped in a <fieldset> element with a <legend> that describes the group's purpose.",
+      "Related control groups with at least two inputs need a programmatically available group name: use a fieldset with a meaningful legend or an appropriate group/radiogroup role with aria-label or aria-labelledby. Individual labels, nearby unassociated headings, and the radio name attribute do not name the group. Native controls in CSS-hidden menus/dialogs are checked too; semantically inactive markup is excluded.",
   },
   "ACT-R61": {
     title: "Documents start with a level 1 heading",
@@ -397,9 +398,9 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       'Images marked as decorative via role="presentation" or role="none" should not carry descriptive alt text. Providing alt text on a decorative image will be announced unnecessarily.',
   },
   "ACT-R68": {
-    title: "Container element is empty",
+    title: "Element does not own the children required by its semantic role",
     detail:
-      "A visible container has no meaningful content. Empty containers may be rendering artifacts that should be removed or given meaningful content and appropriate semantics.",
+      "Semantic containers must own at least one child matching their required role structure: for example, list must own listitem, listbox must own option (optionally through group), and table must own row (optionally through rowgroup). Ownership follows the accessibility tree, including aria-owns. Hidden and aria-busy subtrees are excluded. Generic layout containers and landmarks without required child roles are not failures merely because they are empty.",
   },
   "ACT-R69": {
     title: "Color contrast does not meet minimum requirement",

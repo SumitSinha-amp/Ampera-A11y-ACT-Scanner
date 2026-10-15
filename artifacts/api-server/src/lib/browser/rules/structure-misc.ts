@@ -91,26 +91,6 @@ export function runStructureMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // ACT-R94 (radio grouping): Radio buttons not in fieldset (WCAG 1.3.1)
-  // ════════════════════════════════════════════════════════════════════════
-  {
-    const radioGroups: Record<string, HTMLInputElement[]> = {};
-    document.querySelectorAll("input[type='radio']:not([disabled])").forEach((el) => {
-      const input = el as HTMLInputElement;
-      if (!isVisible(input)) return;
-      const name = input.name || "_ungrouped_";
-      if (!radioGroups[name]) radioGroups[name] = [];
-      radioGroups[name].push(input);
-    });
-    Object.values(radioGroups).forEach((inputs) => {
-      if (inputs.length < 2) return;
-      if (!inputs[0].closest("fieldset")) {
-        results.push({ ruleId: "ACT-R60", type: "Issue", impact: "moderate", description: `Radio button group "${inputs[0].name}" is not wrapped in a <fieldset> with <legend>`, element: outerHtmlSnippet(inputs[0]), selector: getSelector(inputs[0]) });
-      }
-    });
-  }
-
-  // ════════════════════════════════════════════════════════════════════════
   // ACT-R98: Section landmark with no heading or accessible label
   // ════════════════════════════════════════════════════════════════════════
   const visibleLandmarks = Array.from(document.querySelectorAll("main, nav, aside, section, [role='region'], [role='complementary']")).filter((el) => isVisible(el));

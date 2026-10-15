@@ -1,0 +1,180 @@
+/* Liquid Glass theme — every rule scoped to html.liquid-glass. */
+html.liquid-glass {
+  --background: 212 60% 96%;
+  --foreground: 218 62% 14%;
+  --border: 212 42% 80%;
+  --card: 210 70% 99%;
+  --card-foreground: 218 62% 14%;
+  --card-border: 212 42% 82%;
+  --sidebar: 210 70% 97%;
+  --sidebar-foreground: 218 62% 14%;
+  --sidebar-border: 212 42% 80%;
+  --sidebar-accent: 212 80% 92%;
+  --sidebar-accent-foreground: 218 62% 14%;
+  --popover: 210 60% 99%;
+  --popover-foreground: 218 62% 14%;
+  --popover-border: 212 42% 78%;
+  --secondary: 212 60% 93%;
+  --secondary-foreground: 218 62% 14%;
+  --muted: 212 55% 94%;
+  --muted-foreground: 216 34% 30%;
+  --accent: 212 80% 92%;
+  --accent-foreground: 218 62% 14%;
+  --input: 212 38% 62%;
+  --refined-ink: 218 62% 14%;
+  --refined-subtle: 216 34% 30%;
+  --refined-rule: 212 42% 82%;
+  --refined-paper: 210 70% 99%;
+  --refined-tint: 212 70% 94%;
+  --refined-hover: 212 85% 92%;
+  --refined-shadow: 216 55% 28%;
+  --lg-glass: rgba(246, 251, 255, 0.72);
+  --lg-glass-strong: rgba(250, 253, 255, 0.84);
+  --lg-edge: rgba(255, 255, 255, 0.9);
+  --lg-line: rgba(70, 120, 190, 0.28);
+  --lg-shadow: 0 10px 30px rgba(30, 70, 130, 0.12);
+  --suite-canvas: transparent;
+  --suite-sidebar: var(--lg-glass);
+  --suite-line: var(--lg-line);
+  --suite-elevation: var(--lg-shadow);
+  --shell-text: hsl(218 62% 14%);
+  --shell-muted: hsl(216 34% 28%);
+  --shell-stroke: var(--lg-line);
+  --shell-surface: transparent;
+  --shell-hover: rgba(40, 110, 200, 0.10);
+  --shell-active: rgba(40, 110, 200, 0.16);
+  --shell-control: rgba(255, 255, 255, 0.7);
+  --shell-accent-ink: hsl(212 86% 28%);
+  color-scheme: light;
+}
+
+html.liquid-glass body {
+  background:
+    radial-gradient(60% 50% at 12% 0%, rgba(255, 255, 255, 0.95), transparent 70%),
+    radial-gradient(55% 55% at 92% 8%, rgba(150, 200, 255, 0.55), transparent 70%),
+    radial-gradient(70% 60% at 50% 105%, rgba(120, 175, 245, 0.45), transparent 70%),
+    linear-gradient(160deg, #eaf4ff 0%, #d7e8fb 55%, #c6dcf6 100%);
+  background-attachment: fixed;
+  color: hsl(218 62% 14%);
+}
+
+/* Stored room images remain available to other themes without obscuring this
+   theme's deliberately blue-white ambient canvas. */
+html.liquid-glass[data-bg-image="on"] body::before { display: none; }
+
+html.liquid-glass .app-shell.refined-screen {
+  background: var(--lg-glass);
+  border: 1px solid var(--lg-line);
+  box-shadow: inset 0 1px 0 var(--lg-edge), 0 18px 48px rgba(30, 70, 130, 0.16);
+}
+html.liquid-glass .refined-screen #main-content { background: transparent; }
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  html.liquid-glass .app-shell.refined-screen {
+    background: rgba(246, 251, 255, 0.58);
+    -webkit-backdrop-filter: blur(22px) saturate(150%);
+    backdrop-filter: blur(22px) saturate(150%);
+  }
+  html.liquid-glass .refined-screen .ampera-header,
+  html.liquid-glass .refined-screen .sidebar-shell {
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    backdrop-filter: blur(16px) saturate(140%);
+  }
+}
+
+html.liquid-glass .refined-screen .ampera-header {
+  background: linear-gradient(180deg, rgba(255,255,255,.82), rgba(240,247,255,.66));
+  border-bottom: 1px solid var(--lg-line);
+  box-shadow: inset 0 1px 0 var(--lg-edge);
+}
+html.liquid-glass .refined-screen .sidebar-shell,
+html.liquid-glass .refined-screen .sidebar-rail,
+html.liquid-glass .refined-screen .sidebar-panel {
+  background: linear-gradient(180deg, rgba(255,255,255,.78), rgba(232,243,255,.62));
+  box-shadow: inset 0 1px 0 var(--lg-edge);
+}
+html.liquid-glass .refined-screen .sidebar-shell { border-right: 1px solid var(--lg-line); }
+html.liquid-glass .refined-screen .sidebar-rail { border-right: 1px solid var(--lg-line); color: var(--shell-muted); }
+html.liquid-glass .refined-screen .sidebar-rail-item,
+html.liquid-glass .refined-screen .sidebar-rail-toggle,
+html.liquid-glass .refined-screen .sidebar-rail .sidebar-rail-icon,
+html.liquid-glass .refined-screen .sidebar-rail .sidebar-rail-icon * { color: hsl(218 62% 14%) !important; }
+html.liquid-glass .refined-screen .sidebar-rail-item:hover,
+html.liquid-glass .refined-screen .sidebar-rail-item[data-sidebar-active="true"],
+html.liquid-glass .refined-screen .sidebar-panel .sidebar-nav-item:hover,
+html.liquid-glass .refined-screen .sidebar-panel .sidebar-nav-item[data-sidebar-active="true"] {
+  background: var(--shell-active) !important;
+  color: hsl(212 86% 24%) !important;
+}
+html.liquid-glass .refined-screen .sidebar-panel .sidebar-nav-item { color: hsl(218 50% 20%); }
+html.liquid-glass .refined-screen .sidebar-panel .sidebar-nav-item[data-sidebar-active="true"] {
+  box-shadow: inset 3px 0 0 hsl(212 86% 36%);
+  font-weight: 700;
+}
+
+/* Panels: frosted. Nested surfaces: flat. */
+html.liquid-glass .app-shell :is([data-slot="card"], .bg-card) {
+  background: linear-gradient(180deg, rgba(255,255,255,.9), rgba(244,249,255,.8));
+  border: 1px solid var(--lg-line);
+  box-shadow: inset 0 1px 0 var(--lg-edge), 0 6px 20px rgba(30, 70, 130, 0.09);
+}
+html.liquid-glass .app-shell :is([data-slot="card"], .bg-card) :is([data-slot="card"], .bg-card, .bg-muted, [class*="bg-muted/"], [class*="bg-background/"]) {
+  background: rgba(228, 240, 255, 0.55);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html.liquid-glass .app-shell :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select, [data-slot="select-trigger"]) {
+  background-color: rgba(255, 255, 255, 0.92);
+  border-color: hsl(212 38% 55%);
+}
+html.liquid-glass .app-shell tbody tr:hover,
+html.liquid-glass .app-shell [role="row"]:hover { background-color: rgba(40, 110, 200, 0.08); }
+html.liquid-glass .app-shell :is(th, [role="columnheader"]) { background-color: rgba(220, 235, 252, 0.8); color: hsl(216 40% 24%); }
+html.liquid-glass .app-shell [role="tab"][data-state="active"] {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+/* Overlays: solid, readable. */
+html.liquid-glass :is(
+  [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"],
+  [data-slot="drawer-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"],
+  [data-slot="context-menu-content"], [data-slot="select-content"], [data-slot="command"],
+  [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"],
+  .sidebar-flyout, .sidebar-flyout-nested-menu, .sidebar-flyout-create-menu
+) {
+  background: #f7fbff;
+  color: hsl(218 62% 14%);
+  border: 1px solid hsl(212 42% 72%);
+  box-shadow: inset 0 1px 0 #fff, 0 18px 44px rgba(25, 60, 115, 0.22);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html.liquid-glass .refined-screen .sidebar-flyout-create {
+  background: hsl(212 86% 36%);
+  color: #fff;
+}
+
+/* Named, visible focus. */
+html.liquid-glass :is(button, [role="button"], a, input, textarea, select, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 3px solid hsl(212 90% 32%);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.95);
+}
+
+/* Fallbacks. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html.liquid-glass .app-shell.refined-screen { background: #eef6ff; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  html.liquid-glass .app-shell.refined-screen,
+  html.liquid-glass .refined-screen :is(.ampera-header, .sidebar-shell) {
+    background: #eef6ff;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.liquid-glass *, html.liquid-glass *::before, html.liquid-glass *::after { transition-duration: 0.01ms; animation-duration: 0.01ms; }
+}

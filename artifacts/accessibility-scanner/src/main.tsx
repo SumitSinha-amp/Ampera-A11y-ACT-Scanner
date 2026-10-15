@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import "./refined-app.css";
+import "./liquid-glass.css";
 import {
   getSavedTheme,
   applyTheme,

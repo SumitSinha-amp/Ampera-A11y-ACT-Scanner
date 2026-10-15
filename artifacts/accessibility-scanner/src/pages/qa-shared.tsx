@@ -146,7 +146,7 @@ export function QAPageShell({
   children: ReactNode;
 }) {
   return (
-    <div className="vision-page vision-qa relative -m-6 min-h-[calc(100vh-3rem)] overflow-hidden bg-[#f5f6fb] p-6 md:-m-8 md:min-h-[calc(100vh-4rem)] md:p-8">
+    <div className="vision-page vision-qa relative -m-3 min-h-full min-w-0 overflow-hidden bg-[#f5f6fb] p-3 md:-m-5 md:p-5">
       <div className="relative z-10 mx-auto max-w-none space-y-5 pb-10">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Link href="/welcome" className="inline-flex items-center gap-1 hover:text-foreground hover:underline">

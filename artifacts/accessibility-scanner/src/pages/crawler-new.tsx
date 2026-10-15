@@ -1263,8 +1263,8 @@ export default function CrawlerNewPage() {
           </TabsContent>
         </Tabs>
 
-        <div className="flex items-center justify-between mt-6 pt-4 border-t border-border">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-6 pt-4 border-t border-border">
+          <div className="flex flex-wrap items-center gap-2">
             <Button type="button" variant="outline" onClick={() => navigate("/crawler")} aria-label="Cancel and return to crawler history">
               Cancel
             </Button>

@@ -6,6 +6,10 @@
   import { resumeOrphanedCrawlerSessions, runScheduledCrawls, runDueCrawlerSessions, stopCrawlerWork, waitForCrawlerWork, isCrawlerWorkStopping } from "./lib/crawler";
   import { recoverAIAssessments } from "./lib/ai-assessment";
   import { closeBrowser } from "./lib/scanner";
+  import { startStorageMonitor, stopStorageMonitor } from "./lib/databaseStorageMonitor";
+  import { DATA_PROTECTION_SQL } from "./lib/dataProtectionSql";
+  import { startDataProtection, stopDataProtection } from "./lib/dataProtection";
+  import { startIssueRecovery, stopIssueRecovery } from "./lib/issueRecoverySnapshot";
   import bcrypt from "bcryptjs";
   import { execFileSync, execSync } from "child_process";
   import { existsSync, readdirSync } from "fs";
@@ -376,7 +380,7 @@
       `);
       // Replace the legacy shared issue workflow with the type-specific lifecycle.
       // Completed task/story records and closed bug records remain terminal; legacy
-      // cancellations are retained as archived records rather than active statuses.
+      // cancellations become terminal, preserving their existing archive flag.
       await client.query(`
         ALTER TABLE app_issues ALTER COLUMN status SET DEFAULT 'todo';
          ALTER TABLE app_issues ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '{}';
@@ -389,8 +393,7 @@
         SET status = CASE WHEN type = 'bug' THEN 'closed' ELSE 'complete' END
         WHERE status = 'done';
         UPDATE app_issues
-        SET status = CASE WHEN type = 'bug' THEN 'closed' ELSE 'complete' END,
-            archived = TRUE
+        SET status = CASE WHEN type = 'bug' THEN 'closed' ELSE 'complete' END
         WHERE status = 'cancelled';
       `);
   
@@ -1555,11 +1558,13 @@
           ON scan_browser_waiters(heartbeat_at);
       `);
   
+      await client.query(DATA_PROTECTION_SQL);
       await client.query("COMMIT");
       logger.info("Startup migrations completed");
     } catch (err) {
       await client.query("ROLLBACK");
-      logger.error({ err }, "Startup migration failed — server will still start");
+      logger.error({ err }, "Startup migration failed — data safeguards cannot be bypassed");
+      throw err;
     } finally {
       client.release();
     }
@@ -1857,12 +1862,15 @@
     server.on("listening", () => {
       logger.info({ port }, "Server listening");
       startScanWatchdog();
+      startStorageMonitor();
+      startDataProtection();
+      startIssueRecovery();
       postListenRecoveryPromise = runPostListenRecovery().catch((err) =>
         logger.error({ err }, "Post-listen startup recovery failed"),
       );
   
       const scheduleTick = () => {
-        const run = Promise.all([runScheduledCrawls(), runDueCrawlerSessions()]).catch((err) =>
+        const run = Promise.all([runScheduledCrawls(), runDueCrawlerSessions()]).then(() => undefined).catch((err) =>
           logger.error({ err }, "Scheduled crawler tick failed"),
         );
         activeSchedulerRuns.add(run);
@@ -1936,6 +1944,9 @@
     await awaitUntilDeadline(waitForScanWork(Math.max(0, deadline - Date.now())));
     await awaitUntilDeadline(waitForCrawlerWork(Math.max(0, deadline - Date.now())));
     await awaitUntilDeadline(postListenRecoveryPromise ?? Promise.resolve());
+    await awaitUntilDeadline(stopStorageMonitor());
+    await awaitUntilDeadline(stopDataProtection());
+    await awaitUntilDeadline(stopIssueRecovery());
     await awaitUntilDeadline(closeServer);
     await awaitUntilDeadline(closeBrowser());
     await awaitUntilDeadline(pool.end());
@@ -1989,10 +2000,14 @@
     }
   }
 startListening(port);
-runStartupMigrations()
-  .then(() => checkDatabaseWritable())
-  .then(() => Promise.all([seedDefaultAdmin(), ensureChromeDependencies()]))
+(process.env.RUN_STARTUP_MIGRATIONS === "false" && !process.argv.includes("--migrate-only")
+  ? Promise.resolve() : runStartupMigrations())
+  .then(async () => {
+    if (process.argv.includes("--migrate-only")) { await pool.end(); return; }
+    await checkDatabaseWritable();
+    await Promise.all([seedDefaultAdmin(), ensureChromeDependencies()]);
+  })
   .catch((err) => {
     logger.error({ err }, "Startup failed");
     process.exit(1);
-  });
+});

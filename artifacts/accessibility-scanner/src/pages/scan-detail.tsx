@@ -13,6 +13,7 @@ import {
 } from "@workspace/api-client-react";
 import { useMutation } from "@tanstack/react-query";
 import { LiveScanProgressReporter, useActionProgress } from "@/components/top-loading-progress";
+import { useScanProgress } from "@/hooks/use-scan-progress";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -1917,6 +1918,16 @@ export default function ScanDetail() {
       refetchInterval: 2000,
     },
   });
+  const { percent: progressPercent, processed: processedUrls } = useScanProgress({
+    scanId,
+    status: liveStatus?.status ?? scan?.status ?? "pending",
+    totalUrls: liveStatus?.totalUrls ?? scan?.totalUrls ?? 0,
+    counts: liveStatus?.counts,
+    pages: liveStatus?.pages ?? scan?.pages,
+    scannedUrls: liveStatus?.scannedUrls ?? scan?.scannedUrls ?? 0,
+    failedUrls: liveStatus?.failedUrls ?? scan?.failedUrls ?? 0,
+    authoritative: Boolean(liveStatus),
+  });
 
   const hasPendingAIAssessments = (scan?.pages ?? []).some((page) =>
     (page.issues ?? []).some((issue) =>
@@ -2380,19 +2391,7 @@ export default function ScanDetail() {
   const displayStatus = isUpdatingResults
     ? "updating"
     : liveStatus?.status || scan.status;
-  const totalUrls = liveStatus?.totalUrls || scan.totalUrls;
-  // Prefer counting completed pages directly from the live page list — it is
-  // always in sync with the DONE counter shown in Live Progress.  Fall back to
-  // the session-level scannedUrls counter only when page data isn't loaded yet.
-  const scannedUrls = Math.min(
-    liveStatus?.counts?.["completed"]
-      ?? (liveStatus?.pages?.length
-        ? liveStatus.pages.filter(p => p.status === "completed").length
-        : (liveStatus?.scannedUrls || scan.scannedUrls || 0)),
-    totalUrls || 0,
-  );
-  const progressPercent =
-    totalUrls > 0 ? Math.round((scannedUrls / totalUrls) * 100) : 0;
+  const totalUrls = liveStatus?.totalUrls ?? scan.totalUrls;
   const hasLoadedResults = !!scan.pages?.length;
   const showUpdatingResults =
     isUpdatingResults || (scan.status === "completed" && !hasLoadedResults);
@@ -3417,11 +3416,14 @@ export default function ScanDetail() {
           <CardContent className="space-y-4 pt-5">
             <div className="flex justify-between text-sm font-medium">
               <span>
-                {scannedUrls} of {totalUrls} URLs scanned
+                {processedUrls} of {totalUrls} URLs processed
               </span>
               <span>{progressPercent}%</span>
             </div>
             <Progress value={progressPercent} className="h-3" />
+            <p className="mt-2 text-xs text-muted-foreground">
+              Progress includes navigation, rendering, analysis, and saving. Done, failed, and unavailable URLs count as processed.
+            </p>
           </CardContent>
         </Card>
       )}
@@ -3479,7 +3481,7 @@ export default function ScanDetail() {
                   Page Results
                 </h2>
                 <span className="text-[13px] text-[#7b8aaa]">
-                  {scannedUrls.toLocaleString()}/{totalUrls.toLocaleString()} URLs scanned · {progressPercent}%
+                  {processedUrls.toLocaleString()}/{totalUrls.toLocaleString()} URLs processed · {progressPercent}%
                 </span>
               </div>
               <div className="flex items-center gap-2">

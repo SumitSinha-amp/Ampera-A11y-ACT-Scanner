@@ -174,7 +174,7 @@
   transition: color 140ms ease, background-color 140ms ease;
 }
 
-@scope (html:not(:is(.glass-dark, .glass-light, .glass-vision, .glass-vision-light))) {
+@scope (html:not(:is(.glass-dark, .glass-light, .glass-vision, .glass-vision-light, .liquid-glass))) {
 .refined-screen .sidebar-panel .sidebar-nav-item[data-sidebar-active="true"] {
   background: hsl(var(--chrome-accent, var(--primary)) / .13) !important;
   color: var(--shell-accent-ink) !important;
@@ -211,7 +211,7 @@
   font-weight: 600;
   letter-spacing: -.025em;
 }
-@scope (html:not(:is(.glass-dark, .glass-light, .glass-vision, .glass-vision-light))) {
+@scope (html:not(:is(.glass-dark, .glass-light, .glass-vision, .glass-vision-light, .liquid-glass))) {
 .refined-screen .sidebar-flyout-heading-icon,
 .refined-screen .sidebar-flyout-heading-icon svg {
   width: 18px;
@@ -235,7 +235,7 @@
   border-radius: 5px;
   font-size: 13px;
 }
-@scope (html:not(:is(.glass-dark, .glass-light, .glass-vision, .glass-vision-light))) {
+@scope (html:not(:is(.glass-dark, .glass-light, .glass-vision, .glass-vision-light, .liquid-glass))) {
 .refined-screen .sidebar-flyout-item:is(:hover, :focus-visible) {
   background: hsl(var(--chrome-accent, var(--primary)) / .1);
   color: hsl(var(--chrome-accent, var(--primary)));
@@ -268,7 +268,8 @@ html {
   --shell-control: color-mix(in srgb, var(--shell-surface) 92%, hsl(var(--foreground)));
 }
 
-.refined-screen {
+/* Only the outer app shell owns viewport sizing; pages also use refined-screen. */
+.app-shell.refined-screen {
   display: flex;
   flex-direction: column;
   width: calc(100% - 28px);
@@ -355,7 +356,7 @@ html {
   }
 }
 @media (max-width: 767px) {
-  .refined-screen {
+  .app-shell.refined-screen {
     width: 100%;
     max-width: none;
     height: auto;
@@ -386,8 +387,8 @@ html {
   }
 }
 
-@scope (html:not(:is(.glass-dark, .glass-light, .glass-vision, .glass-vision-light))) {
-.refined-screen {
+@scope (html:not(:is(.glass-dark, .glass-light, .glass-vision, .glass-vision-light, .liquid-glass))) {
+.app-shell.refined-screen {
   background: hsl(var(--card)) !important;
 }
 html:has(.refined-screen),
@@ -623,7 +624,7 @@ html:is(.glass-dark, .glass-light, .glass-vision, .glass-vision-light) .refined-
   border-radius: 0 0 17px 0;
 }
 
-html:not(:is(.glass-light, .glass-dark, .glass-vision, .glass-vision-light)) .refined-screen #main-content {
+html:not(:is(.glass-light, .glass-dark, .glass-vision, .glass-vision-light, .liquid-glass)) .refined-screen #main-content {
   background: var(--suite-canvas, hsl(var(--background)));
 }
 @media (max-width: 767px) {

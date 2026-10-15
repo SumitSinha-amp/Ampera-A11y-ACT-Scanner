@@ -378,6 +378,49 @@ const release143ProductGroups: UpdateGroup[] = [
   updateGroups[3],
 ];
 
+const release146ProductGroups: UpdateGroup[] = [
+  {
+    icon: ShieldCheck,
+    title: "Data protection and Issue Management recovery",
+    description: "Super Admins can monitor safeguards and recover Issue Management data from independent backups.",
+    category: "Reliability",
+    features: [
+      "The Data Protection dashboard brings together protection status, audit events, archived records, and independent evidence-copy status",
+      "Private R2 storage keeps protection evidence and Issue Management backups separate from the application database",
+      "Automatic and on-demand Issue Management backups can be listed directly from R2 even if the database backup index is lost",
+      "Preview and verify a backup before restoring missing issue data, with conflict checks that protect existing records",
+      "Issue recovery requires Super Admin access, a reason, and the explicit RESTORE ISSUES confirmation; recovery actions are audited",
+      "Encrypted recovery exports support integrity verification, while archive restoration remains separate from recovery after data loss",
+      "These application safeguards do not change Azure backup-retention settings",
+    ],
+  },
+  {
+    icon: MousePointerClick,
+    title: "Highlight occurrences without reloading",
+    description: "Page Report HTML replay stays loaded while you inspect findings from the same page state.",
+    category: "Reporting",
+    features: [
+      "Selecting another occurrence moves the highlight to the matching element without fetching or reloading the same replay",
+      "Hide highlight, Show highlight, and Focus update the existing replay without resetting the document",
+      "Switching to a different page or captured interaction state still loads the corresponding evidence",
+      "Replay security remains unchanged: captured scripts and remote resources stay blocked inside an isolated sandbox",
+    ],
+  },
+  {
+    icon: BarChart3,
+    title: "Scan progress that reflects each stage",
+    description: "The scan card and top progress bar now show consistent progress throughout analysis.",
+    category: "Scanning",
+    features: [
+      "Stage-weighted percentages account for work within each page instead of advancing only when a page finishes",
+      "The top progress bar and scan card use the same progress calculation",
+      "Pages that finish with errors count as processed so terminal failures do not leave progress stuck",
+      "Paused scans keep their displayed progress frozen until scanning resumes",
+      "Completed scans show the results view at 100%",
+    ],
+  },
+];
+
 const release145ProductGroups: UpdateGroup[] = [
   {
     icon: BarChart3,
@@ -450,6 +493,13 @@ export const releaseHistory: ReleaseHistoryEntry[] = [
     version: APP_UPDATES_VERSION,
     month: APP_UPDATES_MONTH,
     label: "Current release",
+    summary: "Data protection and independent Issue Management recovery, alongside smoother replay highlighting and synchronized scan progress.",
+    groups: release146ProductGroups,
+  },
+  {
+    version: "1.4.5",
+    month: "September 2026",
+    label: "Previous release",
     summary: "Dashboard and history pages now share clearer visual patterns and consistent loading feedback.",
     groups: release145ProductGroups,
   },

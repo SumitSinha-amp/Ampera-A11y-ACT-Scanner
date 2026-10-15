@@ -750,11 +750,11 @@ export default function SiteManagementPage() {
           <Link href="/crawler/manage"><ArrowLeft className="w-4 h-4 text-muted-foreground" /></Link>
         </Button>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex min-w-0 items-start gap-2 mb-1">
             <Globe className="w-5 h-5 text-primary shrink-0" />
-            <h1 className="text-2xl font-bold truncate tracking-tight">{site.name} Control Room</h1>
+            <h1 className="min-w-0 break-words text-2xl font-bold tracking-tight">{site.name} Control Room</h1>
           </div>
-          <p className="text-sm text-muted-foreground truncate font-mono bg-muted/40 px-2 py-0.5 rounded-md inline-block">
+          <p className="max-w-full text-sm text-muted-foreground truncate font-mono bg-muted/40 px-2 py-0.5 rounded-md inline-block">
             {site.baseUrl}
           </p>
         </div>
