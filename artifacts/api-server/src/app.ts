@@ -6,7 +6,7 @@ import connectPgSimple from "connect-pg-simple";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { existsSync } from "fs";
-import { pool, withAuditContext } from "@workspace/db";
+import { pool, sessionPool, withAuditContext, withAuthDatabasePriority } from "@workspace/db";
 import { randomUUID } from "node:crypto";
 import router from "./routes";
 import healthRouter from "./routes/health";
@@ -112,10 +112,16 @@ const BEHIND_HTTPS_PROXY =
 // PostgreSQL is temporarily saturated or unavailable. All other /api paths
 // still pass through the session middleware before reaching their routers.
 app.use("/api", healthRouter);
+app.use("/api", (req, _res, next) => {
+  // Keep the complete session/user/permission exchange on reserved capacity,
+  // including asynchronous Drizzle and raw-pg queries in the auth routers.
+  if (req.path.startsWith("/auth/")) withAuthDatabasePriority(next);
+  else next();
+});
 app.use("/api",
   session({
     store: new PgStore({
-      pool,
+      pool: sessionPool,
       // Explicitly match cookie maxAge so DB sessions never expire before the cookie.
       // Without this, connect-pg-simple may fall back to its 1-day default.
       ttl: SESSION_TTL_SEC,
@@ -145,9 +151,11 @@ const handleSessionStoreError: ErrorRequestHandler = (error, _req, res, next) =>
     return;
   }
   logger.warn({
-    poolTotal: pool.totalCount,
-    poolIdle: pool.idleCount,
-    poolWaiting: pool.waitingCount,
+    poolTotal: sessionPool.totalCount,
+    poolIdle: sessionPool.idleCount,
+    poolWaiting: sessionPool.waitingCount,
+    sharedPoolTotal: pool.totalCount,
+    sharedPoolWaiting: pool.waitingCount,
   }, "Session database connection unavailable");
   res.setHeader("Retry-After", "5");
   res.status(503).json({ error: "Database temporarily unavailable. Please try again." });

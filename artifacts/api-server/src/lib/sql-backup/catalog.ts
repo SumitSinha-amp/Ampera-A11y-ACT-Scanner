@@ -6,6 +6,20 @@ import { evidenceStorageConfig } from "../evidenceStorage";
 
 const exec = promisify(execFile);
 export const dumpBinary = () => process.env.PG_DUMP_PATH || "pg_dump";
+
+export function dumpUnavailableReason(error: unknown): string {
+  const failure = error as { code?: string; killed?: boolean } | null;
+  if (failure?.code === "EACCES") {
+    return "pg_dump cannot be executed by the API server. Check executable permissions and PG_DUMP_PATH.";
+  }
+  if (failure?.killed || failure?.code === "ETIMEDOUT") {
+    return "pg_dump --version timed out. Check the PostgreSQL client installation and PG_DUMP_PATH.";
+  }
+  if (failure?.code === "ENOENT") {
+    return "pg_dump was not found. Install the PostgreSQL client in the API server image, rebuild and redeploy. If PG_DUMP_PATH is configured, it must point to an executable inside that server, not a local computer path.";
+  }
+  return "pg_dump --version failed. Verify the PostgreSQL client installation, executable permissions, and PG_DUMP_PATH.";
+}
 export const quoteIdentifier = (value: string) => `"${value.replaceAll('"', '""')}"`;
 
 export function resolveTables(tables: SqlBackupTable[], input: SqlBackupInput) {
@@ -56,8 +70,8 @@ export async function getSqlBackupCatalog(): Promise<SqlBackupCatalog> {
     if (!major || major < Math.floor(identity.version_num / 10000)) {
       unavailableReason = "Install a pg_dump client matching or newer than the PostgreSQL server (PG_DUMP_PATH can select it).";
     }
-  } catch {
-    unavailableReason = "pg_dump is not installed. Install the PostgreSQL client on the API server.";
+  } catch (error) {
+    unavailableReason = dumpUnavailableReason(error);
   }
   try { evidenceStorageConfig(); }
   catch { unavailableReason ||= "Private independent R2 storage must be configured before exporting SQL."; }

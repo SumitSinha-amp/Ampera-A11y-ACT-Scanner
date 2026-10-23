@@ -32,6 +32,7 @@ RUN apt-get update -y && \
     libxtst6 \
     fonts-liberation \
     ca-certificates \
+    postgresql-client \
     wget \
     gnupg \
     unzip \

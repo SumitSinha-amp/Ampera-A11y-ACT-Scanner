@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pool } from "@workspace/db";
 import type { SqlBackupInput, SqlBackupTable } from "@workspace/api-zod";
-import { getSqlBackupCatalog, quoteIdentifier, resolveTables } from "./catalog";
+import { dumpUnavailableReason, getSqlBackupCatalog, quoteIdentifier, resolveTables } from "./catalog";
 import { dumpSections, dumpSqlSection, nativePgEnvironment, restoreInstructions } from "./dump";
 
 // This suite never connects to the application's database.
@@ -19,6 +19,18 @@ const input = (tableIds: string[], includeDependencies = true): SqlBackupInput =
   ({ scope: "selected", content: "data-only", tableIds, includeDependencies, confirmation: "EXPORT DATABASE" });
 
 describe("SQL backup selection and safety", () => {
+  it.each([
+    [{ code: "ENOENT" }, "Install the PostgreSQL client"],
+    [{ code: "EACCES" }, "executable permissions"],
+    [{ code: "ETIMEDOUT" }, "timed out"],
+    [{ killed: true }, "timed out"],
+    [new Error("private connection details"), "pg_dump --version failed"],
+  ])("explains the pg_dump failure without exposing raw errors", (error, expected) => {
+    const reason = dumpUnavailableReason(error);
+    expect(reason).toContain(expected);
+    expect(reason).not.toContain("private connection details");
+    expect(reason).toContain("PG_DUMP_PATH");
+  });
   it("includes transitive foreign-key and partition dependencies, including cycles", () => {
     expect(resolveTables([table("child", ["parent"]), table("parent", ["child", "root"]), table("root")],
       input(["child"]))).toEqual({ tableIds: ["child", "parent", "root"], addedDependencies: ["parent", "root"] });

@@ -2,7 +2,9 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "./schema";
 import { instrumentAuditPool } from "./audit-context";
+import { databasePoolBudget, routeAuthCheckouts } from "./connection-priority";
 export { withAuditContext } from "./audit-context";
+export { withAuthDatabasePriority } from "./connection-priority";
 export type { PoolClient as DatabasePoolClient } from "pg";
 
 const { Pool } = pg;
@@ -13,22 +15,36 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-const configuredPoolMax = Number.parseInt(process.env.DB_POOL_MAX ?? "", 10);
-const poolMax = Number.isFinite(configuredPoolMax)
-  ? Math.min(50, Math.max(5, configuredPoolMax))
-  : process.env.WEBSITE_SITE_NAME
-    ? 20
-    : 10;
+const budget = databasePoolBudget(process.env.DB_POOL_MAX, Boolean(process.env.WEBSITE_SITE_NAME));
+
+// Session persistence and auth queries must not queue behind scans/backups.
+// Server-side timeouts also release locks instead of leaving abandoned work.
+export const sessionPool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: budget.auth,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 2_000,
+  statement_timeout: 4_000,
+  lock_timeout: 1_500,
+  query_timeout: 6_000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 60_000,
+});
+instrumentAuditPool(sessionPool);
+sessionPool.on("error", (err) => {
+  console.error("[session-db-pool] idle client error — connection will be discarded:", err.message);
+});
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: poolMax,
+  max: budget.shared,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 15_000,
   keepAlive: true,
   keepAliveInitialDelayMillis: 60_000,
 });
 instrumentAuditPool(pool);
+routeAuthCheckouts(pool, sessionPool);
 
 pool.on("error", (err) => {
   console.error(
