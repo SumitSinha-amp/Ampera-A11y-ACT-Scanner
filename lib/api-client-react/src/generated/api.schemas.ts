@@ -5,6 +5,100 @@
  * Accessibility Scanner API
  * OpenAPI spec version: 0.1.0
  */
+export type SqlBackupInputScope =
+  (typeof SqlBackupInputScope)[keyof typeof SqlBackupInputScope];
+
+export const SqlBackupInputScope = {
+  all: "all",
+  selected: "selected",
+} as const;
+
+export type SqlBackupInputContent =
+  (typeof SqlBackupInputContent)[keyof typeof SqlBackupInputContent];
+
+export const SqlBackupInputContent = {
+  "schema-and-data": "schema-and-data",
+  "data-only": "data-only",
+} as const;
+
+export type SqlBackupInputConfirmation =
+  (typeof SqlBackupInputConfirmation)[keyof typeof SqlBackupInputConfirmation];
+
+export const SqlBackupInputConfirmation = {
+  EXPORT_DATABASE: "EXPORT DATABASE",
+} as const;
+
+export interface SqlBackupInput {
+  scope: SqlBackupInputScope;
+  content: SqlBackupInputContent;
+  /** @maxItems 2000 */
+  tableIds: string[];
+  includeDependencies: boolean;
+  confirmation: SqlBackupInputConfirmation;
+}
+
+export interface SqlBackupTable {
+  id: string;
+  schema: string;
+  name: string;
+  estimatedRows: number;
+  sizeBytes: number;
+  dependencies: string[];
+}
+
+export interface SqlBackupCatalog {
+  database: string;
+  serverVersion: string;
+  environment: string;
+  available: boolean;
+  unavailableReason: string;
+  dumpVersion: string;
+  tables: SqlBackupTable[];
+}
+
+export type SqlBackupJobStatus =
+  (typeof SqlBackupJobStatus)[keyof typeof SqlBackupJobStatus];
+
+export const SqlBackupJobStatus = {
+  running: "running",
+  ready: "ready",
+  failed: "failed",
+} as const;
+
+export type SqlBackupJobScope =
+  (typeof SqlBackupJobScope)[keyof typeof SqlBackupJobScope];
+
+export const SqlBackupJobScope = {
+  all: "all",
+  selected: "selected",
+} as const;
+
+export type SqlBackupJobContent =
+  (typeof SqlBackupJobContent)[keyof typeof SqlBackupJobContent];
+
+export const SqlBackupJobContent = {
+  "schema-and-data": "schema-and-data",
+  "data-only": "data-only",
+} as const;
+
+export interface SqlBackupJob {
+  id: string;
+  status: SqlBackupJobStatus;
+  stage: string;
+  createdAt: string;
+  expiresAt: string;
+  scope: SqlBackupJobScope;
+  content: SqlBackupJobContent;
+  tableIds: string[];
+  addedDependencies: string[];
+  database: string;
+  serverVersion: string;
+  filename: string;
+  sizeBytes: number;
+  sha256: string;
+  error: string;
+}
+
 export type IssueRecoveryRestorationConfirmation =
   (typeof IssueRecoveryRestorationConfirmation)[keyof typeof IssueRecoveryRestorationConfirmation];
 

@@ -12,6 +12,7 @@ import {
   getGetScanQueryKey,
 } from "@workspace/api-client-react";
 import { ACT_RULES } from "@/lib/actRules";
+import { CustomRuleBadge } from "@/components/custom-rule-badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -233,7 +234,7 @@ const ALL_RULES: { id: string; label: string }[] = [
   },
   { id: "ACT-R57", label: "Non-text contrast insufficient (WCAG 1.4.11)" },
   { id: "ACT-R59", label: "Documents have headings (WCAG 2.4.6)" },
-  { id: "ACT-R60", label: "Groups have an accessible name (WCAG 1.3.1)" },
+  { id: "ACT-R60", label: "Groups have an accessible name (Best Practice)" },
   {
     id: "ACT-R61",
     label: "Documents start with a level 1 heading (WCAG 2.4.6)",
@@ -410,6 +411,10 @@ const ALL_RULES: { id: string; label: string }[] = [
     label:
       "Abbreviations and acronyms need full expansion (WCAG 3.1.4)",
   },
+  {
+    id: "ACT-R129",
+    label: "Text-spacing layout breakage (WCAG 1.4.12)",
+  },
 ];
 
 function RuleFilterSelector({
@@ -524,6 +529,7 @@ function RuleFilterSelector({
                 className="inline-flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-full bg-primary/10 border border-primary/20 text-[11px] font-mono font-bold text-primary"
               >
                 {id}
+                <CustomRuleBadge ruleId={id} />
                 <button
                   type="button"
                   onClick={(e) => {
@@ -613,6 +619,7 @@ function RuleFilterSelector({
                     <span className="text-xs text-muted-foreground flex-1 truncate">
                       {highlight(rule.label)}
                     </span>
+                    <CustomRuleBadge ruleId={rule.id} />
                     {hi === i && (
                       <kbd className="text-[10px] text-muted-foreground bg-muted border border-border rounded px-1.5 py-0.5">
                         ↵

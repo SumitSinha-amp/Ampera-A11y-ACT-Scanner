@@ -2,6 +2,8 @@ import type { ScanRawResult, PushStatFn } from "../types";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
 import { isActuallyTabbable, isVisible } from "../visibility";
 import { runControlGroupNameRule } from "./control-group-names";
+import { runCustomKeyboardRule } from "./custom-keyboard";
+import { runErrorIdentificationReviews } from "./error-identification";
 
 export function runTablesFormsRules(results: ScanRawResult[], pushStat: PushStatFn): void {
   // ACT-R45: headers attribute refers to valid cells in the same table.
@@ -156,17 +158,7 @@ export function runTablesFormsRules(results: ScanRawResult[], pushStat: PushStat
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R107: Custom interactive element not keyboard accessible (WCAG 2.1.1)
   // ════════════════════════════════════════════════════════════════════════
-  document.querySelectorAll("[onclick], [ondblclick]").forEach((el) => {
-    if (!isVisible(el)) return;
-    const tag = el.tagName.toLowerCase();
-    if (["a","button","input","select","textarea","summary","details","label","option"].includes(tag)) return;
-    const tabindex = el.getAttribute("tabindex");
-    const isKbAccessible = tabindex !== null && tabindex !== "-1";
-    const hasKeyboardHandler = el.getAttribute("onkeydown") || el.getAttribute("onkeyup") || el.getAttribute("onkeypress");
-    if (!isKbAccessible || !hasKeyboardHandler) {
-      results.push({ ruleId: "ACT-R107", type: "Issue", impact: "serious", description: `<${tag}> has onclick but is ${!isKbAccessible ? "not keyboard focusable (missing tabindex)" : "missing keyboard event handler (onkeydown)"}`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-    }
-  });
+  runCustomKeyboardRule(results, pushStat);
 
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R82: Form error message does not describe the invalid value (WCAG 3.3.1)
@@ -205,6 +197,10 @@ export function runTablesFormsRules(results: ScanRawResult[], pushStat: PushStat
     });
   }
 
+  // Keep the existing automatic R82 detector above intact. Broader Alfa
+  // questions and inferred generic errors are separate Potential Issues.
+  runErrorIdentificationReviews(results, pushStat);
+
   // ── Scoring stats: total elements checked per rule ────────────────────────
   const tableEls = document.querySelectorAll("table").length;
   if (tableEls > 0) {
@@ -212,12 +208,8 @@ export function runTablesFormsRules(results: ScanRawResult[], pushStat: PushStat
     pushStat("ACT-R46", tableEls, "element");
     pushStat("ACT-R76", tableEls, "element");
   }
-  const invalidInputEls = document.querySelectorAll("input[aria-invalid='true'],textarea[aria-invalid='true'],select[aria-invalid='true']").length;
-  if (invalidInputEls > 0) pushStat("ACT-R82", invalidInputEls, "element");
   const scrollableEls = document.querySelectorAll("[style*='overflow'],[class*='scroll'],[class*='overflow']").length;
   if (scrollableEls > 0) pushStat("ACT-R84", scrollableEls, "element");
-  const clickEls = document.querySelectorAll("[onclick],[ondblclick]").length;
-  if (clickEls > 0) pushStat("ACT-R107", clickEls, "element");
 
   // ════════════════════════════════════════════════════════════════════════
 }

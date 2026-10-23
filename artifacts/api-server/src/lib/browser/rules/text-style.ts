@@ -290,25 +290,20 @@ export function runTextStyleRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RUL
     }
   }
 
-  // ACT-R80: Line height is fixed (absolute units) (WCAG 1.4.8 AAA)
+  // ACT-R80: Automatically confirmed non-scaling line height.
+  // This is a Best Practice finding, not proof of lost content under WCAG.
   {
-    const getInheritedLH = (el: HTMLElement): number => {
-      const savedVal = el.style.getPropertyValue("line-height");
-      const savedPri = el.style.getPropertyPriority("line-height");
-      el.style.setProperty("line-height", "inherit", "important");
-      const lhStr = window.getComputedStyle(el).lineHeight;
-      el.style.removeProperty("line-height");
-      if (savedVal) el.style.setProperty("line-height", savedVal, savedPri);
-      return lhStr === "normal" ? -1 : parseFloat(lhStr);
-    };
-    const doubleFSGetLH = (el: HTMLElement, fs: number): number => {
-      const savedVal = el.style.getPropertyValue("font-size");
-      const savedPri = el.style.getPropertyPriority("font-size");
-      el.style.setProperty("font-size", fs * 2 + "px", "important");
-      const lh = parseFloat(window.getComputedStyle(el).lineHeight);
-      el.style.removeProperty("font-size");
-      if (savedVal) el.style.setProperty("font-size", savedVal, savedPri);
-      return lh;
+    const measureLineHeight = (el: HTMLElement, property: string, value: string): number => {
+      const authoredStyle = el.getAttribute("style");
+      try {
+        el.style.setProperty(property, value, "important");
+        return parseFloat(window.getComputedStyle(el).lineHeight);
+      } finally {
+        // Flush lazy CSSOM serialization before restoring absent/empty attributes.
+        el.getAttribute("style");
+        if (authoredStyle === null) el.removeAttribute("style");
+        else el.setAttribute("style", authoredStyle);
+      }
     };
     const r80Seen = new Set<string>();
     for (const el of Array.from(document.querySelectorAll("p,[role='paragraph']")).slice(0, 600)) {
@@ -321,14 +316,14 @@ export function runTextStyleRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RUL
       const origFS = parseFloat(style.fontSize);
       const origLH = parseFloat(lhRaw);
       if (isNaN(origLH) || isNaN(origFS) || origFS === 0) continue;
-      const inheritedLH = getInheritedLH(el);
+      const inheritedLH = measureLineHeight(el, "line-height", "inherit");
       if (inheritedLH > 0 && Math.abs(origLH - inheritedLH) <= 0.2) continue;
-      const newLH = doubleFSGetLH(el, origFS);
-      if (newLH / origLH >= 1.45) continue;
+      const newLH = measureLineHeight(el, "font-size", `${origFS * 2}px`);
+      if (!Number.isFinite(newLH) || origLH <= 0 || newLH / origLH >= 1.45) continue;
       const sel = getSelector(el);
       if (r80Seen.has(sel)) continue;
       r80Seen.add(sel);
-      if (EMIT_MANUAL_ONLY_RULES) results.push({ ruleId: "ACT-R80", type: "Best Practice", impact: "moderate", description: `Line height is fixed (${Math.round(origLH)}px absolute unit) — use unitless multiplier (e.g. 1.5)`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: sel });
+      results.push({ ruleId: "ACT-R80", type: "Best Practice", impact: "moderate", description: `Line height does not scale with text size: increasing the font from ${origFS.toFixed(1)}px to ${(origFS * 2).toFixed(1)}px changes line height from ${origLH.toFixed(1)}px to ${newLH.toFixed(1)}px. Use a unitless line-height such as 1.5. Review any overlap or loss of content separately before confirming a WCAG failure.`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: sel });
     }
   }
 

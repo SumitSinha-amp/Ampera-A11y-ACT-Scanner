@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useParams, Link, useSearch } from "wouter";
 import { ACT_RULES, getRuleTitle } from "@/lib/actRules";
+import { CustomRuleBadge } from "@/components/custom-rule-badge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -530,11 +531,7 @@ export default function SiteRulePageReport() {
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-2">
                   <Badge variant="outline" className="text-[10px] font-mono">{selectedIssue.ruleId}</Badge>
-                  {selectedIssue.ruleId.startsWith("ACT-") && (
-                    <Badge variant="outline" className="text-[10px] font-mono text-muted-foreground">
-                      Equivalent: {selectedIssue.ruleId.replace(/^ACT-/, "SIA-")}
-                    </Badge>
-                  )}
+                  <CustomRuleBadge ruleId={selectedIssue.ruleId} />
                   {DEPRECATED_RULES.has(selectedIssue.ruleId) && (
                     <Badge variant="outline" className="text-[10px] border-amber-500 text-amber-600 bg-amber-50">
                       Deprecated

@@ -8,10 +8,77 @@ import { createRecoveryExport, verifyRecoveryExport } from "../lib/recoveryExpor
 import { readEvidence, sha256 } from "../lib/evidenceStorage";
 import { backupIdPattern, listIssueBackups, requestIssueBackup } from "../lib/issueRecoverySnapshot";
 import { IssueRecoveryError, previewIssueRecovery, restoreIssueBackup } from "../lib/issueRecoveryRestore";
+import { CreateSqlBackupBody } from "@workspace/api-zod";
+import { pipeline } from "node:stream/promises";
+import { getSqlBackupCatalog } from "../lib/sql-backup/catalog";
+import { sqlBackupIdPattern, openSqlDownload, checkSqlDownload } from "../lib/sql-backup/storage";
+import { downloadableSqlJob, listSqlJobs, SqlBackupError, startSqlBackup } from "../lib/sql-backup/service";
 
 const router = Router();
 router.use("/admin/data-protection", requireSuperAdmin);
 const root = "/admin/data-protection";
+router.use(`${root}/sql-backups`, (_req, res, next) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  next();
+});
+router.get(`${root}/sql-backups/catalog`, async (_req, res) => {
+  try { res.json(await getSqlBackupCatalog()); }
+  catch { res.status(503).json({ error: "The database table catalogue could not be read." }); }
+});
+router.get(`${root}/sql-backups`, async (_req, res) => {
+  try { res.json(await listSqlJobs()); }
+  catch { res.status(503).json({ error: "SQL backup storage could not be read. Check independent R2 configuration and access." }); }
+});
+router.post(`${root}/sql-backups`, async (req, res) => {
+  const parsed = CreateSqlBackupBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Choose a backup scope and content, select tables if needed, and type EXPORT DATABASE." });
+    return;
+  }
+  try { res.status(202).json(await startSqlBackup(parsed.data, String(req.session!.user!.id))); }
+  catch (error) {
+    res.status(error instanceof SqlBackupError ? error.status : 400).json({
+      error: error instanceof SqlBackupError ? error.message :
+        "SQL backup could not start. Refresh the table list and check database and private storage access.",
+    });
+  }
+});
+router.head(`${root}/sql-backups/:id/download`, async (req, res) => {
+  const id = String(req.params.id);
+  if (!sqlBackupIdPattern.test(id)) { res.status(400).end(); return; }
+  try {
+    const job = await downloadableSqlJob(id);
+    await checkSqlDownload(job);
+    res.setHeader("Content-Length", String(job.sizeBytes));
+    res.setHeader("X-Backup-SHA256", job.sha256);
+    res.status(200).end();
+  } catch (error) { res.status(error instanceof SqlBackupError ? error.status : 503).end(); }
+});
+router.get(`${root}/sql-backups/:id/download`, async (req, res) => {
+  const id = String(req.params.id);
+  if (!sqlBackupIdPattern.test(id)) { res.status(400).json({ error: "Invalid SQL backup ID." }); return; }
+  let download: Awaited<ReturnType<typeof openSqlDownload>> | undefined;
+  try {
+    const job = await downloadableSqlJob(id);
+    await recordAdministrativeAudit("sql_backup_download_requested", String(req.session!.user!.id), { id: job.id });
+    download = await openSqlDownload(job);
+    res.setHeader("Content-Type", "application/sql");
+    const filename = /^ampera-[a-zA-Z0-9_.-]+\.sql$/.test(job.filename) ? job.filename : `ampera-${id}.sql`;
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Content-Length", String(job.sizeBytes));
+    res.setHeader("X-Backup-SHA256", job.sha256);
+    res.setHeader("Content-Security-Policy", "sandbox; default-src 'none'");
+    await pipeline(download.stream, res);
+    await recordAdministrativeAudit("sql_backup_download_completed", String(req.session!.user!.id), { id: job.id });
+  } catch (error) {
+    if (!res.headersSent) {
+      res.status(error instanceof SqlBackupError ? error.status : 503).json({
+        error: error instanceof SqlBackupError ? error.message : "SQL backup download failed or was not found. Retry or create a fresh backup.",
+      });
+    } else if (!res.writableEnded) res.destroy();
+  } finally { download?.close(); }
+});
 const entitySchema = z.enum(["projects", "sites", "users", "app_issues"]);
 const restorationSchema = z.object({ entity: entitySchema, id: z.number().int().positive(),
   reason: z.string().trim().min(5).max(500) });

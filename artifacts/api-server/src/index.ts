@@ -1,37 +1,38 @@
-  import app, { waitForActiveRequests } from "./app";
-  import { logger } from "./lib/logger";
-  import { pool, db, scanSessionsTable, pageResultsTable, usersTable } from "@workspace/db";
-  import { inArray, eq, and, lt } from "drizzle-orm";
-  import { startScan, startScanWatchdog, stopScanWork, waitForScanWork, isScanWorkStopping } from "./lib/scanQueue";
-  import { resumeOrphanedCrawlerSessions, runScheduledCrawls, runDueCrawlerSessions, stopCrawlerWork, waitForCrawlerWork, isCrawlerWorkStopping } from "./lib/crawler";
-  import { recoverAIAssessments } from "./lib/ai-assessment";
-  import { closeBrowser } from "./lib/scanner";
-  import { startStorageMonitor, stopStorageMonitor } from "./lib/databaseStorageMonitor";
-  import { DATA_PROTECTION_SQL } from "./lib/dataProtectionSql";
-  import { startDataProtection, stopDataProtection } from "./lib/dataProtection";
-  import { startIssueRecovery, stopIssueRecovery } from "./lib/issueRecoverySnapshot";
-  import bcrypt from "bcryptjs";
-  import { execFileSync, execSync } from "child_process";
-  import { existsSync, readdirSync } from "fs";
-  import path from "path";
-  import type { Server } from "http";
-  
-  async function runStartupMigrations(): Promise<void> {
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-  
-      // 1. Create the projects table if it does not exist yet.
-      await client.query(`
+import app, { waitForActiveRequests } from "./app";
+import { logger } from "./lib/logger";
+import { pool, db, scanSessionsTable, pageResultsTable, usersTable } from "@workspace/db";
+import { inArray, eq, and, lt } from "drizzle-orm";
+import { startScan, startScanWatchdog, stopScanWork, waitForScanWork, isScanWorkStopping } from "./lib/scanQueue";
+import { resumeOrphanedCrawlerSessions, runScheduledCrawls, runDueCrawlerSessions, stopCrawlerWork, waitForCrawlerWork, isCrawlerWorkStopping } from "./lib/crawler";
+import { recoverAIAssessments } from "./lib/ai-assessment";
+import { closeBrowser } from "./lib/scanner";
+import { startStorageMonitor, stopStorageMonitor } from "./lib/databaseStorageMonitor";
+import { DATA_PROTECTION_SQL } from "./lib/dataProtectionSql";
+import { startDataProtection, stopDataProtection } from "./lib/dataProtection";
+import { startIssueRecovery, stopIssueRecovery } from "./lib/issueRecoverySnapshot";
+import { drainSqlBackups } from "./lib/sql-backup/service";
+import bcrypt from "bcryptjs";
+import { execFileSync, execSync } from "child_process";
+import { existsSync, readdirSync } from "fs";
+import path from "path";
+import type { Server } from "http";
+
+async function runStartupMigrations(): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // 1. Create the projects table if it does not exist yet.
+    await client.query(`
         CREATE TABLE IF NOT EXISTS projects (
           id         SERIAL PRIMARY KEY,
           name       TEXT   NOT NULL,
           created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-  
-      // 2. Add project_id FK column to scan_sessions if it does not exist yet.
-      await client.query(`
+
+    // 2. Add project_id FK column to scan_sessions if it does not exist yet.
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -45,9 +46,9 @@
         END
         $$
       `);
-  
-      // 3. Add initiator metadata columns to scan_sessions if they do not exist yet.
-      await client.query(`
+
+    // 3. Add initiator metadata columns to scan_sessions if they do not exist yet.
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -70,9 +71,9 @@
         END
         $$
       `);
-  
-      // 4. Create session table for connect-pg-simple
-      await client.query(`
+
+    // 4. Create session table for connect-pg-simple
+    await client.query(`
         CREATE TABLE IF NOT EXISTS "session" (
           "sid"    VARCHAR NOT NULL COLLATE "default",
           "sess"   JSON    NOT NULL,
@@ -80,12 +81,12 @@
           CONSTRAINT "session_pkey" PRIMARY KEY ("sid") NOT DEFERRABLE INITIALLY IMMEDIATE
         ) WITH (OIDS=FALSE)
       `);
-      await client.query(`
+    await client.query(`
         CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire")
       `);
-  
-      // 5. Create users table
-      await client.query(`
+
+    // 5. Create users table
+    await client.query(`
         CREATE TABLE IF NOT EXISTS users (
           id                      SERIAL PRIMARY KEY,
           email                   TEXT    NOT NULL UNIQUE,
@@ -103,7 +104,7 @@
           updated_at              TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-      await client.query(`
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -121,9 +122,9 @@
         END
         $$
       `);
-  
-      // 6. Create user_groups table
-      await client.query(`
+
+    // 6. Create user_groups table
+    await client.query(`
         CREATE TABLE IF NOT EXISTS user_groups (
           id          SERIAL PRIMARY KEY,
           name        TEXT NOT NULL UNIQUE,
@@ -131,10 +132,10 @@
           created_at  TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-  
-      // Additive group permissions. Group grants are independent from direct
-      // user permissions and from site membership/access assignments.
-      await client.query(`
+
+    // Additive group permissions. Group grants are independent from direct
+    // user permissions and from site membership/access assignments.
+    await client.query(`
         ALTER TABLE user_groups
           ADD COLUMN IF NOT EXISTS can_scan BOOLEAN NOT NULL DEFAULT FALSE,
           ADD COLUMN IF NOT EXISTS can_export BOOLEAN NOT NULL DEFAULT FALSE,
@@ -159,18 +160,18 @@
           ADD COLUMN IF NOT EXISTS can_comment_issue BOOLEAN NOT NULL DEFAULT FALSE,
           ADD COLUMN IF NOT EXISTS can_manage_issues BOOLEAN NOT NULL DEFAULT FALSE
       `);
-  
-      // 7. Create user_group_members table
-      await client.query(`
+
+    // 7. Create user_group_members table
+    await client.query(`
         CREATE TABLE IF NOT EXISTS user_group_members (
           user_id  INTEGER NOT NULL REFERENCES users(id)        ON DELETE CASCADE,
           group_id INTEGER NOT NULL REFERENCES user_groups(id)  ON DELETE CASCADE,
           PRIMARY KEY (user_id, group_id)
         )
       `);
-  
-      // 8. Create support_tickets table
-      await client.query(`
+
+    // 8. Create support_tickets table
+    await client.query(`
         CREATE TABLE IF NOT EXISTS support_tickets (
           id          SERIAL PRIMARY KEY,
           user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -182,9 +183,9 @@
           updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-  
-      // 9. Create ticket_replies table
-      await client.query(`
+
+    // 9. Create ticket_replies table
+    await client.query(`
         CREATE TABLE IF NOT EXISTS ticket_replies (
           id         SERIAL PRIMARY KEY,
           ticket_id  INTEGER NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
@@ -194,9 +195,9 @@
           created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-  
-      // 9b. In-app issue tracking
-      await client.query(`
+
+    // 9b. In-app issue tracking
+    await client.query(`
         CREATE TABLE IF NOT EXISTS app_issues (
           id SERIAL PRIMARY KEY,
           issue_key TEXT NOT NULL UNIQUE,
@@ -280,11 +281,11 @@
         CREATE INDEX IF NOT EXISTS app_issue_attachments_issue_idx ON app_issue_attachments(issue_id);
         CREATE INDEX IF NOT EXISTS app_issue_attachments_comment_idx ON app_issue_attachments(comment_id);
       `);
-      await client.query(`ALTER TABLE app_issue_attachments ADD COLUMN IF NOT EXISTS pending BOOLEAN NOT NULL DEFAULT FALSE`);
-      await client.query(`ALTER TABLE app_issue_attachments ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP`);
-      await client.query(`CREATE INDEX IF NOT EXISTS app_issue_attachments_pending_idx ON app_issue_attachments(pending, expires_at)`);
-      await client.query(`DELETE FROM app_issue_attachments WHERE pending = TRUE AND expires_at < NOW()`);
-      await client.query(`
+    await client.query(`ALTER TABLE app_issue_attachments ADD COLUMN IF NOT EXISTS pending BOOLEAN NOT NULL DEFAULT FALSE`);
+    await client.query(`ALTER TABLE app_issue_attachments ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP`);
+    await client.query(`CREATE INDEX IF NOT EXISTS app_issue_attachments_pending_idx ON app_issue_attachments(pending, expires_at)`);
+    await client.query(`DELETE FROM app_issue_attachments WHERE pending = TRUE AND expires_at < NOW()`);
+    await client.query(`
         ALTER TABLE app_issues
           ADD COLUMN IF NOT EXISTS epic_id INTEGER REFERENCES app_issues(id) ON DELETE SET NULL;
         CREATE INDEX IF NOT EXISTS app_issues_epic_idx ON app_issues(epic_id);
@@ -378,10 +379,10 @@
         WHERE issue.id <> legacy.target_id
         ON CONFLICT (source_issue_id, target_issue_id, link_type) DO NOTHING;
       `);
-      // Replace the legacy shared issue workflow with the type-specific lifecycle.
-      // Completed task/story records and closed bug records remain terminal; legacy
-      // cancellations become terminal, preserving their existing archive flag.
-      await client.query(`
+    // Replace the legacy shared issue workflow with the type-specific lifecycle.
+    // Completed task/story records and closed bug records remain terminal; legacy
+    // cancellations become terminal, preserving their existing archive flag.
+    await client.query(`
         ALTER TABLE app_issues ALTER COLUMN status SET DEFAULT 'todo';
          ALTER TABLE app_issues ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '{}';
          ALTER TABLE app_issue_comments ADD COLUMN IF NOT EXISTS mentions JSONB NOT NULL DEFAULT '[]';
@@ -396,9 +397,9 @@
         SET status = CASE WHEN type = 'bug' THEN 'closed' ELSE 'complete' END
         WHERE status = 'cancelled';
       `);
-  
-      // 10. Add group_id to scan_sessions
-      await client.query(`
+
+    // 10. Add group_id to scan_sessions
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -412,9 +413,9 @@
         END
         $$
       `);
-  
-      // 11. Create user_permissions table
-      await client.query(`
+
+    // 11. Create user_permissions table
+    await client.query(`
         CREATE TABLE IF NOT EXISTS user_permissions (
           user_id             INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
           can_scan            BOOLEAN NOT NULL DEFAULT TRUE,
@@ -425,7 +426,7 @@
           updated_by          INTEGER REFERENCES users(id) ON DELETE SET NULL
         )
       `);
-      await client.query(`
+    await client.query(`
         ALTER TABLE user_permissions
           ADD COLUMN IF NOT EXISTS can_view_issues BOOLEAN NOT NULL DEFAULT TRUE,
           ADD COLUMN IF NOT EXISTS can_create_issue BOOLEAN NOT NULL DEFAULT TRUE,
@@ -433,9 +434,9 @@
           ADD COLUMN IF NOT EXISTS can_comment_issue BOOLEAN NOT NULL DEFAULT TRUE,
           ADD COLUMN IF NOT EXISTS can_manage_issues BOOLEAN NOT NULL DEFAULT TRUE
       `);
-  
-      // 12. Add role_label to user_groups
-      await client.query(`
+
+    // 12. Add role_label to user_groups
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -447,9 +448,9 @@
         END
         $$
       `);
-  
-      // 13. Add new permission columns to user_permissions
-      await client.query(`
+
+    // 13. Add new permission columns to user_permissions
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_permissions' AND column_name = 'can_edit_scan') THEN
@@ -470,11 +471,11 @@
         END
         $$
       `);
-  
-      // 13b. Add crawler and site dashboard permissions.
-      // These are explicit so existing production user_permissions rows receive
-      // the same defaults as newly created rows.
-      await client.query(`
+
+    // 13b. Add crawler and site dashboard permissions.
+    // These are explicit so existing production user_permissions rows receive
+    // the same defaults as newly created rows.
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_permissions' AND column_name = 'can_create_crawl') THEN
@@ -498,9 +499,9 @@
         END
         $$
       `);
-  
-      // 13c. Per-site accessibility target score and permission.
-      await client.query(`
+
+    // 13c. Per-site accessibility target score and permission.
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sites' AND column_name = 'target_score') THEN
@@ -515,27 +516,27 @@
         END
         $$
       `);
-  
-      // 13d. HTML replay is opt-in because captured page source can contain
-      // sensitive content. Super Admin receives it through FULL_ACCESS; all
-      // other roles, including Admin, require an explicit user/group grant.
-      await client.query(`
+
+    // 13d. HTML replay is opt-in because captured page source can contain
+    // sensitive content. Super Admin receives it through FULL_ACCESS; all
+    // other roles, including Admin, require an explicit user/group grant.
+    await client.query(`
         ALTER TABLE user_permissions
           ADD COLUMN IF NOT EXISTS can_view_html_replay BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE user_groups
           ADD COLUMN IF NOT EXISTS can_view_html_replay BOOLEAN NOT NULL DEFAULT FALSE;
       `);
-  
-      // 14. Assign orphaned scans (NULL user_id) to superadmin
-      await client.query(`
+
+    // 14. Assign orphaned scans (NULL user_id) to superadmin
+    await client.query(`
         UPDATE scan_sessions
         SET user_id = (SELECT id::text FROM users WHERE role = 'super_admin' ORDER BY id LIMIT 1)
         WHERE user_id IS NULL
           AND EXISTS (SELECT 1 FROM users WHERE role = 'super_admin')
       `);
-  
-      // 15. Create app_settings table (key-value store for SMTP, logo, etc.)
-      await client.query(`
+
+    // 15. Create app_settings table (key-value store for SMTP, logo, etc.)
+    await client.query(`
         CREATE TABLE IF NOT EXISTS app_settings (
           key        TEXT    PRIMARY KEY,
           value      TEXT,
@@ -543,9 +544,9 @@
           updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
         )
       `);
-  
-      // 16. Create scan_domain_profiles table for adaptive scan domain memory
-      await client.query(`
+
+    // 16. Create scan_domain_profiles table for adaptive scan domain memory
+    await client.query(`
         CREATE TABLE IF NOT EXISTS scan_domain_profiles (
           id                  SERIAL      PRIMARY KEY,
           domain              TEXT        NOT NULL UNIQUE,
@@ -561,9 +562,9 @@
           updated_at          TIMESTAMP   NOT NULL DEFAULT NOW()
         )
       `);
-  
-      // 17. Add page_results columns added after initial deploy
-      await client.query(`
+
+    // 17. Add page_results columns added after initial deploy
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'page_results' AND column_name = 'load_duration_ms') THEN
@@ -612,9 +613,9 @@
         END
         $$
       `);
-  
-      // 18. Add scan_sessions.options if missing (JSONB column for scan config)
-      await client.query(`
+
+    // 18. Add scan_sessions.options if missing (JSONB column for scan config)
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'scan_sessions' AND column_name = 'options') THEN
@@ -623,11 +624,11 @@
         END
         $$
       `);
-  
-      // 19. Add accessibility_issues columns added after initial deploy.
-      // If any of these are missing the INSERT in scanQueue.ts throws and the page
-      // ends up with issue_count > 0 but zero rows in accessibility_issues.
-      await client.query(`
+
+    // 19. Add accessibility_issues columns added after initial deploy.
+    // If any of these are missing the INSERT in scanQueue.ts throws and the page
+    // ends up with issue_count > 0 but zero rows in accessibility_issues.
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'accessibility_issues' AND column_name = 'legal_text') THEN
@@ -663,9 +664,9 @@
         END
         $$
       `);
-  
-      // 20. Add can_disable_js to user_permissions (JS-disabled scan permission)
-      await client.query(`
+
+    // 20. Add can_disable_js to user_permissions (JS-disabled scan permission)
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_permissions' AND column_name = 'can_disable_js') THEN
@@ -674,9 +675,9 @@
         END
         $$
       `);
-  
-      // 20b. Add can_smart_analysis to user_permissions (Smart Analysis feature access)
-      await client.query(`
+
+    // 20b. Add can_smart_analysis to user_permissions (Smart Analysis feature access)
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_permissions' AND column_name = 'can_smart_analysis') THEN
@@ -685,38 +686,38 @@
         END
         $$
       `);
-  
-      // 20c. Rule-ID rebrand: legacy SIA-* rule ids become ACT-* everywhere.
-      // Historical rows are renamed once so old and new scans display the same
-      // rule identifiers. (The legacy id is derivable: ACT-Rn ↔ SIA-Rn.)
-      // Runs BEFORE the wcag_criteria backfills so those match on ACT ids.
-      await client.query(`
+
+    // 20c. Rule-ID rebrand: legacy SIA-* rule ids become ACT-* everywhere.
+    // Historical rows are renamed once so old and new scans display the same
+    // rule identifiers. (The legacy id is derivable: ACT-Rn ↔ SIA-Rn.)
+    // Runs BEFORE the wcag_criteria backfills so those match on ACT ids.
+    await client.query(`
         UPDATE accessibility_issues SET rule_id = 'ACT-' || substring(rule_id from 5)
         WHERE rule_id LIKE 'SIA-%'
       `);
-  
-      // 20d. Backfill WCAG mappings on historical issues: ACT-R84 rows scanned
-      // before the mapping existed, and ACT-R35 rows stored with the old 1.2.1
-      // mapping (corrected to 1.3.1)
-      await client.query(`
+
+    // 20d. Backfill WCAG mappings on historical issues: ACT-R84 rows scanned
+    // before the mapping existed, and ACT-R35 rows stored with the old 1.2.1
+    // mapping (corrected to 1.3.1)
+    await client.query(`
         UPDATE accessibility_issues SET wcag_criteria = '2.1.1'
         WHERE rule_id = 'ACT-R84' AND (wcag_criteria IS NULL OR wcag_criteria = '')
       `);
-      await client.query(`
+    await client.query(`
         UPDATE accessibility_issues SET wcag_criteria = '1.3.1'
         WHERE rule_id = 'ACT-R35' AND wcag_criteria = '1.2.1'
       `);
-      await client.query(`
+    await client.query(`
         UPDATE accessibility_issues SET wcag_criteria = '1.2.3'
         WHERE rule_id = 'ACT-R31' AND (wcag_criteria = '1.4.8' OR wcag_criteria = '1.2.1')
       `);
-  
-      // 20d2. Correct the legacy ACT-R32 target-size implementation.
-      // SIA-R32 is the visual-only-video audio-track rule, not a target-size
-      // rule. Earlier deployments stored 44×44 enhanced and 24×24 minimum
-      // target findings under R32; classify only those recognisable historical
-      // descriptions so genuine R32 video findings remain untouched.
-      await client.query(`
+
+    // 20d2. Correct the legacy ACT-R32 target-size implementation.
+    // SIA-R32 is the visual-only-video audio-track rule, not a target-size
+    // rule. Earlier deployments stored 44×44 enhanced and 24×24 minimum
+    // target findings under R32; classify only those recognisable historical
+    // descriptions so genuine R32 video findings remain untouched.
+    await client.query(`
         UPDATE accessibility_issues
         SET
           rule_id = CASE
@@ -762,29 +763,29 @@
             OR description ILIKE '%touch target%'
           )
       `);
-  
-      // 20e. Add rule_type column to accessibility_issues (stores Issue / Potential Issue / Best Practice)
-      await client.query(`
+
+    // 20e. Add rule_type column to accessibility_issues (stores Issue / Potential Issue / Best Practice)
+    await client.query(`
         ALTER TABLE accessibility_issues ADD COLUMN IF NOT EXISTS rule_type TEXT NOT NULL DEFAULT 'Issue'
       `);
-  
-      // 21. Seed default scan_page_timeout_ms if not already set
-      await client.query(`
+
+    // 21. Seed default scan_page_timeout_ms if not already set
+    await client.query(`
         INSERT INTO app_settings (key, value, updated_at)
         VALUES ('scan_page_timeout_ms', '10000', NOW())
         ON CONFLICT (key) DO NOTHING
       `);
-  
-      // 22. Migrate the previous scan-delay default (2 000 ms) to 10 000 ms.
-      //     Only update the known default; user-customised values are preserved.
-      await client.query(`
+
+    // 22. Migrate the previous scan-delay default (2 000 ms) to 10 000 ms.
+    //     Only update the known default; user-customised values are preserved.
+    await client.query(`
         UPDATE app_settings
         SET value = '10000', updated_at = NOW()
         WHERE key = 'scan_page_timeout_ms' AND value = '2000'
       `);
-  
-      // 23. Create crawler_sessions table
-      await client.query(`
+
+    // 23. Create crawler_sessions table
+    await client.query(`
         CREATE TABLE IF NOT EXISTS crawler_sessions (
           id                  SERIAL      PRIMARY KEY,
           user_id             TEXT,
@@ -807,17 +808,17 @@
           error_message       TEXT
         )
       `);
-  
-      // 23b. Add total_rules to existing crawler_sessions tables.
-      // The column is included above for new databases, while this migration
-      // brings existing Azure/PostgreSQL deployments up to the current schema.
-      await client.query(`
+
+    // 23b. Add total_rules to existing crawler_sessions tables.
+    // The column is included above for new databases, while this migration
+    // brings existing Azure/PostgreSQL deployments up to the current schema.
+    await client.query(`
         ALTER TABLE crawler_sessions
           ADD COLUMN IF NOT EXISTS total_rules INTEGER NOT NULL DEFAULT 0
       `);
-  
-      // 24. Create crawler_pages table
-      await client.query(`
+
+    // 24. Create crawler_pages table
+    await client.query(`
         CREATE TABLE IF NOT EXISTS crawler_pages (
           id               SERIAL    PRIMARY KEY,
           session_id       INTEGER   NOT NULL REFERENCES crawler_sessions(id) ON DELETE CASCADE,
@@ -837,15 +838,15 @@
           UNIQUE(session_id, url_hash)
         )
       `);
-      await client.query(`
+    await client.query(`
         CREATE INDEX IF NOT EXISTS crawler_pages_session_status_idx ON crawler_pages(session_id, status)
       `);
-      await client.query(`
+    await client.query(`
         CREATE INDEX IF NOT EXISTS crawler_pages_session_hash_idx ON crawler_pages(session_id, url_hash)
       `);
-  
-      // 25. Create broken_links table
-      await client.query(`
+
+    // 25. Create broken_links table
+    await client.query(`
         CREATE TABLE IF NOT EXISTS broken_links (
           id          SERIAL    PRIMARY KEY,
           session_id  INTEGER   NOT NULL REFERENCES crawler_sessions(id) ON DELETE CASCADE,
@@ -857,12 +858,12 @@
           checked_at  TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-      await client.query(`
+    await client.query(`
         CREATE INDEX IF NOT EXISTS broken_links_session_idx ON broken_links(session_id)
       `);
-  
-      // 26. Create sites table
-      await client.query(`
+
+    // 26. Create sites table
+    await client.query(`
         CREATE TABLE IF NOT EXISTS sites (
           id          SERIAL    PRIMARY KEY,
           user_id     TEXT,
@@ -873,9 +874,9 @@
           updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-  
-      // 27. Add site_id column to crawler_sessions
-      await client.query(`
+
+    // 27. Add site_id column to crawler_sessions
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -888,9 +889,9 @@
         END
         $$
       `);
-  
-      // 28. Add page_type to crawler_pages + discovered_at to crawler_sessions
-      await client.query(`
+
+    // 28. Add page_type to crawler_pages + discovered_at to crawler_sessions
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -908,12 +909,12 @@
         END
         $$
       `);
-  
-      // 28c. Bring existing crawler_pages tables up to the current page schema.
-      // CREATE TABLE IF NOT EXISTS does not alter an older Azure table, so every
-      // column introduced after the initial crawler release must be idempotently
-      // added for existing deployments as well.
-      await client.query(`
+
+    // 28c. Bring existing crawler_pages tables up to the current page schema.
+    // CREATE TABLE IF NOT EXISTS does not alter an older Azure table, so every
+    // column introduced after the initial crawler release must be idempotently
+    // added for existing deployments as well.
+    await client.query(`
         ALTER TABLE crawler_pages
           ADD COLUMN IF NOT EXISTS rule_count INTEGER NOT NULL DEFAULT 0,
           ADD COLUMN IF NOT EXISTS captured_html TEXT,
@@ -925,11 +926,11 @@
           ADD COLUMN IF NOT EXISTS discovery_next_attempt_at TIMESTAMP,
           ADD COLUMN IF NOT EXISTS discovery_last_error TEXT
       `);
-  
-      // 28b. Siteimprove-style crawl policy, scheduling, and URL disposition tables.
-      // All additions are idempotent so existing sites and crawler sessions remain
-      // usable with their saved configuration.
-      await client.query(`
+
+    // 28b. Siteimprove-style crawl policy, scheduling, and URL disposition tables.
+    // All additions are idempotent so existing sites and crawler sessions remain
+    // usable with their saved configuration.
+    await client.query(`
         ALTER TABLE sites
           ADD COLUMN IF NOT EXISTS default_scope TEXT NOT NULL DEFAULT 'subdomain',
           ADD COLUMN IF NOT EXISTS sitemap_url TEXT,
@@ -945,12 +946,12 @@
           ADD COLUMN IF NOT EXISTS last_completed_at TIMESTAMP,
           ADD COLUMN IF NOT EXISTS lifecycle_status TEXT NOT NULL DEFAULT 'idle'
       `);
-      await client.query(`
+    await client.query(`
         ALTER TABLE crawler_sessions
           ADD COLUMN IF NOT EXISTS lifecycle_status TEXT NOT NULL DEFAULT 'queued',
           ADD COLUMN IF NOT EXISTS scheduled_start_at TIMESTAMP
       `);
-      await client.query(`
+    await client.query(`
         CREATE TABLE IF NOT EXISTS site_content_rules (
           id            SERIAL PRIMARY KEY,
           site_id       INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
@@ -964,11 +965,11 @@
           updated_at    TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-      await client.query(`
+    await client.query(`
         CREATE INDEX IF NOT EXISTS site_content_rules_site_idx
         ON site_content_rules(site_id)
       `);
-      await client.query(`
+    await client.query(`
         CREATE TABLE IF NOT EXISTS crawler_url_events (
           id           SERIAL PRIMARY KEY,
           session_id   INTEGER NOT NULL REFERENCES crawler_sessions(id) ON DELETE CASCADE,
@@ -980,17 +981,17 @@
           created_at   TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-      await client.query(`
+    await client.query(`
         CREATE INDEX IF NOT EXISTS crawler_url_events_session_idx
         ON crawler_url_events(session_id)
       `);
-      await client.query(`
+    await client.query(`
         CREATE INDEX IF NOT EXISTS crawler_url_events_disposition_idx
         ON crawler_url_events(session_id, disposition)
       `);
-  
-      // 30. Add rule_count to crawler_pages (distinct rules with ≥1 occurrence per page)
-      await client.query(`
+
+    // 30. Add rule_count to crawler_pages (distinct rules with ≥1 occurrence per page)
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -1002,9 +1003,9 @@
         END
         $$
       `);
-  
-      // 29. Create crawler_discovery_cache table
-      await client.query(`
+
+    // 29. Create crawler_discovery_cache table
+    await client.query(`
         CREATE TABLE IF NOT EXISTS crawler_discovery_cache (
           id                SERIAL PRIMARY KEY,
           domain            TEXT    NOT NULL UNIQUE,
@@ -1014,9 +1015,9 @@
           cached_at         TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-  
-      // 31. Create site_score_history table (persists per-session score for history + delta)
-      await client.query(`
+
+    // 31. Create site_score_history table (persists per-session score for history + delta)
+    await client.query(`
         CREATE TABLE IF NOT EXISTS site_score_history (
           id                  SERIAL       PRIMARY KEY,
           site_id             INTEGER      NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
@@ -1026,13 +1027,13 @@
           UNIQUE(crawler_session_id)
         )
       `);
-      await client.query(`
+    await client.query(`
         CREATE INDEX IF NOT EXISTS site_score_history_site_idx
         ON site_score_history(site_id, scanned_at DESC)
       `);
-  
-      // 32. QA pages table — per-page metadata collected during accessibility scans
-      await client.query(`
+
+    // 32. QA pages table — per-page metadata collected during accessibility scans
+    await client.query(`
         CREATE TABLE IF NOT EXISTS qa_pages (
           id            SERIAL      PRIMARY KEY,
           scan_id       INTEGER     NOT NULL REFERENCES scan_sessions(id) ON DELETE CASCADE,
@@ -1050,12 +1051,12 @@
           scanned_at    TIMESTAMP   DEFAULT NOW()
         )
       `);
-      await client.query(`
+    await client.query(`
         CREATE INDEX IF NOT EXISTS qa_pages_scan_id_idx ON qa_pages(scan_id)
       `);
-  
-      // 33. QA links table — link graph collected during accessibility scans
-      await client.query(`
+
+    // 33. QA links table — link graph collected during accessibility scans
+    await client.query(`
         CREATE TABLE IF NOT EXISTS qa_links (
           id           SERIAL    PRIMARY KEY,
           scan_id      INTEGER   NOT NULL REFERENCES scan_sessions(id) ON DELETE CASCADE,
@@ -1069,20 +1070,20 @@
           checked_at   TIMESTAMP
         )
       `);
-      await client.query(`
+    await client.query(`
         CREATE INDEX IF NOT EXISTS qa_links_scan_id_idx ON qa_links(scan_id)
       `);
-      await client.query(`
+    await client.query(`
         CREATE INDEX IF NOT EXISTS qa_links_dest_url_idx ON qa_links(scan_id, dest_url)
       `);
-  
-      // 34. Crawler QA pipeline — new columns on existing tables
-      await client.query(`ALTER TABLE qa_pages ADD COLUMN IF NOT EXISTS body_text TEXT`);
-      await client.query(`ALTER TABLE qa_pages ADD COLUMN IF NOT EXISTS in_sitemap BOOLEAN NOT NULL DEFAULT FALSE`);
-      await client.query(`ALTER TABLE qa_links ADD COLUMN IF NOT EXISTS is_unsafe BOOLEAN NOT NULL DEFAULT FALSE`);
-  
-      // 35. QA images table
-      await client.query(`
+
+    // 34. Crawler QA pipeline — new columns on existing tables
+    await client.query(`ALTER TABLE qa_pages ADD COLUMN IF NOT EXISTS body_text TEXT`);
+    await client.query(`ALTER TABLE qa_pages ADD COLUMN IF NOT EXISTS in_sitemap BOOLEAN NOT NULL DEFAULT FALSE`);
+    await client.query(`ALTER TABLE qa_links ADD COLUMN IF NOT EXISTS is_unsafe BOOLEAN NOT NULL DEFAULT FALSE`);
+
+    // 35. QA images table
+    await client.query(`
         CREATE TABLE IF NOT EXISTS qa_images (
           id           SERIAL    PRIMARY KEY,
           scan_id      INTEGER   NOT NULL REFERENCES scan_sessions(id) ON DELETE CASCADE,
@@ -1097,10 +1098,10 @@
           checked_at   TIMESTAMP
         )
       `);
-      await client.query(`CREATE INDEX IF NOT EXISTS qa_images_scan_id_idx ON qa_images(scan_id)`);
-  
-      // 36. QA word inventory table
-      await client.query(`
+    await client.query(`CREATE INDEX IF NOT EXISTS qa_images_scan_id_idx ON qa_images(scan_id)`);
+
+    // 36. QA word inventory table
+    await client.query(`
         CREATE TABLE IF NOT EXISTS qa_word_inventory (
           id           SERIAL    PRIMARY KEY,
           scan_id      INTEGER   NOT NULL REFERENCES scan_sessions(id) ON DELETE CASCADE,
@@ -1109,12 +1110,12 @@
           total_count  INTEGER   NOT NULL DEFAULT 0
         )
       `);
-      await client.query(`CREATE INDEX IF NOT EXISTS qa_word_inventory_scan_id_idx ON qa_word_inventory(scan_id)`);
-  
-      // 37. Per-occurrence contextual AI assessments. The request context stores
-      // bounded evidence only, so interrupted workers can safely resume after a
-      // process restart without retaining raw provider output or credentials.
-      await client.query(`
+    await client.query(`CREATE INDEX IF NOT EXISTS qa_word_inventory_scan_id_idx ON qa_word_inventory(scan_id)`);
+
+    // 37. Per-occurrence contextual AI assessments. The request context stores
+    // bounded evidence only, so interrupted workers can safely resume after a
+    // process restart without retaining raw provider output or credentials.
+    await client.query(`
         CREATE TABLE IF NOT EXISTS ai_issue_assessments (
           id              SERIAL PRIMARY KEY,
           issue_id        INTEGER NOT NULL UNIQUE REFERENCES accessibility_issues(id) ON DELETE CASCADE,
@@ -1135,10 +1136,10 @@
           updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-      await client.query(`CREATE INDEX IF NOT EXISTS ai_issue_assessments_status_idx ON ai_issue_assessments(status)`);
-  
-      // issue_decisions — false positive / can't-fix decisions per occurrence
-      await client.query(`
+    await client.query(`CREATE INDEX IF NOT EXISTS ai_issue_assessments_status_idx ON ai_issue_assessments(status)`);
+
+    // issue_decisions — false positive / can't-fix decisions per occurrence
+    await client.query(`
         CREATE TABLE IF NOT EXISTS issue_decisions (
           id               SERIAL    PRIMARY KEY,
           scan_session_id  INTEGER   NOT NULL REFERENCES scan_sessions(id) ON DELETE CASCADE,
@@ -1162,11 +1163,11 @@
           updated_at       TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-      await client.query(`CREATE INDEX IF NOT EXISTS issue_decisions_scan_id_idx ON issue_decisions(scan_session_id)`);
-      await client.query(`CREATE INDEX IF NOT EXISTS issue_decisions_submitted_by_idx ON issue_decisions(submitted_by)`);
-  
-      // Add class_pattern and pages_affected columns to issue_decisions if missing
-      await client.query(`
+    await client.query(`CREATE INDEX IF NOT EXISTS issue_decisions_scan_id_idx ON issue_decisions(scan_session_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS issue_decisions_submitted_by_idx ON issue_decisions(submitted_by)`);
+
+    // Add class_pattern and pages_affected columns to issue_decisions if missing
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -1184,9 +1185,9 @@
         END
         $$
       `);
-  
-      // Add scan_started_at to crawler_sessions (tracks when Phase 2 began)
-      await client.query(`
+
+    // Add scan_started_at to crawler_sessions (tracks when Phase 2 began)
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -1198,9 +1199,9 @@
         END
         $$
       `);
-  
-      // Add can_switch_site to user_permissions (site dropdown access for non-super_admin)
-      await client.query(`
+
+    // Add can_switch_site to user_permissions (site dropdown access for non-super_admin)
+    await client.query(`
         DO $$
         BEGIN
           IF NOT EXISTS (
@@ -1212,9 +1213,9 @@
         END
         $$
       `);
-  
-      // 37. site_user_access — direct per-user site access (multi-site model)
-      await client.query(`
+
+    // 37. site_user_access — direct per-user site access (multi-site model)
+    await client.query(`
         CREATE TABLE IF NOT EXISTS site_user_access (
           id         SERIAL    PRIMARY KEY,
           site_id    INTEGER   NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
@@ -1224,11 +1225,11 @@
           UNIQUE(site_id, user_id)
         )
       `);
-      await client.query(`CREATE INDEX IF NOT EXISTS site_user_access_site_idx ON site_user_access(site_id)`);
-      await client.query(`CREATE INDEX IF NOT EXISTS site_user_access_user_idx ON site_user_access(user_id)`);
-  
-      // 38. site_group_access — group-level site access (users inherit via group membership)
-      await client.query(`
+    await client.query(`CREATE INDEX IF NOT EXISTS site_user_access_site_idx ON site_user_access(site_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS site_user_access_user_idx ON site_user_access(user_id)`);
+
+    // 38. site_group_access — group-level site access (users inherit via group membership)
+    await client.query(`
         CREATE TABLE IF NOT EXISTS site_group_access (
           id         SERIAL    PRIMARY KEY,
           site_id    INTEGER   NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
@@ -1237,11 +1238,11 @@
           UNIQUE(site_id, group_id)
         )
       `);
-      await client.query(`CREATE INDEX IF NOT EXISTS site_group_access_site_idx ON site_group_access(site_id)`);
-      await client.query(`CREATE INDEX IF NOT EXISTS site_group_access_group_idx ON site_group_access(group_id)`);
-  
-      // 39. Enforce role domain on site_user_access (idempotent via DO block)
-      await client.query(`
+    await client.query(`CREATE INDEX IF NOT EXISTS site_group_access_site_idx ON site_group_access(site_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS site_group_access_group_idx ON site_group_access(group_id)`);
+
+    // 39. Enforce role domain on site_user_access (idempotent via DO block)
+    await client.query(`
         DO $$ BEGIN
           IF NOT EXISTS (
             SELECT 1 FROM pg_constraint
@@ -1254,9 +1255,9 @@
           END IF;
         END $$
       `);
-  
-      // 40. Add site_id to scan_sessions — associates a manual scan with a site
-      await client.query(`
+
+    // 40. Add site_id to scan_sessions — associates a manual scan with a site
+    await client.query(`
         DO $$ BEGIN
           IF NOT EXISTS (
             SELECT 1 FROM information_schema.columns
@@ -1268,12 +1269,12 @@
           END IF;
         END $$
       `);
-  
-      // 41. Backfill site_id on existing scan_sessions by matching their page URLs to
-      //     sites.base_url. scan_sessions has no direct url column — URLs live in
-      //     page_results. Picks the longest matching (most specific) site.
-      //     Safe to re-run — only touches rows where site_id IS NULL.
-      await client.query(`
+
+    // 41. Backfill site_id on existing scan_sessions by matching their page URLs to
+    //     sites.base_url. scan_sessions has no direct url column — URLs live in
+    //     page_results. Picks the longest matching (most specific) site.
+    //     Safe to re-run — only touches rows where site_id IS NULL.
+    await client.query(`
         UPDATE scan_sessions ss
         SET site_id = (
           SELECT s.id
@@ -1294,10 +1295,10 @@
             WHERE pr.scan_id = ss.id
           )
       `);
-  
-      // 42. Associate projects with sites. A join table is used because legacy
-      // projects may have scans belonging to more than one site.
-      await client.query(`
+
+    // 42. Associate projects with sites. A join table is used because legacy
+    // projects may have scans belonging to more than one site.
+    await client.query(`
         CREATE TABLE IF NOT EXISTS project_sites (
           id         SERIAL PRIMARY KEY,
           project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -1306,10 +1307,10 @@
           UNIQUE(project_id, site_id)
         )
       `);
-      await client.query(`CREATE INDEX IF NOT EXISTS project_sites_project_idx ON project_sites(project_id)`);
-      await client.query(`CREATE INDEX IF NOT EXISTS project_sites_site_idx ON project_sites(site_id)`);
-      // Link every legacy project/site pair represented by an existing scan.
-      await client.query(`
+    await client.query(`CREATE INDEX IF NOT EXISTS project_sites_project_idx ON project_sites(project_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS project_sites_site_idx ON project_sites(site_id)`);
+    // Link every legacy project/site pair represented by an existing scan.
+    await client.query(`
         INSERT INTO project_sites (project_id, site_id)
         SELECT DISTINCT ss.project_id, ss.site_id
         FROM scan_sessions ss
@@ -1317,9 +1318,9 @@
           AND ss.site_id IS NOT NULL
         ON CONFLICT (project_id, site_id) DO NOTHING
       `);
-  
-      // 43. rule_page_stats — per-rule element/page check counts for true CRr scoring
-      await client.query(`
+
+    // 43. rule_page_stats — per-rule element/page check counts for true CRr scoring
+    await client.query(`
         CREATE TABLE IF NOT EXISTS rule_page_stats (
           id              SERIAL  PRIMARY KEY,
           page_result_id  INTEGER NOT NULL REFERENCES page_results(id) ON DELETE CASCADE,
@@ -1329,13 +1330,13 @@
           UNIQUE(page_result_id, rule_id)
         )
       `);
-      await client.query(`
+    await client.query(`
         CREATE INDEX IF NOT EXISTS rule_page_stats_page_idx ON rule_page_stats(page_result_id)
       `);
-      // 43b. Persist the registry decision for every requested rule on every
-      // page. This is intentionally separate from issue rows: a clean rule,
-      // an inapplicable rule, and a skipped rule are all meaningful evidence.
-      await client.query(`
+    // 43b. Persist the registry decision for every requested rule on every
+    // page. This is intentionally separate from issue rows: a clean rule,
+    // an inapplicable rule, and a skipped rule are all meaningful evidence.
+    await client.query(`
         CREATE TABLE IF NOT EXISTS rule_execution_statuses (
           id              SERIAL PRIMARY KEY,
           page_result_id  INTEGER NOT NULL REFERENCES page_results(id) ON DELETE CASCADE,
@@ -1350,17 +1351,17 @@
         CREATE INDEX IF NOT EXISTS rule_execution_statuses_rule_idx
           ON rule_execution_statuses(rule_id, status);
       `);
-      await client.query(`
+    await client.query(`
         ALTER TABLE rule_execution_statuses
           ADD COLUMN IF NOT EXISTS carried_forward BOOLEAN NOT NULL DEFAULT FALSE;
         CREATE UNIQUE INDEX IF NOT EXISTS rule_execution_statuses_page_rule_unique
           ON rule_execution_statuses(page_result_id, rule_id);
       `);
-  
-      // 43a. Preserve score-density data for the corrected historical R32
-      // findings. This follows the CREATE TABLE step so an older Azure database
-      // can safely receive the same release in a single startup.
-      await client.query(`
+
+    // 43a. Preserve score-density data for the corrected historical R32
+    // findings. This follows the CREATE TABLE step so an older Azure database
+    // can safely receive the same release in a single startup.
+    await client.query(`
         WITH legacy_stats AS (
           SELECT page_result_id, total_checked, scope
           FROM rule_page_stats
@@ -1387,14 +1388,14 @@
           ),
           scope = EXCLUDED.scope
       `);
-      await client.query(`
+    await client.query(`
         DELETE FROM rule_page_stats WHERE rule_id = 'ACT-R32'
       `);
-  
-      // 44. Per-site Page Group accessibility scan choices. Page groups are
-      // derived from crawler_pages.page_type, while these preferences decide
-      // which groups enter Phase 2 on future crawler scans.
-      await client.query(`
+
+    // 44. Per-site Page Group accessibility scan choices. Page groups are
+    // derived from crawler_pages.page_type, while these preferences decide
+    // which groups enter Phase 2 on future crawler scans.
+    await client.query(`
         CREATE TABLE IF NOT EXISTS site_page_group_preferences (
           site_id          INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
           page_type        TEXT    NOT NULL,
@@ -1403,17 +1404,17 @@
           PRIMARY KEY (site_id, page_type)
         )
       `);
-  
-      // 45. WCAG conformance scope for each site's accessibility target. Existing
-      // installations retain AA as their current default target scope.
-      await client.query(`
+
+    // 45. WCAG conformance scope for each site's accessibility target. Existing
+    // installations retain AA as their current default target scope.
+    await client.query(`
         ALTER TABLE sites
           ADD COLUMN IF NOT EXISTS target_wcag_level TEXT NOT NULL DEFAULT 'AA'
             CHECK (target_wcag_level IN ('A', 'AA', 'AAA'))
       `);
-  
-      // 46. System notifications for admins
-      await client.query(`
+
+    // 46. System notifications for admins
+    await client.query(`
         CREATE TABLE IF NOT EXISTS notifications (
           id         SERIAL PRIMARY KEY,
           type       TEXT NOT NULL,
@@ -1425,16 +1426,16 @@
           created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-  
-      // 47. Per-user read tracking for notifications
-      await client.query(`
+
+    // 47. Per-user read tracking for notifications
+    await client.query(`
         CREATE TABLE IF NOT EXISTS notification_reads (
           notification_id INTEGER NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
           user_id         INTEGER NOT NULL REFERENCES users(id)         ON DELETE CASCADE,
           PRIMARY KEY (notification_id, user_id)
         )
       `);
-      await client.query(`
+    await client.query(`
         CREATE TABLE IF NOT EXISTS notification_recipients (
           notification_id INTEGER NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
           user_id         INTEGER NOT NULL REFERENCES users(id)         ON DELETE CASCADE,
@@ -1443,7 +1444,7 @@
         CREATE INDEX IF NOT EXISTS notification_recipients_user_idx
           ON notification_recipients(user_id, notification_id);
       `);
-      await client.query(`
+    await client.query(`
         CREATE TABLE IF NOT EXISTS notification_dismissals (
           notification_id INTEGER NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
           user_id         INTEGER NOT NULL REFERENCES users(id)         ON DELETE CASCADE,
@@ -1453,9 +1454,9 @@
         CREATE INDEX IF NOT EXISTS notification_dismissals_user_idx
           ON notification_dismissals(user_id, notification_id);
       `);
-  
-      // 48. Expand target_wcag_level CHECK constraint to allow 'All' level
-      await client.query(`
+
+    // 48. Expand target_wcag_level CHECK constraint to allow 'All' level
+    await client.query(`
         DO $$
         DECLARE v text;
         BEGIN
@@ -1473,9 +1474,9 @@
         END
         $$
       `);
-  
-      // 49. Documentation screenshot storage
-      await client.query(`
+
+    // 49. Documentation screenshot storage
+    await client.query(`
         CREATE TABLE IF NOT EXISTS doc_screenshots (
           key          TEXT PRIMARY KEY,
           image_data   BYTEA        NOT NULL,
@@ -1486,9 +1487,9 @@
           height       INTEGER
         )
       `);
-  
-      // 50. State-specific evidence for safely revealed dialogs and disclosures
-      await client.query(`
+
+    // 50. State-specific evidence for safely revealed dialogs and disclosures
+    await client.query(`
         CREATE TABLE IF NOT EXISTS page_interaction_states (
           id SERIAL PRIMARY KEY,
           page_id INTEGER NOT NULL REFERENCES page_results(id) ON DELETE CASCADE,
@@ -1511,8 +1512,8 @@
           REFERENCES page_interaction_states(id) ON DELETE SET NULL;
       `);
 
-      // 51. Cross-process ownership leases for long-running manual scans
-      await client.query(`
+    // 51. Cross-process ownership leases for long-running manual scans
+    await client.query(`
         CREATE TABLE IF NOT EXISTS scan_run_leases (
           scan_id      INTEGER PRIMARY KEY REFERENCES scan_sessions(id) ON DELETE CASCADE,
           owner_token  TEXT        NOT NULL,
@@ -1557,448 +1558,450 @@
         CREATE INDEX IF NOT EXISTS scan_browser_waiters_heartbeat_idx
           ON scan_browser_waiters(heartbeat_at);
       `);
-  
-      await client.query(DATA_PROTECTION_SQL);
-      await client.query("COMMIT");
-      logger.info("Startup migrations completed");
-    } catch (err) {
-      await client.query("ROLLBACK");
-      logger.error({ err }, "Startup migration failed — data safeguards cannot be bypassed");
-      throw err;
-    } finally {
-      client.release();
-    }
-  }
-  
-  async function seedDefaultAdmin(): Promise<void> {
-    try {
-      const [existing] = await db.select({ id: usersTable.id }).from(usersTable).limit(1);
-      if (existing) return; // Users already exist, skip seed
-  
-      const defaultPassword = "Admin@1234!";
-      const passwordHash = await bcrypt.hash(defaultPassword, 12);
-  
-      await db.insert(usersTable).values({
-        email: "admin@localhost",
-        username: "admin",
-        passwordHash,
-        fullName: "Super Administrator",
-        role: "super_admin",
-        isActive: true,
-        mustResetPassword: false,
-      });
-  
-      logger.info("═══════════════════════════════════════════════");
-      logger.info("  Default super admin created:");
-      logger.info("  Username: admin");
-      logger.info("  Password: Admin@1234!");
-      logger.info("  Please change this password after first login!");
-      logger.info("═══════════════════════════════════════════════");
-    } catch (err) {
-      logger.error({ err }, "Failed to seed default admin — continuing startup");
-    }
-  }
-  
-  async function recoverOrphanedScans(): Promise<void> {
-    try {
-      if (isScanWorkStopping()) return;
-      // Skip scans created in the last 3 minutes — the retry endpoint can take
-      // ~30 s to bulk-insert pages for large scans.  If a new container starts
-      // during that window, "pending" scans will have 0 page rows, causing
-      // orphan recovery to incorrectly mark them "completed".
-      const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000);
-  
-      const orphaned = await db
-        .select({
-          id: scanSessionsTable.id,
-          options: scanSessionsTable.options,
-        })
-        .from(scanSessionsTable)
-        .where(
-          and(
-            inArray(scanSessionsTable.status, ["pending", "running"]),
-            lt(scanSessionsTable.createdAt, threeMinutesAgo),
-          ),
-        );
-  
-      if (orphaned.length === 0) {
-        logger.info("No orphaned scans to recover");
-        return;
-      }
-  
-      logger.info({ count: orphaned.length }, "Recovering orphaned scans on startup");
-  
-      // Keep restart pressure bounded.  In particular, do not launch one
-      // browser pool per orphan while the health endpoint is coming online.
-      const RECOVERY_CONCURRENCY = 2;
-      for (let offset = 0; offset < orphaned.length; offset += RECOVERY_CONCURRENCY) {
-        if (isScanWorkStopping()) {
-          logger.info("Stopping orphaned scan recovery before the next batch");
-          return;
-        }
-        const batch = orphaned.slice(offset, offset + RECOVERY_CONCURRENCY);
-        await Promise.all(batch.map(async (session) => {
-          try {
-            if (isScanWorkStopping()) return;
-            await startScan(session.id, [], {
-              ...((session.options as Record<string, unknown>) ?? {}),
-              skipCompletedPages: true,
-            }, {
-              recoverMidFlight: true,
-            });
-          } catch (err) {
-            logger.error({ scanId: session.id, err }, "Failed to recover orphaned scan — skipping");
-          }
-        }));
-      }
-    } catch (err) {
-      logger.error({ err }, "recoverOrphanedScans failed — scans may stay stuck");
-    }
-  }
-  
-  /**
-   * On Linux (Azure App Service, Docker, etc.) the Puppeteer-bundled Chrome
-   * binary requires several system shared libraries that may not be present in
-   * a fresh container.  This function detects missing libraries via `ldd` and
-   * installs them automatically so that Chrome works without any manual setup.
-   *
-   * It is a no-op on non-Linux platforms and safe to call on every startup
-   * (apt-get is idempotent — already-installed packages are skipped instantly).
-   */
-  async function ensureChromeDependencies(): Promise<void> {
-    if (process.platform !== "linux") return;
-  
-    try {
-      // Locate the Puppeteer-bundled Chrome binary in the project cache.
-      const cacheDir = path.join(process.cwd(), ".cache", "puppeteer", "chrome");
-      if (!existsSync(cacheDir)) {
-        logger.info("Puppeteer Chrome cache not found — skipping dependency check");
-        return;
-      }
-  
-      // Sort descending so the highest version number is first (e.g. linux-148 > linux-147).
-      const linuxDirs = readdirSync(cacheDir)
-        .filter((d) => d.startsWith("linux-"))
-        .sort()
-        .reverse();
-      if (linuxDirs.length === 0) {
-        logger.info("No linux-* Chrome version dirs found — skipping dependency check");
-        return;
-      }
-  
-      const chromePath = path.join(cacheDir, linuxDirs[0], "chrome-linux64", "chrome");
-      if (!existsSync(chromePath)) {
-        logger.info({ chromePath }, "Chrome binary not found at expected path — skipping");
-        return;
-      }
-  
-      // ldd exits 1 when any library is missing — we must capture stdout from the thrown error.
-      let lddOut = "";
-      try {
-        lddOut = execSync(`ldd "${chromePath}"`, { encoding: "utf-8", timeout: 10_000 });
-      } catch (lddErr: unknown) {
-        const e = lddErr as { stdout?: string; stderr?: string };
-        lddOut = (e?.stdout ?? "") + (e?.stderr ?? "");
-      }
-  
-      if (!lddOut.includes("not found")) {
-        logger.info("Chrome shared libraries all present — no installation needed");
-        return;
-      }
-  
-      const missingLibs = lddOut
-        .split("\n")
-        .filter((l) => l.includes("not found"))
-        .map((l) => l.trim());
-  
-      logger.warn({ chromePath, missingLibs }, "Chrome missing shared libraries — auto-installing via apt-get");
-  
-      try {
-        // Ubuntu 24 exposes several legacy names as virtual packages. apt-cache
-        // still reports candidates for them, but apt-get refuses installation.
-        // Resolve each dependency with an authoritative simulated install.
-        const dependencyAlternatives = [
-          ["libglib2.0-0t64", "libglib2.0-0"],
-          ["libnss3"],
-          ["libnspr4"],
-          ["libatk1.0-0t64", "libatk1.0-0"],
-          ["libatk-bridge2.0-0t64", "libatk-bridge2.0-0"],
-          ["libcups2t64", "libcups2"],
-          ["libdrm2t64", "libdrm2"],
-          ["libxkbcommon0"],
-          ["libxcomposite1"],
-          ["libxdamage1"],
-          ["libxfixes3"],
-          ["libxrandr2"],
-          ["libgbm1"],
-          ["libpango-1.0-0"],
-          ["libcairo2t64", "libcairo2"],
-          ["libasound2t64", "libasound2"],
-          ["libatspi2.0-0t64", "libatspi2.0-0"],
-          ["libx11-6"],
-          ["libxcb1"],
-          ["libxext6"],
-          ["libxrender1"],
-          ["libx11-xcb1"],
-        ];
-        const chromeDependencies = dependencyAlternatives.map((alternatives) => {
-          const resolved = alternatives.find((candidate) => {
-            try {
-              execFileSync(
-                "apt-get",
-                ["install", "--simulate", "--no-install-recommends", candidate],
-                { stdio: "ignore", timeout: 15_000 },
-              );
-              return true;
-            } catch {
-              return false;
-            }
-          });
-          if (!resolved) {
-            throw new Error(
-              `No installable apt package found for ${alternatives.join(" or ")}`,
-            );
-          }
-          return resolved;
-        });
-        execFileSync("apt-get", [
-          "install",
-          "-y",
-          "--no-install-recommends",
-          ...chromeDependencies,
-        ], {
-          encoding: "utf-8",
-          timeout: 120_000,
-          stdio: "pipe",
-        });
-        logger.info("Chrome shared libraries installed successfully");
-      } catch (aptErr: unknown) {
-        const e = aptErr as { stderr?: string; message?: string };
-        logger.error(
-          { err: e?.stderr ?? e?.message ?? String(aptErr) },
-          "apt-get install failed — Chrome scans may continue to fail until libs are present",
-        );
-      }
-    } catch (err) {
-      logger.error({ err }, "ensureChromeDependencies — unexpected error (non-fatal)");
-    }
-  }
-  
-  const rawPort = process.env["PORT"];
-  if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
-  
-  const port = Number(rawPort);
-  if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT value: "${rawPort}"`);
 
-  let activeServer: Server | undefined;
-  let initialSchedulerTimer: ReturnType<typeof setTimeout> | undefined;
-  let schedulerTimer: ReturnType<typeof setInterval> | undefined;
-  let shutdownStarted = false;
-  let postListenRecoveryPromise: Promise<void> | undefined;
-  const activeSchedulerRuns = new Set<Promise<void>>();
-
-  async function waitForHealthEndpoint(): Promise<boolean> {
-    // Listening means the socket is bound, not that the HTTP stack is ready.
-    // Probe the same endpoint used by Azure before starting recovery work.
-    for (let attempt = 0; attempt < 20 && !shutdownStarted; attempt++) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 1_000);
-      try {
-        const response = await fetch(`http://127.0.0.1:${port}/api/healthz`, {
-          signal: controller.signal,
-          headers: { Accept: "application/json" },
-        });
-        if (response.ok) return true;
-      } catch {
-        // The listener may need another event-loop turn to accept requests.
-      } finally {
-        clearTimeout(timer);
-      }
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-    return false;
+    await client.query(DATA_PROTECTION_SQL);
+    await client.query("COMMIT");
+    logger.info("Startup migrations completed");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    logger.error({ err }, "Startup migration failed — data safeguards cannot be bypassed");
+    throw err;
+  } finally {
+    client.release();
   }
+}
 
-  async function runPostListenRecovery(): Promise<void> {
-    if (!(await waitForHealthEndpoint()) || shutdownStarted) {
-      logger.warn("Health endpoint did not become reachable — deferring startup recovery");
+async function seedDefaultAdmin(): Promise<void> {
+  try {
+    const [existing] = await db.select({ id: usersTable.id }).from(usersTable).limit(1);
+    if (existing) return; // Users already exist, skip seed
+
+    const defaultPassword = "Admin@1234!";
+    const passwordHash = await bcrypt.hash(defaultPassword, 12);
+
+    await db.insert(usersTable).values({
+      email: "admin@localhost",
+      username: "admin",
+      passwordHash,
+      fullName: "Super Administrator",
+      role: "super_admin",
+      isActive: true,
+      mustResetPassword: false,
+    });
+
+    logger.info("═══════════════════════════════════════════════");
+    logger.info("  Default super admin created:");
+    logger.info("  Username: admin");
+    logger.info("  Password: Admin@1234!");
+    logger.info("  Please change this password after first login!");
+    logger.info("═══════════════════════════════════════════════");
+  } catch (err) {
+    logger.error({ err }, "Failed to seed default admin — continuing startup");
+  }
+}
+
+async function recoverOrphanedScans(): Promise<void> {
+  try {
+    if (isScanWorkStopping()) return;
+    // Skip scans created in the last 3 minutes — the retry endpoint can take
+    // ~30 s to bulk-insert pages for large scans.  If a new container starts
+    // during that window, "pending" scans will have 0 page rows, causing
+    // orphan recovery to incorrectly mark them "completed".
+    const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000);
+
+    const orphaned = await db
+      .select({
+        id: scanSessionsTable.id,
+        options: scanSessionsTable.options,
+      })
+      .from(scanSessionsTable)
+      .where(
+        and(
+          inArray(scanSessionsTable.status, ["pending", "running"]),
+          lt(scanSessionsTable.createdAt, threeMinutesAgo),
+        ),
+      );
+
+    if (orphaned.length === 0) {
+      logger.info("No orphaned scans to recover");
       return;
     }
-    // Recovery ordering is deliberate: scans, AI assessments, then crawlers.
-    // Avoiding a resource spike is more important than recovering every orphan
-    // immediately; health/API availability remains the primary objective.
-    // Each phase is detached from startup and isolates its own failures.
-    try {
-      await recoverOrphanedScans();
-    } catch (err) {
-      logger.error({ err }, "Post-listen orphaned scan recovery failed");
-    }
-    if (shutdownStarted || isScanWorkStopping() || isCrawlerWorkStopping()) return;
-    try {
-      await recoverAIAssessments();
-    } catch (err) {
-      logger.error({ err }, "Post-listen AI assessment recovery failed");
-    }
-    if (shutdownStarted || isScanWorkStopping() || isCrawlerWorkStopping()) return;
-    try {
-      await resumeOrphanedCrawlerSessions();
-    } catch (err) {
-      logger.error({ err }, "Post-listen crawler recovery failed");
-    }
-  }
-  
-  /**
-   * Bind the server to the given port, retrying on EADDRINUSE.
-   *
-   * Azure App Service (and some other PaaS platforms) can start the new process
-   * before the previous one has fully released the port.  Rather than crashing
-   * immediately (which triggers another restart and creates a loop), we wait up
-   * to MAX_RETRIES × RETRY_DELAY_MS for the port to free up.
-   */
-  function startListening(port: number, remainingRetries = 8, retryDelayMs = 2000): void {
-    const server = app.listen(port);
-    activeServer = server;
-  
-    server.on("listening", () => {
-      logger.info({ port }, "Server listening");
-      startScanWatchdog();
-      startStorageMonitor();
-      startDataProtection();
-      startIssueRecovery();
-      postListenRecoveryPromise = runPostListenRecovery().catch((err) =>
-        logger.error({ err }, "Post-listen startup recovery failed"),
-      );
-  
-      const scheduleTick = () => {
-        const run = Promise.all([runScheduledCrawls(), runDueCrawlerSessions()]).then(() => undefined).catch((err) =>
-          logger.error({ err }, "Scheduled crawler tick failed"),
-        );
-        activeSchedulerRuns.add(run);
-        void run.then(
-          () => activeSchedulerRuns.delete(run),
-          () => activeSchedulerRuns.delete(run),
-        );
-      };
-  
-      // Give Azure's health probe time to receive a fast response before the
-      // first scheduler tick starts database and crawler work.
-      initialSchedulerTimer = setTimeout(scheduleTick, 30_000);
-      initialSchedulerTimer.unref();
-  
-      schedulerTimer = setInterval(scheduleTick, 60_000);
-      schedulerTimer.unref();
-    });
-  
-    server.on("error", (err: NodeJS.ErrnoException) => {
-      server.close();
-      if (err.code === "EADDRINUSE") {
-        if (remainingRetries > 0) {
-          logger.warn(
-            { port, remainingRetries, retryDelayMs },
-            "Port already in use — previous process still shutting down, will retry",
-          );
-          setTimeout(() => startListening(port, remainingRetries - 1, retryDelayMs), retryDelayMs);
-        } else {
-          logger.error({ port }, "Port still in use after all retries — giving up");
-          process.exit(1);
-        }
-      } else {
-        logger.error({ err }, "Error listening on port");
-        process.exit(1);
+
+    logger.info({ count: orphaned.length }, "Recovering orphaned scans on startup");
+
+    // Keep restart pressure bounded.  In particular, do not launch one
+    // browser pool per orphan while the health endpoint is coming online.
+    const RECOVERY_CONCURRENCY = 2;
+    for (let offset = 0; offset < orphaned.length; offset += RECOVERY_CONCURRENCY) {
+      if (isScanWorkStopping()) {
+        logger.info("Stopping orphaned scan recovery before the next batch");
+        return;
       }
-    });
+      const batch = orphaned.slice(offset, offset + RECOVERY_CONCURRENCY);
+      await Promise.all(batch.map(async (session) => {
+        try {
+          if (isScanWorkStopping()) return;
+          await startScan(session.id, [], {
+            ...((session.options as Record<string, unknown>) ?? {}),
+            skipCompletedPages: true,
+          }, {
+            recoverMidFlight: true,
+          });
+        } catch (err) {
+          logger.error({ scanId: session.id, err }, "Failed to recover orphaned scan — skipping");
+        }
+      }));
+    }
+  } catch (err) {
+    logger.error({ err }, "recoverOrphanedScans failed — scans may stay stuck");
   }
+}
 
-  async function gracefulShutdown(signal: string): Promise<void> {
-    if (shutdownStarted) return;
-    shutdownStarted = true;
-    logger.info({ signal }, "Graceful shutdown started");
-    if (initialSchedulerTimer) clearTimeout(initialSchedulerTimer);
-    if (schedulerTimer) clearInterval(schedulerTimer);
+/**
+ * On Linux (Azure App Service, Docker, etc.) the Puppeteer-bundled Chrome
+ * binary requires several system shared libraries that may not be present in
+ * a fresh container.  This function detects missing libraries via `ldd` and
+ * installs them automatically so that Chrome works without any manual setup.
+ *
+ * It is a no-op on non-Linux platforms and safe to call on every startup
+ * (apt-get is idempotent — already-installed packages are skipped instantly).
+ */
+async function ensureChromeDependencies(): Promise<void> {
+  if (process.platform !== "linux") return;
 
-    // Stop accepting traffic before signalling workers so no new request can
-    // enqueue work while the in-flight work is being drained.
-    const closeServer = activeServer
-      ? new Promise<void>((resolve) => {
-          activeServer?.close(() => resolve());
-        })
-      : Promise.resolve();
-    stopScanWork();
-    stopCrawlerWork();
+  try {
+    // Locate the Puppeteer-bundled Chrome binary in the project cache.
+    const cacheDir = path.join(process.cwd(), ".cache", "puppeteer", "chrome");
+    if (!existsSync(cacheDir)) {
+      logger.info("Puppeteer Chrome cache not found — skipping dependency check");
+      return;
+    }
 
-    const deadline = Date.now() + 10_000;
-    const awaitUntilDeadline = async (work: Promise<unknown>): Promise<void> => {
-      const remaining = Math.max(0, deadline - Date.now());
-      if (remaining === 0) return;
-      await Promise.race([
-        work.then(() => undefined, () => undefined),
-        new Promise<void>((resolve) => setTimeout(resolve, remaining)),
-      ]);
+    // Sort descending so the highest version number is first (e.g. linux-148 > linux-147).
+    const linuxDirs = readdirSync(cacheDir)
+      .filter((d) => d.startsWith("linux-"))
+      .sort()
+      .reverse();
+    if (linuxDirs.length === 0) {
+      logger.info("No linux-* Chrome version dirs found — skipping dependency check");
+      return;
+    }
+
+    const chromePath = path.join(cacheDir, linuxDirs[0], "chrome-linux64", "chrome");
+    if (!existsSync(chromePath)) {
+      logger.info({ chromePath }, "Chrome binary not found at expected path — skipping");
+      return;
+    }
+
+    // ldd exits 1 when any library is missing — we must capture stdout from the thrown error.
+    let lddOut = "";
+    try {
+      lddOut = execSync(`ldd "${chromePath}"`, { encoding: "utf-8", timeout: 10_000 });
+    } catch (lddErr: unknown) {
+      const e = lddErr as { stdout?: string; stderr?: string };
+      lddOut = (e?.stdout ?? "") + (e?.stderr ?? "");
+    }
+
+    if (!lddOut.includes("not found")) {
+      logger.info("Chrome shared libraries all present — no installation needed");
+      return;
+    }
+
+    const missingLibs = lddOut
+      .split("\n")
+      .filter((l) => l.includes("not found"))
+      .map((l) => l.trim());
+
+    logger.warn({ chromePath, missingLibs }, "Chrome missing shared libraries — auto-installing via apt-get");
+
+    try {
+      // Ubuntu 24 exposes several legacy names as virtual packages. apt-cache
+      // still reports candidates for them, but apt-get refuses installation.
+      // Resolve each dependency with an authoritative simulated install.
+      const dependencyAlternatives = [
+        ["libglib2.0-0t64", "libglib2.0-0"],
+        ["libnss3"],
+        ["libnspr4"],
+        ["libatk1.0-0t64", "libatk1.0-0"],
+        ["libatk-bridge2.0-0t64", "libatk-bridge2.0-0"],
+        ["libcups2t64", "libcups2"],
+        ["libdrm2t64", "libdrm2"],
+        ["libxkbcommon0"],
+        ["libxcomposite1"],
+        ["libxdamage1"],
+        ["libxfixes3"],
+        ["libxrandr2"],
+        ["libgbm1"],
+        ["libpango-1.0-0"],
+        ["libcairo2t64", "libcairo2"],
+        ["libasound2t64", "libasound2"],
+        ["libatspi2.0-0t64", "libatspi2.0-0"],
+        ["libx11-6"],
+        ["libxcb1"],
+        ["libxext6"],
+        ["libxrender1"],
+        ["libx11-xcb1"],
+      ];
+      const chromeDependencies = dependencyAlternatives.map((alternatives) => {
+        const resolved = alternatives.find((candidate) => {
+          try {
+            execFileSync(
+              "apt-get",
+              ["install", "--simulate", "--no-install-recommends", candidate],
+              { stdio: "ignore", timeout: 15_000 },
+            );
+            return true;
+          } catch {
+            return false;
+          }
+        });
+        if (!resolved) {
+          throw new Error(
+            `No installable apt package found for ${alternatives.join(" or ")}`,
+          );
+        }
+        return resolved;
+      });
+      execFileSync("apt-get", [
+        "install",
+        "-y",
+        "--no-install-recommends",
+        ...chromeDependencies,
+      ], {
+        encoding: "utf-8",
+        timeout: 120_000,
+        stdio: "pipe",
+      });
+      logger.info("Chrome shared libraries installed successfully");
+    } catch (aptErr: unknown) {
+      const e = aptErr as { stderr?: string; message?: string };
+      logger.error(
+        { err: e?.stderr ?? e?.message ?? String(aptErr) },
+        "apt-get install failed — Chrome scans may continue to fail until libs are present",
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, "ensureChromeDependencies — unexpected error (non-fatal)");
+  }
+}
+
+const rawPort = process.env["PORT"];
+if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
+
+const port = Number(rawPort);
+if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT value: "${rawPort}"`);
+
+let activeServer: Server | undefined;
+let initialSchedulerTimer: ReturnType<typeof setTimeout> | undefined;
+let schedulerTimer: ReturnType<typeof setInterval> | undefined;
+let shutdownStarted = false;
+let postListenRecoveryPromise: Promise<void> | undefined;
+const activeSchedulerRuns = new Set<Promise<void>>();
+
+async function waitForHealthEndpoint(): Promise<boolean> {
+  // Listening means the socket is bound, not that the HTTP stack is ready.
+  // Probe the same endpoint used by Azure before starting recovery work.
+  for (let attempt = 0; attempt < 20 && !shutdownStarted; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1_000);
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/api/healthz`, {
+        signal: controller.signal,
+        headers: { Accept: "application/json" },
+      });
+      if (response.ok) return true;
+    } catch {
+      // The listener may need another event-loop turn to accept requests.
+    } finally {
+      clearTimeout(timer);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return false;
+}
+
+async function runPostListenRecovery(): Promise<void> {
+  if (!(await waitForHealthEndpoint()) || shutdownStarted) {
+    logger.warn("Health endpoint did not become reachable — deferring startup recovery");
+    return;
+  }
+  // Recovery ordering is deliberate: scans, AI assessments, then crawlers.
+  // Avoiding a resource spike is more important than recovering every orphan
+  // immediately; health/API availability remains the primary objective.
+  // Each phase is detached from startup and isolates its own failures.
+  try {
+    await recoverOrphanedScans();
+  } catch (err) {
+    logger.error({ err }, "Post-listen orphaned scan recovery failed");
+  }
+  if (shutdownStarted || isScanWorkStopping() || isCrawlerWorkStopping()) return;
+  try {
+    await recoverAIAssessments();
+  } catch (err) {
+    logger.error({ err }, "Post-listen AI assessment recovery failed");
+  }
+  if (shutdownStarted || isScanWorkStopping() || isCrawlerWorkStopping()) return;
+  try {
+    await resumeOrphanedCrawlerSessions();
+  } catch (err) {
+    logger.error({ err }, "Post-listen crawler recovery failed");
+  }
+}
+
+/**
+ * Bind the server to the given port, retrying on EADDRINUSE.
+ *
+ * Azure App Service (and some other PaaS platforms) can start the new process
+ * before the previous one has fully released the port.  Rather than crashing
+ * immediately (which triggers another restart and creates a loop), we wait up
+ * to MAX_RETRIES × RETRY_DELAY_MS for the port to free up.
+ */
+function startListening(port: number, remainingRetries = 8, retryDelayMs = 2000): void {
+  const server = app.listen(port);
+  activeServer = server;
+
+  server.on("listening", () => {
+    logger.info({ port }, "Server listening");
+    startScanWatchdog();
+    startStorageMonitor();
+    startDataProtection();
+    startIssueRecovery();
+    postListenRecoveryPromise = runPostListenRecovery().catch((err) =>
+      logger.error({ err }, "Post-listen startup recovery failed"),
+    );
+
+    const scheduleTick = () => {
+      const run = Promise.all([runScheduledCrawls(), runDueCrawlerSessions()]).then(() => undefined).catch((err) =>
+        logger.error({ err }, "Scheduled crawler tick failed"),
+      );
+      activeSchedulerRuns.add(run);
+      void run.then(
+        () => activeSchedulerRuns.delete(run),
+        () => activeSchedulerRuns.delete(run),
+      );
     };
 
-    // Do not close the pool while handlers or workers can still be issuing
-    // queries. Resource order is intentional: traffic → workers → Chromium →
-    // database, with API availability preferred over orphan recovery.
-    await awaitUntilDeadline(waitForActiveRequests(Math.max(0, deadline - Date.now())));
-    await awaitUntilDeadline(Promise.all([...activeSchedulerRuns].map((run) => run.catch(() => undefined))));
-    await awaitUntilDeadline(waitForScanWork(Math.max(0, deadline - Date.now())));
-    await awaitUntilDeadline(waitForCrawlerWork(Math.max(0, deadline - Date.now())));
-    await awaitUntilDeadline(postListenRecoveryPromise ?? Promise.resolve());
-    await awaitUntilDeadline(stopStorageMonitor());
-    await awaitUntilDeadline(stopDataProtection());
-    await awaitUntilDeadline(stopIssueRecovery());
-    await awaitUntilDeadline(closeServer);
-    await awaitUntilDeadline(closeBrowser());
-    await awaitUntilDeadline(pool.end());
-    process.exit(0);
-  }
+    // Give Azure's health probe time to receive a fast response before the
+    // first scheduler tick starts database and crawler work.
+    initialSchedulerTimer = setTimeout(scheduleTick, 30_000);
+    initialSchedulerTimer.unref();
 
-  process.once("SIGTERM", () => { void gracefulShutdown("SIGTERM"); });
-  process.once("SIGINT", () => { void gracefulShutdown("SIGINT"); });
-  
-  /**
-   * Verify the database accepts writes before starting the server.
-   *
-   * Azure Database for PostgreSQL automatically switches to read-only mode when
-   * storage reaches 95% capacity.  Without this check the server starts silently
-   * and every write attempt fails with "cannot execute UPDATE in a read-only
-   * transaction", causing confusing errors deep in request handlers.
-   *
-   * The check uses an advisory lock inside a rolled-back transaction so it never
-   * modifies any data.  If the DB is read-only the advisory lock call itself will
-   * fail, which we catch and re-throw with an actionable message.
-   */
-  async function checkDatabaseWritable(): Promise<void> {
-    const client = await pool.connect();
-    try {
-      // pg_try_advisory_lock requires write access and fails immediately on a
-      // read-only server — it never touches user tables but does prove writability.
-      await client.query("BEGIN");
-      await client.query("SELECT pg_try_advisory_lock(1234567890)");
-      await client.query("ROLLBACK");
-      logger.info("Database writability check passed");
-    } catch (err) {
-      await client.query("ROLLBACK").catch(() => {});
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("read-only transaction") || msg.includes("read only")) {
-        logger.fatal(
-          { err },
-          "DATABASE IS READ-ONLY — the server will start but ALL writes will fail. " +
-          "Fix on Azure: (1) Open Azure portal → your PostgreSQL server → Storage → " +
-          "check usage; if ≥ 95% increase allocated storage or delete data. " +
-          "(2) Verify DATABASE_URL uses the PRIMARY server hostname, not a " +
-          "*.read.postgres.database.azure.com replica endpoint.",
+    schedulerTimer = setInterval(scheduleTick, 60_000);
+    schedulerTimer.unref();
+  });
+
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    server.close();
+    if (err.code === "EADDRINUSE") {
+      if (remainingRetries > 0) {
+        logger.warn(
+          { port, remainingRetries, retryDelayMs },
+          "Port already in use — previous process still shutting down, will retry",
         );
-        // Do not exit — read-only API responses (auth, scan results, reports)
-        // still work; only writes are blocked.  Operators can fix storage and
-        // restart without losing the running process unnecessarily.
+        setTimeout(() => startListening(port, remainingRetries - 1, retryDelayMs), retryDelayMs);
       } else {
-        throw err;
+        logger.error({ port }, "Port still in use after all retries — giving up");
+        process.exit(1);
       }
-    } finally {
-      client.release();
+    } else {
+      logger.error({ err }, "Error listening on port");
+      process.exit(1);
     }
+  });
+}
+
+async function gracefulShutdown(signal: string): Promise<void> {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  logger.info({ signal }, "Graceful shutdown started");
+  if (initialSchedulerTimer) clearTimeout(initialSchedulerTimer);
+  if (schedulerTimer) clearInterval(schedulerTimer);
+
+  // Stop accepting traffic before signalling workers so no new request can
+  // enqueue work while the in-flight work is being drained.
+  const closeServer = activeServer
+    ? new Promise<void>((resolve) => {
+      activeServer?.close(() => resolve());
+    })
+    : Promise.resolve();
+  stopScanWork();
+  stopCrawlerWork();
+
+  const deadline = Date.now() + 10_000;
+  const awaitUntilDeadline = async (work: Promise<unknown>): Promise<void> => {
+    const remaining = Math.max(0, deadline - Date.now());
+    if (remaining === 0) return;
+    await Promise.race([
+      work.then(() => undefined, () => undefined),
+      new Promise<void>((resolve) => setTimeout(resolve, remaining)),
+    ]);
+  };
+
+  // Do not close the pool while handlers or workers can still be issuing
+  // queries. Resource order is intentional: traffic → workers → Chromium →
+  // database, with API availability preferred over orphan recovery.
+  await awaitUntilDeadline(waitForActiveRequests(Math.max(0, deadline - Date.now())));
+  await awaitUntilDeadline(Promise.all([...activeSchedulerRuns].map((run) => run.catch(() => undefined))));
+  await awaitUntilDeadline(waitForScanWork(Math.max(0, deadline - Date.now())));
+  await awaitUntilDeadline(waitForCrawlerWork(Math.max(0, deadline - Date.now())));
+  await awaitUntilDeadline(postListenRecoveryPromise ?? Promise.resolve());
+  await awaitUntilDeadline(stopStorageMonitor());
+  await awaitUntilDeadline(stopDataProtection());
+  await awaitUntilDeadline(stopIssueRecovery());
+  await awaitUntilDeadline(drainSqlBackups());
+  await awaitUntilDeadline(closeServer);
+  await awaitUntilDeadline(closeBrowser());
+  await awaitUntilDeadline(pool.end());
+  process.exit(0);
+}
+
+process.once("SIGTERM", () => { void gracefulShutdown("SIGTERM"); });
+process.once("SIGINT", () => { void gracefulShutdown("SIGINT"); });
+
+/**
+ * Verify the database accepts writes before starting the server.
+ *
+ * Azure Database for PostgreSQL automatically switches to read-only mode when
+ * storage reaches 95% capacity.  Without this check the server starts silently
+ * and every write attempt fails with "cannot execute UPDATE in a read-only
+ * transaction", causing confusing errors deep in request handlers.
+ *
+ * The check uses an advisory lock inside a rolled-back transaction so it never
+ * modifies any data.  If the DB is read-only the advisory lock call itself will
+ * fail, which we catch and re-throw with an actionable message.
+ */
+async function checkDatabaseWritable(): Promise<void> {
+  const client = await pool.connect();
+  try {
+    // pg_try_advisory_lock requires write access and fails immediately on a
+    // read-only server — it never touches user tables but does prove writability.
+    await client.query("BEGIN");
+    await client.query("SELECT pg_try_advisory_lock(1234567890)");
+    await client.query("ROLLBACK");
+    logger.info("Database writability check passed");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => { });
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("read-only transaction") || msg.includes("read only")) {
+      logger.fatal(
+        { err },
+        "DATABASE IS READ-ONLY — the server will start but ALL writes will fail. " +
+        "Fix on Azure: (1) Open Azure portal → your PostgreSQL server → Storage → " +
+        "check usage; if ≥ 95% increase allocated storage or delete data. " +
+        "(2) Verify DATABASE_URL uses the PRIMARY server hostname, not a " +
+        "*.read.postgres.database.azure.com replica endpoint.",
+      );
+      // Do not exit — read-only API responses (auth, scan results, reports)
+      // still work; only writes are blocked.  Operators can fix storage and
+      // restart without losing the running process unnecessarily.
+    } else {
+      throw err;
+    }
+  } finally {
+    client.release();
   }
+}
+
 startListening(port);
 (process.env.RUN_STARTUP_MIGRATIONS === "false" && !process.argv.includes("--migrate-only")
   ? Promise.resolve() : runStartupMigrations())
@@ -2010,4 +2013,4 @@ startListening(port);
   .catch((err) => {
     logger.error({ err }, "Startup failed");
     process.exit(1);
-});
+  });

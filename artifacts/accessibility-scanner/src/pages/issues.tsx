@@ -17,6 +17,7 @@ import { IssueDetail } from "../components/issues/issue-detail";
 import { IssueForm } from "../components/issues/issue-form";
 import { IssueExportActions } from "../components/issues/issue-export-actions";
 import { IssueSortSelect, type IssueSort } from "../components/issues/issue-sort-select";
+import "./issues-workspace.css";
 
 const PRIORITY_RANK: Record<string, number> = {
   highest: 5,
@@ -53,6 +54,7 @@ export default function IssuesPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [sort, setSort] = useState<IssueSort>("updated_desc");
   const [selectedIssueId, setSelectedIssueId] = useState<number | null>(null);
+  const initialSelectionDone = useRef(false);
   const [leftPaneWidth, setLeftPaneWidth] = useState(30);
   const [createOpen, setCreateOpen] = useState(false);
   const [createSaving, setCreateSaving] = useState(false);
@@ -208,6 +210,9 @@ export default function IssuesPage() {
 
   useEffect(() => {
     if (issuesLoading) return;
+    // Auto-select on first load, but never undo an explicit mobile Close.
+    if (selectedIssueId == null && initialSelectionDone.current) return;
+    initialSelectionDone.current = true;
     if (selectedIssueId == null || !sortedIssues.some((issue) => issue.id === selectedIssueId)) {
       setSelectedIssueId(sortedIssues[0]?.id ?? null);
     }
@@ -262,7 +267,7 @@ export default function IssuesPage() {
 
   if (issuesFailed) {
     return (
-      <div className="flex h-[calc(100dvh-4rem)] items-center justify-center bg-muted/10 p-6">
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-muted/10 p-6">
         <Card className="w-full max-w-lg">
           <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
             <div className="rounded-full bg-destructive/10 p-3 text-destructive">
@@ -295,13 +300,14 @@ export default function IssuesPage() {
   }
 
   return (
-    <div className="loaded-reveal flex flex-col h-[calc(100dvh-4rem)] p-4 md:p-6 bg-muted/10 space-y-4">
+    <div data-testid="issues-workspace-page" className="issues-workspace-page loaded-reveal flex min-h-0 flex-1 flex-col overflow-hidden p-2 md:p-3 bg-muted/10 gap-3">
+      <div data-testid="issues-overview" className="issues-overview shrink-0 space-y-3">
       
       {/* Header */}
-      <div className="flex-none flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="issues-page-header flex-none flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs font-bold tracking-widest uppercase text-primary mb-1">Work Management</p>
-          <h1 className="text-3xl font-extrabold tracking-tight">Issues</h1>
+          <p className="issues-page-eyebrow text-xs font-bold tracking-widest uppercase text-primary mb-1">Work Management</p>
+          <h1 className="issues-page-title text-3xl font-extrabold tracking-tight">Issues</h1>
         </div>
         <div className="flex items-center gap-2">
           <IssueExportActions issues={sortedIssues} />
@@ -314,7 +320,7 @@ export default function IssuesPage() {
       </div>
 
       {/* Metrics Row */}
-      <div className="flex-none grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-9">
+      <div className="issues-metrics flex-none grid grid-flow-col auto-cols-[112px] gap-1.5 overflow-x-auto pb-1 lg:grid-flow-row lg:auto-cols-auto lg:grid-cols-9">
         <button
           type="button"
           className="rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -323,11 +329,11 @@ export default function IssuesPage() {
           onClick={() => setStatusFilter("all")}
         >
           <Card className={`h-full bg-card shadow-sm transition-colors hover:border-primary/50 ${statusFilter === "all" ? "border-primary ring-1 ring-primary/25" : "border-border/50"}`}>
-            <CardContent className="flex min-h-[104px] flex-col items-center p-2 text-center">
+            <CardContent className="issues-metric-content flex min-h-[104px] flex-col items-center p-2 text-center">
               <Layers className="mb-0.5 h-3.5 w-3.5 text-violet-500" aria-hidden="true" />
               <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total</p>
               <p className="text-2xl font-black leading-none text-foreground">{metrics.total}</p>
-              <div className="mt-1.5 grid w-full grid-cols-2 gap-x-2 gap-y-0 border-t pt-1.5 text-left">
+              <div className="issues-type-counts mt-1.5 grid w-full grid-cols-2 gap-x-2 gap-y-0 border-t pt-1.5 text-left">
                 {ISSUE_TYPES.map((type) => (
                   <div key={type} className="flex items-center justify-between gap-1 text-[9px] leading-[14px]">
                     <span className="text-muted-foreground">{typeCountLabels[type] ?? type}</span>
@@ -348,7 +354,7 @@ export default function IssuesPage() {
             onClick={() => setStatusFilter((current) => current === key ? "all" : key)}
           >
             <Card className={`h-full bg-card shadow-sm transition-colors hover:border-primary/50 ${statusFilter === key ? "border-primary ring-1 ring-primary/25" : "border-border/50"}`}>
-              <CardContent className="flex min-h-[104px] flex-col items-center justify-center p-2 text-center">
+              <CardContent className="issues-metric-content flex min-h-[104px] flex-col items-center justify-center p-2 text-center">
                 <Icon className={`mb-1 h-3.5 w-3.5 ${style}`} aria-hidden="true" />
                 <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
                 {helper && <p className="text-[9px] font-medium leading-3 text-muted-foreground">({helper})</p>}
@@ -366,7 +372,7 @@ export default function IssuesPage() {
       </div>
 
       {/* Filter Bar */}
-      <div className="flex-none bg-card p-2 rounded-lg border shadow-sm flex flex-col md:flex-row items-center gap-2">
+      <div className="issues-filter-bar flex-none bg-card p-2 rounded-lg border shadow-sm flex flex-col md:flex-row items-center gap-2">
         <div className="relative flex-1 min-w-0 w-full">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input 
@@ -377,7 +383,7 @@ export default function IssuesPage() {
             placeholder="Search keywords or keys..." 
           />
         </div>
-        <div className="grid w-full grid-cols-2 items-center gap-2 md:flex md:w-auto">
+        <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-1 md:flex md:w-auto md:gap-2">
           <Select value={typeFilter} onValueChange={setTypeFilter}>
             <SelectTrigger aria-label="Filter by issue type" className="w-full md:w-[140px] font-medium bg-muted/50 border-transparent">
               <SelectValue placeholder="Type" />
@@ -400,7 +406,7 @@ export default function IssuesPage() {
               ))}
             </SelectContent>
           </Select>
-          <Tabs value={view} onValueChange={(value) => setView(value as "list" | "details")} className="w-full md:w-auto">
+          <Tabs value={view} onValueChange={(value) => setView(value as "list" | "details")} className="w-auto">
             <TabsList aria-label="Issue view" className="h-10 bg-muted/50 p-1">
               <TabsTrigger value="list" aria-label="List view" className="gap-2 px-3">
                 <List className="h-4 w-4" />
@@ -415,7 +421,9 @@ export default function IssuesPage() {
         </div>
       </div>
 
-      {/* Main Workspace */}
+      </div>
+
+      {/* Pane headers remain outside their independently bounded scroll areas. */}
       <div className="flex-1 min-h-0 relative">
         {view === "list" ? (
           <div className="absolute inset-0 flex flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
@@ -441,22 +449,25 @@ export default function IssuesPage() {
         ) : (
           <div ref={workspaceRef} className="absolute inset-0 flex border rounded-lg overflow-hidden bg-card shadow-sm">
             <div
-              className={`flex flex-col border-r bg-muted/10 ${selectedIssueId ? "hidden md:flex" : "flex"}`}
+              data-testid="issue-navigator-pane"
+              className={`min-h-0 min-w-0 flex flex-col overflow-hidden border-r bg-muted/10 ${selectedIssueId ? "hidden md:flex" : "flex"}`}
               style={{ width: selectedIssueId ? `${leftPaneWidth}%` : "100%", flex: "0 0 auto" }}
             >
-              <div className="flex-none flex items-center justify-between gap-3 border-b bg-card px-4 py-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Issue navigator</p>
-                  <p className="mt-0.5 text-sm font-medium">{sortedIssues.length} issue{sortedIssues.length === 1 ? "" : "s"} shown</p>
+              <div data-testid="issue-navigator-header" className="flex-none flex items-center justify-between gap-2 border-b bg-card px-3 py-2">
+                <div className="shrink-0">
+                  <p className="sr-only">Issue navigator</p>
+                  <p className="text-xs font-medium">{sortedIssues.length} issue{sortedIssues.length === 1 ? "" : "s"} shown</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <IssueSortSelect value={sort} onChange={setSort} className="min-w-0 flex-1 sm:flex-none" />
+                <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+                  <IssueSortSelect value={sort} onChange={setSort} className="min-w-0 flex-1 [&_[role=combobox]]:min-w-0 [&_[role=combobox]]:w-full" />
                   <Button type="button" variant="ghost" size="sm" onClick={() => setView("list")} className="md:hidden">
                     <List className="h-4 w-4" /> List
                   </Button>
                 </div>
               </div>
-              <IssueList issues={sortedIssues} onSelect={setSelectedIssueId} selectedId={selectedIssueId} variant="compact" />
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <IssueList issues={sortedIssues} onSelect={setSelectedIssueId} selectedId={selectedIssueId} variant="compact" />
+              </div>
             </div>
 
             {selectedIssueId && (
@@ -483,7 +494,7 @@ export default function IssuesPage() {
             )}
 
             {selectedIssueId ? (
-              <div className="min-w-0 flex-1 bg-background">
+              <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
                 <IssueDetail
                   id={selectedIssueId}
                   people={people}

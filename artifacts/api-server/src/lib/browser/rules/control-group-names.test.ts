@@ -31,7 +31,7 @@ const dreamGroups = `
     <input id="return" name="journey-type" type="radio" style="display:none">
     <label for="return" tabindex="0">Return</label>
   </div>
-  <div style="display:none">
+  <div class="overlay-mask" style="display:none">
     <h1>Add a railcard</h1>
     <fieldset id="railcard">
       <ol><li>
@@ -83,18 +83,65 @@ describe.skipIf(!existsSync(chromium))("ACT-R60 group-name regressions", () => {
     } finally { await page.close(); }
   }
 
-  it("detects the four Dream Destination-shaped unnamed groups, including dormant UI", async () => {
+  it("keeps Journey Type excluded and reports the dormant Railcard group as potential", async () => {
     const result = await scan(dreamGroups);
-    expect(result.issues).toHaveLength(4);
-    expect(result.checked).toBe(4);
-    for (const id of ["language", "currency", "journey", "railcard"]) {
-      expect(result.issues.some((row) => row.selector.includes(`#${id}`))).toBe(true);
-    }
-    expect(result.issues.every((row) => row.type === "Issue")).toBe(true);
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].selector).toContain("#railcard");
+    expect(result.issues[0].type).toBe("Potential Issue");
+    expect(result.checked).toBe(1);
   });
-  it("detects the same four with R60-only selection and without duplicate all-rule findings", async () => {
-    expect((await scan(dreamGroups, true)).issues).toHaveLength(4);
-    expect((await scan(dreamGroups, true, false)).issues).toHaveLength(4);
+  it("preserves exposed/potential classification with R60-only selection and all rules", async () => {
+    for (const onlyR60 of [true, false]) {
+      const hidden = await scan(dreamGroups, true, onlyR60);
+      expect(hidden.issues).toHaveLength(1);
+      expect(hidden.issues[0].type).toBe("Potential Issue");
+    }
+    const visible = dreamGroups.replace('class="overlay-mask" style="display:none"', 'class="overlay-mask"');
+    for (const onlyR60 of [true, false]) {
+      const result = await scan(visible, true, onlyR60);
+      expect(result.issues).toHaveLength(1);
+      expect(result.issues[0].selector).toContain("#railcard");
+      expect(result.issues[0].type).toBe("Best Practice");
+    }
+  });
+  it.each([
+    '<div role="dialog" style="display:none">',
+    '<div role="dialog" aria-hidden="true">',
+    '<div class="popup" hidden>',
+    '<div class="modal" inert>',
+    '<div class="overlay-mask" style="visibility:hidden">',
+    '<div popover>',
+    '<dialog>',
+  ])("reports hidden semantic groups as potential in popup content: %s", async (start) => {
+    const end = start.startsWith("<dialog") ? "</dialog>" : "</div>";
+    const result = await scan(`${start}<fieldset id="target"><input><input></fieldset>${end}`);
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].selector).toContain("#target");
+    expect(result.issues[0].type).toBe("Potential Issue");
+  });
+  it("recognizes popup panels associated with disclosure triggers", async () => {
+    const result = await scan('<button aria-haspopup="dialog" aria-controls="panel">Open</button><div id="panel" hidden><fieldset><input><input></fieldset></div>');
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].type).toBe("Potential Issue");
+  });
+  it.each([
+    '<fieldset><legend>Railcard selection</legend><select></select><select></select></fieldset>',
+    '<div role="group" aria-label="Journey"><input><input></div>',
+    '<div role="group" aria-labelledby="name"><input><input></div><span id="name">Journey</span>',
+    '<fieldset><legend><span hidden>Not a label</span></legend><input><input style="display:none"></fieldset>',
+    '<fieldset><input><input hidden></fieldset>',
+    '<fieldset><input><input aria-hidden="true"></fieldset>',
+    '<fieldset><input type="hidden"><input></fieldset>',
+    '<div><input name="journey" type="radio"><input name="journey" type="radio"></div>',
+    '<template><fieldset><input><input></fieldset></template>',
+    '<fieldset><fieldset aria-label="Inner"><input><input></fieldset></fieldset>',
+  ])("does not invent hidden-popup failures for named, inactive, or non-group content: %s", async (content) => {
+    expect((await scan(`<div class="overlay" style="display:none">${content}</div>`)).issues).toEqual([]);
+  });
+  it("does not use independently hidden legend text as a group name", async () => {
+    const result = await scan('<div class="popup" hidden><fieldset><legend hidden>Railcard</legend><input><input></fieldset></div>');
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].type).toBe("Potential Issue");
   });
   it.each([
     '<fieldset><legend>Railcard selection</legend><select><option>1</option></select><select><option>Senior</option></select></fieldset>',
@@ -103,6 +150,7 @@ describe.skipIf(!existsSync(chromium))("ACT-R60 group-name regressions", () => {
     '<div role="radiogroup" aria-labelledby="question"><p id="question">Journey type</p><input type="radio"><input type="radio"></div>',
     '<div role="group" aria-labelledby="hidden-title"><input><input></div><span id="hidden-title" hidden>Passenger</span>',
     '<fieldset title="Passenger"><input><input></fieldset>',
+    '<details open><summary>Passenger information</summary><input><input></details>',
     '<table><tr aria-labelledby="ssn"><th id="ssn">Social Security Number</th><td><input></td><td><input></td><td><input></td></tr></table>',
   ])("accepts legitimate programmatic group names: %s", async (html) => {
     expect((await scan(html)).issues).toEqual([]);
@@ -114,7 +162,6 @@ describe.skipIf(!existsSync(chromium))("ACT-R60 group-name regressions", () => {
     '<div role="radiogroup"><label><input type="radio">One-way</label><label><input type="radio">Return</label></div>',
     '<fieldset><legend> </legend><input><input></fieldset>',
     '<div role="group" aria-labelledby="missing" aria-label=" "><input><input></div>',
-    '<div><h2>Currency</h2><label><input name="currency" type="radio">GBP</label><label><input name="currency" type="radio">USD</label></div>',
   ])("does not mistake child labels, text, options or broken references for a group name: %s", async (html) => {
     expect((await scan(html)).issues).toHaveLength(1);
   });
@@ -128,12 +175,21 @@ describe.skipIf(!existsSync(chromium))("ACT-R60 group-name regressions", () => {
     '<fieldset hidden><input><input></fieldset>',
     '<fieldset aria-hidden="true"><input><input></fieldset>',
     '<fieldset inert><input><input></fieldset>',
+    '<fieldset style="display:none"><input><input></fieldset>',
+    '<fieldset style="visibility:hidden"><input><input></fieldset>',
+    '<fieldset><input><input style="display:none"></fieldset>',
+    '<fieldset><input><input style="visibility:hidden"></fieldset>',
+    '<fieldset><input><input style="content-visibility:hidden"></fieldset>',
+    '<details><summary>Passenger</summary><fieldset><input><input></fieldset></details>',
     '<fieldset><input type="hidden"><input></fieldset>',
     '<template><fieldset><input><input></fieldset></template>',
     '<form><input name="same" type="radio"></form><form><input name="same" type="radio"></form>',
     '<form id="a"></form><form id="b"></form><input name="same" type="radio" form="a"><input name="same" type="radio" form="b">',
     '<input type="radio"><input type="radio">',
     '<form><input name="first"><input name="second"></form>',
+    '<div><h2>Currency</h2><label><input name="currency" type="radio">GBP</label><label><input name="currency" type="radio">USD</label></div>',
+    '<div aria-label="Journey"><input name="same" type="radio"><input name="same" type="radio"></div>',
+    '<svg><g role="group"><foreignObject><input xmlns="http://www.w3.org/1999/xhtml"><input xmlns="http://www.w3.org/1999/xhtml"></foreignObject></g></svg>',
   ])("avoids inactive, single-control, unrelated-field and cross-form false positives: %s", async (html) => {
     expect((await scan(html)).issues).toEqual([]);
   });
@@ -141,7 +197,14 @@ describe.skipIf(!existsSync(chromium))("ACT-R60 group-name regressions", () => {
     expect((await scan('<div role="radiogroup"><div role="radio"></div><div role="radio"></div></div>')).issues).toHaveLength(1);
     expect((await scan('<div role="group"><button>First</button><button>Second</button></div>')).issues).toEqual([]);
   });
-  it("keeps independently named radio sets even when they share a wrapper", async () => {
-    expect((await scan('<div><input name="a" type="radio"><input name="a" type="radio"><input name="b" type="radio"><input name="b" type="radio"></div>')).issues).toHaveLength(2);
+  it("never infers groups from same-name radios in plain wrappers", async () => {
+    expect((await scan('<div><input name="a" type="radio"><input name="a" type="radio"><input name="b" type="radio"><input name="b" type="radio"></div>')).issues).toEqual([]);
+  });
+  it("does not exclude off-screen or transparent controls that remain in the accessibility tree", async () => {
+    for (const style of ["opacity:0", "position:absolute;left:-10000px", "width:0;height:0"]) {
+      const result = await scan(`<fieldset style="${style}"><input><input></fieldset>`);
+      expect(result.issues).toHaveLength(1);
+      expect(result.checked).toBe(1);
+    }
   });
 });

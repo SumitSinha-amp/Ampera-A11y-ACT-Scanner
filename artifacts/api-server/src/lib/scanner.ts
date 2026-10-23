@@ -2,12 +2,18 @@ import puppeteerExtra from "puppeteer-extra";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import type { Browser, Page } from "puppeteer";
 import { execSync } from "child_process";
-import { mkdirSync, rmSync, existsSync, readdirSync } from "fs";
+import { mkdirSync, rmSync, existsSync, readdirSync, readFileSync } from "fs";
 import path from "path";
 import os from "os";
 import { logger } from "./logger";
 import { runPixelContrastPass } from "./pixel-contrast.js";
 import { mergeContrastFindings } from "./contrast-issue-merge.js";
+import {
+  scanEmbeddedFrames,
+  mergeEmbeddedResults,
+  getEmbeddedFrameBoxes,
+  type BrowserRuleResult,
+} from "./embedded-frame-scanner";
 import {
   hashPreflightHtml,
   hashRenderedDom,
@@ -431,7 +437,7 @@ const WCAG_MAPPING: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R57": { sc: [], level: ["ARIA APG"] },
   "ACT-R58": { sc: ["2.4.1"], level: ["A"] },
   "ACT-R59": { sc: ["1.3.1"], level: ["A"] },
-  "ACT-R60": { sc: ["1.3.1"], level: ["A"] },
+  "ACT-R60": { sc: [], level: ["Best Practice"] },
   "ACT-R61": { sc: [], level: ["Best Practice"] },
   "ACT-R62": { sc: ["1.4.1"], level: ["A"] },
   "ACT-R63": { sc: ["4.1.2"], level: ["A"] },
@@ -500,6 +506,7 @@ const WCAG_MAPPING: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R126": { sc: ["3.3.8"], level: ["AA"] },
   "ACT-R127": { sc: ["3.3.9"], level: ["AAA"] },
   "ACT-R128": { sc: ["3.1.4"], level: ["AAA"] },
+  "ACT-R129": { sc: ["1.4.12"], level: ["AA"] },
 };
 
 /** All five level identifiers recognised by the scan level selector. */
@@ -891,7 +898,7 @@ const RULE_DESCRIPTIONS: Record<
     remediation: "Add meaningful heading structure",
   },
   "ACT-R60": {
-    type: "Issue",
+    type: "Best Practice",
     description: "Groups have an accessible name",
     remediation: "Use a fieldset with a meaningful legend or a semantic group/radiogroup named with aria-label or aria-labelledby. Individual control labels, visible headings without an explicit association, and radio name attributes do not provide a group name.",
   },
@@ -1017,7 +1024,7 @@ const RULE_DESCRIPTIONS: Record<
   "ACT-R80": {
     type: "Best Practice",
     description: "Line height is fixed",
-    remediation: "Allow flexible line-height for better readability",
+    remediation: "Use a unitless line-height such as 1.5 so it scales with text size. Verify readability when resizing text and applying spacing overrides; a fixed line height alone does not establish a WCAG failure.",
   },
   "ACT-R81": {
     type: "Potential Issue",
@@ -1031,6 +1038,7 @@ const RULE_DESCRIPTIONS: Record<
   "ACT-R82": {
     type: "Issue",
     description: "Error message describes invalid form field value",
+    potentialDescription: "Does the error identify the field and explain the problem?",
     remediation:
       "Provide error messages that clearly explain what is wrong with the user's input and how to fix it",
   },
@@ -1294,6 +1302,13 @@ const RULE_DESCRIPTIONS: Record<
       "Abbreviations and acronyms should have their full expansion available",
     remediation:
       "Provide the full meaning at first use in visible text, an <abbr title>, or an equivalent glossary entry (WCAG 3.1.4, AAA)",
+  },
+  "ACT-R129": {
+    type: "Issue",
+    description: "Text spacing causes loss of content or readability",
+    potentialDescription: "Does text remain readable after text-spacing overrides?",
+    remediation:
+      "Allow text containers to grow and wrap. Remove fixed dimensions or clipping that hides text. Test line height at least 1.5×, letter spacing 0.12em, word spacing 0.16em and paragraph spacing 2em without losing content or functionality (WCAG 1.4.12, AA). Review reported overlap visually.",
   },
 };
 
@@ -3353,6 +3368,8 @@ async function _scanPageInternal(
           issues.map((i) => i.selector),
         );
 
+        const frameBoxes = await getEmbeddedFrameBoxes(page, issues.map((issue) => issue.selector));
+        for (const [index, box] of frameBoxes) bboxes[index] = box;
         issues = issues.map((issue, idx) => ({
           ...issue,
           bboxX: bboxes[idx]?.x ?? null,
@@ -3907,7 +3924,9 @@ async function exploreInteractiveStates(
       if (!revealed) continue;
 
       const stateKey = `interaction-${index + 1}`;
-      const result = await runACTRules(page, selectedRules);
+      // Baseline frame findings are already collected. These states currently
+      // explore controls in the main document only.
+      const result = await runACTRules(page, selectedRules, false);
       stats.push(...result.stats);
       let stateIssues = result.issues.filter(
         (issue) =>
@@ -4036,6 +4055,7 @@ async function exploreInteractiveStates(
 async function runACTRules(
   page: Page,
   selectedRules?: string[],
+  includeEmbeddedFrames = true,
 ): Promise<{
   issues: ScanIssue[];
   stats: RuleCheckStat[];
@@ -4050,12 +4070,10 @@ async function runACTRules(
   // Production embeds the browser rule bundle in index.mjs so Azure and zip
   // deployments cannot lose it as a sibling asset. Keep the standalone-file
   // path as a development/backwards-compatible fallback.
-  if (typeof __AMPERA_BROWSER_BUNDLE__ !== "undefined") {
-    await page.addScriptTag({ content: __AMPERA_BROWSER_BUNDLE__ });
-  } else {
-    const bundlePath = path.join(__dirname, "browser-bundle.js");
-    await page.addScriptTag({ path: bundlePath });
-  }
+  const browserBundle = typeof __AMPERA_BROWSER_BUNDLE__ !== "undefined"
+    ? __AMPERA_BROWSER_BUNDLE__
+    : readFileSync(path.join(__dirname, "browser-bundle.js"), "utf8");
+  await page.addScriptTag({ content: browserBundle });
 
   const bundlePreflight = await page.evaluate((expectedMarker) => {
     const engine = (window as any).__ampera;
@@ -4084,29 +4102,19 @@ async function runACTRules(
     );
   }
 
-  const bundleResult: {
-    issues: Array<{
-      ruleId: string;
-      type: string;
-      displayTitle?: string;
-      impact: string;
-      description: string;
-      element: string | null;
-      elementContext?: string | null;
-      selector: string | null;
-    }>;
-    stats: Array<{
-      ruleId: string;
-      totalChecked: number;
-      scope: "element" | "page";
-    }>;
-    ruleStatuses?: RuleExecutionStatus[];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } = await page.evaluate(
+  let bundleResult: BrowserRuleResult = await page.evaluate(
     (options) => (window as any).__ampera.runAllRules(options),
     { emitManualOnlyRules, rules: selectedRules },
   );
 
+  if (includeEmbeddedFrames) {
+    const embedded = await scanEmbeddedFrames(page, browserBundle, {
+      emitManualOnlyRules, rules: selectedRules,
+    }, {
+      onSkipped: (detail) => logger.warn(detail, "Embedded frame could not be scanned"),
+    });
+    bundleResult = mergeEmbeddedResults(bundleResult, embedded);
+  }
   // ─── Map results → ScanIssue with WCAG metadata ──────────────────────────
   const issues: ScanIssue[] = [];
   for (const r of bundleResult.issues) {
@@ -4130,6 +4138,7 @@ async function runACTRules(
         ? `${r.displayTitle ?? (r.type === "Issue" ? desc.issueDescription : desc.potentialDescription) ?? desc.description}: ${r.description}`
         : r.description,
       element: r.element,
+      elementContext: r.elementContext ?? null,
       wcagCriteria: wcag ? wcag.sc.join(", ") : null,
       wcagLevel: wcag ? wcag.level.join(", ") : null,
       selector: r.selector,

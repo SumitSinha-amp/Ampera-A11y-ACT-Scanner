@@ -9,6 +9,12 @@ import {
 } from "./registry";
 
 describe("browser rule registry", () => {
+  it("classifies ACT-R80 as automatic so standard scans do not suppress it", () => {
+    expect(RULE_REGISTRY.find((rule) => rule.id === "ACT-R80")).toMatchObject({
+      executionTier: "automatic",
+      manual: false,
+    });
+  });
   it("normalizes explicit selections and preserves legacy rule aliases", () => {
     const selected = getSelectedRuleIds([" act-r84(link) ", "ACT-R66"]);
     expect(selected).toEqual(new Set(["ACT-R84", "ACT-R66"]));

@@ -16,7 +16,7 @@ export function evidenceStorageConfig() {
   return { endpoint, bucket, accessKeyId, secretAccessKey };
 }
 
-function storage() {
+export function storage(requestTimeout = 30_000) {
   const config = evidenceStorageConfig();
   return {
     bucket: config.bucket,
@@ -24,7 +24,7 @@ function storage() {
       endpoint: config.endpoint, region: "auto", forcePathStyle: true,
       requestChecksumCalculation: "WHEN_REQUIRED",
       credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
-      requestHandler: { connectionTimeout: 5_000, requestTimeout: 30_000 },
+      requestHandler: { connectionTimeout: 5_000, requestTimeout },
       maxAttempts: 2,
     }),
   };

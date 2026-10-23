@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import ACT_RULES from "@/lib/actRules";
+import { CustomRuleBadge } from "@/components/custom-rule-badge";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -1088,6 +1089,7 @@ function RuleList({ rules }: { rules: typeof ruleReferences }) {
               {rule.id}
             </Badge>
             <h3 className="font-medium text-sm leading-tight">{rule.title}</h3>
+            <CustomRuleBadge ruleId={rule.id} />
             {rule.deprecated && (
               <Tooltip>
                 <TooltipTrigger asChild>

@@ -40,6 +40,7 @@ import { DEFAULT_LOGO_SUBTITLE, DEFAULT_LOGO_TEXT } from "@/pages/settings";
 const BRANDING_BASE = (import.meta.env.BASE_URL as string).replace(/\/$/, "");
 import {
   APP_RELEASE_MONTH,
+  APP_RELEASE_SUMMARY,
   APP_RULE_MAPPING_RELEASE,
   APP_VERSION,
 } from "@/lib/app-version";
@@ -311,7 +312,7 @@ const ruleMappingReleaseGroups: UpdateGroup[] = [
     description: "Accessibility findings now retain the correct rule identity across new scans and deployed environments.",
     category: "Accessibility",
     features: [
-      "Corrected ACT-R32 to Siteimprove SIA-R32: visual-only video content must have an audio-track alternative",
+      "Corrected ACT-R32: visual-only video content must have an audio-track alternative",
       "ACT-R32 is now presented as a non-WCAG best-practice review instead of an enhanced touch-target finding",
       "Enhanced 44×44 target-size findings are recorded as ACT-R111 (WCAG 2.5.5 AAA), while 24×24 minimum findings use ACT-R113 (WCAG 2.5.8 AA)",
       "Startup migration safely reclassifies legacy R32 target-size findings and their scoring statistics during Azure deployment",
@@ -391,6 +392,8 @@ const release146ProductGroups: UpdateGroup[] = [
       "Preview and verify a backup before restoring missing issue data, with conflict checks that protect existing records",
       "Issue recovery requires Super Admin access, a reason, and the explicit RESTORE ISSUES confirmation; recovery actions are audited",
       "Encrypted recovery exports support integrity verification, while archive restoration remains separate from recovery after data loss",
+      "Native PostgreSQL SQL backups support all tables or on-demand table selection, with optional related-table inclusion and schema-plus-data or data-only exports",
+      "SQL backups run in the background, verify uploaded bytes in private R2, and provide Super Admin-only downloads with checksums and restore instructions",
       "These application safeguards do not change Azure backup-retention settings",
     ],
   },
@@ -480,12 +483,72 @@ const release144ProductGroups: UpdateGroup[] = [
   },
 ];
 
+const release147ProductGroups: UpdateGroup[] = [
+  {
+    icon: ClipboardCheck,
+    title: "Broader form-error identification review",
+    description: "ACT-R82 retains automatic findings and adds clearly labeled review questions across form-control roles.",
+    category: "Accessibility",
+    features: [
+      "Existing automatic ACT-R82 Issues remain unchanged; the additional semi-automated checks are reported as Potential Issues",
+      "Review coverage includes textbox, searchbox, checkbox, radio, combobox, listbox, slider, spinbutton, switch, menuitemcheckbox, and menuitemradio roles",
+      "Review whether an error indicator identifies the affected field and explains the cause or how to resolve it; separate indicators can satisfy these questions",
+      "Inspect referenced messages, missing descriptions, hidden or screen-reader-hidden indicators, image alternatives, and visual-only error styling",
+      "Generic form errors without field-specific associations are reported once at the summary, without inventing the number of invalid fields",
+      "Fields without an observed validation state receive review questions, not confirmed failures; a reviewer can pass the check when no error indicator applies",
+      "Normal scans do not fill fields, move focus, submit forms, or trigger validation to discover errors",
+    ],
+  },
+  {
+    icon: MousePointerClick,
+    title: "Keyboard access for custom dropdowns",
+    description: "ACT-R107 now recognizes likely keyboard gaps in custom dropdowns, including hover-driven controls.",
+    category: "Accessibility",
+    features: [
+      "Custom dropdown triggers can be reviewed even when they have no inline click handler",
+      "Related popup controls, declared targets, and missing or negative tabindex values provide evidence for a Potential Issue",
+      "Native controls, keyboard-focusable descendants, alternate accessible triggers, and managed-focus menus are recognized to reduce false positives",
+      "Negative tabindex alone is not treated as a failure",
+      "Existing inline pointer-handler detection remains available under the same rule ID",
+    ],
+  },
+  {
+    icon: Globe,
+    title: "Accessibility inside embedded frames",
+    description: "Loaded, visible embedded documents can contribute findings to the parent page report.",
+    category: "Scanning",
+    features: [
+      "The rule engine checks already-loaded visible frames, including cross-origin embedded players, within bounded frame, depth, and time limits",
+      "Frame evaluation supports pages that restrict script-element injection through Trusted Types",
+      "Frame-qualified selectors and embedded-document context keep identical element IDs in different documents separate",
+      "Snapshot highlights resolve through nested frame boundaries and are clipped to the relevant frame",
+      "Explicit rule selections apply inside frames, and one unavailable frame does not discard successful main-page findings",
+      "Frame scanning does not separately fetch or navigate frame URLs, submit forms, or start media playback",
+    ],
+  },
+  {
+    icon: Accessibility,
+    title: "Text layout and structural accuracy",
+    description: "Recent rule refinements distinguish confirmed structural problems from layout guidance and manual reviews.",
+    category: "Accessibility",
+    features: [
+      "ACT-R80 runs in standard scans and reports confirmed non-scaling line height as Best Practice guidance rather than proof of a WCAG failure",
+      "The custom ACT-R129 text-spacing check evaluates layout breakage separately from other text-style checks and restores authored styles after measurement",
+      "ACT-R99 reports a missing main landmark as an Issue",
+      "ACT-R68 checks required child-role relationships without treating empty generic containers as failures",
+      "ACT-R60 can review unnamed semantic groups in dormant popups while excluding plain, non-semantic radio wrappers",
+      "Issue and Potential Issue occurrences retain their own classification, wording, selectors, and evidence under the same rule ID",
+    ],
+  },
+];
+
 type ReleaseHistoryEntry = {
   version: string;
   month: string;
   label: string;
   summary: string;
   groups: UpdateGroup[];
+  showcase?: boolean;
 };
 
 export const releaseHistory: ReleaseHistoryEntry[] = [
@@ -493,6 +556,14 @@ export const releaseHistory: ReleaseHistoryEntry[] = [
     version: APP_UPDATES_VERSION,
     month: APP_UPDATES_MONTH,
     label: "Current release",
+    summary: APP_RELEASE_SUMMARY,
+    groups: release147ProductGroups,
+    showcase: false,
+  },
+  {
+    version: "1.4.6",
+    month: "October 2026",
+    label: "Previous release",
     summary: "Data protection and independent Issue Management recovery, alongside smoother replay highlighting and synchronized scan progress.",
     groups: release146ProductGroups,
   },
@@ -1259,7 +1330,7 @@ export function AppUpdatesContent({ compact = false }: { compact?: boolean }) {
   const [category, setCategory] = useState<UpdateCategory | "All">("All");
   const [selectedReleaseVersion, setSelectedReleaseVersion] = useState(APP_UPDATES_VERSION);
   const [openGroups, setOpenGroups] = useState<Set<string>>(
-    () => new Set(updateGroups.slice(0, 2).map((group) => updateGroupId(group.title))),
+    () => new Set(releaseHistory[0].groups.slice(0, 2).map((group) => updateGroupId(group.title))),
   );
   const selectedRelease =
     releaseHistory.find((release) => release.version === selectedReleaseVersion) ?? releaseHistory[0];
@@ -1418,7 +1489,7 @@ export function AppUpdatesContent({ compact = false }: { compact?: boolean }) {
         )}
       </div>
 
-      {!compact && <InterfaceUpdateShowcase />}
+      {!compact && selectedRelease.showcase !== false && <InterfaceUpdateShowcase />}
 
       <Card className="overflow-hidden border-primary/20">
         <div className="h-1 bg-gradient-to-r from-primary via-violet-500 to-fuchsia-500" />

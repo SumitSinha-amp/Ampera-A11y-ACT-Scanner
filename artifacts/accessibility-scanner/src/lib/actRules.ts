@@ -16,6 +16,7 @@ export type RuleDisplayMeta = {
   eaa?: boolean;
   ada?: boolean;
   ruleType?: RuleOutcomeType;
+  custom?: boolean;
 };
 
 export const ACT_RULES: Record<string, RuleDisplayMeta> = {
@@ -53,7 +54,7 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       "Multiple lang attributes on the page contain inconsistent or invalid values, which confuses assistive technologies trying to apply the correct speech engine.",
     deprecated: true,
     deprecatedReason:
-      "xml:lang attributes are no longer used in modern HTML. This rule is superseded by SIA-R4 and SIA-R5.",
+      "xml:lang attributes are no longer used in modern HTML. This rule is superseded by ACT-R4 and ACT-R5.",
   },
   "ACT-R7": {
     title: "Content language changes are not identified",
@@ -197,7 +198,7 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
   "ACT-R32": {
     title: "Video visual-only content has an audio-track alternative",
     detail:
-      "Visible prerecorded video without audio needs an audio track or alternative version that conveys its visual information. This is a Siteimprove best-practice check, not a WCAG conformance criterion.",
+      "Visible prerecorded video without audio needs an audio track or alternative version that conveys its visual information. This is a best-practice check, not a WCAG conformance criterion.",
   },
   "ACT-R33": {
     title: "Media alternative may be insufficient",
@@ -354,7 +355,7 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
   "ACT-R60": {
     title: "Groups have an accessible name",
     detail:
-      "Related control groups with at least two inputs need a programmatically available group name: use a fieldset with a meaningful legend or an appropriate group/radiogroup role with aria-label or aria-labelledby. Individual labels, nearby unassociated headings, and the radio name attribute do not name the group. Native controls in CSS-hidden menus/dialogs are checked too; semantically inactive markup is excluded.",
+      "Semantic groups containing at least two form inputs included in the accessibility tree need a non-empty accessible name. Inputs are counted in their nearest semantic group only. Use a fieldset with a meaningful legend or name the group with aria-label or aria-labelledby. Plain wrappers and same-name radio sets without group semantics are not applicable. As an additional review check, unnamed semantic groups in hidden overlays or popups are reported as Potential Issues: open the popup to verify. Exposed failures remain Best Practice findings, not direct WCAG success-criterion failures.",
   },
   "ACT-R61": {
     title: "Documents start with a level 1 heading",
@@ -463,7 +464,7 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
   "ACT-R80": {
     title: "Line height is fixed",
     detail:
-      "Setting line-height with a fixed pixel value prevents it from scaling when users increase their text size, which can cause text to overlap on zoom.",
+      "Automatically checks paragraphs for a line height that does not scale when the text size is doubled. Findings include the measured font sizes and line heights and are reported as Best Practice in standard scans. Prefer a unitless line-height such as 1.5. A non-scaling line height alone does not prove a WCAG failure; verify overlap, clipping, or loss of content under the relevant resize or spacing test.",
   },
   "ACT-R81": {
     title: "Links with identical text lead to different destinations",
@@ -475,8 +476,10 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
   },
   "ACT-R82": {
     title: "Error message describes invalid form field value",
+    issueTitle: "Invalid form field has no associated error description",
+    potentialTitle: "Does the error identify the field and explain the problem?",
     detail:
-      "Content that looks like a list, heading, or table but is marked up with generic <div> or <span> elements lacks the semantic structure that assistive technologies rely on.",
+      "Error indicators must be perceivable, identify the affected form field, and explain the cause or how to resolve it. Existing automatic findings are retained. Broader checks are Potential Issues requiring manual review, including generic form errors and fields whose validation state has not been observed. Normal scans do not submit forms or trigger validation.",
   },
   "ACT-R83": {
     title: "Text is clipped when resized",
@@ -712,6 +715,12 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
     detail:
       "At first use, provide the full meaning of abbreviations and acronyms in visible text, an <abbr title>, or an equivalent glossary entry. Because the browser cannot determine whether a reader knows an abbreviation, matches are reported as Potential Issues for review.",
   },
+  "ACT-R129": {
+    custom: true,
+    title: "Text spacing causes loss of content or readability",
+    detail:
+      "Custom Ampera check for WCAG 1.4.12 (AA). Compares rendered text before and after applying at least 1.5× line height, 0.12em letter spacing, 0.16em word spacing and 2em paragraph spacing, preserving already wider values. Newly hidden or materially clipped text is an Issue; newly overlapping text bounds are a Potential Issue requiring visual review. Existing clipping and scrolling alone do not establish failure. Tests up to 1,200 visible text nodes in the current state, including open shadow roots, then restores authored styles and scroll positions. It does not prove that all interactive states, controls, images of text, or every visual obstruction pass.",
+  },
 };
 
 // Keep documentation badges aligned with the API's WCAG_MAPPING and
@@ -738,7 +747,7 @@ const WCAG_RULE_METADATA: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R51": { sc: ["1.4.2"], level: ["A"] }, "ACT-R52": { sc: ["2.4.4"], level: ["A"] }, "ACT-R53": { sc: ["1.3.1"], level: ["A"] },
   "ACT-R54": { sc: ["4.1.3"], level: ["AA"] }, "ACT-R55": { sc: ["1.3.1"], level: ["A"] }, "ACT-R56": { sc: ["1.3.1"], level: ["A"] },
   "ACT-R57": { sc: [], level: ["ARIA APG"] }, "ACT-R58": { sc: ["2.4.1"], level: ["A"] }, "ACT-R59": { sc: ["1.3.1"], level: ["A"] },
-  "ACT-R60": { sc: ["1.3.1"], level: ["A"] }, "ACT-R61": { sc: [], level: ["Best Practice"] }, "ACT-R62": { sc: ["1.4.1"], level: ["A"] },
+  "ACT-R60": { sc: [], level: ["Best Practice"] }, "ACT-R61": { sc: [], level: ["Best Practice"] }, "ACT-R62": { sc: ["1.4.1"], level: ["A"] },
   "ACT-R63": { sc: ["4.1.2"], level: ["A"] }, "ACT-R64": { sc: ["2.4.6"], level: ["AA"] }, "ACT-R65": { sc: ["2.4.7"], level: ["AA"] },
   "ACT-R66": { sc: ["1.4.6"], level: ["AAA"] }, "ACT-R67": { sc: ["1.1.1"], level: ["A"] }, "ACT-R68": { sc: ["1.3.1"], level: ["A"] },
   "ACT-R69": { sc: ["1.4.3"], level: ["AA"] }, "ACT-R70": { sc: ["4.1.1"], level: ["A"] }, "ACT-R71": { sc: ["1.4.8"], level: ["AAA"] },
@@ -762,6 +771,7 @@ const WCAG_RULE_METADATA: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R121": { sc: ["2.4.13"], level: ["AAA"] }, "ACT-R122": { sc: ["2.5.7"], level: ["AA"] }, "ACT-R124": { sc: ["3.2.6"], level: ["A"] },
    "ACT-R125": { sc: ["3.3.7"], level: ["A"] }, "ACT-R126": { sc: ["3.3.8"], level: ["AA"] }, "ACT-R127": { sc: ["3.3.9"], level: ["AAA"] },
    "ACT-R128": { sc: ["3.1.4"], level: ["AAA"] },
+   "ACT-R129": { sc: ["1.4.12"], level: ["AA"] },
 };
 
 for (const [id, metadata] of Object.entries(WCAG_RULE_METADATA)) {

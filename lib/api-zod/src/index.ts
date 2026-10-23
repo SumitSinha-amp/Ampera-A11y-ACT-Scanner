@@ -1,3 +1,8 @@
+export { CreateSqlBackupBody, GetSqlBackupsResponseItem } from "./generated/api";
+export type { SqlBackupCatalog } from "./generated/types/sqlBackupCatalog";
+export type { SqlBackupTable } from "./generated/types/sqlBackupTable";
+export type { SqlBackupInput } from "./generated/types/sqlBackupInput";
+export type { SqlBackupJob } from "./generated/types/sqlBackupJob";
 export * from "./generated/api";
 export * from "./generated/types/databaseStorageConfig";
 export * from "./generated/types/databaseStorageStatus";

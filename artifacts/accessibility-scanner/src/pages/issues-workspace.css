@@ -1,0 +1,68 @@
+/* Overview content stays fixed. Only the list and detail bodies scroll
+   vertically; narrow screens can pan the single-row metrics horizontally. */
+.issues-overview {
+  overflow: visible;
+}
+
+@media (max-height: 700px), (max-width: 767px) {
+  .issues-workspace-page {
+    padding: 0.5rem;
+    gap: 0.5rem;
+  }
+  .issues-overview > * + * {
+    margin-top: 0.5rem;
+  }
+  .issues-page-header {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .issues-page-eyebrow {
+    display: none;
+  }
+  .issues-page-title {
+    font-size: 1.25rem;
+    line-height: 1.25;
+  }
+  .issues-page-header button {
+    height: 2rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+  }
+  .issues-metric-content {
+    min-height: 80px;
+    padding: 0.25rem;
+  }
+  .issues-metric-content > .text-2xl {
+    font-size: 1.125rem;
+  }
+  .issues-type-counts {
+    margin-top: 0.125rem;
+    padding-top: 0.125rem;
+  }
+  .issues-type-counts > div {
+    line-height: 10px;
+    font-size: 8px;
+  }
+  .issues-filter-bar {
+    padding: 0.25rem;
+    gap: 0.25rem;
+  }
+  .issues-filter-bar input,
+  .issues-filter-bar [role="combobox"],
+  .issues-filter-bar [role="tablist"] {
+    height: 2rem;
+  }
+  [data-testid="issue-detail-header"] {
+    padding: 0.5rem 0.75rem;
+  }
+  [data-testid="issue-detail-header"] h1 {
+    font-size: 1rem;
+    line-height: 1.25;
+  }
+  [data-testid="issue-detail-header"] button {
+    height: 1.75rem;
+    padding-inline: 0.375rem;
+    font-size: 0.75rem;
+  }
+}

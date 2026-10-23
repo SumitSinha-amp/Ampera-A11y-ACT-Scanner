@@ -9,10 +9,32 @@ export PUPPETEER_CACHE_DIR=/home/site/wwwroot/.cache/puppeteer
 # accessibility scan.
 BROWSER_BUNDLE="/home/site/wwwroot/artifacts/api-server/dist/browser-bundle.js"
 SERVER_BUNDLE="/home/site/wwwroot/artifacts/api-server/dist/index.mjs"
+FRONTEND_INDEX="/home/site/wwwroot/artifacts/api-server/dist/public/index.html"
 if [ ! -s "$BROWSER_BUNDLE" ] && ! grep -q "window.__ampera" "$SERVER_BUNDLE" 2>/dev/null; then
   echo "=== FATAL: browser rule bundle is missing from the Azure deployment ===" >&2
   echo "=== Expected standalone bundle: $BROWSER_BUNDLE ===" >&2
   echo "=== Rebuild and redeploy with: pnpm --filter @workspace/api-server run build ===" >&2
+  exit 1
+fi
+if ! grep -q "issues-attachments-r2-v1" "$SERVER_BUNDLE" 2>/dev/null; then
+  echo "=== FATAL: API build marker issues-attachments-r2-v1 is missing ===" >&2
+  echo "=== Azure issue attachment support is not included in the API artifact ===" >&2
+  exit 1
+fi
+if ! grep -q "issues-create-route-v1" "$SERVER_BUNDLE" 2>/dev/null; then
+  echo "=== FATAL: API build marker issues-create-route-v1 is missing ===" >&2
+  echo "=== The POST /api/issues route is not included in the Azure API artifact ===" >&2
+  exit 1
+fi
+if ! grep -q "issues-router-app-mount-v2" "$SERVER_BUNDLE" 2>/dev/null; then
+  echo "=== FATAL: API build marker issues-router-app-mount-v2 is missing ===" >&2
+  echo "=== The Issue router is not mounted directly by the Express application ===" >&2
+  exit 1
+fi
+if [ ! -s "$FRONTEND_INDEX" ]; then
+  echo "=== FATAL: React frontend is missing from the Azure deployment ===" >&2
+  echo "=== Expected frontend entry point: $FRONTEND_INDEX ===" >&2
+  echo "=== Rebuild and redeploy with the API build so dist/public is packaged ===" >&2
   exit 1
 fi
 if [ -s "$BROWSER_BUNDLE" ]; then
@@ -20,6 +42,7 @@ if [ -s "$BROWSER_BUNDLE" ]; then
 else
   echo "=== Embedded browser rule bundle verified in $SERVER_BUNDLE ==="
 fi
+echo "=== React frontend verified at $FRONTEND_INDEX ==="
 
 # ── Chrome system dependencies ────────────────────────────────────────────────
 # Azure App Service Linux only persists /home between container restarts.
@@ -27,29 +50,57 @@ fi
 # container starts, so apt-get MUST run unconditionally on every startup.
 echo "=== INSTALL CHROME DEPENDENCIES ==="
 apt-get update -qq
+# Ubuntu 24.04 renamed several libraries to their t64 variants. Resolve each
+# package against the current image instead of assuming the Debian 12 names.
+package_with_candidate() {
+  local candidate
+  for candidate in "$@"; do
+    # apt-cache policy reports a candidate for some virtual packages even
+    # though apt-get refuses to install them (Ubuntu 24's libasound2 is one).
+    # A simulated install is the authoritative installability check.
+    if DEBIAN_FRONTEND=noninteractive apt-get install --simulate \
+      --no-install-recommends "$candidate" >/dev/null 2>&1; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  echo "=== FATAL: no apt candidate found for: $* ===" >&2
+  return 1
+}
+
+CHROME_PACKAGES=()
+add_chrome_package() {
+  local resolved
+  resolved="$(package_with_candidate "$@")" || exit 1
+  CHROME_PACKAGES+=("$resolved")
+}
+
+add_chrome_package libglib2.0-0t64 libglib2.0-0
+add_chrome_package libnss3
+add_chrome_package libatk1.0-0t64 libatk1.0-0
+add_chrome_package libatk-bridge2.0-0t64 libatk-bridge2.0-0
+add_chrome_package libcups2t64 libcups2
+add_chrome_package libdrm2t64 libdrm2
+add_chrome_package libxkbcommon0
+add_chrome_package libxcomposite1
+add_chrome_package libxdamage1
+add_chrome_package libxrandr2
+add_chrome_package libgbm1
+add_chrome_package libasound2t64 libasound2
+add_chrome_package libpangocairo-1.0-0
+add_chrome_package libpango-1.0-0
+add_chrome_package libcairo2t64 libcairo2
+add_chrome_package libatspi2.0-0t64 libatspi2.0-0
+add_chrome_package libx11-6
+add_chrome_package libxcb1
+add_chrome_package libxext6
+add_chrome_package libxfixes3
+add_chrome_package libxi6
+add_chrome_package libxtst6
+add_chrome_package postgresql-client
+
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  libglib2.0-0 \
-  libnss3 \
-  libatk1.0-0 \
-  libatk-bridge2.0-0 \
-  libcups2 \
-  libdrm2 \
-  libxkbcommon0 \
-  libxcomposite1 \
-  libxdamage1 \
-  libxrandr2 \
-  libgbm1 \
-  libasound2t64 \
-  libpangocairo-1.0-0 \
-  libpango-1.0-0 \
-  libcairo2 \
-  libatspi2.0-0 \
-  libx11-6 \
-  libxcb1 \
-  libxext6 \
-  libxfixes3 \
-  libxi6 \
-  libxtst6
+  "${CHROME_PACKAGES[@]}"
 
 # ── Chrome browser binary ─────────────────────────────────────────────────────
 # $PUPPETEER_CACHE_DIR lives under /home/site/wwwroot which Azure DOES persist
@@ -98,34 +149,4 @@ else
 fi
 
 echo "=== START NODE ==="
-echo "=== FRONTEND DEPLOYMENT CHECK ==="
-
-PUBLIC_DIR="/home/site/wwwroot/artifacts/api-server/dist/public"
-
-if [ -d "$PUBLIC_DIR" ]; then
-  echo "=== PUBLIC DIR EXISTS ==="
-  ls -lah "$PUBLIC_DIR"
-else
-  echo "=== ERROR: PUBLIC DIR MISSING ==="
-fi
-
-if [ -f "$PUBLIC_DIR/index.html" ]; then
-  echo "=== INDEX.HTML EXISTS ==="
-  echo "=== INDEX SIZE ==="
-  wc -c "$PUBLIC_DIR/index.html"
-
-  echo "=== INDEX.HTML CONTENT ==="
-  cat "$PUBLIC_DIR/index.html"
-else
-  echo "=== ERROR: INDEX.HTML MISSING ==="
-fi
-
-if [ -d "$PUBLIC_DIR/assets" ]; then
-  echo "=== ASSETS DIR EXISTS ==="
-  find "$PUBLIC_DIR/assets" -maxdepth 1 -type f -printf '%f %s bytes\n'
-else
-  echo "=== ERROR: ASSETS DIR MISSING ==="
-fi
-
-echo "=== END FRONTEND DEPLOYMENT CHECK ==="
 node /home/site/wwwroot/artifacts/api-server/dist/index.mjs

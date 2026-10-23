@@ -19,6 +19,37 @@ function missing(expected: Set<string>, actual: Set<string>): string[] {
 }
 
 describe("scan rule surfaces stay synchronized", () => {
+  it("keeps vendor references out of user-facing rule guidance and release notes", () => {
+    for (const path of [
+      "artifacts/accessibility-scanner/src/lib/actRules.ts",
+      "artifacts/accessibility-scanner/src/pages/documentation.tsx",
+      "artifacts/accessibility-scanner/src/pages/app-updates.tsx",
+    ]) {
+      expect(read(path)).not.toMatch(/site[\s-]?improve/i);
+    }
+    for (const path of [
+      "artifacts/accessibility-scanner/src/pages/page-report.tsx",
+      "artifacts/accessibility-scanner/src/pages/site-rule-page-report.tsx",
+    ]) {
+      expect(read(path)).not.toContain("Equivalent:");
+      expect(read(path)).toContain("<CustomRuleBadge");
+    }
+    expect(read("artifacts/accessibility-scanner/src/pages/documentation.tsx")).toContain("<CustomRuleBadge");
+  });
+  it("keeps the Issues overview free of a separate vertical scroll region", () => {
+    const source = read("artifacts/accessibility-scanner/src/pages/issues.tsx");
+    expect(source).not.toContain('data-testid="issues-overview-scroll"');
+    expect(source).toContain('data-testid="issues-overview"');
+    expect(source).toContain('className="issues-overview shrink-0 space-y-3"');
+  });
+  it("keeps the custom text-spacing rule selectable and mapped to WCAG AA", () => {
+    expect(read("artifacts/api-server/src/lib/scanner.ts")).toContain('"ACT-R129": { sc: ["1.4.12"], level: ["AA"] }');
+    expect(read("artifacts/accessibility-scanner/src/lib/actRules.ts")).toContain('"ACT-R129": { sc: ["1.4.12"], level: ["AA"] }');
+    expect(read("artifacts/accessibility-scanner/src/pages/home.tsx")).toContain('id: "ACT-R129"');
+    expect(read("artifacts/api-server/src/lib/browser/registry.ts")).toContain('"text-spacing": ["ACT-R129"]');
+    expect(read("artifacts/api-server/src/lib/browser/index.ts")).toContain('runFamily("text-spacing", () => runTextSpacingLayoutRule(results, pushStat))');
+    expect(read("artifacts/accessibility-scanner/src/lib/actRules.ts")).toContain("custom: true");
+  });
 const browserRulePaths = [
   "artifacts/api-server/src/lib/browser/rules/aria.ts",
   "artifacts/api-server/src/lib/browser/rules/document-language.ts",
@@ -26,6 +57,7 @@ const browserRulePaths = [
   "artifacts/api-server/src/lib/browser/rules/keyboard-misc.ts",
   "artifacts/api-server/src/lib/browser/rules/empty-containers.ts",
   "artifacts/api-server/src/lib/browser/rules/control-group-names.ts",
+  "artifacts/api-server/src/lib/browser/rules/text-spacing-layout.ts",
   "artifacts/api-server/src/lib/browser/rules/links-contrast.ts",
   "artifacts/api-server/src/lib/browser/rules/media.ts",
   "artifacts/api-server/src/lib/browser/rules/names.ts",
@@ -195,13 +227,13 @@ const browserEntrySource = read("artifacts/api-server/src/lib/browser/index.ts")
     );
   });
 
-  it("runs all ACT-R60 detectors in the selected tables-forms family", () => {
+  it("runs Siteimprove-aligned ACT-R60 in the selected tables-forms family", () => {
     expect(read("artifacts/api-server/src/lib/browser/rules/tables-forms.ts"))
       .toContain("runControlGroupNameRule(results, pushStat)");
     expect(read("artifacts/api-server/src/lib/browser/rules/structure-misc.ts"))
       .not.toContain('ruleId: "ACT-R60"');
     expect(read("artifacts/api-server/src/lib/browser/rules/control-group-names.ts"))
-      .toContain('ruleId: "ACT-R60", type: "Issue"');
+      .toContain('ruleId: "ACT-R60", type: "Best Practice"');
   });
 
   it("keeps ACT-R55 a group-level content-equivalence review, not an autocomplete fix", () => {

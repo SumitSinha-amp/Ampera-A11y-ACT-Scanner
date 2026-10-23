@@ -3502,14 +3502,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
             id="main-content"
             tabIndex={-1}
               className={`flex-1 min-h-0 min-w-0 ${
-              location === "/welcome"
+              location === "/welcome" || location.split("?")[0] === "/issues"
                 ? "flex flex-col overflow-hidden"
                 : "overflow-auto app-scrollbar"
             }`}
           >
             <div
-              className={`app-page-content w-full min-w-0 p-3 pb-6 md:p-5 md:pb-8 ${
-                location === "/welcome" ? "h-full min-h-0 flex flex-col" : ""
+              className={`app-page-content w-full min-w-0 ${location.split("?")[0] === "/issues" ? "p-2 md:p-3" : "p-3 pb-6 md:p-5 md:pb-8"} ${
+                location === "/welcome" || location.split("?")[0] === "/issues" ? "h-full min-h-0 flex flex-col" : ""
               }`}
             >
               {location !== "/welcome" &&
@@ -3524,7 +3524,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 (() => {
                 const breadcrumb = getShellBreadcrumb(location);
                 return breadcrumb ? (
-                  <div className="mb-3">
+                  <div className="mb-3 shrink-0">
                     <nav
                       aria-label="Breadcrumb"
                       className="flex items-center gap-1.5 text-xs text-muted-foreground"

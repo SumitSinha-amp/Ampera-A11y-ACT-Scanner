@@ -21,7 +21,7 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import { useAuth } from "@/contexts/auth";
 import { Skeleton } from "@/components/ui/skeleton";
-import { APP_VERSION } from "@/lib/app-version";
+import { APP_RELEASE_SUMMARY, APP_RELEASE_TITLE, APP_VERSION } from "@/lib/app-version";
 import { useEffect, useState } from "react";
 import { DEFAULT_LOGO_SUBTITLE, DEFAULT_LOGO_TEXT } from "@/pages/settings";
 
@@ -127,17 +127,14 @@ export default function WelcomePage() {
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-base font-semibold">
-                    Data protection and smoother scanning in {APP_VERSION}
+                    {APP_RELEASE_TITLE} in {APP_VERSION}
                   </h2>
                   <Badge variant="outline" className="text-[10px]">
                     New
                   </Badge>
                 </div>
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                  New data protection tools give Super Admins independent Issue
-                  Management backups, recovery previews, and audited restoration.
-                  Inspect HTML replay occurrences without reloading, and follow
-                  synchronized scan progress that freezes while paused.
+                  {APP_RELEASE_SUMMARY}
                 </p>
                 <Link href="/app-updates">
                   <Button variant="link" className="h-auto px-0 text-xs text-cyan-700 dark:text-cyan-300">

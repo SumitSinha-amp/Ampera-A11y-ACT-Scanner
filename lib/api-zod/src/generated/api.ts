@@ -7,6 +7,58 @@
  */
 import * as zod from "zod";
 
+export const GetSqlBackupCatalogResponse = zod.object({
+  database: zod.string(),
+  serverVersion: zod.string(),
+  environment: zod.string(),
+  available: zod.boolean(),
+  unavailableReason: zod.string(),
+  dumpVersion: zod.string(),
+  tables: zod.array(
+    zod.object({
+      id: zod.string(),
+      schema: zod.string(),
+      name: zod.string(),
+      estimatedRows: zod.number(),
+      sizeBytes: zod.number(),
+      dependencies: zod.array(zod.string()),
+    }),
+  ),
+});
+
+export const GetSqlBackupsResponseItem = zod.object({
+  id: zod.string(),
+  status: zod.enum(["running", "ready", "failed"]),
+  stage: zod.string(),
+  createdAt: zod.string(),
+  expiresAt: zod.string(),
+  scope: zod.enum(["all", "selected"]),
+  content: zod.enum(["schema-and-data", "data-only"]),
+  tableIds: zod.array(zod.string()),
+  addedDependencies: zod.array(zod.string()),
+  database: zod.string(),
+  serverVersion: zod.string(),
+  filename: zod.string(),
+  sizeBytes: zod.number(),
+  sha256: zod.string(),
+  error: zod.string(),
+});
+export const GetSqlBackupsResponse = zod.array(GetSqlBackupsResponseItem);
+
+export const createSqlBackupBodyTableIdsMax = 2000;
+
+export const CreateSqlBackupBody = zod.object({
+  scope: zod.enum(["all", "selected"]),
+  content: zod.enum(["schema-and-data", "data-only"]),
+  tableIds: zod.array(zod.string()).max(createSqlBackupBodyTableIdsMax),
+  includeDependencies: zod.boolean(),
+  confirmation: zod.enum(["EXPORT DATABASE"]),
+});
+
+export const DownloadSqlBackupParams = zod.object({
+  id: zod.coerce.string(),
+});
+
 /**
  * @summary Get Azure storage configuration and latest reading (administrators only)
  */

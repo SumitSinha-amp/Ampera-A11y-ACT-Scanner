@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { IssueRecoveryPanel } from "@/components/admin/issue-recovery-panel";
+import { SqlBackupPanel } from "@/components/admin/sql-backup-panel";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const DP_PREFIX = "/api/admin/data-protection";
@@ -461,11 +462,12 @@ export default function AdminDataProtectionPage() {
       </div>
 
       <Tabs defaultValue="events" className="space-y-4">
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-5">
           <TabsTrigger className="min-w-0 whitespace-normal px-2 py-2 text-xs sm:text-sm" value="events" data-testid="tab-events">Audit trail</TabsTrigger>
           <TabsTrigger className="min-w-0 whitespace-normal px-2 py-2 text-xs sm:text-sm" value="archived" data-testid="tab-archived">Archived records</TabsTrigger>
           <TabsTrigger className="min-w-0 whitespace-normal px-2 py-2 text-xs sm:text-sm" value="exports" data-testid="tab-exports">Encrypted exports</TabsTrigger>
           <TabsTrigger className="min-w-0 whitespace-normal px-2 py-2 text-xs sm:text-sm" value="issue-recovery" data-testid="tab-issue-recovery">Issue recovery</TabsTrigger>
+          <TabsTrigger className="col-span-2 min-w-0 whitespace-normal px-2 py-2 text-xs sm:col-span-1 sm:text-sm" value="sql-backups" data-testid="tab-sql-backups">SQL backups</TabsTrigger>
         </TabsList>
 
         <TabsContent value="events" className="space-y-3">
@@ -624,6 +626,9 @@ export default function AdminDataProtectionPage() {
         </TabsContent>
         <TabsContent value="issue-recovery" className="space-y-4">
           <IssueRecoveryPanel />
+        </TabsContent>
+        <TabsContent value="sql-backups" className="space-y-4">
+          <SqlBackupPanel />
         </TabsContent>
       </Tabs>
 

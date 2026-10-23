@@ -24,6 +24,7 @@ import { runTablesFormsRules } from "./rules/tables-forms";
 import { runTextStyleRules } from "./rules/text-style";
 import { runStructureMiscRules } from "./rules/structure-misc";
 import { runKeyboardMiscRules } from "./rules/keyboard-misc";
+import { runTextSpacingLayoutRule } from "./rules/text-spacing-layout";
 import {
   getRuleExecutionStatuses,
   getSelectedRuleIds,
@@ -80,6 +81,8 @@ function runAllRules(
   runFamily("text-style", () => runTextStyleRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
   runFamily("structure", () => runStructureMiscRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
   runFamily("keyboard", () => runKeyboardMiscRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
+  // Layout-mutating custom checks must run last and only when selected.
+  runFamily("text-spacing", () => runTextSpacingLayoutRule(results, pushStat));
 
   const stats = Array.from(statMap.entries()).map(([ruleId, s]) => ({
     ruleId,

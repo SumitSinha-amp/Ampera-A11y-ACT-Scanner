@@ -56,6 +56,9 @@ import type {
   ScanSessionDetail,
   ScanStatus,
   SiteAccessResponse,
+  SqlBackupCatalog,
+  SqlBackupInput,
+  SqlBackupJob,
   UpdateScanBody,
 } from "./api.schemas";
 
@@ -67,6 +70,302 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+export const getGetSqlBackupCatalogUrl = () => {
+  return `/api/admin/data-protection/sql-backups/catalog`;
+};
+
+export const getSqlBackupCatalog = async (
+  options?: RequestInit,
+): Promise<SqlBackupCatalog> => {
+  return customFetch<SqlBackupCatalog>(getGetSqlBackupCatalogUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSqlBackupCatalogQueryKey = () => {
+  return [`/api/admin/data-protection/sql-backups/catalog`] as const;
+};
+
+export const getGetSqlBackupCatalogQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSqlBackupCatalog>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSqlBackupCatalog>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSqlBackupCatalogQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getSqlBackupCatalog>>
+  > = ({ signal }) => getSqlBackupCatalog({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSqlBackupCatalog>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSqlBackupCatalogQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSqlBackupCatalog>>
+>;
+export type GetSqlBackupCatalogQueryError = ErrorType<unknown>;
+
+export function useGetSqlBackupCatalog<
+  TData = Awaited<ReturnType<typeof getSqlBackupCatalog>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSqlBackupCatalog>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSqlBackupCatalogQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getGetSqlBackupsUrl = () => {
+  return `/api/admin/data-protection/sql-backups`;
+};
+
+export const getSqlBackups = async (
+  options?: RequestInit,
+): Promise<SqlBackupJob[]> => {
+  return customFetch<SqlBackupJob[]>(getGetSqlBackupsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSqlBackupsQueryKey = () => {
+  return [`/api/admin/data-protection/sql-backups`] as const;
+};
+
+export const getGetSqlBackupsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSqlBackups>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSqlBackups>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSqlBackupsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSqlBackups>>> = ({
+    signal,
+  }) => getSqlBackups({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSqlBackups>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSqlBackupsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSqlBackups>>
+>;
+export type GetSqlBackupsQueryError = ErrorType<unknown>;
+
+export function useGetSqlBackups<
+  TData = Awaited<ReturnType<typeof getSqlBackups>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSqlBackups>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSqlBackupsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getCreateSqlBackupUrl = () => {
+  return `/api/admin/data-protection/sql-backups`;
+};
+
+export const createSqlBackup = async (
+  sqlBackupInput: SqlBackupInput,
+  options?: RequestInit,
+): Promise<SqlBackupJob> => {
+  return customFetch<SqlBackupJob>(getCreateSqlBackupUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(sqlBackupInput),
+  });
+};
+
+export const getCreateSqlBackupMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createSqlBackup>>,
+    TError,
+    { data: BodyType<SqlBackupInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createSqlBackup>>,
+  TError,
+  { data: BodyType<SqlBackupInput> },
+  TContext
+> => {
+  const mutationKey = ["createSqlBackup"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createSqlBackup>>,
+    { data: BodyType<SqlBackupInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createSqlBackup(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateSqlBackupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createSqlBackup>>
+>;
+export type CreateSqlBackupMutationBody = BodyType<SqlBackupInput>;
+export type CreateSqlBackupMutationError = ErrorType<unknown>;
+
+export const useCreateSqlBackup = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createSqlBackup>>,
+    TError,
+    { data: BodyType<SqlBackupInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createSqlBackup>>,
+  TError,
+  { data: BodyType<SqlBackupInput> },
+  TContext
+> => {
+  return useMutation(getCreateSqlBackupMutationOptions(options));
+};
+
+export const getDownloadSqlBackupUrl = (id: string) => {
+  return `/api/admin/data-protection/sql-backups/${id}/download`;
+};
+
+export const downloadSqlBackup = async (
+  id: string,
+  options?: RequestInit,
+): Promise<Blob> => {
+  return customFetch<Blob>(getDownloadSqlBackupUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getDownloadSqlBackupQueryKey = (id: string) => {
+  return [`/api/admin/data-protection/sql-backups/${id}/download`] as const;
+};
+
+export const getDownloadSqlBackupQueryOptions = <
+  TData = Awaited<ReturnType<typeof downloadSqlBackup>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof downloadSqlBackup>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getDownloadSqlBackupQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof downloadSqlBackup>>
+  > = ({ signal }) => downloadSqlBackup(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof downloadSqlBackup>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type DownloadSqlBackupQueryResult = NonNullable<
+  Awaited<ReturnType<typeof downloadSqlBackup>>
+>;
+export type DownloadSqlBackupQueryError = ErrorType<unknown>;
+
+export function useDownloadSqlBackup<
+  TData = Awaited<ReturnType<typeof downloadSqlBackup>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof downloadSqlBackup>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getDownloadSqlBackupQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Get Azure storage configuration and latest reading (administrators only)

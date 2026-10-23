@@ -14,6 +14,7 @@ export type RuleFamily =
   | "links-contrast"
   | "tables-forms"
   | "text-style"
+  | "text-spacing"
   | "structure"
   | "keyboard";
 export type RuleRequirement =
@@ -51,13 +52,14 @@ const familyRules: Record<RuleFamily, readonly string[]> = {
   "links-contrast": ["ACT-R39", "ACT-R41", "ACT-R44", "ACT-R66", "ACT-R69", "ACT-R81", "ACT-R88", "ACT-R89", "ACT-R113"],
   "tables-forms": ["ACT-R45", "ACT-R46", "ACT-R60", "ACT-R76", "ACT-R82", "ACT-R84", "ACT-R107"],
   "text-style": ["ACT-R62", "ACT-R67", "ACT-R70", "ACT-R71", "ACT-R72", "ACT-R73", "ACT-R74", "ACT-R75", "ACT-R80", "ACT-R83", "ACT-R85"],
+  "text-spacing": ["ACT-R129"],
   structure: ["ACT-R79", "ACT-R84", "ACT-R91", "ACT-R92", "ACT-R93", "ACT-R98", "ACT-R100", "ACT-R115", "ACT-R117", "ACT-R118", "ACT-R119", "ACT-R121", "ACT-R126", "ACT-R128"],
   keyboard: ["ACT-R49", "ACT-R61", "ACT-R63", "ACT-R68", "ACT-R77", "ACT-R78", "ACT-R95", "ACT-R96", "ACT-R111", "ACT-R112"],
 };
 
 const manualRuleIds = new Set([
   "ACT-R23", "ACT-R24", "ACT-R27",
-  "ACT-R66", "ACT-R69", "ACT-R72", "ACT-R80", "ACT-R83", "ACT-R84", "ACT-R86",
+  "ACT-R66", "ACT-R69", "ACT-R72", "ACT-R83", "ACT-R84", "ACT-R86",
   "ACT-R88", "ACT-R89", "ACT-R98", "ACT-R100", "ACT-R102", "ACT-R109",
   "ACT-R118", "ACT-R119", "ACT-R121",
 ]);
@@ -67,7 +69,7 @@ const computedStyleRuleIds = new Set(["ACT-R44", "ACT-R49", "ACT-R62", "ACT-R67"
 
 function requirementsFor(id: string): readonly RuleRequirement[] {
   const requirements: RuleRequirement[] = ["dom"];
-  if (computedStyleRuleIds.has(id)) requirements.push("computed-style");
+  if (computedStyleRuleIds.has(id) || id === "ACT-R129") requirements.push("computed-style");
   if (mediaRuleIds.has(id)) requirements.push("media-metadata");
   if (visualRuleIds.has(id)) requirements.push("visual-background");
   return requirements;

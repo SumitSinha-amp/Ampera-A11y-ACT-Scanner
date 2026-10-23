@@ -17,6 +17,57 @@ tags:
   - name: projects
     description: Project and site association management
 paths:
+  /admin/data-protection/sql-backups/catalog:
+    get:
+      operationId: getSqlBackupCatalog
+      tags: [Admin]
+      responses:
+        "200":
+          description: Live table catalogue and native export availability
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SqlBackupCatalog" }
+  /admin/data-protection/sql-backups:
+    get:
+      operationId: getSqlBackups
+      tags: [Admin]
+      responses:
+        "200":
+          description: Recent private backups and running jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SqlBackupJob" }
+    post:
+      operationId: createSqlBackup
+      tags: [Admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SqlBackupInput" }
+      responses:
+        "202":
+          description: Export accepted, not yet ready
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SqlBackupJob" }
+  /admin/data-protection/sql-backups/{id}/download:
+    get:
+      operationId: downloadSqlBackup
+      tags: [Admin]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Private PostgreSQL SQL file
+          content:
+            application/sql:
+              schema: { type: string, format: binary }
   /admin/database-storage:
     get:
       operationId: getDatabaseStorage
@@ -836,6 +887,66 @@ paths:
               schema: { $ref: "#/components/schemas/ProtectionOperationResult" }
 components:
   schemas:
+    SqlBackupInput:
+      type: object
+      required: [scope, content, tableIds, includeDependencies, confirmation]
+      properties:
+        scope: { type: string, enum: [all, selected] }
+        content: { type: string, enum: [schema-and-data, data-only] }
+        tableIds:
+          type: array
+          maxItems: 2000
+          items: { type: string }
+        includeDependencies: { type: boolean }
+        confirmation: { type: string, enum: [EXPORT DATABASE] }
+    SqlBackupTable:
+      type: object
+      required: [id, schema, name, estimatedRows, sizeBytes, dependencies]
+      properties:
+        id: { type: string }
+        schema: { type: string }
+        name: { type: string }
+        estimatedRows: { type: number }
+        sizeBytes: { type: number }
+        dependencies:
+          type: array
+          items: { type: string }
+    SqlBackupCatalog:
+      type: object
+      required: [database, serverVersion, environment, available, unavailableReason, dumpVersion, tables]
+      properties:
+        database: { type: string }
+        serverVersion: { type: string }
+        environment: { type: string }
+        available: { type: boolean }
+        unavailableReason: { type: string }
+        dumpVersion: { type: string }
+        tables:
+          type: array
+          items: { $ref: "#/components/schemas/SqlBackupTable" }
+    SqlBackupJob:
+      type: object
+      required: [id, status, stage, createdAt, expiresAt, scope, content, tableIds, addedDependencies, database, serverVersion, filename, sizeBytes, sha256, error]
+      properties:
+        id: { type: string }
+        status: { type: string, enum: [running, ready, failed] }
+        stage: { type: string }
+        createdAt: { type: string }
+        expiresAt: { type: string }
+        scope: { type: string, enum: [all, selected] }
+        content: { type: string, enum: [schema-and-data, data-only] }
+        tableIds:
+          type: array
+          items: { type: string }
+        addedDependencies:
+          type: array
+          items: { type: string }
+        database: { type: string }
+        serverVersion: { type: string }
+        filename: { type: string }
+        sizeBytes: { type: number }
+        sha256: { type: string }
+        error: { type: string }
     IssueRecoveryRestoration:
       type: object
       required: [previewHash, reason, confirmation]

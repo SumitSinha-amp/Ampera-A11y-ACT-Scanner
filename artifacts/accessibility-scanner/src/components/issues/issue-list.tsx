@@ -44,7 +44,7 @@ export function IssueList({ issues, onSelect, selectedId, variant = "compact" }:
 
   if (variant === "table") {
     return (
-      <div aria-label="Issues" className="h-full overflow-auto bg-card">
+      <div data-testid="issue-list-scroll" aria-label="Issues" className="h-full min-h-0 overflow-auto overscroll-contain bg-card">
         <table className="w-full min-w-[900px] border-collapse text-left text-sm">
           <thead className="sticky top-0 z-10 bg-muted/95 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
             <tr className="border-b">
@@ -108,7 +108,7 @@ export function IssueList({ issues, onSelect, selectedId, variant = "compact" }:
   }
 
   return (
-    <div aria-label="Issues" className="h-full divide-y divide-border overflow-y-auto bg-card">
+    <div data-testid="issue-list-scroll" aria-label="Issues" className="h-full min-h-0 divide-y divide-border overflow-y-auto overscroll-contain bg-card">
       {issues.map((issue) => (
         <button
           key={issue.id}
