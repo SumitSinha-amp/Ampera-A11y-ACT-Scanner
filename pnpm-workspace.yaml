@@ -68,13 +68,17 @@ catalog:
 autoInstallPeers: false
 
 onlyBuiltDependencies:
-  - '@clerk/shared'
   - '@swc/core'
-  - core-js
   - esbuild
   - msw
   - unrs-resolver
   - puppeteer
+
+# These packages do not need their notification/postinstall scripts to run.
+# Record that decision explicitly so strict CI installs do not reject them.
+ignoredBuiltDependencies:
+  - '@clerk/shared'
+  - core-js
 
 supportedArchitectures:
   os:
