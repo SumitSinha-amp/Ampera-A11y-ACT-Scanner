@@ -40,6 +40,12 @@ packages:
   - lib/integrations/*
   - scripts
 
+allowBuilds:
+  "@clerk/shared": true
+  "core-js": true
+  "esbuild": true
+  "puppeteer": true
+
 catalog:
   '@replit/vite-plugin-cartographer': ^0.5.1
   '@replit/vite-plugin-dev-banner': ^0.1.1
@@ -73,12 +79,7 @@ onlyBuiltDependencies:
   - msw
   - unrs-resolver
   - puppeteer
-
-# These packages do not need their notification/postinstall scripts to run.
-# Record that decision explicitly so strict CI installs do not reject them.
-ignoredBuiltDependencies:
   - '@clerk/shared'
-  - core-js
 
 supportedArchitectures:
   os:
