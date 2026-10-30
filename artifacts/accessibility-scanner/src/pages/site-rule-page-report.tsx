@@ -35,7 +35,7 @@ import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
-const DEPRECATED_RULES = new Set(["ACT-R3", "ACT-R6", "ACT-R34", "ACT-R36", "ACT-R83"]);
+const DEPRECATED_RULES = new Set(["ACT-R3", "ACT-R6", "ACT-R34", "ACT-R36"]);
 
 interface ReportIssue {
   id: number;

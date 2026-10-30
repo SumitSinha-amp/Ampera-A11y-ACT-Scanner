@@ -1,4 +1,5 @@
 import type { ScanRawResult, PushStatFn } from "../types";
+import { runOrientationRule } from "./orientation";
 import { getAccessibleName } from "../accname";
 import { getAlfaPointerTargets, hasAlfaTargetSize, hasAlfaTargetSpacing } from "../alfa-helpers";
 import { getEffectiveAriaRole } from "../aria-data";
@@ -19,7 +20,9 @@ export interface ContrastCandidate {
 }
 
 export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: boolean, pushStat: PushStatFn): void {
-  // ACT-R69 / ACT-R66: Text contrast (WCAG 1.4.3 AA / 1.4.6 AAA)
+  let interactiveTargetsChecked = 0;
+  // Legacy enhanced text contrast (ACT-R66 / ACT-R89).
+  // R69 minimum contrast is independent in text-minimum-contrast.ts.
   // ════════════════════════════════════════════════════════════════════════
   {
     const isPurePunctuation = (s: string) => /^[\p{P}\p{S}\p{Cf}\s]+$/u.test(s);
@@ -43,7 +46,6 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
       textLeafEls.push(parent);
       if (textLeafEls.length >= 3000) break;
     }
-    let contrastAAFails = 0;
     let contrastAAAFails = 0;
     // Alfa alignment: contrast only applies to *visually perceivable* text.
     // sr-only / clipped text (1px boxes, clip/clip-path) is not applicable, and
@@ -104,7 +106,7 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
           elementContext: elementContextForAI(el),
           selector: getSelector(el),
         };
-        results.push({ ruleId: isLinkText ? "ACT-R88" : "ACT-R69", ...evidence });
+        // R69 has its own text-node evaluator, including unresolved reviews.
         results.push({ ruleId: isLinkText ? "ACT-R89" : "ACT-R66", ...evidence });
         continue;
       }
@@ -116,18 +118,11 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
       const fontSize = parseFloat(style.fontSize);
       const fontWeight = parseFloat(style.fontWeight);
       const isLarge = fontSize >= 24 || (fontSize >= 18.67 && fontWeight >= 700);
-      const aaMin = isLarge ? 3 : 4.5;
       const aaaMin = isLarge ? 4.5 : 7;
       const isLinkText = !!el.closest("a[href]");
-      const minimumRuleId = isLinkText ? "ACT-R88" : "ACT-R69";
       const enhancedRuleId = isLinkText ? "ACT-R89" : "ACT-R66";
-      // R69/R88 (minimum) and R66/R89 (enhanced) are independent Alfa
-      // rules. A ratio below the minimum also fails the enhanced criterion;
-      // using `else if` here silently dropped the enhanced finding.
-      if (ratio < aaMin && contrastAAFails < 200) {
-        contrastAAFails++;
-        results.push({ ruleId: minimumRuleId, type: "Issue", impact: "serious", description: `Text contrast ratio ${ratio.toFixed(2)}:1 is below AA minimum (${aaMin}:1)`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-      }
+      // Minimum and enhanced contrast are independent rules.
+      // Minimum contrast is evaluated independently by text-minimum-contrast.
       if (ratio < aaaMin && contrastAAAFails < 200) {
         // One outcome per element (deduped by parent via TreeWalker seenParents set)
         contrastAAAFails++;
@@ -144,11 +139,9 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
     const linkTextEls = textLeafEls.filter((el) => !!el.closest("a[href]")).length;
     const nonLinkTextEls = textLeafEls.length - linkTextEls;
     if (nonLinkTextEls > 0) {
-      pushStat("ACT-R69", nonLinkTextEls, "element");
       pushStat("ACT-R66", nonLinkTextEls, "element");
     }
     if (linkTextEls > 0) {
-      pushStat("ACT-R88", linkTextEls, "element");
       pushStat("ACT-R89", linkTextEls, "element");
     }
   }
@@ -219,43 +212,25 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   // ════════════════════════════════════════════════════════════════════════
   {
     const targets = getAlfaPointerTargets();
+    interactiveTargetsChecked = targets.filter(el => el.tagName !== "INPUT").length;
     targets.forEach((el) => {
       if (el.tagName === "INPUT") return;
       if (hasAlfaTargetSize(el, 24) || hasAlfaTargetSpacing(el, targets, 24)) return;
       const rect = el.getBoundingClientRect();
-      results.push({ ruleId: "ACT-R113", type: "Issue", impact: "moderate", description: `Interactive element is ${Math.round(rect.width)}×${Math.round(rect.height)}px — below the 24×24px minimum touch target (WCAG 2.5.8)`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
+      const unresolvedArtwork = Array.from(el.querySelectorAll("img")).some(img =>
+        !!(img.currentSrc || img.getAttribute("src") || img.getAttribute("srcset") || img.getAttribute("data-src") || img.getAttribute("data-srcset")) &&
+        (!img.complete || img.naturalWidth === 0),
+      );
+      results.push({ ruleId: "ACT-R113", type: unresolvedArtwork ? "Potential Issue" : "Issue", impact: "moderate", description: unresolvedArtwork
+        ? "Target artwork did not load; verify the rendered target is at least 24×24 CSS pixels or has sufficient spacing (WCAG 2.5.8)"
+        : `Interactive element is ${Math.round(rect.width)}×${Math.round(rect.height)}px — below the 24×24px minimum touch target (WCAG 2.5.8) and lacks sufficient spacing`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
     });
   }
 
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R44: Orientation restricted via CSS (WCAG 1.3.4)
   // ════════════════════════════════════════════════════════════════════════
-  {
-    let hasOrientationLock = false;
-    try {
-      Array.from(document.styleSheets).forEach((sheet) => {
-        try {
-          Array.from(sheet.cssRules || []).forEach((rule) => {
-            if (rule instanceof CSSMediaRule) {
-              const cond = rule.conditionText || (rule as any).media?.mediaText || "";
-              if (cond.includes("orientation") && cond.includes(":")) {
-                Array.from(rule.cssRules || []).forEach((inner) => {
-                  if (inner instanceof CSSStyleRule) {
-                    if (inner.style.display === "none" || inner.style.visibility === "hidden") {
-                      hasOrientationLock = true;
-                    }
-                  }
-                });
-              }
-            }
-          });
-        } catch { /* cross-origin */ }
-      });
-    } catch { /* ignore */ }
-    if (hasOrientationLock) {
-      results.push({ ruleId: "ACT-R44", type: "Issue", impact: "serious", description: "Content is restricted to a specific screen orientation via CSS", element: null, selector: null });
-    }
-  }
+  runOrientationRule(results);
 
   // ── Scoring stats: total elements checked per rule ────────────────────────
   const allLinksEl = document.querySelectorAll("a[href]").length;
@@ -265,10 +240,7 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   }
   const altImgEls = document.querySelectorAll("img[alt]").length;
   if (altImgEls > 0) pushStat("ACT-R39", altImgEls, "element");
-  const interactiveEls = document.querySelectorAll(
-    "a,button,[role='button'],[role='link'],input[type='checkbox'],input[type='radio'],select",
-  ).length;
-  if (interactiveEls > 0) pushStat("ACT-R113", interactiveEls, "element");
+  if (interactiveTargetsChecked > 0) pushStat("ACT-R113", interactiveTargetsChecked, "element");
   pushStat("ACT-R44", 1, "page");
 
   // ════════════════════════════════════════════════════════════════════════

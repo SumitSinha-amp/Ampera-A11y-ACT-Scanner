@@ -106,9 +106,28 @@ const WIDGET_ROLES = new Set([
   "slider", "spinbutton", "switch", "tab", "textbox", "treeitem",
 ]);
 
+/** Conservative pointer-only controls, including delegated legacy close links. */
+export function isScriptedPointerTarget(el: Element): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.matches(":disabled,[disabled],[aria-disabled='true'],input[type='hidden']")) return false;
+  const clickTargets: WeakSet<EventTarget> | undefined = (window as any).__amperaClickTargets__;
+  const directClick = typeof el.onclick === "function" || !!clickTargets?.has(el);
+  const actionToken = /(?:^|[\s_-])(?:btn|button|close|cancel|toggle|add|remove|next|prev|previous)(?:$|[\s_-])/i
+    .test(`${el.id} ${el.getAttribute("class") || ""}`);
+  if (!directClick && !(el.matches("a:not([href])") && actionToken)) return false;
+  if (!isAlfaRendered(el)) return false;
+  // A delegated anchor has no direct listener. Require action semantics and an
+  // explicit pointer affordance rather than treating every styled div as a target.
+  const delegatedAnchor = el.matches("a:not([href])") && actionToken &&
+    getComputedStyle(el).cursor === "pointer" &&
+    !!(el.getAttribute("title")?.trim() || el.getAttribute("aria-label")?.trim() || el.textContent?.trim());
+  return delegatedAnchor || (directClick && (el.matches("a,[role='button'],[role='link']") || actionToken));
+}
+
 export function isAlfaPointerTarget(el: Element): boolean {
+  const scripted = isScriptedPointerTarget(el);
   if (
-    !isAlfaFocusable(el) ||
+    (!isAlfaFocusable(el) && !scripted) ||
     !isAlfaIncludedInAccessibilityTree(el) ||
     window.getComputedStyle(el).pointerEvents === "none"
   ) {
@@ -120,13 +139,13 @@ export function isAlfaPointerTarget(el: Element): boolean {
     }
   }
   const role = getEffectiveAriaRole(el);
-  return WIDGET_ROLES.has(role) || el.matches("a[href],area[href],button,input,select,textarea,summary");
+  return scripted || WIDGET_ROLES.has(role) || el.matches("a[href],area[href],button,input,select,textarea,summary");
 }
 
 export function getAlfaPointerTargets(root: ParentNode = document): Element[] {
   const candidates = Array.from(
     root.querySelectorAll(
-      "a[href],area[href],button,input:not([type='hidden']),select,textarea,summary,iframe,audio[controls],video[controls],[role]",
+      "a,area[href],button,input:not([type='hidden']),select,textarea,summary,iframe,audio[controls],video[controls],[role],[onclick],[class],[id]",
     ),
   )
     .filter(isAlfaPointerTarget)

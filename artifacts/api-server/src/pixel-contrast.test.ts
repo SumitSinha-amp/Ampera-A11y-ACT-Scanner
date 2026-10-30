@@ -67,4 +67,10 @@ describe("pixel contrast coverage", () => {
     const { page } = fixture({ isLargeText: true });
     expect(await runPixelContrastPass(page, logger)).toEqual([]);
   });
+
+  it("never promotes averaged link-background samples to confirmed R88 failures", async () => {
+    const { page } = fixture({ textColor: "rgb(110, 110, 110)" });
+    const issues = await runPixelContrastPass(page, logger);
+    expect(issues.map(issue => issue.ruleId)).toEqual(["ACT-R89"]);
+  });
 });

@@ -369,32 +369,6 @@ export function runHeadingsLandmarksRules(results: ScanRawResult[], EMIT_MANUAL_
   runMissingMainLandmarkRule(results);
 
   // ════════════════════════════════════════════════════════════════════════
-  // ACT-R97: Collapsible element aria-expanded/aria-controls broken (WCAG 4.1.2)
-  // ════════════════════════════════════════════════════════════════════════
-  {
-    const expandables = Array.from(document.querySelectorAll("[aria-expanded]"));
-    expandables.forEach((el) => {
-      if (!isVisible(el)) return;
-      const tag = el.tagName.toLowerCase();
-      // Must be a keyboard-reachable trigger element
-      const tabIndex = (el as HTMLElement).tabIndex;
-      const isNativeInteractive = ["button", "a", "summary", "details"].includes(tag);
-      if (!isNativeInteractive && tabIndex < 0) {
-        results.push({ ruleId: "ACT-R97", type: "Issue", impact: "moderate", description: `Element with aria-expanded is not keyboard reachable — add tabindex="0" or use a <button> element`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-        return;
-      }
-      // aria-controls must point to an existing element
-      const controls = el.getAttribute("aria-controls");
-      if (!controls) return; // no aria-controls — not necessarily wrong (Details/Summary is self-contained)
-      const ids = controls.trim().split(/\s+/);
-      const missingIds = ids.filter((id) => !document.getElementById(id));
-      if (missingIds.length > 0) {
-        results.push({ ruleId: "ACT-R97", type: "Issue", impact: "moderate", description: `aria-controls="${controls}" references id${missingIds.length > 1 ? "s" : ""} that do not exist in the DOM: ${missingIds.map((id) => `#${id}`).join(", ")}`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-      }
-    });
-  }
-
-  // ════════════════════════════════════════════════════════════════════════
   // ACT-R65: Focus indicator not visible (WCAG 2.4.7)
   // ════════════════════════════════════════════════════════════════════════
   {
@@ -428,8 +402,6 @@ export function runHeadingsLandmarksRules(results: ScanRawResult[], EMIT_MANUAL_
   pushStat("ACT-R99", 1, "page");
   pushStat("ACT-R101", 1, "page");
   pushStat("ACT-R102", 1, "page");
-  const expandableEls = document.querySelectorAll("[aria-expanded]").length;
-  if (expandableEls > 0) pushStat("ACT-R97", expandableEls, "element");
   const focusableEls = getAlfaTabOrder().length;
   if (focusableEls > 0) pushStat("ACT-R65", focusableEls, "element");
 

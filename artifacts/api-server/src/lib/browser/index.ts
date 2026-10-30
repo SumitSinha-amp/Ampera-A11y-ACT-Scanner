@@ -20,11 +20,17 @@ import { runAriaRules } from "./rules/aria";
 import { runMediaRules } from "./rules/media";
 import { runHeadingsLandmarksRules } from "./rules/headings-landmarks";
 import { runLinksContrastRules } from "./rules/links-contrast";
+import { runLinkMinimumContrastRule } from "./rules/link-minimum-contrast";
+import { runTextMinimumContrastRule } from "./rules/text-minimum-contrast";
 import { runTablesFormsRules } from "./rules/tables-forms";
 import { runTextStyleRules } from "./rules/text-style";
 import { runStructureMiscRules } from "./rules/structure-misc";
 import { runKeyboardMiscRules } from "./rules/keyboard-misc";
 import { runTextSpacingLayoutRule } from "./rules/text-spacing-layout";
+import { runMainContentInstrumentRule } from "./rules/main-content-instrument";
+import { runMainContentHeadingRule } from "./rules/main-content-heading";
+import { runRepeatedContentCollapseRule } from "./rules/repeated-content-collapse";
+import { createKeyboardFocusProbe } from "./keyboard-focus-probe";
 import {
   getRuleExecutionStatuses,
   getSelectedRuleIds,
@@ -77,10 +83,17 @@ function runAllRules(
   runFamily("media", () => runMediaRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
   runFamily("headings-landmarks", () => runHeadingsLandmarksRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
   runFamily("links-contrast", () => runLinksContrastRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
+  if (isRuleSelected("ACT-R88", selected)) runLinkMinimumContrastRule(results, pushStat);
+  if (isRuleSelected("ACT-R69", selected)) runTextMinimumContrastRule(results, pushStat);
   runFamily("tables-forms", () => runTablesFormsRules(results, pushStat));
   runFamily("text-style", () => runTextStyleRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
   runFamily("structure", () => runStructureMiscRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
   runFamily("keyboard", () => runKeyboardMiscRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
+  runFamily("main-content-instrument", () => runMainContentInstrumentRule(results, EMIT_MANUAL_ONLY_RULES, pushStat));
+  runFamily("main-content-heading", () => runMainContentHeadingRule(
+    results, pushStat,
+  ));
+  runFamily("repeated-content-collapse", () => runRepeatedContentCollapseRule(results, pushStat));
   // Layout-mutating custom checks must run last and only when selected.
   runFamily("text-spacing", () => runTextSpacingLayoutRule(results, pushStat));
 
@@ -104,6 +117,7 @@ function runAllRules(
 // ─── Expose on window for Puppeteer injection ─────────────────────────────────
 (window as any).__ampera = {
   runAllRules,
+  createKeyboardFocusProbe,
   verifyLanguageDetectorBundle,
   buildMarkers: [LANGUAGE_DETECTOR_BUILD_MARKER],
 };

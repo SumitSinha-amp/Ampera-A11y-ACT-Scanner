@@ -8,6 +8,8 @@ import os from "os";
 import { logger } from "./logger";
 import { runPixelContrastPass } from "./pixel-contrast.js";
 import { mergeContrastFindings } from "./contrast-issue-merge.js";
+import { hydrateTargetImages } from "./target-image-hydration";
+import { verifyKeyboardFocus } from "./keyboard-focus-verification";
 import {
   scanEmbeddedFrames,
   mergeEmbeddedResults,
@@ -820,12 +822,12 @@ const RULE_DESCRIPTIONS: Record<
   "ACT-R46": {
     type: "Issue",
     description: "No data cells assigned to table header",
-    remediation: "Ensure <td> elements are properly linked to headers",
+    remediation: "Ensure each native <th> header is assigned to at least one cell in the same table. Correct its position, scope, spans, or explicit headers references. Implicit headers can be valid without scope; use <td> for cells that are not headers.",
   },
   "ACT-R47": {
     type: "Issue",
-    description: "Page zoom is restricted",
-    remediation: "Avoid disabling zoom via viewport settings",
+    description: "Viewport meta element declares a zoom restriction",
+    remediation: "Remove user-scalable restrictions and omit maximum-scale or set it to at least 2. Review alternate text-resizing mechanisms and supported browsers; desktop and many modern mobile browsers ignore viewport zoom restrictions.",
   },
   "ACT-R48": {
     type: "Issue",
@@ -999,15 +1001,15 @@ const RULE_DESCRIPTIONS: Record<
   },
   "ACT-R77": {
     type: "Issue",
-    description: "Table data missing context",
+    description: "Data cells are assigned at least one header cell",
     remediation:
-      "Ensure every ID in a headers attribute matches a <th> element inside the same table",
+      "Associate data cells with headers using correctly positioned <th> cells, appropriate scope values, or explicit headers references within the same table",
   },
   "ACT-R78": {
     type: "Issue",
     description: "Headings of same level have text content between them",
     remediation:
-      "Ensure all heading elements (h1–h6) contain descriptive text so screen readers can announce the section title",
+      "Add accessible content after the heading before the next heading of the same or higher level, or remove the heading if it introduces no content",
   },
   "ACT-R79": {
     type: "Best Practice",
@@ -1046,10 +1048,7 @@ const RULE_DESCRIPTIONS: Record<
     type: "Potential Issue",
     description: "Text is clipped when resized",
     remediation:
-      "Use min-height instead of height, or remove overflow:hidden on containers with text content",
-    deprecated: true,
-    deprecatedReason:
-      "Deprecated due to excessive false positives in the detection algorithm",
+      "Allow text containers to grow using min-height or automatic height, or provide accessible scrolling instead of hidden or clipped overflow. Verify text can be resized to 200% without loss of information or functionality.",
   },
   "ACT-R84": {
     type: "Issue",
@@ -1076,7 +1075,7 @@ const RULE_DESCRIPTIONS: Record<
     type: "Issue",
     description: "Text in link has minimum contrast",
     remediation:
-      "Ensure link text meets the minimum WCAG contrast ratio against its background",
+      "Ensure every visible link text node has contrast of at least 4.5:1 (3:1 for large text) in all eight visited/unvisited, hover and focus combinations. Image, gradient and overlapping backgrounds require highest-possible-contrast review; a sampled average is not proof of failure.",
   },
   "ACT-R89": {
     type: "Issue",
@@ -1127,12 +1126,12 @@ const RULE_DESCRIPTIONS: Record<
   "ACT-R97": {
     type: "Potential Issue",
     description: "Document has collapsible blocks of content",
-    remediation: "Ensure proper ARIA attributes and keyboard interaction",
+    remediation: "Identify repeated blocks before main content and verify each has a mechanism that makes every node both not visible and excluded from the accessibility tree. Unique content does not fail this rule; disclosure-state and keyboard checks are separate.",
   },
   "ACT-R98": {
-    type: "Potential Issue",
+    type: "Issue",
     description: "Document has heading at the start of its main content",
-    remediation: "Ensure main content starts with a heading",
+    remediation: "Start main content with a visible, accessibility-exposed semantic heading. If no main landmark is identified, locate the main content manually before determining the outcome.",
   },
   "ACT-R99": {
     type: "Issue",
@@ -1142,7 +1141,8 @@ const RULE_DESCRIPTIONS: Record<
   "ACT-R100": {
     type: "Best Practice",
     description: "Document has instrument to main content",
-    remediation: "Provide an accessible HTML alternative",
+    potentialDescription: "Does this page have an instrument to move focus to the start of its main content?",
+    remediation: "Provide an operable skip link or equivalent control that moves focus to the start of the page's main content. Check scripted controls manually. Review under WCAG 2.4.1 Bypass Blocks (Level A).",
   },
   "ACT-R101": {
     type: "Best Practice",
@@ -1242,9 +1242,9 @@ const RULE_DESCRIPTIONS: Record<
   },
   // ── WCAG 2.2 new criteria ────────────────────────────────────────────────
   "ACT-R119": {
-    type: "Best Practice",
+    type: "Issue",
     description:
-      "Fixed or sticky element may obscure keyboard focus (WCAG 2.4.11)",
+      "Keyboard-focused control is entirely obscured by page content (WCAG 2.4.11)",
     remediation:
       "Ensure keyboard-focused elements are not fully hidden behind sticky headers or footers — add scroll-margin-top/scroll-padding-top or adjust z-index/layout so focused elements remain visible",
   },
@@ -2248,20 +2248,23 @@ async function _scanPageInternal(
     // Block resource types that are irrelevant for accessibility scanning.
     // Images, fonts, and media account for the vast majority of page weight and
     // are the most common reason navigations hang (slow CDN, large video streams,
-    // infinite analytics beacons).  Blocking them cuts load time by 50–80% on
-    // media-heavy pages without affecting any accessibility rule evaluation.
+    // infinite analytics beacons). Geometry-sensitive target rules selectively
+    // retry control artwork before evaluation; unrelated artwork stays blocked.
     // We keep: document, script, stylesheet, xhr, fetch, websocket, other —
     // scripts drive dynamic content & redirects; stylesheets affect computed
     // visibility used by several rules.  Analytics/tracker requests are also
     // blocked by hostname (see TRACKER_HOSTS).
     let allowVisualImages = false;
+    const targetImageUrls = new Set<string>();
     let allowMediaMetadata = false;
     const replayStylesheets = new Map<string, Promise<string | null>>();
     await page.setRequestInterception(true);
     page.on("request", (req) => {
       const type = req.resourceType();
       if (
-        (type === "image" && !allowVisualImages) ||
+        (type === "image" && !allowVisualImages &&
+          !targetImageUrls.has(req.url()) &&
+          !req.redirectChain().some(request => targetImageUrls.has(request.url()))) ||
         (type === "media" && !allowMediaMetadata) ||
         type === "font"
       ) {
@@ -3140,6 +3143,10 @@ async function _scanPageInternal(
     } finally {
       allowMediaMetadata = false;
     }
+    const geometryRules = getSelectedRuleIds(options.rules);
+    if (isRuleSelected("ACT-R113", geometryRules) || isRuleSelected("ACT-R111", geometryRules)) {
+      await hydrateTargetImages(page, targetImageUrls);
+    }
     const actResult = await runACTRules(page, options.rules);
     let issues = actResult.issues;
     const ruleStats = actResult.stats;
@@ -3208,6 +3215,26 @@ async function _scanPageInternal(
         { url, err: interactionErr },
         "Interactive-state exploration failed — continuing with baseline state",
       );
+    }
+
+    // Keep verified focus evidence at its actual viewport/scroll state before
+    // the general full-page snapshot can move sticky/fixed content.
+    if (isRuleSelected("ACT-R119", geometryRules)) {
+      const focus = await verifyKeyboardFocus(page, {
+        rules: options.rules,
+        captureEvidence: async () => {
+          const screenshot = await page!.screenshot({ type: "jpeg", quality: 55, fullPage: false });
+          return { screenshot: Buffer.from(screenshot).toString("base64"),
+            pageHtml: await captureReplayHtml(page!, replayStylesheets) };
+        },
+      });
+      issues.push(...focus.issues.map(issue => ({ ...issue, legal: getLegalCompliance(["AA"]) })));
+      interactionStates.push(...focus.states);
+      ruleStats.push({ ruleId: "ACT-R119", totalChecked: focus.checked, scope: "element" });
+      const status = actResult.ruleStatuses?.find(item => item.ruleId === "ACT-R119");
+      if (status) status.status = !focus.complete ? "failed" : focus.checked ? "executed" : "not-applicable";
+      logger.info({ url, checked: focus.checked, issues: focus.issues.length,
+        complete: focus.complete, error: focus.error }, "Keyboard focus verification completed");
     }
 
     // Capture the final visual snapshot only when the page has issues. Clean
@@ -3370,7 +3397,7 @@ async function _scanPageInternal(
 
         const frameBoxes = await getEmbeddedFrameBoxes(page, issues.map((issue) => issue.selector));
         for (const [index, box] of frameBoxes) bboxes[index] = box;
-        issues = issues.map((issue, idx) => ({
+        issues = issues.map((issue, idx) => issue.interactionStateKey ? issue : ({
           ...issue,
           bboxX: bboxes[idx]?.x ?? null,
           bboxY: bboxes[idx]?.y ?? null,
@@ -3383,14 +3410,16 @@ async function _scanPageInternal(
         );
       }
 
-      // ── 1b. Pixel-contrast pass — resolve url()-background elements ────
+      // ── 1b. Legacy enhanced-contrast pixel pass ──────────────────────
       // Elements whose background is a CSS image (url()) were classified as
       // "indeterminate" by the DOM rule and optionally emitted as Potential
       // Issues.  This pass takes a single full-page PNG, samples the rendered
       // pixel colours at each candidate's bounding box, and emits confirmed
       // Issues for elements whose actual contrast fails the WCAG threshold.
       try {
-        const PIXEL_RULE_IDS = new Set(["ACT-R69", "ACT-R66", "ACT-R88", "ACT-R89"]);
+        // R69/R88 have independent highest-contrast evaluators. Patch averages
+        // cannot establish their failures and must not overwrite their reviews.
+        const PIXEL_RULE_IDS = new Set(["ACT-R66", "ACT-R89"]);
         const selectedRuleSet = getSelectedRuleIds(options.rules);
         const shouldRunPixelContrast =
           selectedRuleSet === null ||

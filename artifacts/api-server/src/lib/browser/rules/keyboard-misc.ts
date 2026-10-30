@@ -3,6 +3,8 @@ import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpe
 import { getAlfaPointerTargets, hasAlfaImageTargetSize, hasAlfaTargetSize, hasAlfaTargetSpacing } from "../alfa-helpers";
 import { isActuallyTabbable, isIncludedInAccessibilityTree, isProgrammaticallyHidden, isVisible } from "../visibility";
 import { runEmptyContainerRule } from "./empty-containers";
+import { runHeadingSectionContentRule } from "./heading-section-content";
+import { runTableDataHeaderRule } from "./table-data-headers";
 
 export function runKeyboardMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: boolean, pushStat: PushStatFn): void {
   // ACT-R49: Auto-playing media has no mechanism to pause or stop (WCAG 1.4.2)
@@ -90,19 +92,9 @@ export function runKeyboardMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_
   runEmptyContainerRule(results);
 
   // ════════════════════════════════════════════════════════════════════════
-  // ACT-R78: Heading element has no text content (Best Practice)
+  // ACT-R78: Siteimprove heading-has-content detection; retain Issue / 2.4.6.
   // ════════════════════════════════════════════════════════════════════════
-  {
-    document.querySelectorAll("h1,h2,h3,h4,h5,h6,[role='heading']").forEach((el) => {
-      if (!isVisible(el)) return;
-      // Skip accordion/disclosure pattern where the heading wraps an interactive element
-      if (el.querySelector("button, [role='button']")) return;
-      const text = (el.textContent || "").trim();
-      if (!text) {
-        results.push({ ruleId: "ACT-R78", type: "Issue", impact: "moderate", description: `<${el.tagName.toLowerCase()}> heading is empty — headings must have descriptive text content so screen readers can announce the section title`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-      }
-    });
-  }
+  runHeadingSectionContentRule(results, pushStat);
 
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R95: iframe with tabindex="-1" blocks keyboard access (WCAG 2.1.1)
@@ -197,35 +189,9 @@ export function runKeyboardMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // ACT-R77: headers attribute on table cells references invalid targets (WCAG 1.3.1)
-  // Complements ACT-R46: R46 checks missing association; R77 validates explicit
-  // headers="" attributes on complex/spanning tables.
+  // ACT-R77: Data cells in tables containing headers have a header assignment.
   // ════════════════════════════════════════════════════════════════════════
-  {
-    document.querySelectorAll("table").forEach((table) => {
-      if (!isVisible(table)) return;
-      if (table.getAttribute("role") === "presentation" || table.getAttribute("role") === "none") return;
-      table.querySelectorAll("td[headers], th[headers]").forEach((cell) => {
-        const ids = (cell.getAttribute("headers") || "").split(/\s+/).filter(Boolean);
-        if (ids.length === 0) return;
-        const badIds: string[] = [];
-        for (const id of ids) {
-          const target = document.getElementById(id);
-          // Target must exist, be inside the SAME table, and be a th (or role columnheader/rowheader)
-          if (!target || !table.contains(target)) {
-            badIds.push(id);
-            continue;
-          }
-          const tag = target.tagName.toLowerCase();
-          const role = target.getAttribute("role") || "";
-          if (tag !== "th" && role !== "columnheader" && role !== "rowheader") badIds.push(id);
-        }
-        if (badIds.length > 0) {
-          results.push({ ruleId: "ACT-R77", type: "Issue", impact: "serious", description: `Table cell headers attribute references ${badIds.length === 1 ? "an invalid target" : "invalid targets"} (${badIds.map((i) => `"${i}"`).join(", ")}) — each ID must match a <th> element inside the same table`, element: outerHtmlSnippet(cell), elementContext: elementContextForAI(cell), selector: getSelector(cell) });
-        }
-      });
-    });
-  }
+  runTableDataHeaderRule(results, pushStat);
 
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R112: Text is styled as a heading but not marked up as one (Best Practice)
@@ -265,8 +231,6 @@ export function runKeyboardMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_
   if (autoplayMedia > 0) pushStat("ACT-R49", autoplayMedia, "element");
   pushStat("ACT-R61", 1, "page");
   const roleEls = document.querySelectorAll("[role]").length;
-  const kbHeadings = document.querySelectorAll("h1,h2,h3,h4,h5,h6,[role='heading']").length;
-  if (kbHeadings > 0) pushStat("ACT-R78", kbHeadings, "element");
   const kbIframes = document.querySelectorAll("iframe").length;
   if (kbIframes > 0) pushStat("ACT-R95", kbIframes, "element");
   pushStat("ACT-R96", 1, "page");
@@ -274,8 +238,6 @@ export function runKeyboardMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_
   if (focusableEls > 0) pushStat("ACT-R111", focusableEls, "element");
   const embedEls = document.querySelectorAll("object,embed").length;
   if (embedEls > 0) pushStat("ACT-R63", embedEls, "element");
-  const tableEls = document.querySelectorAll("table").length;
-  if (tableEls > 0) pushStat("ACT-R77", document.querySelectorAll("td,th").length, "element");
   const divTextEls = document.querySelectorAll("div,p,span,strong,b").length;
   if (divTextEls > 0) pushStat("ACT-R112", divTextEls, "element");
 

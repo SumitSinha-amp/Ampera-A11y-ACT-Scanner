@@ -167,15 +167,14 @@ const handlers: Record<string, Handler> = {
   },
 
   "ACT-R46": ({ el }) => {
-    const id = attr(el, "id") || "select-id";
+    const id = attr(el, "id") || "revenue-header";
     return {
-      why: `This <code>&lt;select&gt;</code> dropdown has no associated label. Screen readers will announce it as "combo box" with no indication of what the user is choosing.`,
-      howToFix: `Add a <code>&lt;label for="..."&gt;</code> pointing to the select's <code>id</code>.`,
-      codeExample: codeBlock(`<label for="${id}">Country</label>
-<select id="${id}">
-  <option value="us">United States</option>
-  <option value="uk">United Kingdom</option>
-</select>`),
+      why: `This table header has no assigned data cell, so its intended relationship is not conveyed programmatically. This check targets the header, not unlabeled form controls or headerless tables.`,
+      howToFix: `Check the header's position, <code>scope</code>, spans, row/column groups, and any <code>headers</code> references. Ensure it labels at least one cell in the same table. Simple implicit headers can work without scope. Use <code>&lt;td&gt;</code> if the cell is not a header. Review the example against the complete table before applying it.`,
+      codeExample: codeBlock(`<table>
+  <tr><th id="${id}" scope="col">Revenue</th></tr>
+  <tr><td headers="${id}">$1,000</td></tr>
+</table>`),
       confidence: HIGH,
       needsExternalAI: false,
     };
@@ -779,46 +778,30 @@ img { max-width: 100%; height: auto; }
     };
   },
 
-  "ACT-R76": ({ description }) => {
+  "ACT-R76": () => {
     return {
-      why: `This authentication step presents a cognitive function test (CAPTCHA, puzzle, memorized password) without an accessible alternative. Users with cognitive disabilities, blindness, or motor impairments may be unable to complete the authentication.`,
-      howToFix: `Provide at least one of: (1) an alternative that doesn't rely on cognitive tests, (2) a mechanism to assist (e.g. copy-paste allowed for passwords), or (3) a customer support bypass option.`,
-      codeExample: codeBlock(`<!-- Preferred: use passkeys or email magic links -->
-<!-- No CAPTCHA needed -->
-
-<!-- If CAPTCHA is required: provide audio alternative -->
-<div id="captcha">
-  <img src="captcha.png" alt="" />
-  <button>Play audio version</button>
-  <a href="/support">Contact support if you need help</a>
-</div>
-
-<!-- Always allow paste in password fields -->
-<input type="password" autocomplete="current-password" />
-<!-- Don't disable paste via JS event handlers -->`),
+      why: `This data table has no native header cells. Bold text in <code>&lt;td&gt;</code> cells does not identify headers for assistive technology.`,
+      howToFix: `Identify the actual column and row headings and mark them with <code>&lt;th&gt;</code>. Use appropriate <code>scope</code> or explicit <code>headers</code> references for the table's structure. Do not turn ordinary data cells into headers merely to remove the finding.`,
+      codeExample: codeBlock(`<table>
+  <caption>Enrollment</caption>
+  <tr><th scope="col">Course</th><th scope="col">Students</th></tr>
+  <tr><th scope="row">Computer Science</th><td>1500</td></tr>
+</table>`),
       confidence: MED,
-      needsExternalAI: true,
+      needsExternalAI: false,
     };
   },
 
-  "ACT-R77": ({ description }) => {
+  "ACT-R77": () => {
     return {
-      why: `This functionality requires a dragging movement and does not offer a single-pointer alternative (click, tap). Users with motor disabilities who cannot perform click-and-drag movements are excluded.`,
-      howToFix: `Provide a way to perform the same action without dragging: buttons to move items, a keyboard-accessible alternative, or touch-friendly handles.`,
-      codeExample: codeBlock(`<!-- Draggable list item — always add keyboard alternative -->
-<li draggable="true"
-    aria-grabbed="false"
-    role="option">
-  Item
-  <!-- Up/Down buttons as alternative to drag -->
-  <button aria-label="Move item up">↑</button>
-  <button aria-label="Move item down">↓</button>
-</li>
-
-<!-- For sliders: always support keyboard arrow keys -->
-<input type="range" min="0" max="100" value="50"
-       aria-label="Volume" />`),
-      confidence: MED,
+      why: `This table contains header cells, but a data cell has no assigned header. Screen reader users may not receive the context needed to understand that cell.`,
+      howToFix: `Use native <th> cells in the appropriate row or column. Add scope="row", scope="col", or suitable group scopes where needed. For complex tables, use headers references to the relevant header IDs in the same table. A present but empty or unresolved headers attribute overrides implicit association and must be corrected or removed.`,
+      codeExample: codeBlock(`<table>
+  <tr><th id="course" scope="col">Course</th><th id="count" scope="col">Students</th></tr>
+  <tr><td headers="course">Computer Science</td><td headers="count">1500</td></tr>
+</table>
+<!-- Simple tables can also use implicit associations without headers attributes. -->`),
+      confidence: HIGH,
       needsExternalAI: false,
     };
   },

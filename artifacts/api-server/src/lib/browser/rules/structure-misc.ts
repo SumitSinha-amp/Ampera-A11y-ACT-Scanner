@@ -91,31 +91,6 @@ export function runStructureMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // ACT-R98: Section landmark with no heading or accessible label
-  // ════════════════════════════════════════════════════════════════════════
-  const visibleLandmarks = Array.from(document.querySelectorAll("main, nav, aside, section, [role='region'], [role='complementary']")).filter((el) => isVisible(el));
-  visibleLandmarks.forEach((el) => {
-    if (!!el.querySelector("h1,h2,h3,h4,h5,h6")) return;
-    if (el.getAttribute("aria-label")?.trim()) return;
-    if (el.getAttribute("aria-labelledby")) return;
-    if (EMIT_MANUAL_ONLY_RULES) results.push({ ruleId: "ACT-R98", type: "Potential Issue", impact: "minor", description: `${el.tagName.toLowerCase()} landmark region has no heading or accessible label`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-  });
-  if (visibleLandmarks.length > 0) {
-    pushStat("ACT-R98", visibleLandmarks.length, "element");
-  }
-
-  // ACT-R100: PDF link without accessible alternative
-  document.querySelectorAll("a[href]").forEach((el) => {
-    if (!isVisible(el)) return;
-    const href = (el as HTMLAnchorElement).href || "";
-    if (!/\.pdf(\?|$|#)/i.test(href)) return;
-    const nearby = el.parentElement?.textContent?.toLowerCase() || "";
-    if (!/html version|accessible version|text version|word version|alternative format/i.test(nearby)) {
-      if (EMIT_MANUAL_ONLY_RULES) results.push({ ruleId: "ACT-R100", type: "Best Practice", impact: "moderate", description: `Link to PDF "${el.textContent?.trim() || href.split("/").pop()}" has no adjacent accessible alternative`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-    }
-  });
-
-  // ════════════════════════════════════════════════════════════════════════
   // ACT-R115: Heading is not descriptive
   // ════════════════════════════════════════════════════════════════════════
   const MEASUREMENT_ONLY_RE = /^\d[\d\s.,:%\-\/\\+×xX()]*[a-zA-Z\u00B5\u03A9\u03BC]{0,4}$/;
@@ -173,28 +148,9 @@ export function runStructureMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   // WCAG 2.2 — NEW CRITERIA
   // ════════════════════════════════════════════════════════════════════════
 
-  // ACT-R119: Focus Not Obscured – Minimum (WCAG 2.4.11, AA)
-  {
-    const seenR119 = new Set<string>();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    document.querySelectorAll("*").forEach((el) => {
-      if (!isVisible(el)) return;
-      const s = window.getComputedStyle(el);
-      if (s.position !== "fixed" && s.position !== "sticky") return;
-      const rect = el.getBoundingClientRect();
-      if (rect.width < vw * 0.4 || rect.height <= 0 || rect.height > 160) return;
-      const isTopBar = rect.top <= 10 && rect.bottom > 0;
-      const isBottomBar = rect.bottom >= vh - 10 && rect.top < vh;
-      if (!isTopBar && !isBottomBar) return;
-      const sel = getSelector(el);
-      if (seenR119.has(sel)) return;
-      seenR119.add(sel);
-      const hasFocusable = el.querySelectorAll("a[href], button, input, select, textarea, [tabindex]").length > 0 || document.querySelectorAll("a[href], button:not([disabled]), input:not([type='hidden']):not([disabled])").length > 0;
-      if (!hasFocusable) return;
-      if (EMIT_MANUAL_ONLY_RULES) results.push({ ruleId: "ACT-R119", type: "Potential Issue", impact: "minor", description: `${s.position === "fixed" ? "Fixed" : "Sticky"} ${isTopBar ? "header" : "footer"} (${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}, height: ${Math.round(rect.height)}px) may obscure keyboard-focused elements scrolled behind it — verify with keyboard navigation`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: sel });
-    });
-  }
+  // ACT-R119 is verified with trusted Tab/Shift+Tab input by the server's
+  // keyboard-focus pass. The mere presence of a fixed/sticky bar is not a
+  // failure and must not create a duplicate heuristic finding here.
 
   // ACT-R121: Focus Appearance (WCAG 2.4.13, AAA)
   {
@@ -378,8 +334,6 @@ export function runStructureMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   const abbrEls = document.querySelectorAll("abbr").length;
   const preEls = document.querySelectorAll("pre").length;
   if (preEls > 0) pushStat("ACT-R79", preEls, "element");
-  const blankLinks = document.querySelectorAll("a[target='_blank']").length;
-  if (blankLinks > 0) pushStat("ACT-R100", blankLinks, "element");
   const allLinks = document.querySelectorAll("a[href]").length;
   if (allLinks > 0) pushStat("ACT-R81", allLinks, "element");
   const structHeadings = document.querySelectorAll("h1,h2,h3,h4,h5,h6").length;
@@ -387,8 +341,6 @@ export function runStructureMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   const imgRoleEls = document.querySelectorAll("[role='img']").length;
   if (imgRoleEls > 0) pushStat("ACT-R117", imgRoleEls, "element");
   if (imageOfTextTargets.length > 0) pushStat("ACT-R118", imageOfTextTargets.length, "element");
-  const fixedEls = document.querySelectorAll("[style*='position:fixed'],[style*='position: fixed']").length;
-  if (fixedEls > 0) pushStat("ACT-R119", fixedEls, "element");
   pushStat("ACT-R121", 1, "page");
   pushStat("ACT-R126", 1, "page");
 

@@ -205,7 +205,7 @@ const ALL_RULES: { id: string; label: string }[] = [
     id: "ACT-R46",
     label: "No data cells assigned to table header (WCAG 1.3.1)",
   },
-  { id: "ACT-R47", label: "Page zoom is restricted (WCAG 1.4.4)" },
+  { id: "ACT-R47", label: "Viewport meta elements must allow zoom (WCAG 1.4.4)" },
   {
     id: "ACT-R48",
     label:
@@ -263,7 +263,7 @@ const ALL_RULES: { id: string; label: string }[] = [
     id: "ACT-R76",
     label: "Table header cell is missing a header role (WCAG 1.3.1)",
   },
-  { id: "ACT-R77", label: "Table data missing context (WCAG 1.3.1)" },
+  { id: "ACT-R77", label: "Data cells are assigned at least one header cell (WCAG 1.3.1)" },
   {
     id: "ACT-R78",
     label: "Headings of same level have text content between them (WCAG 2.4.6)",
@@ -284,7 +284,7 @@ const ALL_RULES: { id: string; label: string }[] = [
   },
   {
     id: "ACT-R83",
-    label: "Text is clipped when resized (DEPRECATED) (WCAG 1.4.4)",
+    label: "Text is clipped when resized (WCAG 1.4.4)",
   },
   {
     id: "ACT-R84",

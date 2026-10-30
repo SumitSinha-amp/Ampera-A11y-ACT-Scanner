@@ -280,12 +280,13 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
   "ACT-R46": {
     title: "No data cells assigned to table header",
     detail:
-      'Data cells (<td>) must be programmatically associated with their headers — either by placing them under a <th scope="col"> or by using the headers attribute.',
+      'Each visible, accessibility-tree-exposed native <th> with rowheader or columnheader semantics must be assigned to at least one cell in the same table. The HTML table model considers implicit headers, scope, row/column spans and groups, and explicit headers references. Scope is not always required. Correct an orphan header’s position or associations, or use <td> when it is not a header. Headerless tables are checked separately by ACT-R76; data cells without assigned headers are checked by ACT-R77.',
   },
   "ACT-R47": {
-    title: "Page zoom is restricted",
+    title: "Viewport meta elements must allow zoom",
+    issueTitle: "Viewport meta element declares a zoom restriction",
     detail:
-      "The viewport meta tag must not disable user zooming (user-scalable=no or maximum-scale=1). Users with low vision depend on browser zoom to read content.",
+      "Checks every applicable viewport meta element using Alfa's viewport-property parsing. A user-scalable value that resolves to fixed, or a maximum-scale below 2 (200%), fails this markup-level check. Desktop browsers and many modern mobile browsers ignore or override these restrictions, so successful browser zoom does not invalidate the declaration finding. Review alternate resizing mechanisms before concluding a WCAG failure. Primary mapping: WCAG 1.4.4 AA; the rule also relates to 1.4.10 Reflow, but does not test reflow behavior.",
   },
   "ACT-R48": {
     title:
@@ -447,9 +448,9 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       "Data tables that present rows and columns of information must include <th> elements to identify header cells, enabling screen readers to announce the context of each data cell.",
   },
   "ACT-R77": {
-    title: "Table data missing context",
+    title: "Data cells are assigned at least one header cell",
     detail:
-      'Each <td> must be associated with its header either through column position (via <th scope="col">) or explicitly through the headers attribute referencing the relevant <th> ids.',
+      'In a table containing native header cells, each visible, accessible <td> with a cell or gridcell role must be assigned at least one header. Valid implicit native <th> positioning, scope, and explicit headers references are evaluated using the HTML table model. Tables with no header cells are outside this rule and are checked separately.',
   },
   "ACT-R78": {
     title: "Headings of same level have text content between them",
@@ -484,10 +485,7 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
   "ACT-R83": {
     title: "Text is clipped when resized",
     detail:
-      "Fixed-height containers with overflow:hidden clip text when users zoom or override font size. Use min-height, relative units, or overflow:auto to prevent content loss.",
-    deprecated: true,
-    deprecatedReason:
-      "Deprecated because text clipping is no longer evaluated as an independent automated rule.",
+      "Active in the ACT tool. Automatically flags fixed-height text containers with hidden or clipped overflow as Potential Issues in both normal and explicitly selected scans. Verify at 200% text size whether content or functionality is lost before confirming a WCAG 1.4.4 failure. Allow containers to grow or provide accessible scrolling.",
   },
   "ACT-R84": {
     title: "Scrollable element is not keyboard accessible",
@@ -513,7 +511,7 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
   "ACT-R88": {
     title: "Text in link has minimum contrast",
     detail:
-      "Link text must meet the minimum contrast ratio against its background so users with low vision can read the link.",
+      "Each visible link text node needs at least 4.5:1 contrast, or 3:1 for large text, in every visited/unvisited, hover and focus combination. Image, gradient or overlapping backgrounds and uninspected styles are reported for review rather than assumed to fail.",
   },
   "ACT-R89": {
     title: "Text in link has enhanced contrast",
@@ -555,17 +553,18 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
     title:
       "Refreshes implemented using the <meta> element have no delay, without exception",
     detail:
-      "Pages that auto-update or auto-refresh without user control interrupt screen reader reading position and keyboard context. Provide a mechanism to disable or extend the interval.",
+      'Checks delayed page refreshes and redirects implemented using <meta http-equiv="refresh">. A delay greater than zero fails this check; a zero-second delay passes. JavaScript timers, scripted redirects, and dynamic content updates are outside this rule’s scope and require separate assessment. Review whether users can adjust the timing or whether the refresh or redirect is essential before concluding a WCAG failure.',
   },
   "ACT-R97": {
     title: "Document has collapsible blocks of content",
+    potentialTitle: "Can repeated content before main content be collapsed?",
     detail:
-      "Accordion and disclosure widgets must use aria-expanded to communicate open/closed state, and must be keyboard operable via Enter or Space, so all users can access collapsed content.",
+      "Every repeated-content block before main content must have a mechanism that makes all its nodes both not visible and excluded from the accessibility tree. One mechanism may collapse several blocks. If no such repeated blocks exist, the rule passes. Confirm repetition and custom collapse mechanisms during review; missing aria-expanded or keyboard activation alone is not an R97 failure.",
   },
   "ACT-R98": {
     title: "Document has heading at the start of its main content",
     detail:
-      "The primary content region should begin with a heading that describes its topic, helping screen reader users orient themselves within the page after landing on it.",
+      'At least one main-content region must start with a visible heading exposed to assistive technology. A heading later in the content or a label on the container is insufficient. Without <main> or role="main", identify the main content manually; the automatic outcome is undetermined, not a confirmed failure.',
   },
   "ACT-R99": {
     title: "Document has no main landmark",
@@ -574,8 +573,9 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
   },
   "ACT-R100": {
     title: "Document has instrument to main content",
+    potentialTitle: "Does this page have an instrument to move focus to main content?",
     detail:
-      "PDFs embedded or linked from a page should include accessible tags, or an equivalent HTML page should be provided for users whose assistive technology cannot read untagged PDFs.",
+      "Checks for a skip link or equivalent control anywhere on an HTML page that moves focus to the start of its main content. It need not be the first focusable element. Scripted controls and uncertain main-content identification require manual review. Mapped to WCAG 2.4.1 Bypass Blocks (Level A) in this scanner; it does not assess PDF tags or HTML alternatives.",
   },
   "ACT-R101": {
     title: "Repeated content before main content can be bypassed",
@@ -670,9 +670,9 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       "This experimental rule is manual-only. First ask whether the image contains visible text that expresses something in a human language. If yes, review whether the text is purely decorative, insignificant or incidental, essential to the presentation (for example, a logo), or redundant with regular text on the same page. A Potential Issue remains only when none of those exceptions applies.",
   },
   "ACT-R119": {
-    title: "Fixed or sticky element may obscure keyboard focus",
+    title: "Keyboard-focused control is entirely obscured by page content",
     detail:
-      "Fixed and sticky headers or footers must not hide content when keyboard focus moves to an element.",
+      "A bounded Tab and Shift+Tab check confirms when opaque page content completely covers a keyboard-focused control. At least part of the control must remain visible under WCAG 2.4.11 (AA); partial overlap alone is not a failure. Review the captured keyboard-focus state for evidence.",
   },
   "ACT-R121": {
     title: "Focus indicator suppressed without visible replacement",

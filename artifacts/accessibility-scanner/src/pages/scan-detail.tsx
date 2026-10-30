@@ -110,7 +110,7 @@ import { FixSuggestionPanel } from "@/components/fix-suggestion-panel";
 import { ScanQATab } from "@/pages/scan-qa";
 import { InteractiveHtmlTree } from "@/components/page-report/html-tree";
 
-const DEPRECATED_RULES = new Set(["ACT-R3", "ACT-R6", "ACT-R34", "ACT-R36", "ACT-R83"]);
+const DEPRECATED_RULES = new Set(["ACT-R3", "ACT-R6", "ACT-R34", "ACT-R36"]);
 
 // ── Extract meaningful component name from CSS selector hierarchy ─────────────
 // Walks from outermost to innermost, skipping generic structural/utility classes,

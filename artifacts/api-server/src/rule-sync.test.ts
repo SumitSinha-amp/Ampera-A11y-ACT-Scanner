@@ -57,8 +57,11 @@ const browserRulePaths = [
   "artifacts/api-server/src/lib/browser/rules/keyboard-misc.ts",
   "artifacts/api-server/src/lib/browser/rules/empty-containers.ts",
   "artifacts/api-server/src/lib/browser/rules/control-group-names.ts",
+  "artifacts/api-server/src/lib/browser/rules/table-header-data.ts",
   "artifacts/api-server/src/lib/browser/rules/text-spacing-layout.ts",
   "artifacts/api-server/src/lib/browser/rules/links-contrast.ts",
+  "artifacts/api-server/src/lib/browser/rules/link-minimum-contrast.ts",
+  "artifacts/api-server/src/lib/browser/rules/text-minimum-contrast.ts",
   "artifacts/api-server/src/lib/browser/rules/media.ts",
   "artifacts/api-server/src/lib/browser/rules/names.ts",
   "artifacts/api-server/src/lib/browser/rules/structure-misc.ts",
@@ -106,7 +109,8 @@ const browserEntrySource = read("artifacts/api-server/src/lib/browser/index.ts")
     expect(browserIds.has("ACT-R27")).toBe(true);
     expect(browserIds.has("ACT-R35")).toBe(true);
     expect(browserIds.has("ACT-R68")).toBe(true);
-    expect(browserSource).toContain('isLinkText ? "ACT-R88" : "ACT-R69"');
+    expect(browserSource).toContain('ruleId: "ACT-R88"');
+    expect(browserEntrySource).toContain('if (isRuleSelected("ACT-R88", selected)) runLinkMinimumContrastRule');
     expect(browserSource).toContain('isLinkText ? "ACT-R89" : "ACT-R66"');
     expect(browserSource).toContain("const REQUIRED_CHILDREN:");
   });
@@ -167,14 +171,21 @@ const browserEntrySource = read("artifacts/api-server/src/lib/browser/index.ts")
     );
   });
 
-  it("reports headerless data tables under ACT-R46", () => {
-    expect(browserSource).toContain(
-      'const hasHeaders = table.querySelector("th, [role=\'columnheader\'], [role=\'rowheader\']")',
-    );
-    expect(browserSource).toContain(
-      "Table data cells cannot be associated with headers because the table has no <th>",
-    );
-    expect(browserSource).toContain('ruleId: "ACT-R46"');
+  it("keeps R46 header-to-data assignment distinct from headerless tables and R77", () => {
+    const source = read("artifacts/api-server/src/lib/browser/rules/table-header-data.ts");
+    expect(source).toContain('ruleId: "ACT-R46"');
+    expect(source).toContain('cell.headers.some(slot => slot.equals(header.anchor))');
+    expect(browserSource).toContain('ruleId: "ACT-R76"');
+    expect(browserSource).not.toContain("Table data cells cannot be associated with headers because");
+    expect(read("artifacts/accessibility-scanner/src/lib/actRules.ts")).toContain("Headerless tables are checked separately by ACT-R76");
+    const fixes = read("artifacts/accessibility-scanner/src/lib/ai-engine.ts")
+      .split('"ACT-R46":')[1].split('"ACT-R47":')[0];
+    expect(fixes).toContain("table header has no assigned data cell");
+    expect(fixes).not.toContain("<select");
+    const missingHeadersFix = read("artifacts/accessibility-scanner/src/lib/ai-engine.ts")
+      .split('"ACT-R76":')[1].split('"ACT-R77":')[0];
+    expect(missingHeadersFix).toContain("data table has no native header cells");
+    expect(missingHeadersFix).not.toContain("CAPTCHA");
   });
 
   it("does not emit unresolved contrast questions as automatic R66/R69 findings", () => {
@@ -184,9 +195,9 @@ const browserEntrySource = read("artifacts/api-server/src/lib/browser/index.ts")
     expect(browserSource).toContain(
       "if (!EMIT_MANUAL_ONLY_RULES) continue;",
     );
-    expect(browserSource).toContain(
-      'isLinkText ? "ACT-R88" : "ACT-R69"',
-    );
+    expect(read("artifacts/api-server/src/lib/browser/index.ts")).toContain('runTextMinimumContrastRule(results, pushStat)');
+    expect(browserSource).toContain('type: confirmed ? "Issue" : "Potential Issue"');
+    expect(read("artifacts/api-server/src/lib/pixel-contrast.ts")).not.toContain("ruleId: aaRuleId");
     expect(browserSource).toContain(
       'isLinkText ? "ACT-R89" : "ACT-R66"',
     );

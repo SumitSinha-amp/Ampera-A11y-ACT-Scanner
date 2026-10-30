@@ -2,6 +2,7 @@ import type { ScanRawResult, PushStatFn } from "../types";
 import { getAccessibleName } from "../accname";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
 import { isProgrammaticallyHidden, isVisible } from "../visibility";
+import { runViewportZoomRule } from "./viewport-zoom";
 
 export function classifyMissingCaptions(
   audioState: boolean | "unknown",
@@ -198,16 +199,10 @@ export function runMediaRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: 
   });
 
   // ════════════════════════════════════════════════════════════════════════
-  // ACT-R47: Viewport zoom disabled (WCAG 1.4.4)
+  // ACT-R47: Viewport declarations retain zoom (WCAG 1.4.4)
   // ════════════════════════════════════════════════════════════════════════
   {
-    const viewportMeta = document.querySelector('meta[name="viewport"]');
-    if (viewportMeta) {
-      const content = viewportMeta.getAttribute("content") || "";
-      if (content.includes("user-scalable=no") || /maximum-scale\s*=\s*1(?![\d.])/.test(content)) {
-        results.push({ ruleId: "ACT-R47", type: "Issue", impact: "serious", description: "Viewport zoom is disabled via meta tag", element: outerHtmlSnippet(viewportMeta), elementContext: elementContextForAI(viewportMeta), selector: 'meta[name="viewport"]' });
-      }
-    }
+    runViewportZoomRule(results, pushStat);
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -549,7 +544,6 @@ export function runMediaRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: 
   }
   const metaRefreshEls = document.querySelectorAll("meta[http-equiv='refresh']").length;
   if (metaRefreshEls > 0) pushStat("ACT-R9", metaRefreshEls, "element");
-  pushStat("ACT-R47", 1, "page");
   const applicableVideoEls = Array.from(document.querySelectorAll("video"))
     .filter((video) => !isProgrammaticallyHidden(video) && (() => {
       const rect = video.getBoundingClientRect();

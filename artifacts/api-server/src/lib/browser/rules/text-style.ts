@@ -344,6 +344,14 @@ export function runTextStyleRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RUL
       if (!hasHiddenOverflow) return;
       const height = style.height;
       if (!height || height === "auto" || height.endsWith("%") || height.includes("content")) return;
+      // getComputedStyle().height resolves even height:auto to pixels. Typed
+      // OM preserves the computed keyword, so naturally growing boxes must
+      // not be mistaken for constrained-height containers.
+      const typedElement = el as HTMLElement & {
+        computedStyleMap?: () => { get(property: string): { toString(): string } | undefined };
+      };
+      const computedHeight = typedElement.computedStyleMap?.().get("height")?.toString();
+      if (computedHeight && /^(auto|fit-content|max-content|min-content)$/.test(computedHeight)) return;
       const heightPx = parseFloat(height);
       // Alfa R83: any fixed pixel height combined with clipping overflow can
       // clip text on resize — no height-band or padding heuristics; those
@@ -363,9 +371,10 @@ export function runTextStyleRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RUL
         const selector = getSelector(el);
         if (seen.has(selector)) return;
         seen.add(selector);
-        // R83 is proprietary in current Alfa and the SI extension never
-        // auto-reports it on validated pages — manual-review tier only
-        if (EMIT_MANUAL_ONLY_RULES) results.push({ ruleId: "ACT-R83", type: "Potential Issue", impact: "moderate", description: `Element has fixed height (${height}) with overflow:hidden — text may be clipped when text size is increased`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector });
+        // ACT keeps R83 active independently of upstream deprecation. Detection
+        // is automatic in every scan mode; confirming content loss still needs
+        // resize verification, so retain the Potential Issue classification.
+        results.push({ ruleId: "ACT-R83", type: "Potential Issue", impact: "moderate", description: `Element has fixed height (${height}) with hidden or clipped overflow — text may be clipped when text size is increased. Verify at 200% text size whether information or functionality is lost.`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector });
       }
     });
   }

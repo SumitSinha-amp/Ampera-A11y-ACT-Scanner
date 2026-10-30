@@ -1,14 +1,15 @@
 import type { ScanRawResult, PushStatFn } from "../types";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
-import { isActuallyTabbable, isVisible } from "../visibility";
+import { isActuallyTabbable, isIncludedInAccessibilityTree, isVisible } from "../visibility";
 import { runControlGroupNameRule } from "./control-group-names";
 import { runCustomKeyboardRule } from "./custom-keyboard";
 import { runErrorIdentificationReviews } from "./error-identification";
+import { runTableHeaderDataRule } from "./table-header-data";
 
 export function runTablesFormsRules(results: ScanRawResult[], pushStat: PushStatFn): void {
   // ACT-R45: headers attribute refers to valid cells in the same table.
-  // Current Alfa R45 validates explicit headers tokens; scope/association
-  // heuristics belong to the separate local R46 compatibility rule.
+  // Current Alfa R45 validates explicit headers tokens; header-to-data
+  // assignment is R46 and data-to-header assignment is R77.
   // ════════════════════════════════════════════════════════════════════════
   document.querySelectorAll("table").forEach((table) => {
     if (!isVisible(table)) return;
@@ -30,90 +31,21 @@ export function runTablesFormsRules(results: ScanRawResult[], pushStat: PushStat
     });
   });
 
-  // ════════════════════════════════════════════════════════════════════════
-  // ACT-R46: Table data cell not associated with header (WCAG 1.3.1)
-  // ════════════════════════════════════════════════════════════════════════
-  document.querySelectorAll("table").forEach((table) => {
-    if (!isVisible(table)) return;
-    const hasHeaders = table.querySelector("th, [role='columnheader'], [role='rowheader']");
-    const dataCells = Array.from(table.querySelectorAll("td, [role='cell'], [role='gridcell']"));
-    const rows = table.querySelectorAll("tr, [role='row']");
-    if (!hasHeaders) {
-      // A multi-row table made entirely from data cells has no possible
-      // programmatic header association. Report the table once rather than
-      // producing the same structural failure for every individual <td>.
-      if (dataCells.length > 0 && rows.length > 1) {
-        results.push({
-          ruleId: "ACT-R46",
-          type: "Issue",
-          impact: "serious",
-          description: "Table data cells cannot be associated with headers because the table has no <th>, columnheader, or rowheader cells",
-          element: outerHtmlSnippet(table),
-          elementContext: elementContextForAI(table),
-          selector: getSelector(table),
-        });
-      }
-      return;
-    }
-    const cells = Array.from(table.querySelectorAll("td, th, [role='cell'], [role='gridcell'], [role='columnheader'], [role='rowheader']"));
-    const buildGrid = () => {
-      const grid: Array<Array<Element | null>> = [];
-      const occupied = new Map<number, number>();
-      const rows = Array.from(table.querySelectorAll("tr"));
-      rows.forEach((row, rowIndex) => {
-        const rowCells = Array.from(row.children).filter((el) => el.matches("td, th, [role='cell'], [role='gridcell'], [role='columnheader'], [role='rowheader']"));
-        let col = 0;
-        grid[rowIndex] = grid[rowIndex] || [];
-        for (const cell of rowCells) {
-          while (occupied.get(col) && occupied.get(col)! > rowIndex) col++;
-          const rowSpan = Math.max(1, parseInt(cell.getAttribute("rowspan") || "1", 10) || 1);
-          const colSpan = Math.max(1, parseInt(cell.getAttribute("colspan") || "1", 10) || 1);
-          for (let r = rowIndex; r < rowIndex + rowSpan; r++) {
-            grid[r] = grid[r] || [];
-            for (let c = col; c < col + colSpan; c++) grid[r][c] = cell;
-          }
-          for (let c = col; c < col + colSpan; c++) occupied.set(c, rowIndex + rowSpan);
-          col += colSpan;
-        }
-      });
-      return grid;
-    };
-    const grid = buildGrid();
-    const headerCells = cells.filter((cell) => cell.matches("th, [role='columnheader'], [role='rowheader']"));
-    table.querySelectorAll("td").forEach((td) => {
-      const headersAttr = td.getAttribute("headers");
-      const row = td.closest("tr");
-      const rowIndex = row ? Array.from(table.querySelectorAll("tr")).indexOf(row) : -1;
-      const rowHeader = row?.querySelector("th[scope='row'], th[scope='rowgroup'], [role='rowheader']");
-      const colIdx = row ? Array.from(row.children).filter((el) => el.matches("td, th")).indexOf(td) : -1;
-      const colHeaderByThead = colIdx >= 0 ? table.querySelector(`thead tr th:nth-child(${colIdx + 1}), thead tr [role='columnheader']:nth-child(${colIdx + 1})`) : null;
-      const rowHeaderByScope = row?.querySelector("th[scope='row'], th[scope='rowgroup']");
-      const explicitHeaders: Element[] = headersAttr
-        ? headersAttr
-          .trim()
-          .split(/\s+/)
-          .map((id) => document.getElementById(id))
-          .filter((el): el is HTMLElement => !!el && table.contains(el))
-        : [];
-      const cellHeaders = rowIndex >= 0 && colIdx >= 0 ? [
-        ...(grid[rowIndex]?.[colIdx] ? [grid[rowIndex][colIdx]!] : []),
-        ...(explicitHeaders),
-      ].filter((el) => el instanceof Element && (headerCells.includes(el) || el.matches("[role='columnheader'], [role='rowheader']"))) : explicitHeaders;
-      const associated = !!headersAttr || !!rowHeader || !!rowHeaderByScope || !!colHeaderByThead || cellHeaders.length > 0;
-      if (!associated) {
-        results.push({ ruleId: "ACT-R46", type: "Issue", impact: "serious", description: "Table data cell cannot be associated with a header — use scope on <th> or headers attribute on <td>", element: outerHtmlSnippet(td), elementContext: elementContextForAI(td), selector: getSelector(td) });
-      }
-    });
-  });
+  runTableHeaderDataRule(results, pushStat);
 
   // ACT-R76: Data table has no header cells (WCAG 1.3.1)
+  let headerlessTablesChecked = 0;
   document.querySelectorAll("table").forEach((table) => {
-    if (!isVisible(table)) return;
-    const hasAnyTh = table.querySelector("th") !== null;
-    if (!hasAnyTh && table.querySelectorAll("tr").length > 1) {
+    if (!isVisible(table) || !isIncludedInAccessibilityTree(table)) return;
+    // Descendants of nested tables cannot supply headers or rows to this one.
+    const own = (selector: string) => Array.from(table.querySelectorAll(selector))
+      .filter(el => el.closest("table") === table);
+    headerlessTablesChecked++;
+    if (own("th").length === 0 && own("td").length > 0 && own("tr").length > 1) {
       results.push({ ruleId: "ACT-R76", type: "Issue", impact: "serious", description: "Data table has no header cells (<th>) — use <th> to identify column and row headers", element: outerHtmlSnippet(table), elementContext: elementContextForAI(table), selector: getSelector(table) });
     }
   });
+  pushStat("ACT-R76", headerlessTablesChecked, "element");
 
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R60: Related control groups need a programmatic group name
@@ -205,8 +137,6 @@ export function runTablesFormsRules(results: ScanRawResult[], pushStat: PushStat
   const tableEls = document.querySelectorAll("table").length;
   if (tableEls > 0) {
     pushStat("ACT-R45", document.querySelectorAll("th").length, "element");
-    pushStat("ACT-R46", tableEls, "element");
-    pushStat("ACT-R76", tableEls, "element");
   }
   const scrollableEls = document.querySelectorAll("[style*='overflow'],[class*='scroll'],[class*='overflow']").length;
   if (scrollableEls > 0) pushStat("ACT-R84", scrollableEls, "element");

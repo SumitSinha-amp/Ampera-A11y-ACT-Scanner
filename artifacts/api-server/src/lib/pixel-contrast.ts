@@ -7,15 +7,12 @@
  *  2. Takes a single full-page PNG screenshot via Puppeteer CDP.
  *  3. Samples a small region of pixels at each candidate's bounding box to
  *     derive the actual rendered background colour.
- *  4. Computes the WCAG contrast ratio and returns new Issue occurrences for
- *     candidates that fail the AA (4.5:1 for normal, 3:1 for large) or AAA
- *     (7:1 / 4.5:1) thresholds — regardless of whether manual-only rules are
- *     enabled.
+ *  4. Computes the legacy enhanced-contrast ratio and returns R66/R89 findings.
+ *     Minimum-contrast R69/R88 never use this averaged evidence.
  *
- * This resolves the main gap between our scanner and Siteimprove for pages
- * that use background-image (url) headers or banners: elements that were
- * previously "Potential Issue" are now classified as confirmed Issues when
- * the pixel evidence supports it.
+ * R69 and R88 are intentionally excluded: their browser evaluators handle
+ * text-node/state applicability and leaves unknown highest-contrast
+ * backgrounds for review. This patch average is not proof of a minimum-contrast failure.
  */
 
 import type { Page } from "puppeteer";
@@ -243,25 +240,14 @@ export async function runPixelContrastPass(
             };
           }, candidate.selector);
     const isLargeText = metadata.isLargeText;
-    const aaMin  = isLargeText ? 3   : 4.5;
     const aaaMin = isLargeText ? 4.5 : 7;
 
-    const aaRuleId  = metadata.isLinkText ? "ACT-R88" : "ACT-R69";
     const aaaRuleId = metadata.isLinkText ? "ACT-R89" : "ACT-R66";
 
-    if (ratio < aaMin) {
-      newIssues.push({
-        ruleId: aaRuleId,
-        type: "Issue",
-        impact: "serious",
-        description: `Text contrast ratio ${ratio.toFixed(2)}:1 is below AA minimum (${aaMin}:1) — confirmed by pixel sampling of rendered background`,
-        selector: candidate.selector,
-        bboxX: candidate.bboxX,
-        bboxY: candidate.bboxY,
-        bboxW: candidate.bboxW,
-        bboxH: candidate.bboxH,
-      });
-    }
+    // R88 has a dedicated text-node/state evaluator. Averaging a screenshot
+    // patch does not establish its highest-possible-contrast expectation.
+    // R69, like R88, requires highest-possible contrast evidence. A patch
+    // average must never replace its independent evaluator's review outcome.
     if (ratio < aaaMin) {
       newIssues.push({
         ruleId: aaaRuleId,

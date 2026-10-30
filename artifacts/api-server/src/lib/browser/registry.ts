@@ -15,6 +15,9 @@ export type RuleFamily =
   | "tables-forms"
   | "text-style"
   | "text-spacing"
+  | "main-content-instrument"
+  | "main-content-heading"
+  | "repeated-content-collapse"
   | "structure"
   | "keyboard";
 export type RuleRequirement =
@@ -48,20 +51,23 @@ const familyRules: Record<RuleFamily, readonly string[]> = {
   names: ["ACT-R2", "ACT-R8", "ACT-R11", "ACT-R12", "ACT-R13", "ACT-R14", "ACT-R15", "ACT-R28", "ACT-R43", "ACT-R94", "ACT-R116"],
   aria: ["ACT-R10", "ACT-R16", "ACT-R17", "ACT-R18", "ACT-R19", "ACT-R20", "ACT-R21", "ACT-R36", "ACT-R40", "ACT-R42", "ACT-R86", "ACT-R90"],
   media: ["ACT-R9", "ACT-R22", "ACT-R23", "ACT-R24", "ACT-R25", "ACT-R26", "ACT-R27", "ACT-R29", "ACT-R30", "ACT-R31", "ACT-R32", "ACT-R33", "ACT-R35", "ACT-R37", "ACT-R38", "ACT-R47", "ACT-R48", "ACT-R50", "ACT-R51", "ACT-R52"],
-  "headings-landmarks": ["ACT-R34", "ACT-R53", "ACT-R54", "ACT-R55", "ACT-R56", "ACT-R57", "ACT-R59", "ACT-R64", "ACT-R65", "ACT-R87", "ACT-R97", "ACT-R99", "ACT-R101", "ACT-R102"],
+  "headings-landmarks": ["ACT-R34", "ACT-R53", "ACT-R54", "ACT-R55", "ACT-R56", "ACT-R57", "ACT-R59", "ACT-R64", "ACT-R65", "ACT-R87", "ACT-R99", "ACT-R101", "ACT-R102"],
   "links-contrast": ["ACT-R39", "ACT-R41", "ACT-R44", "ACT-R66", "ACT-R69", "ACT-R81", "ACT-R88", "ACT-R89", "ACT-R113"],
   "tables-forms": ["ACT-R45", "ACT-R46", "ACT-R60", "ACT-R76", "ACT-R82", "ACT-R84", "ACT-R107"],
   "text-style": ["ACT-R62", "ACT-R67", "ACT-R70", "ACT-R71", "ACT-R72", "ACT-R73", "ACT-R74", "ACT-R75", "ACT-R80", "ACT-R83", "ACT-R85"],
   "text-spacing": ["ACT-R129"],
-  structure: ["ACT-R79", "ACT-R84", "ACT-R91", "ACT-R92", "ACT-R93", "ACT-R98", "ACT-R100", "ACT-R115", "ACT-R117", "ACT-R118", "ACT-R119", "ACT-R121", "ACT-R126", "ACT-R128"],
+  structure: ["ACT-R79", "ACT-R84", "ACT-R91", "ACT-R92", "ACT-R93", "ACT-R115", "ACT-R117", "ACT-R118", "ACT-R119", "ACT-R121", "ACT-R126", "ACT-R128"],
+  "main-content-instrument": ["ACT-R100"],
+  "main-content-heading": ["ACT-R98"],
+  "repeated-content-collapse": ["ACT-R97"],
   keyboard: ["ACT-R49", "ACT-R61", "ACT-R63", "ACT-R68", "ACT-R77", "ACT-R78", "ACT-R95", "ACT-R96", "ACT-R111", "ACT-R112"],
 };
 
 const manualRuleIds = new Set([
   "ACT-R23", "ACT-R24", "ACT-R27",
-  "ACT-R66", "ACT-R69", "ACT-R72", "ACT-R83", "ACT-R84", "ACT-R86",
-  "ACT-R88", "ACT-R89", "ACT-R98", "ACT-R100", "ACT-R102", "ACT-R109",
-  "ACT-R118", "ACT-R119", "ACT-R121",
+  "ACT-R66", "ACT-R72", "ACT-R84", "ACT-R86",
+  "ACT-R88", "ACT-R89", "ACT-R100", "ACT-R102", "ACT-R109",
+  "ACT-R118", "ACT-R121",
 ]);
 const visualRuleIds = new Set(["ACT-R66", "ACT-R69", "ACT-R88", "ACT-R89"]);
 const mediaRuleIds = new Set(["ACT-R22", "ACT-R23", "ACT-R24", "ACT-R25", "ACT-R26", "ACT-R27", "ACT-R29", "ACT-R30", "ACT-R31", "ACT-R32", "ACT-R33", "ACT-R35", "ACT-R37", "ACT-R38", "ACT-R47", "ACT-R48", "ACT-R50", "ACT-R51"]);
@@ -69,7 +75,7 @@ const computedStyleRuleIds = new Set(["ACT-R44", "ACT-R49", "ACT-R62", "ACT-R67"
 
 function requirementsFor(id: string): readonly RuleRequirement[] {
   const requirements: RuleRequirement[] = ["dom"];
-  if (computedStyleRuleIds.has(id) || id === "ACT-R129") requirements.push("computed-style");
+  if (computedStyleRuleIds.has(id) || id === "ACT-R129" || id === "ACT-R98" || id === "ACT-R97") requirements.push("computed-style");
   if (mediaRuleIds.has(id)) requirements.push("media-metadata");
   if (visualRuleIds.has(id)) requirements.push("visual-background");
   return requirements;
