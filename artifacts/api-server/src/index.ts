@@ -1,4 +1,4 @@
-  import app, { waitForActiveRequests } from "./app";
+import app, { waitForActiveRequests } from "./app";
   import { logger } from "./lib/logger";
   import { pool, sessionPool, db, scanSessionsTable, pageResultsTable, usersTable } from "@workspace/db";
   import { inArray, eq, and, lt } from "drizzle-orm";
@@ -531,7 +531,7 @@
       `);
   
       // 14. Assign orphaned scans (NULL user_id) to superadmin
-      await client.query(`
+      client.deferHistorical("legacy-scan-session-owner", `
         UPDATE scan_sessions
         SET user_id = (SELECT id::text FROM users WHERE role = 'super_admin' ORDER BY id LIMIT 1)
         WHERE user_id IS NULL
@@ -694,7 +694,7 @@
       // Historical rows are renamed once so old and new scans display the same
       // rule identifiers. (The legacy id is derivable: ACT-Rn ↔ SIA-Rn.)
       // Runs BEFORE the wcag_criteria backfills so those match on ACT ids.
-      await client.query(`
+      client.deferHistorical("legacy-rule-id-act-rebrand", `
         UPDATE accessibility_issues SET rule_id = 'ACT-' || substring(rule_id from 5)
         WHERE rule_id LIKE 'SIA-%'
       `);
@@ -702,15 +702,15 @@
       // 20d. Backfill WCAG mappings on historical issues: ACT-R84 rows scanned
       // before the mapping existed, and ACT-R35 rows stored with the old 1.2.1
       // mapping (corrected to 1.3.1)
-      await client.query(`
+      client.deferHistorical("historical-r84-wcag-mapping", `
         UPDATE accessibility_issues SET wcag_criteria = '2.1.1'
         WHERE rule_id = 'ACT-R84' AND (wcag_criteria IS NULL OR wcag_criteria = '')
       `);
-      await client.query(`
+      client.deferHistorical("historical-r35-wcag-mapping", `
         UPDATE accessibility_issues SET wcag_criteria = '1.3.1'
         WHERE rule_id = 'ACT-R35' AND wcag_criteria = '1.2.1'
       `);
-      await client.query(`
+      client.deferHistorical("historical-r31-wcag-mapping", `
         UPDATE accessibility_issues SET wcag_criteria = '1.2.3'
         WHERE rule_id = 'ACT-R31' AND (wcag_criteria = '1.4.8' OR wcag_criteria = '1.2.1')
       `);
@@ -720,7 +720,7 @@
       // rule. Earlier deployments stored 44×44 enhanced and 24×24 minimum
       // target findings under R32; classify only those recognisable historical
       // descriptions so genuine R32 video findings remain untouched.
-      await client.query(`
+      client.deferHistorical("historical-r32-target-rule-identity", `
         UPDATE accessibility_issues
         SET
           rule_id = CASE
@@ -1277,7 +1277,7 @@
       //     sites.base_url. scan_sessions has no direct url column — URLs live in
       //     page_results. Picks the longest matching (most specific) site.
       //     Safe to re-run — only touches rows where site_id IS NULL.
-      await client.query(`
+      client.deferHistorical("legacy-scan-session-site", `
         UPDATE scan_sessions ss
         SET site_id = (
           SELECT s.id
@@ -1313,7 +1313,7 @@
       await client.query(`CREATE INDEX IF NOT EXISTS project_sites_project_idx ON project_sites(project_id)`);
       await client.query(`CREATE INDEX IF NOT EXISTS project_sites_site_idx ON project_sites(site_id)`);
       // Link every legacy project/site pair represented by an existing scan.
-      await client.query(`
+      client.deferHistorical("legacy-project-site-associations", `
         INSERT INTO project_sites (project_id, site_id)
         SELECT DISTINCT ss.project_id, ss.site_id
         FROM scan_sessions ss
@@ -1364,7 +1364,7 @@
       // 43a. Preserve score-density data for the corrected historical R32
       // findings. This follows the CREATE TABLE step so an older Azure database
       // can safely receive the same release in a single startup.
-      await client.query(`
+      client.deferHistorical("historical-r32-density-transfer", `
         WITH legacy_stats AS (
           SELECT page_result_id, total_checked, scope
           FROM rule_page_stats
@@ -1391,7 +1391,7 @@
           ),
           scope = EXCLUDED.scope
       `);
-      await client.query(`
+      client.deferHistorical("historical-r32-density-cleanup", `
         DELETE FROM rule_page_stats WHERE rule_id = 'ACT-R32'
       `);
   
@@ -1563,14 +1563,13 @@
       `);
   
       await client.query(DATA_PROTECTION_SQL);
-      await client.query("COMMIT");
+      await client.query(HISTORICAL_MIGRATIONS_SCHEMA_SQL);
       logger.info("Startup migrations completed");
     } catch (err) {
-      await client.query("ROLLBACK");
       logger.error({ err }, "Startup migration failed — data safeguards cannot be bypassed");
       throw err;
     } finally {
-      client.release();
+      connection.release();
     }
   }
   
@@ -1849,6 +1848,8 @@
     } catch (err) {
       logger.error({ err }, "Post-listen crawler recovery failed");
     }
+    if (shutdownStarted || isScanWorkStopping() || isCrawlerWorkStopping()) return;
+    await runHistoricalMigrations(historicalStartupMigrations, () => pool.connect(), () => shutdownStarted);
   }
   
   /**
@@ -2004,16 +2005,23 @@
       client.release();
     }
   }
-
 startListening(port);
 (process.env.RUN_STARTUP_MIGRATIONS === "false" && !process.argv.includes("--migrate-only")
   ? Promise.resolve() : runStartupMigrations())
   .then(async () => {
-    if (process.argv.includes("--migrate-only")) { await pool.end(); return; }
+    if (process.argv.includes("--migrate-only")) {
+      // Admin migration jobs have no listener. Run corrections only after all
+      // schema transactions have committed.
+      await runHistoricalMigrations(historicalStartupMigrations, () => pool.connect(), () => shutdownStarted);
+      await Promise.all([pool.end(), sessionPool.end()]);
+      return;
+    }
     await checkDatabaseWritable();
     await Promise.all([seedDefaultAdmin(), ensureChromeDependencies()]);
+    
   })
   .catch((err) => {
     logger.error({ err }, "Startup failed");
     process.exit(1);
   });
+

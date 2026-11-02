@@ -113,6 +113,11 @@ it("keeps historical rule fixes out of schema transactions and runs them after l
   const source = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
   const schemaStartup = source.slice(source.indexOf("async function runStartupMigrations"), source.indexOf("async function seedDefaultAdmin"));
   expect(schemaStartup).not.toMatch(/await client\.query\("BEGIN"\)/);
+  expect(schemaStartup).not.toMatch(/await client\.query\("(?:COMMIT|ROLLBACK)"\)/);
+  expect(schemaStartup).not.toContain("client.release()");
+  expect(schemaStartup).toContain("connection.release()");
+  expect(schemaStartup).toContain("await client.query(HISTORICAL_MIGRATIONS_SCHEMA_SQL)");
+  expect(schemaStartup.match(/client\.deferHistorical\(/g)).toHaveLength(10);
   expect(schemaStartup).not.toMatch(/await client\.query\(`\s*UPDATE accessibility_issues/);
   expect(source).toContain('deferHistorical("historical-r35-wcag-mapping"');
   expect(source.indexOf("await runHistoricalMigrations(")).toBeGreaterThan(source.indexOf("async function runPostListenRecovery"));
