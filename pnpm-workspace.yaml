@@ -41,10 +41,14 @@ packages:
   - scripts
 
 allowBuilds:
-  "@clerk/shared": true
-  "core-js": true
-  "esbuild": true
-  "puppeteer": true
+  '@parcel/watcher': true
+  '@swc/core': true
+  esbuild: true
+  msw: true
+  unrs-resolver: true
+  puppeteer: true
+  '@clerk/shared': true
+  core-js: true
 
 catalog:
   '@replit/vite-plugin-cartographer': ^0.5.1
@@ -72,16 +76,6 @@ catalog:
   zod: ^3.25.76
 
 autoInstallPeers: false
-
-onlyBuiltDependencies:
-  # Native file watcher used by the frontend toolchain.
-  - '@parcel/watcher'
-  - '@swc/core'
-  - esbuild
-  - msw
-  - unrs-resolver
-  - puppeteer
-  - '@clerk/shared'
 
 supportedArchitectures:
   os:
