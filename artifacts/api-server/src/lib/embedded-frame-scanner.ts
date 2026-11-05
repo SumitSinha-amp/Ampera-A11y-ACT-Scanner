@@ -17,7 +17,7 @@ type FrameScanOptions = {
 };
 
 /** Frame paths are displayable selectors; >>> explicitly crosses documents. */
-async function getFramePath(frame: Frame, maxDepth: number): Promise<string[] | null> {
+export async function getFramePath(frame: Frame, maxDepth: number, renderedOnly = false): Promise<string[] | null> {
   const chain: Frame[] = [];
   let current: Frame | null = frame;
   while (current.parentFrame()) {
@@ -31,15 +31,20 @@ async function getFramePath(frame: Frame, maxDepth: number): Promise<string[] | 
     const host = await child.frameElement();
     if (!host) return null;
     try {
-      const selector = await host.evaluate((element) => {
+      const selector = await host.evaluate((element, renderedOnly) => {
         for (let node: Element | null = element; node; node = node.parentElement) {
           const style = getComputedStyle(node);
-          if (style.display === "none" || style.visibility === "hidden" ||
+          if (style.display === "none") return null;
+          if (renderedOnly && (node.parentElement?.matches("iframe") ||
+            (node.parentElement?.matches("audio,video") && !node.matches("source,track")))) return null;
+          if (!renderedOnly && (style.visibility === "hidden" ||
             style.visibility === "collapse" || Number(style.opacity) === 0 ||
-            node.hasAttribute("hidden") || node.getAttribute("aria-hidden") === "true") return null;
+            node.hasAttribute("hidden") || node.getAttribute("aria-hidden") === "true")) return null;
         }
-        const bounds = element.getBoundingClientRect();
-        if (bounds.width <= 1 || bounds.height <= 1) return null;
+        if (!renderedOnly) {
+          const bounds = element.getBoundingClientRect();
+          if (bounds.width <= 1 || bounds.height <= 1) return null;
+        }
         const parts: string[] = [];
         for (let node: Element | null = element; node; node = node.parentElement) {
           if (node.id && node.ownerDocument.querySelectorAll(`#${CSS.escape(node.id)}`).length === 1) {
@@ -52,7 +57,7 @@ async function getFramePath(frame: Frame, maxDepth: number): Promise<string[] | 
           parts.unshift(`${node.localName}:nth-of-type(${siblings.indexOf(node) + 1})`);
         }
         return parts.join(" > ");
-      });
+      }, renderedOnly);
       if (!selector) return null;
       path.push(selector);
     } finally { await host.dispose(); }

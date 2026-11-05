@@ -9,23 +9,35 @@ const welcome = read("pages/welcome.tsx");
 
 describe("app release continuity", () => {
   it("uses one current version and shared summary across the welcome and update pages", () => {
-    expect(version).toContain('APP_VERSION = "1.4.7"');
+    expect(version).toContain('APP_VERSION = "1.4.8"');
+    expect(version).toContain('APP_RELEASE_MONTH = "November 2026"');
     expect(version).toContain("APP_RELEASE_SUMMARY");
     expect(updates).toContain("summary: APP_RELEASE_SUMMARY");
     expect(welcome).toContain("{APP_RELEASE_SUMMARY}");
     expect(welcome).toContain("{APP_RELEASE_TITLE} in {APP_VERSION}");
-    expect(updates).toContain("groups: release147ProductGroups");
+    expect(updates).toContain("groups: release148ProductGroups");
   });
   it("retains every previous release, including the full data-protection update", () => {
-    for (const release of ["1.4.6", "1.4.5", "1.4.4", "1.4.3", "1.4.2", "1.3.0"]) {
+    for (const release of ["1.4.7", "1.4.6", "1.4.5", "1.4.4", "1.4.3", "1.4.2", "1.3.0"]) {
       expect(updates).toContain(`version: "${release}"`);
     }
     expect(updates).toContain("version: APP_RULE_MAPPING_RELEASE");
     expect(version).toContain('APP_RULE_MAPPING_RELEASE = "1.4.1"');
     expect(updates).toContain("groups: release146ProductGroups");
+    expect(updates).toContain("groups: release147ProductGroups");
     expect(updates).toContain("Data protection and Issue Management recovery");
     expect(updates).toContain("Highlight occurrences without reloading");
     expect(updates).toContain("Scan progress that reflects each stage");
+  });
+  it("separates justification guidance from spacing layout without claiming detector fixes", () => {
+    const rules = read("lib/actRules.ts");
+    const docs = read("pages/documentation.tsx");
+    expect(rules).toContain('title: "Paragraph text is fully justified"');
+    expect(rules).not.toContain('title: "Uneven spacing in text"');
+    expect(rules).toContain("already severe clipping can conceal further deterioration");
+    expect(docs).toContain("Justification versus text-spacing layout");
+    expect(welcome).toContain("Understand text-layout results");
+    expect(updates).toContain("does not change ACT-R113 target spacing or ACT-R129 detection behavior");
   });
   it("describes actual review boundaries without claiming automatic submission", () => {
     expect(updates).toContain("Existing automatic ACT-R82 Issues remain unchanged");

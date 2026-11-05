@@ -73,7 +73,7 @@ type Measurement = { visible: boolean; ratio?: number; minimum?: number; reason?
  * replaced with ancestor white or an averaged screenshot patch. Neither is
  * equivalent to Alfa's highest-possible-contrast expectation.
  */
-function measure(text: Text, el: Element): Measurement {
+function measure(text: Text, el: Element, enhanced = false): Measurement {
   const chain = [el, ...ancestors(el)];
   const styles = chain.map(n => getComputedStyle(n));
   if (styles.some(s => s.display === "none" || s.contentVisibility === "hidden" ||
@@ -140,13 +140,23 @@ function measure(text: Text, el: Element): Measurement {
   if (fg === null || bg === null) return { visible: true, reason: "foreground or background colour cannot be resolved" };
   const size = parseFloat(style.fontSize), weight = parseFloat(style.fontWeight);
   const large = size >= 24 || (size >= 56 / 3 && weight >= 700);
-  return { visible: true, ratio: getContrastRatio(fg, bg), minimum: large ? 3 : 4.5 };
+  return { visible: true, ratio: getContrastRatio(fg, bg), minimum: enhanced ? (large ? 4.5 : 7) : (large ? 3 : 4.5) };
 }
 
 /** SIA-R88: text-node targets; all eight authored link-state combinations.
  * No clicks, navigation, focus events or history writes are performed.
  */
 export function runLinkMinimumContrastRule(results: ScanRawResult[], pushStat: PushStatFn): void {
+  runLinkContrastRule(results, pushStat, "ACT-R88");
+}
+
+/** R89 has the same text-node/state coverage with enhanced AAA thresholds. */
+export function runLinkEnhancedContrastRule(results: ScanRawResult[], pushStat: PushStatFn): void {
+  runLinkContrastRule(results, pushStat, "ACT-R89");
+}
+
+function runLinkContrastRule(results: ScanRawResult[], pushStat: PushStatFn, ruleId: "ACT-R88" | "ACT-R89"): void {
+  const enhanced = ruleId === "ACT-R89";
   const targets = new Map<Element, { text: Text; parent: Element }[]>();
   const roots = new Set<Document | ShadowRoot>([document]);
   const seen = new Set<Node>();
@@ -240,7 +250,7 @@ export function runLinkMinimumContrastRule(results: ScanRawResult[], pushStat: P
         set(link, "focus", focused); set(link, "focus-visible", focused);
         for (const el of related) { set(el, "hover", hovered); set(el, "focus-within", focused); }
         texts.forEach(({ text, parent }, i) => {
-          const m = measure(text, parent), record = evidence[i];
+          const m = measure(text, parent, enhanced), record = evidence[i];
           record.visible ||= m.visible;
           if (!m.visible) return;
           if (m.ratio !== undefined && m.minimum !== undefined && m.ratio < m.minimum) {
@@ -261,10 +271,10 @@ export function runLinkMinimumContrastRule(results: ScanRawResult[], pushStat: P
         // Its uninspected cascade must never produce a confirmed failure.
         const confirmed = e.failures.length > 0 && !incompleteStyles;
         results.push({
-          ruleId: "ACT-R88", type: confirmed ? "Issue" : "Potential Issue", impact: "serious",
+          ruleId, type: confirmed ? "Issue" : "Potential Issue", impact: enhanced ? "minor" : "serious",
           description: `Link text ${JSON.stringify(text.textContent?.trim())}: ${confirmed
             ? `contrast ${e.failures.join("; ")}`
-            : `minimum contrast needs review: ${[...e.reviews].join("; ")}`}.` +
+            : `${enhanced ? "enhanced" : "minimum"} contrast needs review: ${[...e.reviews].join("; ")}`}.` +
             (confirmed && e.reviews.size ? ` Additional coverage requires review: ${[...e.reviews].join("; ")}.` : ""),
           ...originalEvidence.get(text)!,
         });
@@ -277,5 +287,5 @@ export function runLinkMinimumContrastRule(results: ScanRawResult[], pushStat: P
     }
     for (const guard of guards) guard.remove();
   }
-  pushStat("ACT-R88", checked, "element");
+  pushStat(ruleId, checked, "element");
 }

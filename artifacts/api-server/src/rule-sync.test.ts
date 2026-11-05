@@ -59,6 +59,7 @@ const browserRulePaths = [
   "artifacts/api-server/src/lib/browser/rules/control-group-names.ts",
   "artifacts/api-server/src/lib/browser/rules/table-header-data.ts",
   "artifacts/api-server/src/lib/browser/rules/text-spacing-layout.ts",
+  "artifacts/api-server/src/lib/browser/rules/list-accesskeys.ts",
   "artifacts/api-server/src/lib/browser/rules/links-contrast.ts",
   "artifacts/api-server/src/lib/browser/rules/link-minimum-contrast.ts",
   "artifacts/api-server/src/lib/browser/rules/text-minimum-contrast.ts",
@@ -109,9 +110,9 @@ const browserEntrySource = read("artifacts/api-server/src/lib/browser/index.ts")
     expect(browserIds.has("ACT-R27")).toBe(true);
     expect(browserIds.has("ACT-R35")).toBe(true);
     expect(browserIds.has("ACT-R68")).toBe(true);
-    expect(browserSource).toContain('ruleId: "ACT-R88"');
+    expect(browserSource).toContain('runLinkContrastRule(results, pushStat, "ACT-R88")');
     expect(browserEntrySource).toContain('if (isRuleSelected("ACT-R88", selected)) runLinkMinimumContrastRule');
-    expect(browserSource).toContain('isLinkText ? "ACT-R89" : "ACT-R66"');
+    expect(browserEntrySource).toContain('if (isRuleSelected("ACT-R89", selected)) runLinkEnhancedContrastRule');
     expect(browserSource).toContain("const REQUIRED_CHILDREN:");
   });
 
@@ -198,9 +199,8 @@ const browserEntrySource = read("artifacts/api-server/src/lib/browser/index.ts")
     expect(read("artifacts/api-server/src/lib/browser/index.ts")).toContain('runTextMinimumContrastRule(results, pushStat)');
     expect(browserSource).toContain('type: confirmed ? "Issue" : "Potential Issue"');
     expect(read("artifacts/api-server/src/lib/pixel-contrast.ts")).not.toContain("ruleId: aaRuleId");
-    expect(browserSource).toContain(
-      'isLinkText ? "ACT-R89" : "ACT-R66"',
-    );
+    expect(browserSource).toContain('runLinkContrastRule(results, pushStat, "ACT-R89")');
+    expect(read("artifacts/api-server/src/lib/scanner.ts")).toContain('const PIXEL_RULE_IDS = new Set(["ACT-R66"])');
   });
 
   it("keeps ACT-R19 on the shared complete ARIA value schema", () => {

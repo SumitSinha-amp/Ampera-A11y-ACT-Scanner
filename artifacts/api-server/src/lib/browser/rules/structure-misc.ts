@@ -152,32 +152,7 @@ export function runStructureMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   // keyboard-focus pass. The mere presence of a fixed/sticky bar is not a
   // failure and must not create a duplicate heuristic finding here.
 
-  // ACT-R121: Focus Appearance (WCAG 2.4.13, AAA)
-  {
-    const suppressed: string[] = [];
-    try {
-      Array.from(document.styleSheets).forEach((sheet) => {
-        try {
-          Array.from((sheet as CSSStyleSheet).cssRules || []).forEach((rule) => {
-            if (!(rule instanceof CSSStyleRule)) return;
-            const sel = rule.selectorText || "";
-            if (!/:focus/.test(sel)) return;
-            const st = (rule as CSSStyleRule).style;
-            const outlineVal = st.getPropertyValue("outline");
-            const outlineStyle = st.getPropertyValue("outline-style");
-            const outlineWidth = st.getPropertyValue("outline-width");
-            const suppressesOutline = outlineVal === "none" || outlineVal === "0" || outlineStyle === "none" || outlineWidth === "0" || outlineWidth === "0px";
-            if (!suppressesOutline) return;
-            const hasReplacement = st.getPropertyValue("box-shadow") || st.getPropertyValue("border") || st.getPropertyValue("border-color") || st.getPropertyValue("background-color") || st.getPropertyValue("text-decoration");
-            if (!hasReplacement) suppressed.push(sel);
-          });
-        } catch { /* cross-origin sheet */ }
-      });
-    } catch { /* no styleSheets */ }
-    if (suppressed.length > 0) {
-      if (EMIT_MANUAL_ONLY_RULES) results.push({ ruleId: "ACT-R121", type: "Potential Issue", impact: "minor", description: `Focus outline suppressed without a visible replacement in ${suppressed.length} CSS rule(s): ${suppressed.slice(0, 4).join(", ")}${suppressed.length > 4 ? " …" : ""} — WCAG 2.4.13 requires a focus indicator of sufficient size and contrast`, element: `<style> ... ${suppressed[0]} { outline: none } ... </style>`, elementContext: "", selector: "" });
-    }
-  }
+  // Ampera ACT-R121 is evaluated per control by the native-Tab server pass.
 
   // ACT-R126: Accessible Authentication – Minimum (WCAG 3.3.8, AA)
   {
@@ -334,14 +309,11 @@ export function runStructureMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   const abbrEls = document.querySelectorAll("abbr").length;
   const preEls = document.querySelectorAll("pre").length;
   if (preEls > 0) pushStat("ACT-R79", preEls, "element");
-  const allLinks = document.querySelectorAll("a[href]").length;
-  if (allLinks > 0) pushStat("ACT-R81", allLinks, "element");
   const structHeadings = document.querySelectorAll("h1,h2,h3,h4,h5,h6").length;
   if (structHeadings > 0) pushStat("ACT-R115", structHeadings, "element");
   const imgRoleEls = document.querySelectorAll("[role='img']").length;
   if (imgRoleEls > 0) pushStat("ACT-R117", imgRoleEls, "element");
   if (imageOfTextTargets.length > 0) pushStat("ACT-R118", imageOfTextTargets.length, "element");
-  pushStat("ACT-R121", 1, "page");
   pushStat("ACT-R126", 1, "page");
 
   // ════════════════════════════════════════════════════════════════════════

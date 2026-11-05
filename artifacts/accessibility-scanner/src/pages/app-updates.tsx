@@ -542,6 +542,32 @@ const release147ProductGroups: UpdateGroup[] = [
   },
 ];
 
+const release148ProductGroups: UpdateGroup[] = [
+  {
+    icon: Accessibility,
+    title: "Corrected paragraph-justification guidance",
+    description: "ACT-R71 help now describes the check the scanner actually runs.",
+    category: "Accessibility",
+    features: [
+      "ACT-R71 checks visible, non-empty native paragraphs with text-align: justify",
+      "The rule is presented as Best Practice guidance associated with WCAG 1.4.8 AAA, not a WCAG 1.4.12 text-spacing test",
+      "Rule help and the searchable documentation catalog now point to custom ACT-R129 for text-spacing layout review",
+    ],
+  },
+  {
+    icon: ClipboardCheck,
+    title: "Text-spacing review limitations",
+    description: "Documented measurement boundaries help reviewers interpret results without assuming a pass.",
+    category: "Reporting",
+    features: [
+      "ACT-R129 compares the original layout with spacing overrides and reports new clipping or hidden text as Issues, with new text-box overlap requiring review",
+      "Clipping must exceed 5% of measured text-box area and worsen by more than 5 percentage points; already severe clipping can conceal further deterioration",
+      "Manual review remains necessary when text is visibly clipped even if no ACT-R129 finding appears",
+      "This release changes documentation and release messaging only; it does not change ACT-R113 target spacing or ACT-R129 detection behavior",
+    ],
+  },
+];
+
 type ReleaseHistoryEntry = {
   version: string;
   month: string;
@@ -557,6 +583,14 @@ export const releaseHistory: ReleaseHistoryEntry[] = [
     month: APP_UPDATES_MONTH,
     label: "Current release",
     summary: APP_RELEASE_SUMMARY,
+    groups: release148ProductGroups,
+    showcase: false,
+  },
+  {
+    version: "1.4.7",
+    month: "October 2026",
+    label: "Previous release",
+    summary: "Broader form-error reviews, custom-dropdown keyboard checks, and loaded embedded-frame scanning, alongside refined text-layout and structural checks. Existing automatic findings are preserved, uncertain outcomes stay Potential Issues, and normal scans do not submit forms to test validation.",
     groups: release147ProductGroups,
     showcase: false,
   },

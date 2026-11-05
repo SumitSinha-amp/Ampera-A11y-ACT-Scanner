@@ -4,6 +4,7 @@ import { hasAlfaFocusIndicator, isAlfaIncludedInAccessibilityTree } from "../alf
 import { getLuminanceFromColorString } from "../contrast";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
 import { isRendered, isVisible } from "../visibility";
+import { isLongFullyItalicParagraph } from "./italic-passages";
 
 export function runTextStyleRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: boolean, pushStat: PushStatFn): void {
   // ACT-R62: Color used as only visual means to distinguish links (WCAG 1.4.1)
@@ -379,18 +380,17 @@ export function runTextStyleRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RUL
     });
   }
 
-  // ACT-R85: Paragraph text is fully italic (Best Practice)
+  // ACT-R85: Long paragraph text is fully italic (Best Practice).
+  // Short labels such as "Special Offers" are not large passages.
   {
     const r85Seen = new Set<string>();
     for (const el of Array.from(document.querySelectorAll("p,[role='paragraph']")).slice(0, 600)) {
       if (!(el instanceof HTMLElement)) continue;
-      if (!isVisible(el)) continue;
-      if (!el.textContent?.trim()) continue;
-      if (window.getComputedStyle(el).fontStyle !== "italic") continue;
+      if (!isLongFullyItalicParagraph(el)) continue;
       const sel = getSelector(el);
       if (r85Seen.has(sel)) continue;
       r85Seen.add(sel);
-      results.push({ ruleId: "ACT-R85", type: "Best Practice", impact: "minor", description: "Paragraph text is fully italic — avoid for long passages", element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: sel });
+      results.push({ ruleId: "ACT-R85", type: "Best Practice", impact: "minor", description: "A long passage of paragraph text is fully italic — use regular text for sustained reading and reserve italics for short emphasis, titles, or technical terms", element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: sel });
     }
   }
 

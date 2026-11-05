@@ -3,6 +3,7 @@ import { getAccessibleName } from "../accname";
 import { getAlfaTabOrder, hasAlfaFocusIndicator, isInsideAlfaLandmarkOrDialog } from "../alfa-helpers";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
 import { isProgrammaticallyHidden, isRendered, isVisible } from "../visibility";
+import { runRepeatedContentRule } from "./repeated-content";
 
 type LandmarkIdentity = { role: string; name: string };
 
@@ -315,27 +316,7 @@ export function runHeadingsLandmarksRules(results: ScanRawResult[], EMIT_MANUAL_
       }
     }
 
-    // ACT-R101 / SIA-R101: repeated content before the main landmark.
-    // Alfa applies this to the document and passes when there is no accessible
-    // content before the first main landmark. Otherwise the result requires
-    // manual review of whether a bypass mechanism exists.
-    const main = document.querySelector("main, [role='main']");
-    if (main) {
-      const beforeMain = Array.from(document.body.querySelectorAll("*")).filter((el) => {
-        const position = el.compareDocumentPosition(main);
-        return !!(position & Node.DOCUMENT_POSITION_FOLLOWING) && el !== main &&
-          !el.closest("main, [role='main']") &&
-          isRendered(el) &&
-          !isProgrammaticallyHidden(el);
-      });
-      const hasAccessibleContentBeforeMain = beforeMain.some((el) => {
-        const text = (el.textContent || "").trim();
-        return text.length > 0 && !/^(script|style|template|noscript)$/i.test(el.tagName);
-      });
-      if (hasAccessibleContentBeforeMain) {
-        results.push({ ruleId: "ACT-R101", type: "Potential Issue", impact: "moderate", description: "Repeated content exists before the main content — verify that keyboard users can bypass it", element: outerHtmlSnippet(main), elementContext: elementContextForAI(main), selector: getSelector(main) });
-      }
-    }
+    runRepeatedContentRule(results);
 
     // Local compatibility check: skip-link target exists. This is not Alfa's
     // current R101 semantics, so keep it under the platform's auxiliary R102.
@@ -374,7 +355,7 @@ export function runHeadingsLandmarksRules(results: ScanRawResult[], EMIT_MANUAL_
   {
     getAlfaTabOrder().forEach((el) => {
       if (hasAlfaFocusIndicator(el)) return;
-      results.push({ ruleId: "ACT-R65", type: "Issue", impact: "serious", description: "CSS removes focus outline without providing a visible replacement focus indicator", element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
+      results.push({ ruleId: "ACT-R65", type: "Potential Issue", impact: "serious", description: "No replacement focus styling was observed during the programmatic focus check. Verify this control using native keyboard navigation; this heuristic does not establish a confirmed missing focus indicator.", element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
     });
   }
 

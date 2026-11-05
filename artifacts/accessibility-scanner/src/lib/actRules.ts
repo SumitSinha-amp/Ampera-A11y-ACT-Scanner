@@ -143,11 +143,11 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       'Pre-recorded video content must include a synchronised caption track via <track kind="captions"> so deaf and hard-of-hearing users can access all spoken dialogue and audio cues.',
   },
   "ACT-R23": {
-    title: "Audio or video does not have a transcript or alternative",
+    title: "Audio does not have a transcript or text alternative",
     potentialTitle: "Does the audio have a transcript?",
     issueTitle: "Audio without a transcript",
     detail:
-      "Pre-recorded audio-only or video-only content must provide a text transcript or equivalent so users who cannot hear or see the media can access the same information.",
+      "Pre-recorded audio-only content needs a perceivable transcript or equivalent text alternative. Scripted playback controls may share a hidden audio player; each distinct sample needs review.",
     relatedRules: ["ACT-R38"],
   },
   "ACT-R24": {
@@ -188,7 +188,7 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
   "ACT-R30": {
     title: "Audio content has a text alternative",
     detail:
-      "Audio content must have a text alternative. This composite check is satisfied when the audio transcript/alternative check or the audio media-alternative check passes.",
+      "This composite combines ACT-R23 (audio transcript) and ACT-R29 (audio as an identified alternative to text). Either verified pass satisfies ACT-R30; both must fail for a confirmed failure. Otherwise the result remains undetermined and is reported as a Potential Issue for review. Existing native-audio and scripted-sample detection is retained. Transcript keywords alone do not establish a pass.",
   },
   "ACT-R31": {
     title: "<video> element content is media alternative for text",
@@ -298,14 +298,14 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
     title:
       "<audio> or <video> that plays automatically has a control mechanism",
     detail:
-      "The detected media element appears to lack a complete accessible alternative. Provide a text transcript, audio description, or equivalent that conveys all the information in the media.",
+      "Audio that plays automatically for more than three seconds needs a perceivable, accessible mechanism to pause or stop playback. This applies to audio elements and videos containing audio. Hidden native controls do not establish that the mechanism is accessible. Transcript or text-alternative checks belong to ACT-R23, not this rule.",
   },
   "ACT-R50": {
     title: "Audio cannot be paused or stopped",
     potentialTitle: "Can the audio be switched off?",
     issueTitle: "Audio plays automatically and can't be switched off",
     detail:
-      "Auto-playing audio without pause or stop controls violates WCAG 1.4.2. Provide visible controls so users can silence audio that interferes with their screen reader output.",
+      "Combines ACT-R48 (automatic audio duration) and ACT-R49 (a perceivable pause/stop mechanism), following Alfa's three-valued OR: either verified pass is sufficient; both must fail for a confirmed Issue. Unknown duration, audio presence, or custom-control accessibility remains a Potential Issue. Hidden YouTube/Vimeo autoplay embeds are also surfaced for review; URL parameters alone do not prove audible playback. Verify WCAG 1.4.2, including any independent audio-volume control.",
   },
   "ACT-R51": {
     title: "Audio control is missing",
@@ -384,7 +384,7 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       "Is it clear which page element has focus from the keyboard?",
     issueTitle: "Keyboard focus indicator is missing",
     detail:
-      "Removing the browser's default focus outline without providing an equally visible custom replacement leaves keyboard users unable to tell where focus currently is.",
+      "Keyboard users need a visible focus indicator under WCAG 2.4.7. Server scans use native Tab navigation and compare styling on the focused control, its ancestors, descendants, and pseudo-elements. Potential Issues include focused-state evidence and the control selector. Subtle, clipped, or low-contrast indicators need visual review; a styling change alone does not certify visibility or contrast.",
   },
   "ACT-R66": {
     title: "Color contrast does not meet enhanced requirement",
@@ -418,9 +418,9 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       "Obsolete elements such as <marquee>, <blink>, <center>, <font>, and <big> have been removed from the HTML spec. Replace them with CSS or semantic HTML equivalents.",
   },
   "ACT-R71": {
-    title: "Uneven spacing in text",
+    title: "Paragraph text is fully justified",
     detail:
-      "Inconsistent or excessive spacing adjustments applied through CSS may break the layout when users override text spacing via a user stylesheet (WCAG 1.4.12).",
+      "Checks visible, non-empty native paragraphs for text-align: justify. Fully justified text can create uneven word spacing and reduce readability; use start-aligned text instead. Reported as Best Practice guidance associated with WCAG 1.4.8 (AAA). This is not the WCAG 1.4.12 text-spacing override check; see custom ACT-R129 for layout changes under spacing overrides.",
   },
   "ACT-R72": {
     title: "Paragraphs of text are not all uppercase",
@@ -470,10 +470,10 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
   "ACT-R81": {
     title: "Links with identical text lead to different destinations",
     potentialTitle:
-      "Do these links (in the same context) point to the same URL?",
+      "Do these links resolve to the same or equivalent resources?",
     issueTitle: "Links in the same context have the same text alternative",
     detail:
-      "When multiple links share the same visible label but point to different pages, screen reader users navigating the link list cannot distinguish them. Use unique text or aria-label to disambiguate.",
+      "Links with matching nonempty accessible names and the same programmatically determined context must resolve to the same or equivalent resources. Different URLs require review, including redirects; they do not automatically prove different purposes. If purposes differ, use unique accessible names to disambiguate.",
   },
   "ACT-R82": {
     title: "Error message describes invalid form field value",
@@ -677,7 +677,7 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
   "ACT-R121": {
     title: "Focus indicator suppressed without visible replacement",
     detail:
-      "Do not remove the default focus indicator unless a visible replacement with sufficient contrast is provided.",
+      "Ampera's custom focus-appearance check uses native Tab navigation to identify controls with author-suppressed outlines and no observed replacement styling. Findings require rendered review; the check does not certify the full WCAG 2.4.13 indicator-size and contrast requirements. It is independent of ACT-R65 and is not the current upstream Alfa SIA-R121 list-structure rule.",
   },
   "ACT-R126": {
     title:
@@ -719,7 +719,19 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
     custom: true,
     title: "Text spacing causes loss of content or readability",
     detail:
-      "Custom Ampera check for WCAG 1.4.12 (AA). Compares rendered text before and after applying at least 1.5× line height, 0.12em letter spacing, 0.16em word spacing and 2em paragraph spacing, preserving already wider values. Newly hidden or materially clipped text is an Issue; newly overlapping text bounds are a Potential Issue requiring visual review. Existing clipping and scrolling alone do not establish failure. Tests up to 1,200 visible text nodes in the current state, including open shadow roots, then restores authored styles and scroll positions. It does not prove that all interactive states, controls, images of text, or every visual obstruction pass.",
+      "Custom Ampera check for WCAG 1.4.12 (AA). Compares rendered text before and after applying at least 1.5× line height, 0.12em letter spacing, 0.16em word spacing and 2em paragraph spacing, preserving already wider values. Newly hidden or materially clipped text is an Issue; newly overlapping text bounds are a Potential Issue requiring visual review. Existing clipping and scrolling alone do not establish failure. Clipping must affect more than 5% of measured text-box area and increase by more than 5 percentage points from baseline; already severe clipping can conceal further deterioration. Manually review visibly clipped content even when no finding appears. Tests up to 1,200 visible text nodes in the current state, including open shadow roots, then restores authored styles and scroll positions. It does not prove that all interactive states, controls, images of text, or every visual obstruction pass.",
+  },
+  "ACT-R130": {
+    custom: true,
+    title: "List elements have invalid child elements",
+    detail:
+      "Experimental custom rule for WCAG 1.3.1 (A). Validates native ul, ol and dl content models: ul/ol require li children; each description-list group requires one or more dt elements followed by one or more dd elements. A dl must consistently wrap every group in its own div or wrap none. Each div holds exactly one group. Disallowed direct text and arbitrary child elements are reported; ARIA roles cannot replace required native HTML elements. ARIA-inert lists/children and script/template children are excluded. Visibility-hidden elements remain structural containers and are still checked. Presentational lists are excluded only when their role is valid, without focusability or global-ARIA conflicts.",
+  },
+  "ACT-R131": {
+    custom: true,
+    title: "Access keys are not unique or valid",
+    detail:
+      "Experimental custom Best Practice check for accesskey usability. Checks rendered HTML elements for keys shared between elements across the scanned page, including embedded documents, tokens longer than one character, and repeated keys within one element. Keys are compared case-insensitively, so a and A conflict; whitespace separates tokens. Empty attributes, display:none subtrees and legacy fallback content are excluded. Reports each affected element with all applicable problems. Frame limits or unavailable documents leave coverage incomplete. This is not a separate WCAG failure and has no automatic WCAG, ADA or EAA mapping.",
   },
 };
 
@@ -754,7 +766,7 @@ const WCAG_RULE_METADATA: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R72": { sc: ["1.4.8"], level: ["AAA"] }, "ACT-R73": { sc: ["1.4.12"], level: ["AA"] }, "ACT-R74": { sc: ["1.4.4"], level: ["AA"] },
   "ACT-R75": { sc: ["1.4.4"], level: ["AA"] }, "ACT-R76": { sc: ["1.3.1"], level: ["A"] }, "ACT-R77": { sc: ["1.3.1"], level: ["A"] },
   "ACT-R78": { sc: ["2.4.6"], level: ["AA"] }, "ACT-R79": { sc: ["1.3.1"], level: ["A"] }, "ACT-R80": { sc: ["1.4.12"], level: ["AA"] },
-  "ACT-R81": { sc: ["2.4.4"], level: ["A"] }, "ACT-R82": { sc: ["3.3.1"], level: ["A"] }, "ACT-R83": { sc: ["1.4.4"], level: ["AA"] },
+  "ACT-R81": { sc: ["2.4.4", "2.4.9"], level: ["A", "AAA"] }, "ACT-R82": { sc: ["3.3.1"], level: ["A"] }, "ACT-R83": { sc: ["1.4.4"], level: ["AA"] },
   "ACT-R84": { sc: ["2.1.1"], level: ["A"] }, "ACT-R85": { sc: ["1.4.8"], level: ["AAA"] }, "ACT-R86": { sc: ["1.1.1"], level: ["A"] },
   "ACT-R87": { sc: ["2.4.1"], level: ["A"] }, "ACT-R88": { sc: ["1.4.3"], level: ["AA"] }, "ACT-R89": { sc: ["1.4.6"], level: ["AAA"] },
   "ACT-R90": { sc: ["4.1.2"], level: ["A"] }, "ACT-R91": { sc: ["1.4.12"], level: ["AA"] }, "ACT-R92": { sc: ["1.4.12"], level: ["AA"] },
@@ -772,6 +784,8 @@ const WCAG_RULE_METADATA: Record<string, { sc: string[]; level: string[] }> = {
    "ACT-R125": { sc: ["3.3.7"], level: ["A"] }, "ACT-R126": { sc: ["3.3.8"], level: ["AA"] }, "ACT-R127": { sc: ["3.3.9"], level: ["AAA"] },
    "ACT-R128": { sc: ["3.1.4"], level: ["AAA"] },
    "ACT-R129": { sc: ["1.4.12"], level: ["AA"] },
+   "ACT-R130": { sc: ["1.3.1"], level: ["A"] },
+   "ACT-R131": { sc: [], level: ["Best Practice"] },
 };
 
 for (const [id, metadata] of Object.entries(WCAG_RULE_METADATA)) {

@@ -1,5 +1,6 @@
 import type { ScanRawResult, PushStatFn } from "../types";
 import { runOrientationRule } from "./orientation";
+import { runLinkPurposeRule } from "./link-purpose";
 import { getAccessibleName } from "../accname";
 import { getAlfaPointerTargets, hasAlfaTargetSize, hasAlfaTargetSpacing } from "../alfa-helpers";
 import { getEffectiveAriaRole } from "../aria-data";
@@ -21,7 +22,8 @@ export interface ContrastCandidate {
 
 export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: boolean, pushStat: PushStatFn): void {
   let interactiveTargetsChecked = 0;
-  // Legacy enhanced text contrast (ACT-R66 / ACT-R89).
+  // Legacy enhanced non-link text contrast (ACT-R66).
+  // R89 uses the independent state-aware link evaluator.
   // R69 minimum contrast is independent in text-minimum-contrast.ts.
   // ════════════════════════════════════════════════════════════════════════
   {
@@ -64,6 +66,8 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
 
     for (const el of textLeafEls) {
       if (!(el instanceof HTMLElement)) continue;
+      // Never duplicate or overwrite the independent link-state evaluation.
+      if (el.closest("a[href],area[href]")) continue;
       // Use isRendered (display:none / visibility:hidden) instead of isVisible so
       // that off-screen carousel slides are included.  isVisible also checks whether
       // the element is within its overflow-hidden ancestor's viewport bounds, which
@@ -90,14 +94,13 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
             bboxW: Math.round(rect.width),
             bboxH: Math.round(rect.height),
             isLargeText: fontSize >= 24 || (fontSize >= 18.67 && parseFloat(style.fontWeight) >= 700),
-            isLinkText: !!el.closest("a[href]"),
+            isLinkText: false,
           });
         }
         // Alfa/Siteimprove treats unresolved visual-state contrast as a
         // question, not an automatic failure. Do not promote url()-backed text
         // to an Issue automatically — let the pixel pass decide.
         if (!EMIT_MANUAL_ONLY_RULES) continue;
-        const isLinkText = !!el.closest("a[href]");
         const evidence = {
           type: "Potential Issue" as const,
           impact: "serious" as const,
@@ -107,7 +110,7 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
           selector: getSelector(el),
         };
         // R69 has its own text-node evaluator, including unresolved reviews.
-        results.push({ ruleId: isLinkText ? "ACT-R89" : "ACT-R66", ...evidence });
+        results.push({ ruleId: "ACT-R66", ...evidence });
         continue;
       }
       const style = window.getComputedStyle(el);
@@ -119,14 +122,12 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
       const fontWeight = parseFloat(style.fontWeight);
       const isLarge = fontSize >= 24 || (fontSize >= 18.67 && fontWeight >= 700);
       const aaaMin = isLarge ? 4.5 : 7;
-      const isLinkText = !!el.closest("a[href]");
-      const enhancedRuleId = isLinkText ? "ACT-R89" : "ACT-R66";
       // Minimum and enhanced contrast are independent rules.
       // Minimum contrast is evaluated independently by text-minimum-contrast.
       if (ratio < aaaMin && contrastAAAFails < 200) {
         // One outcome per element (deduped by parent via TreeWalker seenParents set)
         contrastAAAFails++;
-        results.push({ ruleId: enhancedRuleId, type: "Issue", impact: "minor", description: `Text contrast ratio ${ratio.toFixed(2)}:1 is below AAA enhanced minimum (${aaaMin}:1)`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
+        results.push({ ruleId: "ACT-R66", type: "Issue", impact: "minor", description: `Text contrast ratio ${ratio.toFixed(2)}:1 is below AAA enhanced minimum (${aaaMin}:1)`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
       }
     }
 
@@ -136,13 +137,10 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
     // Border/outline (non-text 1.4.11) contrast check removed — Alfa treats
     // UI-component contrast as "can't tell" (border colors alone don't prove a
     // visible boundary requirement), so Siteimprove never auto-fails it.
-    const linkTextEls = textLeafEls.filter((el) => !!el.closest("a[href]")).length;
+    const linkTextEls = textLeafEls.filter((el) => !!el.closest("a[href],area[href]")).length;
     const nonLinkTextEls = textLeafEls.length - linkTextEls;
     if (nonLinkTextEls > 0) {
       pushStat("ACT-R66", nonLinkTextEls, "element");
-    }
-    if (linkTextEls > 0) {
-      pushStat("ACT-R89", linkTextEls, "element");
     }
   }
 
@@ -175,7 +173,10 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
       if (isProgrammaticallyHidden(el)) return;
       const text = getAccessibleName(el).trim().toLowerCase().replace(/\s+/g, " ");
       if (!text || text.length < 2) return;
-      let href = (el as HTMLAnchorElement).href || el.getAttribute("href") || "";
+      // SVGAnchorElement.href is an SVGAnimatedString, not a string. This
+      // family also runs when R81 is selected, so it must not crash on SVG links.
+      const nativeHref = (el as HTMLAnchorElement).href;
+      let href = typeof nativeHref === "string" ? nativeHref : el.getAttribute("href") || "";
       if (!href || href === window.location.href + "#" || href === "#") return;
       // Alfa alignment: links resolving to the same resource are not flagged.
       // Normalize by stripping the fragment and trailing slash.
@@ -194,18 +195,9 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // ACT-R81: Ambiguous link text (WCAG 2.4.4 / 2.4.9)
+  // ACT-R81: Same accessible name and context, different destinations.
   // ════════════════════════════════════════════════════════════════════════
-  {
-    const ambiguousPatterns = /^(click here|here|read more|more|learn more|details|info|information|link|this link|continue|go|view|see more|see details|download|submit|open|visit|press here|tap here|find out more)$/i;
-    document.querySelectorAll("a").forEach((el) => {
-      if (!isVisible(el)) return;
-      const name = getAccessibleName(el).trim().replace(/\s+/g, " ");
-      if (name && ambiguousPatterns.test(name)) {
-        results.push({ ruleId: "ACT-R81", type: "Issue", impact: "moderate", description: `Link text "${name}" is non-descriptive and does not explain the link destination`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-      }
-    });
-  }
+  runLinkPurposeRule(results, pushStat);
 
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R113: Touch target too small (WCAG 2.5.8)
@@ -236,7 +228,6 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   const allLinksEl = document.querySelectorAll("a[href]").length;
   if (allLinksEl > 0) {
     pushStat("ACT-R41", allLinksEl, "element");
-    pushStat("ACT-R81", allLinksEl, "element");
   }
   const altImgEls = document.querySelectorAll("img[alt]").length;
   if (altImgEls > 0) pushStat("ACT-R39", altImgEls, "element");

@@ -206,21 +206,28 @@ export default function WelcomePage() {
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-300">
-                      Scan scope
+                      Review guidance
                     </p>
-                    <h2 className="mt-0.5 text-base font-semibold">Choose what to check</h2>
+                    <h2 className="mt-0.5 text-base font-semibold">Understand text-layout results</h2>
                   </div>
                 </div>
                 <p className="mt-4 text-sm leading-6 text-muted-foreground">
-                  Focus a scan on WCAG A, AA, AAA, WAI-ARIA, Best Practice, or a filtered combination of rules.
+                  ACT-R71 checks justified paragraphs; custom ACT-R129 checks layout under text-spacing
+                  overrides. Already clipped text still needs manual review, even when no finding appears.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-1.5">
-                  {["A", "AA", "AAA", "ARIA", "Best Practice"].map((level) => (
+                  {["ACT-R71", "ACT-R129", "Manual review"].map((level) => (
                     <Badge key={level} variant="outline" className="border-teal-400/30 bg-teal-400/5 text-[10px] text-teal-700 dark:text-teal-300">
                       {level}
                     </Badge>
                   ))}
                 </div>
+                <Link href="/documentation">
+                  <Button variant="link" className="mt-3 h-auto px-0 text-xs">
+                    Read the rule guidance
+                    <ArrowRight className="ml-1 h-3 w-3" />
+                  </Button>
+                </Link>
               </CardContent>
             </Card>
           </section>

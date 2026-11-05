@@ -276,7 +276,7 @@ const ALL_RULES: { id: string; label: string }[] = [
   { id: "ACT-R80", label: "Line height fixed (Best Practice)" },
   {
     id: "ACT-R81",
-    label: "Links identical different destinations (WCAG 2.4.4)",
+    label: "Links with identical names and context serve equivalent purposes (WCAG 2.4.4, 2.4.9)",
   },
   {
     id: "ACT-R82",
@@ -414,6 +414,14 @@ const ALL_RULES: { id: string; label: string }[] = [
   {
     id: "ACT-R129",
     label: "Text-spacing layout breakage (WCAG 1.4.12)",
+  },
+  {
+    id: "ACT-R130",
+    label: "List elements have valid child elements (Custom, Experimental, WCAG 1.3.1)",
+  },
+  {
+    id: "ACT-R131",
+    label: "Access keys are unique and valid (Custom, Experimental, Best Practice)",
   },
 ];
 

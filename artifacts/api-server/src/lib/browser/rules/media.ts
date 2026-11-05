@@ -3,6 +3,9 @@ import { getAccessibleName } from "../accname";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
 import { isProgrammaticallyHidden, isVisible } from "../visibility";
 import { runViewportZoomRule } from "./viewport-zoom";
+import { assessAudioTranscript, runAudioTranscriptRule } from "./audio-transcript";
+import { assessAudioMediaAlternative, runAudioCompositeRule, type AudioCompositeAssessment } from "./audio-composite";
+import { runAutoplayAudioRule } from "./autoplay-audio";
 
 export function classifyMissingCaptions(
   audioState: boolean | "unknown",
@@ -224,9 +227,16 @@ export function runMediaRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: 
     }
   });
 
+  // Keep the legacy native-audio coverage and R29 emissions. Retain actual
+  // assessment evidence even when no finding is emitted; silence is not a pass.
+  const nativeAudioAssessments = new Map<HTMLAudioElement, AudioCompositeAssessment>();
   document.querySelectorAll("audio").forEach((audio) => {
     if (!(audio instanceof HTMLAudioElement) || !isApplicableAudio(audio)) return;
     const transcript = hasVisibleAccessibleAlternative(audio);
+    nativeAudioAssessments.set(audio, {
+      ...assessAudioTranscript({ target: audio, audio }),
+      mediaAlternative: assessAudioMediaAlternative(transcript),
+    });
     if (!transcript) {
       results.push({ ruleId: "ACT-R29", type: "Potential Issue", impact: "serious", description: "Audio may not have a visible text alternative labeled as an audio alternative", element: outerHtmlSnippet(audio), elementContext: elementContextForAI(audio), selector: getSelector(audio) });
     }
@@ -251,17 +261,6 @@ export function runMediaRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: 
       elementContext: elementContextForAI(media),
       selector: getSelector(media),
     });
-  });
-
-  // ACT-R30 is Alfa's composite audio rule: it passes when either the
-  // transcript/alternative check or R29's audio media-alternative check passes.
-  // The browser engine cannot prove content equivalence, so failures remain
-  // Potential Issues for manual review.
-  document.querySelectorAll("audio").forEach((audio) => {
-    if (!(audio instanceof HTMLAudioElement) || !isApplicableAudio(audio)) return;
-    if (!hasVisibleAccessibleAlternative(audio)) {
-      results.push({ ruleId: "ACT-R30", type: "Potential Issue", impact: "serious", description: "Audio may not have a text alternative — review the transcript or equivalent content", element: outerHtmlSnippet(audio), elementContext: elementContextForAI(audio), selector: getSelector(audio) });
-    }
   });
 
   // ACT-R22: Video with audio has synchronized captions (WCAG 1.2.2)
@@ -411,23 +410,22 @@ export function runMediaRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: 
   });
 
   // ════════════════════════════════════════════════════════════════════════
-  // ACT-R23: Audio/video without transcript (WCAG 1.2.1 / 1.2.3)
+  // ACT-R23: Audio transcript review (video alternatives belong to R24/R38).
   // ════════════════════════════════════════════════════════════════════════
-  // The question "Is there an alternative to the visual content in this
-  // video?" cannot be answered from markup. Keep it manual-only rather than
-  // flagging valid videos that require human review of equivalence.
-  if (EMIT_MANUAL_ONLY_RULES) {
-    document.querySelectorAll("audio, video").forEach((el) => {
-      if (!isVisible(el)) return;
-      const parent = el.parentElement;
-      const nearby = parent ? parent.textContent?.toLowerCase() || "" : "";
-      const transcriptKeywords = ["transcript","text transcript","captions transcript","audio transcript","video transcript"];
-      const describedBy = el.getAttribute("aria-describedby");
-      if (!transcriptKeywords.some((k) => nearby.includes(k)) && !describedBy) {
-        results.push({ ruleId: "ACT-R23", type: "Potential Issue", displayTitle: el.tagName.toLowerCase() === "audio" ? "Does the audio have a transcript?" : "Is there an alternative to the visual content in this video?", impact: "serious", description: `${el.tagName.toLowerCase()} element has no adjacent transcript link or text alternative — review whether a transcript is provided`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-      }
-    });
+  const transcriptAssessments = runAudioTranscriptRule(results, pushStat);
+  const compositeAssessments: AudioCompositeAssessment[] = transcriptAssessments.map(assessment => ({
+    ...assessment,
+    mediaAlternative: assessment.target === assessment.audio && nativeAudioAssessments.has(assessment.audio)
+      ? nativeAudioAssessments.get(assessment.audio)!.mediaAlternative
+      : assessAudioMediaAlternative(hasVisibleAccessibleAlternative(assessment.target)),
+  }));
+  const coveredBackends = new Set(transcriptAssessments.map(assessment => assessment.audio));
+  for (const [audio, assessment] of nativeAudioAssessments) {
+    if (!coveredBackends.has(audio)) compositeAssessments.push(assessment);
   }
+  // Alfa combination, extended sample coverage. Do not infer a constituent pass
+  // from keyword detection or the absence of an R23/R29 finding.
+  runAudioCompositeRule(compositeAssessments, results, pushStat);
 
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R24: Existing media alternative may be incomplete (WCAG 1.2.3)
@@ -514,12 +512,8 @@ export function runMediaRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: 
     }
   });
 
-  // ACT-R50: Audio autoplay without controls
-  document.querySelectorAll("audio").forEach((el) => {
-    if ((el as HTMLAudioElement).autoplay && !(el as HTMLAudioElement).controls) {
-      results.push({ ruleId: "ACT-R50", type: "Issue", impact: "serious", description: "Audio element auto-plays without visible controls", element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-    }
-  });
+  // ACT-R50: Alfa's three-valued R48 OR R49 composite, plus embed review.
+  runAutoplayAudioRule(results, pushStat, hasDeclaredAudioTrack);
 
   // ACT-R51: Audio without controls attribute
   document.querySelectorAll("audio:not([controls])").forEach((el) => {
@@ -554,13 +548,10 @@ export function runMediaRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: 
     pushStat("ACT-R27", applicableVideoEls, "element");
     pushStat("ACT-R37", applicableVideoEls, "element");
   }
-  const mediaEls = document.querySelectorAll("audio,video").length;
-  if (mediaEls > 0) pushStat("ACT-R23", mediaEls, "element");
   const autoplayEls = document.querySelectorAll("audio[autoplay],video[autoplay]").length;
   if (autoplayEls > 0) pushStat("ACT-R48", autoplayEls, "element");
   const audioEls = document.querySelectorAll("audio").length;
   if (audioEls > 0) {
-    pushStat("ACT-R50", audioEls, "element");
     pushStat("ACT-R51", audioEls, "element");
   }
   const applicableSilentVideoEls = Array.from(document.querySelectorAll("video"))

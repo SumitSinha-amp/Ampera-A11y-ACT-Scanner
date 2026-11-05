@@ -10,6 +10,8 @@ import { runPixelContrastPass } from "./pixel-contrast.js";
 import { mergeContrastFindings } from "./contrast-issue-merge.js";
 import { hydrateTargetImages } from "./target-image-hydration";
 import { verifyKeyboardFocus } from "./keyboard-focus-verification";
+import { reconcileFocusIndicatorIssues, verifyFocusAppearance } from "./focus-appearance-verification";
+import { scanPageListAccesskeyRules, replacePageListAccesskeyResults } from "./page-accesskeys";
 import {
   scanEmbeddedFrames,
   mergeEmbeddedResults,
@@ -460,7 +462,7 @@ const WCAG_MAPPING: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R78": { sc: ["2.4.6"], level: ["AA"] },
   "ACT-R79": { sc: ["1.3.1"], level: ["A"] },
   "ACT-R80": { sc: ["1.4.12"], level: ["AA"] },
-  "ACT-R81": { sc: ["2.4.4"], level: ["A"] },
+  "ACT-R81": { sc: ["2.4.4", "2.4.9"], level: ["A", "AAA"] },
   "ACT-R82": { sc: ["3.3.1"], level: ["A"] },
   "ACT-R83": { sc: ["1.4.4"], level: ["AA"] },
   "ACT-R84": { sc: ["2.1.1"], level: ["A"] },
@@ -509,6 +511,8 @@ const WCAG_MAPPING: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R127": { sc: ["3.3.9"], level: ["AAA"] },
   "ACT-R128": { sc: ["3.1.4"], level: ["AAA"] },
   "ACT-R129": { sc: ["1.4.12"], level: ["AA"] },
+  "ACT-R130": { sc: ["1.3.1"], level: ["A"] },
+  "ACT-R131": { sc: [], level: ["Best Practice"] },
 };
 
 /** All five level identifiers recognised by the scan level selector. */
@@ -1030,12 +1034,12 @@ const RULE_DESCRIPTIONS: Record<
   },
   "ACT-R81": {
     type: "Potential Issue",
-    description: "Do these links (in the same context) point to the same URL?",
+    description: "Do links with identical accessible names and context resolve to the same or equivalent resources?",
     issueDescription:
       "Links in the same context have the same text alternative",
     potentialDescription:
-      "Do these links (in the same context) point to the same URL?",
-    remediation: "Ensure link text uniquely describes its destination",
+      "Do these links resolve to the same or equivalent resources?",
+    remediation: "Review resource equivalence, including redirects. If purposes differ, disambiguate the accessible link names in their programmatic context.",
   },
   "ACT-R82": {
     type: "Issue",
@@ -1256,7 +1260,7 @@ const RULE_DESCRIPTIONS: Record<
       "Enhanced criterion: no part of the focused element should be obscured by page content — requires manual verification",
   },
   "ACT-R121": {
-    type: "Best Practice",
+    type: "Potential Issue",
     description:
       "Focus indicator suppressed without visible replacement (WCAG 2.4.13)",
     remediation:
@@ -1309,6 +1313,18 @@ const RULE_DESCRIPTIONS: Record<
     potentialDescription: "Does text remain readable after text-spacing overrides?",
     remediation:
       "Allow text containers to grow and wrap. Remove fixed dimensions or clipping that hides text. Test line height at least 1.5×, letter spacing 0.12em, word spacing 0.16em and paragraph spacing 2em without losing content or functionality (WCAG 1.4.12, AA). Review reported overlap visually.",
+  },
+  "ACT-R130": {
+    type: "Issue",
+    description: "List elements have invalid child elements",
+    remediation:
+      "Use native li children in ul/ol. In dl, use one or more dt elements followed by one or more dd elements for each group. Either wrap every group in its own div or leave all groups unwrapped. Remove disallowed direct text and children; ARIA roles do not replace required HTML elements (WCAG 1.3.1, A).",
+  },
+  "ACT-R131": {
+    type: "Best Practice",
+    description: "Access keys are not unique or valid",
+    remediation:
+      "Use single-character, space-separated access keys. Do not repeat a key within an element or share it across rendered elements; compare keys case-insensitively. This experimental usability check is a Best Practice, not a separate WCAG failure.",
   },
 };
 
@@ -3237,6 +3253,34 @@ async function _scanPageInternal(
         complete: focus.complete, error: focus.error }, "Keyboard focus verification completed");
     }
 
+    if (isRuleSelected("ACT-R65", geometryRules) || isRuleSelected("ACT-R121", geometryRules)) {
+      const focus = await verifyFocusAppearance(page, {
+        rules: options.rules,
+        ruleIds: ["ACT-R65", "ACT-R121"],
+        captureEvidence: async () => ({
+          screenshot: Buffer.from(await page!.screenshot({ type: "jpeg", quality: 55, fullPage: false })).toString("base64"),
+          pageHtml: await captureReplayHtml(page!, replayStylesheets),
+        }),
+      });
+      const verified = {
+        ...focus,
+        issues: focus.issues.map(issue => ({ ...issue, legal: getLegalCompliance([issue.wcagLevel === "AA" ? "AA" : "AAA"]) })),
+      };
+      if (isRuleSelected("ACT-R65", geometryRules)) issues = reconcileFocusIndicatorIssues(issues, verified);
+      else issues.push(...verified.issues);
+      interactionStates.push(...focus.states);
+      for (const ruleId of ["ACT-R65", "ACT-R121"]) {
+        if (!isRuleSelected(ruleId, geometryRules)) continue;
+        const stat = ruleStats.find(item => item.ruleId === ruleId);
+        if (stat) stat.totalChecked = Math.max(stat.totalChecked, focus.checked);
+        else ruleStats.push({ ruleId, totalChecked: focus.checked, scope: "element" });
+        const status = actResult.ruleStatuses?.find(item => item.ruleId === ruleId);
+        if (status) status.status = !focus.complete ? "failed" : focus.checked ? "executed" : "not-applicable";
+      }
+      logger.info({ url, checked: focus.checked, issues: focus.issues.length,
+        complete: focus.complete, error: focus.error }, "Focus appearance verification completed");
+    }
+
     // Capture the final visual snapshot only when the page has issues. Clean
     // pages skip the 1–3 s full-page screenshot and the heavy snapshot write.
     if (issues.length > 0) {
@@ -3417,9 +3461,9 @@ async function _scanPageInternal(
       // pixel colours at each candidate's bounding box, and emits confirmed
       // Issues for elements whose actual contrast fails the WCAG threshold.
       try {
-        // R69/R88 have independent highest-contrast evaluators. Patch averages
+        // R69/R88/R89 have independent highest-contrast evaluators. Patch averages
         // cannot establish their failures and must not overwrite their reviews.
-        const PIXEL_RULE_IDS = new Set(["ACT-R66", "ACT-R89"]);
+        const PIXEL_RULE_IDS = new Set(["ACT-R66"]);
         const selectedRuleSet = getSelectedRuleIds(options.rules);
         const shouldRunPixelContrast =
           selectedRuleSet === null ||
@@ -3432,7 +3476,7 @@ async function _scanPageInternal(
           const contrastLayout = await expandPageScrollerForSnapshot(page);
           try {
             pixelIssues = (await runPixelContrastPass(page, logger)).filter(
-              (issue) => isRuleSelected(issue.ruleId, selectedRuleSet),
+              (issue) => PIXEL_RULE_IDS.has(issue.ruleId) && isRuleSelected(issue.ruleId, selectedRuleSet),
             );
           } finally {
             await restoreSnapshotLayout(page, contrastLayout);
@@ -4143,6 +4187,15 @@ async function runACTRules(
       onSkipped: (detail) => logger.warn(detail, "Embedded frame could not be scanned"),
     });
     bundleResult = mergeEmbeddedResults(bundleResult, embedded);
+    const customRules = getSelectedRuleIds(selectedRules);
+    if (isRuleSelected("ACT-R130", customRules) || isRuleSelected("ACT-R131", customRules)) {
+      const keys = await scanPageListAccesskeyRules(page, browserBundle, {
+        includeLists: isRuleSelected("ACT-R130", customRules),
+        includeAccesskeys: isRuleSelected("ACT-R131", customRules),
+        onSkipped: detail => logger.warn(detail, "Page-wide list/access-key coverage incomplete"),
+      });
+      bundleResult = replacePageListAccesskeyResults(bundleResult, keys);
+    }
   }
   // ─── Map results → ScanIssue with WCAG metadata ──────────────────────────
   const issues: ScanIssue[] = [];

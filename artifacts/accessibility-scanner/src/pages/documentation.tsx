@@ -847,9 +847,10 @@ function ScannerCapabilities() {
       </p>
       <div className="space-y-8">
         <Step n={1} title="Rules coverage">
-          The scanner implements approximately 83 of the current ACT rules (ACT-R1 – ACT-R118),
-          covering WCAG 2.1 / 2.2 criteria at levels A, AA, and AAA. All rules are validated against
-          industry-leading accessibility platforms for accuracy. Each issue includes a rule ID, impact
+          The searchable rule catalog below describes the available accessibility checks,
+          covering WCAG 2.1 / 2.2 criteria at levels A, AA, and AAA, alongside ARIA and Best Practice guidance.
+          Custom Ampera checks are labeled Custom. Automated checks have applicability and measurement
+          limits; an absent finding does not establish conformance. Each issue includes a rule ID, impact
           level, WCAG success criterion, remediation guidance, and the offending element&apos;s HTML selector.
         </Step>
         <Step n={2} title="No cap on issue counts">
@@ -865,6 +866,15 @@ function ScannerCapabilities() {
           to open the viewer, which shows the live page preview alongside the HTML source with the
           offending element highlighted. Use First / Prev / Next / Last to step through all occurrences
           of a rule without closing the panel.
+        </Step>
+        <Step n={4} title="Justification versus text-spacing layout">
+          ACT-R71 checks visible native paragraphs for fully justified text and reports Best Practice
+          guidance associated with WCAG 1.4.8 AAA. Custom ACT-R129 separately compares layout before and
+          after the WCAG 1.4.12 spacing overrides. Its clipping check requires more than 5% measured
+          text-box area loss and an increase of more than 5 percentage points from baseline.
+          Already severe clipping can conceal further deterioration, so manually review visibly clipped
+          content even when no finding appears. New text-box overlap is a Potential Issue, not a
+          confirmed failure.
         </Step>
       </div>
     </div>
