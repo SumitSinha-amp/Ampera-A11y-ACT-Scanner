@@ -74,6 +74,8 @@ catalog:
 autoInstallPeers: false
 
 onlyBuiltDependencies:
+  # Native file watcher used by the frontend toolchain.
+  - '@parcel/watcher'
   - '@swc/core'
   - esbuild
   - msw
