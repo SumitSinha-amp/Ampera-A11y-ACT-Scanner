@@ -84,6 +84,20 @@ export function runNamesRules(results: ScanRawResult[], pushStat: PushStatFn): v
     );
     for (const el of r8Targets) {
       if (!getFormFieldAccessibleName(el)) {
+        // Browsers/AT may expose placeholder text as a fallback name. That
+        // does not establish a persistent visible label, but neither does it
+        // prove a missing-name failure. Nearby instructions need human review.
+        const placeholder = el.matches("textarea,input:not([type]),input[type='text'],input[type='search'],input[type='email'],input[type='tel'],input[type='url'],input[type='password'],input[type='number']")
+          ? el.getAttribute("placeholder")?.trim() : "";
+        if (placeholder) {
+          results.push({
+            ruleId: "ACT-R8", type: "Potential Issue", impact: "moderate",
+            displayTitle: "Does this placeholder-only field have a persistent visible label?",
+            description: `The field uses placeholder text ("${placeholder}") without an associated label or other naming source. Assistive technology may announce this fallback text, so this is not a confirmed missing accessible name. The placeholder disappears when a value is entered. Review whether a persistent visible label or sufficient instructions identify the field's purpose (WCAG 3.3.2).`,
+            element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el),
+          });
+          continue;
+        }
         results.push({ ruleId: "ACT-R8", type: "Issue", impact: "critical", description: "Form field has no associated label, aria-label, or aria-labelledby", element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
       }
     }

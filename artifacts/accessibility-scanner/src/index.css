@@ -5465,3 +5465,18 @@ html:is(.dark, .glass-dark, .glass-vision, .glass-light, .glass-vision-light) .a
   transform: scale(1.05) !important;
   filter: brightness(1.08) !important;
 }
+
+@keyframes page-scan-sweep {
+  0%, 100% { transform: translateY(0); opacity: 0.65; }
+  50% { transform: translateY(10px); opacity: 1; }
+}
+
+.page-scan-beam {
+  animation: page-scan-sweep 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-scan-beam {
+    animation: none;
+  }
+}

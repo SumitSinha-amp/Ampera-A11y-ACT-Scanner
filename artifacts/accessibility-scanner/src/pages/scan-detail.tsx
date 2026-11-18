@@ -3418,7 +3418,10 @@ export default function ScanDetail() {
               <span>
                 {processedUrls} of {totalUrls} URLs processed
               </span>
-              <span>{progressPercent}%</span>
+              <div className="flex items-center gap-2">
+                {isRunning && <PageScanAnimation />}
+                <span>{progressPercent}%</span>
+              </div>
             </div>
             <Progress value={progressPercent} className="h-3" />
             <p className="mt-2 text-xs text-muted-foreground">
@@ -4335,5 +4338,25 @@ export default function ScanDetail() {
       )}
 
     </div>
+  );
+}
+
+function PageScanAnimation() {
+  return (
+    <span
+      role="img"
+      aria-label="Page scan in progress"
+      className="page-scan-animation inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg border border-sky-200 bg-sky-50 text-sky-700 shadow-sm dark:border-sky-900 dark:bg-sky-950/60 dark:text-sky-300"
+    >
+      <svg viewBox="0 0 40 40" fill="none" aria-hidden="true" className="h-7 w-7">
+        <path
+          d="M11 5.5h12l7 7V34a1.5 1.5 0 0 1-1.5 1.5h-17A1.5 1.5 0 0 1 10 34V7a1.5 1.5 0 0 1 1-1.5Z"
+          className="fill-white stroke-current dark:fill-slate-900"
+          strokeWidth="1.6"
+        />
+        <path d="M23 6v7h7M15 18h11M15 22.5h11M15 27h8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <path className="page-scan-beam" d="M13.5 17h14" stroke="#0ea5e9" strokeWidth="2.2" strokeLinecap="round" />
+      </svg>
+    </span>
   );
 }

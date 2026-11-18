@@ -568,6 +568,151 @@ const release148ProductGroups: UpdateGroup[] = [
   },
 ];
 
+const release149ProductGroups: UpdateGroup[] = [
+  {
+    icon: MousePointerClick,
+    title: "More accurate target size and spacing",
+    description: "ACT-R113 measures usable targets without treating covered controls or fallback fonts as confirmed failures.",
+    category: "Accessibility",
+    features: [
+      "Spacing uses target bounding-box centers and 24px-diameter circles; exact tangency is allowed",
+      "A single row of sufficiently spaced wide, short buttons can pass, while closely stacked rows still fail",
+      "Covered background targets no longer create false spacing collisions with foreground controls",
+      "Sentence-inline links are exempt; standalone crowded icon links remain eligible for checking",
+      "Target-geometry scans load authored fonts and wait within a bounded period, including after controls are revealed",
+      "Unresolved target artwork or relevant fonts keep uncertain findings as Potential Issues rather than confirmed Issues",
+    ],
+  },
+  {
+    icon: Workflow,
+    title: "Nested interactive-state coverage",
+    description: "Safe exploration can find controls that appear only after opening a section and changing a nested control.",
+    category: "Scanning",
+    features: [
+      "Newly revealed safe controls are explored before their parent section is closed",
+      "Exploration limits depth and total actions, and each discovered selector is clicked at most once",
+      "Destructive actions and submit or reset buttons remain excluded from automatic interaction discovery",
+      "Findings retain their interaction-state screenshot, HTML, selector, and visible bounding-box evidence",
+      "Dream Destination verification now finds the nested youth age-help target without falsely flagging its cookie-policy link, loaded app-store badges, or normally rendered Remove Railcard control",
+    ],
+  },
+  {
+    icon: Globe,
+    title: "Language declarations and language-change review",
+    description: "ACT-R7 and custom ACT-R132 separate declaration validation from uncertain natural-language detection.",
+    category: "Accessibility",
+    features: [
+      "ACT-R7 validates non-empty language declarations in body content against registered primary language subtags; it does not infer missing declarations from guessed text language",
+      "Custom ACT-R132 reviews possible undeclared language changes in coherent visible prose, separately from the upstream ACT-R7 check",
+      "Language review combines independent language-detector agreement with script compatibility, while excluding isolated labels, insufficient prose, mixed evidence, and existing explicit language boundaries",
+      "Inline text is combined into contextual prose rather than classifying each short fragment independently; suggestions remain Potential Issues until a reviewer confirms the language and applicable exceptions",
+    ],
+  },
+  {
+    icon: ClipboardCheck,
+    title: "Form labels, required ARIA states, and control groups",
+    description: "Recent ACT-R8, ACT-R16, and ACT-R60 changes reduce unsupported automatic failures without hiding genuine problems.",
+    category: "Accessibility",
+    features: [
+      "ACT-R8 presents placeholder-only fields as Potential Issues requiring persistent-label review, rather than automatically claiming that assistive technology has no accessible name",
+      "Fields without any naming source retain confirmed missing-name findings; dormant-control checks remain available",
+      "ACT-R16 no longer assumes that aria-controls always requires aria-expanded: passenger steppers and scrollbars can control values without disclosing content",
+      "ACT-R60 checks the nearest semantic control group and recognizes custom input roles without double-counting controls in ancestor groups",
+      "ACT-R60 can also suggest review of labelled radio sets without semantic grouping; these inferred sets remain Potential Issues and are kept separate by name, form owner, and tree boundary",
+    ],
+  },
+  {
+    icon: Accessibility,
+    title: "Audio transcripts, alternatives, and autoplay",
+    description: "ACT-R23, ACT-R30, and ACT-R50 use audio-specific evidence and retain uncertainty where playback or equivalence is unverified.",
+    category: "Accessibility",
+    features: [
+      "ACT-R23 covers audio-only content, including distinct scripted audio samples that share a hidden playback backend, without playing the samples",
+      "Scripted-player discovery tolerates non-callable event-cache entries and multiple jQuery instances, while excluding unrelated lookalike cards",
+      "ACT-R30 combines audio-alternative evidence without treating an unverified transcript candidate as a confirmed pass or leaking prerequisite findings into explicitly filtered scans",
+      "ACT-R50 considers playback duration, looping, playback rate, and perceivable controls; unknown duration or custom controls remain reviewable instead of proving a failure",
+      "Hidden autoplay-player evidence does not by itself prove audible autoplay, confirmed-silent video is excluded, and iframe URL parameters do not certify accessible player controls",
+    ],
+  },
+  {
+    icon: MousePointerClick,
+    title: "Link purpose, destinations, and contrast states",
+    description: "Link checks distinguish accessible names, reading context, exposure state, and destination uncertainty.",
+    category: "Accessibility",
+    features: [
+      "ACT-R41 compares accessible link names and destinations under WCAG 2.4.9 AAA; hidden or inactive carousel copies are not treated as simultaneously exposed duplicate links",
+      "ACT-R81 requires repeated accessible names in matching contexts; generic wording or different URLs alone does not prove that link purposes conflict",
+      "ACT-R88 and ACT-R89 preserve state-specific contrast evidence rather than treating a passing baseline as proof that every link state passes",
+      "Unresolved backdrops, incomplete interaction-state coverage, and unverified destination equivalence remain review questions rather than invented automatic passes or failures",
+    ],
+  },
+  {
+    icon: Palette,
+    title: "Text contrast and visual-presentation guidance",
+    description: "Contrast evidence and paragraph-style guidance now make their measurement and reporting boundaries clearer.",
+    category: "Accessibility",
+    features: [
+      "ACT-R69 minimum text contrast has dedicated detection and regression coverage, separate from the ACT-R66 enhanced-contrast check; a patch average alone cannot establish the highest possible contrast",
+      "ACT-R71 guidance distinguishes justified paragraphs from custom ACT-R129 text-spacing layout checks; this guidance update does not claim a new text-spacing detector fix",
+      "ACT-R73, ACT-R74, and ACT-R80 wording and mappings now use WCAG 1.4.8 AAA for paragraph line height, fixed font size, and fixed line height; these wording and mapping updates do not change their detectors",
+      "ACT-R80 remains Best Practice guidance rather than proof that fixed line height causes a WCAG failure",
+      "ACT-R83 remains active for resize-clipping review despite upstream deprecation, with consistent behavior in standard and explicitly selected scans",
+      "ACT-R85 excludes short italic labels and uses a deliberate 20-word passage heuristic for readability review, not a claimed WCAG word-count threshold",
+    ],
+  },
+  {
+    icon: Layers,
+    title: "Heading sections, main content, and repeated blocks",
+    description: "Structural rules follow their own heading and bypass boundaries instead of treating every missing landmark as the same failure.",
+    category: "Accessibility",
+    features: [
+      "ACT-R78 checks accessible content until the next applicable heading of the same or higher rank, including shadow-tree content; headings containing links or buttons and closed-details summary headings are excluded",
+      "ACT-R78 retains the product's Issue classification and WCAG 2.4.6 AA mapping; an H1 followed by an H2 and content is not automatically an empty section",
+      "ACT-R98 leaves main-content heading assessment undetermined when main content cannot be identified, rather than inventing a heading failure from a missing main landmark",
+      "ACT-R97 reviews whether repeated blocks before main content can be collapsed, distinct from generic disclosure-state or passenger-control checks",
+      "ACT-R100 concerns navigation to main content, not PDF tagging; ACT-R101 preserves page-level repeated-content review when semantic main identification is unavailable",
+      "These review boundaries do not replace ACT-R99's existing missing-main-landmark Issue policy",
+    ],
+  },
+  {
+    icon: ListFilter,
+    title: "Native table headers, list structure, and access keys",
+    description: "Table assignment and custom structure checks now retain their distinct applicability and outcome meanings.",
+    category: "Accessibility",
+    features: [
+      "ACT-R46 checks whether native table headers are assigned to data, while ACT-R77 checks data-cell header associations; a headerless table is not automatically an ACT-R46 target",
+      "The native table model accounts for spans, row and column groups, explicit headers references, and automatic scope without importing the Alfa runtime",
+      "ACT-R76 retains the separate headerless-table check rather than absorbing header-to-data assignment behavior",
+      "Custom ACT-R130 checks list content structure using the applicable inertness and whitespace rules",
+      "Custom ACT-R131 reviews access-key validity and uniqueness across frame documents as Best Practice guidance, not an automatic WCAG or legal-compliance failure",
+    ],
+  },
+  {
+    icon: ShieldCheck,
+    title: "Native keyboard focus and visual evidence",
+    description: "Focus checks distinguish observed keyboard behavior from static CSS hints and unsupported compliance claims.",
+    category: "Accessibility",
+    features: [
+      "ACT-R65 verifies per-control native Tab focus evidence; incomplete keyboard coverage remains explicit rather than being silently treated as a pass",
+      "Custom ACT-R121 remains Ampera's suppressed-focus-indicator review, separate from ACT-R65 and from the differently defined current upstream rule",
+      "ACT-R121 compares focused and unfocused styling across controls, ancestors, descendants, and pseudo-elements; outline suppression alone does not prove missing focus indication",
+      "ACT-R119 verifies native Tab and Shift+Tab focus against fully opaque coverage and retains viewport-state evidence; partial or incomplete coverage is not overstated as a confirmed full-obscuration failure",
+      "Focus verification does not activate controls, submit forms, or overwrite input values, and restores inspected page state",
+    ],
+  },
+  {
+    icon: RefreshCw,
+    title: "Orientation and viewport zoom",
+    description: "ACT-R44 and ACT-R47 now use the evidence appropriate to orientation restrictions and authored viewport settings.",
+    category: "Accessibility",
+    features: [
+      "ACT-R44 checks relative quarter-turn rotation between orientation conditions without changing width breakpoints; responsive show/hide styling alone is not proof of an orientation lock",
+      "ACT-R47 parses authored viewport properties in line with Alfa semantics and keeps its primary WCAG 1.4.4 AA mapping",
+      "Successful desktop zoom does not disprove a restrictive mobile viewport declaration",
+    ],
+  },
+];
+
 type ReleaseHistoryEntry = {
   version: string;
   month: string;
@@ -583,6 +728,14 @@ export const releaseHistory: ReleaseHistoryEntry[] = [
     month: APP_UPDATES_MONTH,
     label: "Current release",
     summary: APP_RELEASE_SUMMARY,
+    groups: release149ProductGroups,
+    showcase: false,
+  },
+  {
+    version: "1.4.8",
+    month: "November 2026",
+    label: "Previous release",
+    summary: "Corrected ACT-R71 guidance separates justified paragraphs from the custom ACT-R129 text-spacing check. Updated documentation explains baseline clipping and why no finding is not proof of a pass. This release updates guidance, not scanner detection behavior.",
     groups: release148ProductGroups,
     showcase: false,
   },

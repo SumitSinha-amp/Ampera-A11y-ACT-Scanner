@@ -13,15 +13,17 @@ if (!chromium) {
 
 const dreamGroups = `
 <form>
-  <div id="language" style="visibility:hidden">
+  <div class="dropdown-menu" style="visibility:hidden">
+  <div id="language">
     <div class="title">Language</div>
     <label><input type="radio" name="locale" checked>English</label>
     <label><input type="radio" name="locale">Deutsch</label>
   </div>
-  <div id="currency" style="display:none">
+  <div id="currency">
     <div class="title">Currency</div>
     <label><input type="radio" name="currency">GBP</label>
     <label><input type="radio" name="currency">USD</label>
+  </div>
   </div>
 </form>
 <form>
@@ -66,7 +68,7 @@ describe.skipIf(!existsSync(chromium))("ACT-R60 group-name regressions", () => {
         const globals = window as unknown as {
           R60: { runControlGroupNameRule: (rows: unknown[], stat: (...args: unknown[]) => void) => void };
           __ampera: { runAllRules: (options: { rules?: string[] }) => {
-            issues: { ruleId: string; selector: string; type: string }[];
+            issues: { ruleId: string; selector: string; type: string; description: string }[];
             stats: { ruleId: string; totalChecked: number }[];
           } };
         };
@@ -75,7 +77,7 @@ describe.skipIf(!existsSync(chromium))("ACT-R60 group-name regressions", () => {
           return { issues: report.issues.filter((row) => row.ruleId === "ACT-R60"),
             checked: report.stats.find((row) => row.ruleId === "ACT-R60")?.totalChecked };
         }
-        const issues: { ruleId: string; selector: string; type: string }[] = [];
+        const issues: { ruleId: string; selector: string; type: string; description: string }[] = [];
         let checked = 0;
         globals.R60.runControlGroupNameRule(issues, (_, total) => { checked = total as number; });
         return { issues, checked };
@@ -83,25 +85,27 @@ describe.skipIf(!existsSync(chromium))("ACT-R60 group-name regressions", () => {
     } finally { await page.close(); }
   }
 
-  it("keeps Journey Type excluded and reports the dormant Railcard group as potential", async () => {
+  it("reviews language, currency, label-driven journey and dormant railcard groups", async () => {
     const result = await scan(dreamGroups);
-    expect(result.issues).toHaveLength(1);
-    expect(result.issues[0].selector).toContain("#railcard");
-    expect(result.issues[0].type).toBe("Potential Issue");
-    expect(result.checked).toBe(1);
+    expect(result.issues).toHaveLength(4);
+    for (const id of ["language", "currency", "journey", "railcard"]) {
+      expect(result.issues.some(issue => issue.selector.includes(`#${id}`))).toBe(true);
+    }
+    expect(result.issues.every(issue => issue.type === "Potential Issue")).toBe(true);
+    expect(result.checked).toBe(4);
   });
   it("preserves exposed/potential classification with R60-only selection and all rules", async () => {
     for (const onlyR60 of [true, false]) {
       const hidden = await scan(dreamGroups, true, onlyR60);
-      expect(hidden.issues).toHaveLength(1);
-      expect(hidden.issues[0].type).toBe("Potential Issue");
+      expect(hidden.issues).toHaveLength(4);
+      expect(hidden.issues.every(issue => issue.type === "Potential Issue")).toBe(true);
     }
     const visible = dreamGroups.replace('class="overlay-mask" style="display:none"', 'class="overlay-mask"');
     for (const onlyR60 of [true, false]) {
       const result = await scan(visible, true, onlyR60);
-      expect(result.issues).toHaveLength(1);
-      expect(result.issues[0].selector).toContain("#railcard");
-      expect(result.issues[0].type).toBe("Best Practice");
+      expect(result.issues).toHaveLength(4);
+      expect(result.issues.find(issue => issue.selector.includes("#railcard"))?.type).toBe("Best Practice");
+      expect(result.issues.filter(issue => issue.type === "Potential Issue")).toHaveLength(3);
     }
   });
   it.each([
@@ -187,7 +191,6 @@ describe.skipIf(!existsSync(chromium))("ACT-R60 group-name regressions", () => {
     '<form id="a"></form><form id="b"></form><input name="same" type="radio" form="a"><input name="same" type="radio" form="b">',
     '<input type="radio"><input type="radio">',
     '<form><input name="first"><input name="second"></form>',
-    '<div><h2>Currency</h2><label><input name="currency" type="radio">GBP</label><label><input name="currency" type="radio">USD</label></div>',
     '<div aria-label="Journey"><input name="same" type="radio"><input name="same" type="radio"></div>',
     '<svg><g role="group"><foreignObject><input xmlns="http://www.w3.org/1999/xhtml"><input xmlns="http://www.w3.org/1999/xhtml"></foreignObject></g></svg>',
   ])("avoids inactive, single-control, unrelated-field and cross-form false positives: %s", async (html) => {
@@ -197,8 +200,60 @@ describe.skipIf(!existsSync(chromium))("ACT-R60 group-name regressions", () => {
     expect((await scan('<div role="radiogroup"><div role="radio"></div><div role="radio"></div></div>')).issues).toHaveLength(1);
     expect((await scan('<div role="group"><button>First</button><button>Second</button></div>')).issues).toEqual([]);
   });
-  it("never infers groups from same-name radios in plain wrappers", async () => {
+  it("does not infer reviewable options from names alone without labelled controls", async () => {
     expect((await scan('<div><input name="a" type="radio"><input name="a" type="radio"><input name="b" type="radio"><input name="b" type="radio"></div>')).issues).toEqual([]);
+  });
+  it("reviews labelled radio sets without treating an unassociated heading as a group name", async () => {
+    const result = await scan('<div id="preferences"><h2>Preferences</h2><label><input name="choice" type="radio">First</label><label><input name="choice" type="radio">Second</label></div>');
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0]).toMatchObject({ selector: "div#preferences", type: "Potential Issue" });
+  });
+  it("keeps inferred-group review potential-only even when the popup is open", async () => {
+    const closed = await scan(dreamGroups);
+    const result = await scan(dreamGroups.replace('class="dropdown-menu" style="visibility:hidden"', 'class="dropdown-menu"'));
+    expect(result.issues).toHaveLength(4);
+    expect(result.issues.every(issue => issue.type === "Potential Issue")).toBe(true);
+    for (const id of ["language", "currency"]) {
+      expect(result.issues.find(issue => issue.selector.includes(`#${id}`))?.description)
+        .toBe(closed.issues.find(issue => issue.selector.includes(`#${id}`))?.description);
+    }
+  });
+  it("does not duplicate a named or unnamed semantic radio group's strict result", async () => {
+    for (const name of ['aria-label="Choice"', ""]) {
+      const result = await scan(`<div role="radiogroup" ${name}><label><input name="choice" type="radio">First</label><label><input name="choice" type="radio">Second</label></div>`);
+      expect(result.issues).toHaveLength(name ? 0 : 1);
+      if (!name) expect(result.issues[0].type).toBe("Best Practice");
+    }
+  });
+  it.each([
+    '<div><label><input name="choice" type="radio">First</label></div>',
+    '<div><label><input name="one" type="radio">First</label><label><input name="two" type="radio">Second</label></div>',
+    '<div><label><input name="choice" type="radio" disabled>First</label><label><input name="choice" type="radio">Second</label></div>',
+    '<div><label><input name="choice" type="radio" hidden>First</label><label><input name="choice" type="radio" hidden>Second</label></div>',
+    '<div><label><input name="choice" type="radio" aria-hidden="true">First</label><label><input name="choice" type="radio" aria-hidden="true">Second</label></div>',
+    '<div inert><label><input name="choice" type="radio">First</label><label><input name="choice" type="radio">Second</label></div>',
+    '<div style="display:none"><label><input name="choice" type="radio">First</label><label><input name="choice" type="radio">Second</label></div>',
+    '<div style="visibility:hidden"><label><input name="choice" type="radio">First</label><label><input name="choice" type="radio">Second</label></div>',
+    '<details><summary>Options</summary><div><label><input name="choice" type="radio">First</label><label><input name="choice" type="radio">Second</label></div></details>',
+    '<div><form><label><input name="choice" type="radio">First</label></form><form><label><input name="choice" type="radio">Second</label></form></div>',
+    '<form id="a"></form><form id="b"></form><div><label><input name="choice" type="radio" form="a">First</label><label><input name="choice" type="radio" form="b">Second</label></div>',
+    '<form><label><input name="choice" type="radio">First</label><label><input name="choice" type="radio">Second</label></form>',
+    '<div class="popup" hidden><div><label hidden><input name="choice" type="radio">First</label><label><input name="choice" type="radio">Second</label></div></div>',
+    '<div class="popup" hidden><div><label><input name="choice" type="radio" style="display:none">First</label><label><input name="choice" type="radio">Second</label></div></div>',
+  ])("avoids inactive, unrelated or cross-form inferred groups: %s", async html => {
+    expect((await scan(html)).issues).toEqual([]);
+  });
+  it("keeps independent named radio sets separate even in the same local wrapper", async () => {
+    const result = await scan('<div><label><input name="a" type="radio">First</label><label><input name="a" type="radio">Second</label><label><input name="b" type="radio">First</label><label><input name="b" type="radio">Second</label></div>');
+    expect(result.issues).toHaveLength(2);
+    expect(result.checked).toBe(2);
+  });
+  it("does not combine radio sets across shadow-root boundaries", async () => {
+    const result = await scan(`<div id="a"></div><div id="b"></div><script>
+      for (const id of ['a', 'b']) document.getElementById(id).attachShadow({mode:'open'}).innerHTML =
+        '<div><label><input name="choice" type="radio">Option</label></div>';
+    </script>`);
+    expect(result.issues).toEqual([]);
   });
   it("does not exclude off-screen or transparent controls that remain in the accessibility tree", async () => {
     for (const style of ["opacity:0", "position:absolute;left:-10000px", "width:0;height:0"]) {

@@ -1,4 +1,6 @@
 import { createHash } from "crypto";
+import { redactProvenanceUrl } from "./provenance-url";
+export { redactProvenanceUrl } from "./provenance-url";
 
 export type StaticHtmlClassification =
   | "ok"
@@ -36,25 +38,6 @@ export interface StaticHtmlPreflight {
 /** Static fetch uses the platform's direct fetch only; never bypass a proxy. */
 export function shouldRunStaticPreflight(proxyPacUrl?: string | null): boolean {
   return !(proxyPacUrl ?? "").trim();
-}
-
-const SECRET_QUERY_KEY =
-  /pass(word)?|token|secret|api[_-]?key|auth|credential|session|cookie|sig(nature)?|access[_-]?key|private|(?:oauth[_-]?)?code|jwt/i;
-
-/** Remove credentials and secret query values before provenance is persisted. */
-export function redactProvenanceUrl(rawUrl: string): string {
-  try {
-    const url = new URL(rawUrl);
-    url.username = "";
-    url.password = "";
-    for (const key of [...url.searchParams.keys()]) {
-      if (SECRET_QUERY_KEY.test(key)) url.searchParams.set(key, "[REDACTED]");
-    }
-    url.hash = "";
-    return url.toString();
-  } catch {
-    return "[invalid-url]";
-  }
 }
 
 export function hashPreflightHtml(html: string): string {

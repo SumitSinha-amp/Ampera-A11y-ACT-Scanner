@@ -278,6 +278,12 @@ async function processAssessment(id: number): Promise<void> {
         .innerJoin(accessibilityIssuesTable, eq(accessibilityIssuesTable.pageId, pageResultsTable.id))
         .where(eq(accessibilityIssuesTable.id, claimed.issueId));
     const result = parseAssessment(await callProvider(config, buildAssessmentPrompt(context, page?.pageHtml ?? null)));
+    // Text-language suggestions require a human decision. An optional model
+    // assessment cannot turn another model's language guess into confirmation.
+    if (context.ruleId === "ACT-R132" && result.decision === "confirmed_issue") {
+      result.decision = "needs_review";
+      result.rationale = `Human language verification is required. ${result.rationale}`;
+    }
     await db.update(aiIssueAssessmentsTable).set({
       status: "completed",
       decision: result.decision,

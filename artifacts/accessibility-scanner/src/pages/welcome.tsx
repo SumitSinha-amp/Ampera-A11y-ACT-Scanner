@@ -206,17 +206,18 @@ export default function WelcomePage() {
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-300">
-                      Review guidance
+                      Target-size guidance
                     </p>
-                    <h2 className="mt-0.5 text-base font-semibold">Understand text-layout results</h2>
+                    <h2 className="mt-0.5 text-base font-semibold">Understand target-size results</h2>
                   </div>
                 </div>
                 <p className="mt-4 text-sm leading-6 text-muted-foreground">
-                  ACT-R71 checks justified paragraphs; custom ACT-R129 checks layout under text-spacing
-                  overrides. Already clipped text still needs manual review, even when no finding appears.
+                  ACT-R113 accepts targets that are at least 24×24 CSS pixels or have sufficient spacing.
+                  Covered background controls do not create spacing failures. Findings measured with
+                  unresolved artwork or fonts remain Potential Issues for review.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-1.5">
-                  {["ACT-R71", "ACT-R129", "Manual review"].map((level) => (
+                  {["ACT-R113", "Size or spacing", "State evidence"].map((level) => (
                     <Badge key={level} variant="outline" className="border-teal-400/30 bg-teal-400/5 text-[10px] text-teal-700 dark:text-teal-300">
                       {level}
                     </Badge>

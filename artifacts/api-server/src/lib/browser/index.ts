@@ -31,6 +31,7 @@ import { runListContentRule, runAccesskeyRule, collectAccesskeyTargets } from ".
 import { runMainContentInstrumentRule } from "./rules/main-content-instrument";
 import { runMainContentHeadingRule } from "./rules/main-content-heading";
 import { runRepeatedContentCollapseRule } from "./rules/repeated-content-collapse";
+import { runLanguagePartsReviewRule } from "./rules/language-parts-review";
 import { createKeyboardFocusProbe } from "./keyboard-focus-probe";
 import { createFocusAppearanceProbe } from "./focus-appearance-probe";
 import {
@@ -80,6 +81,7 @@ function runAllRules(
     run();
   };
   runFamily("document", () => runDocumentLanguageRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
+  runFamily("language-review", () => runLanguagePartsReviewRule(results, pushStat));
   runFamily("names", () => runNamesRules(results, pushStat));
   runFamily("aria", () => runAriaRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
   runFamily("media", () => runMediaRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));

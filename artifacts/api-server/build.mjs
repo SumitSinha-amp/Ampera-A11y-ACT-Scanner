@@ -177,15 +177,22 @@ async function buildAll() {
   const browserBundlePath = path.join(distDir, "browser-bundle.js");
   await access(browserBundlePath);
   const browserBundleContents = await readFile(browserBundlePath, "utf8");
-  const languageDetectorMarker = "language-detector-franc-min-v1";
+  const languageDetectorMarker = "language-review-eld-franc-ensemble-v2";
   const hasBundledFrancInput = Object.keys(
     browserBuildResult.metafile.inputs,
   ).some((inputPath) =>
     inputPath.replaceAll("\\", "/").includes("/franc-min/"),
   );
-  if (!hasBundledFrancInput || !browserBundleContents.includes(languageDetectorMarker)) {
+  const hasBundledEldInput = Object.keys(browserBuildResult.metafile.inputs).some(
+    inputPath => inputPath.replaceAll("\\", "/").includes("/eld/"),
+  );
+  const hasBundledLanguageRegistry = Object.keys(browserBuildResult.metafile.inputs).some(
+    inputPath => inputPath.replaceAll("\\", "/").includes("/language-subtag-registry/"),
+  );
+  if (!hasBundledFrancInput || !hasBundledEldInput || !hasBundledLanguageRegistry ||
+      !browserBundleContents.includes(languageDetectorMarker)) {
     throw new Error(
-      "Invalid browser bundle: franc-min language detection was not bundled. " +
+      "Invalid browser bundle: the language review detectors or IANA registry were not bundled. " +
       "Install workspace dependencies and rebuild before deploying.",
     );
   }
@@ -348,7 +355,7 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
   }
   if (!serverBundleContents.includes(languageDetectorMarker)) {
     throw new Error(
-      "Invalid API bundle: the embedded franc-min language-detector marker is missing. " +
+      "Invalid API bundle: the embedded language-review marker is missing. " +
       "Rebuild the API and browser bundles together before deploying.",
     );
   }

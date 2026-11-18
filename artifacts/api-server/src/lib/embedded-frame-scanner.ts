@@ -96,7 +96,7 @@ export async function scanEmbeddedFrames(
       await frame.evaluate(bundle);
       const raw = await frame.evaluate((ruleOptions) => {
         const engine = (window as any).__ampera;
-        if (!engine?.buildMarkers?.includes("language-detector-franc-min-v1") ||
+        if (!engine?.buildMarkers?.includes("language-review-eld-franc-ensemble-v2") ||
           typeof engine.runAllRules !== "function" ||
           typeof engine.verifyLanguageDetectorBundle !== "function" ||
           engine.verifyLanguageDetectorBundle() !== true) {

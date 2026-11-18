@@ -56,6 +56,8 @@ const ruleReferences = Object.entries(ACT_RULES).map(([id, rule]) => ({
   id,
   title: rule.title,
   detail: rule.detail,
+  expectations: rule.expectations,
+  detailLabel: rule.detailLabel,
   deprecated: rule.deprecated,
   deprecatedReason: rule.deprecatedReason,
   relatedRules: rule.relatedRules,
@@ -578,6 +580,13 @@ function ScanConfiguration() {
             ))}
           </div>
         </Step>
+        <Tip title="Best Practice findings">
+          Deselect Best Practice to exclude all Best Practice outcomes, including advisory findings
+          from rules mapped to WCAG A, AA, or AAA. Issue and Potential Issue outcomes from selected
+          rules remain eligible. Saved reports and exports use the scan&apos;s recorded scope without
+          deleting the original evidence. Older scans without a recorded level scope retain their
+          original all-outcomes behavior.
+        </Tip>
         <Step n={2} title="Rule selection">
           By default all rules for the selected level are active. Use the <strong>Rules</strong> picker
           to enable only a specific subset — useful when auditing a particular criterion or comparing
@@ -867,9 +876,11 @@ function ScannerCapabilities() {
           offending element highlighted. Use First / Prev / Next / Last to step through all occurrences
           of a rule without closing the panel.
         </Step>
-        <Step n={4} title="Justification versus text-spacing layout">
+        <Step n={4} title="Visual presentation versus text-spacing layout">
           ACT-R71 checks visible native paragraphs for fully justified text and reports Best Practice
-          guidance associated with WCAG 1.4.8 AAA. Custom ACT-R129 separately compares layout before and
+          guidance associated with WCAG 1.4.8 AAA. ACT-R80 checks non-scaling line height under
+          WCAG 1.4.8 Visual Presentation (AAA), not WCAG 1.4.12 Text Spacing (AA), and remains a
+          Best Practice finding rather than proof of a WCAG failure. Custom ACT-R129 separately compares layout before and
           after the WCAG 1.4.12 spacing overrides. Its clipping check requires more than 5% measured
           text-box area loss and an increase of more than 5 percentage points from baseline.
           Already severe clipping can conceal further deterioration, so manually review visibly clipped
@@ -1149,7 +1160,20 @@ function RuleList({ rules }: { rules: typeof ruleReferences }) {
               </Badge>
             )}
           </div>
-          <p className="text-[13px] text-muted-foreground leading-relaxed">{rule.detail}</p>
+          {rule.detailLabel && (
+            <p className="text-[13px] text-muted-foreground">
+              <span className="font-medium text-foreground">Conformance: </span>
+              1.4.8 Visual Presentation (Level AAA)
+            </p>
+          )}
+          {rule.expectations && (
+            <div className="space-y-1">
+              <h4 className="text-[13px] font-semibold">Expectations</h4>
+              <p className="text-[13px] text-muted-foreground leading-relaxed">{rule.expectations}</p>
+            </div>
+          )}
+          {rule.detailLabel && <h4 className="text-[13px] font-semibold">{rule.detailLabel}</h4>}
+          <p className="text-[13px] text-muted-foreground leading-relaxed whitespace-pre-line">{rule.detail}</p>
         </div>
       ))}
     </TooltipProvider>

@@ -100,7 +100,7 @@ const ALL_RULES: { id: string; label: string }[] = [
   { id: "ACT-R4", label: "Page language has not been identified (WCAG 3.1.1)" },
   { id: "ACT-R5", label: "Page language not recognized (WCAG 3.1.1)" },
   { id: "ACT-R6", label: "Language declarations inconsistent (WCAG 3.1.1)" },
-  { id: "ACT-R7", label: "Content language not identified (WCAG 3.1.2)" },
+  { id: "ACT-R7", label: "Content language declaration is invalid (SIA-R7, WCAG 3.1.2)" },
   { id: "ACT-R8", label: "Form field is not labeled (WCAG 1.3.1)" },
   {
     id: "ACT-R9",
@@ -189,7 +189,7 @@ const ALL_RULES: { id: string; label: string }[] = [
   },
   {
     id: "ACT-R41",
-    label: "Links with same text different purpose (WCAG 2.4.4)",
+    label: "Review same-name link destinations (WCAG 2.4.9 AAA)",
   },
   { id: "ACT-R42", label: "Role not inside the required context (WCAG 4.1.2)" },
   {
@@ -256,8 +256,8 @@ const ALL_RULES: { id: string; label: string }[] = [
     id: "ACT-R72",
     label: "Paragraphs of text are not all uppercase (Best Practice)",
   },
-  { id: "ACT-R73", label: "Line height too small (WCAG 1.4.12)" },
-  { id: "ACT-R74", label: "Font size fixed (WCAG 1.4.4)" },
+  { id: "ACT-R73", label: "Line height too small (WCAG 1.4.8 AAA)" },
+  { id: "ACT-R74", label: "Font size fixed (WCAG 1.4.8 AAA)" },
   { id: "ACT-R75", label: "Font size too small (WCAG 1.4.4)" },
   {
     id: "ACT-R76",
@@ -422,6 +422,10 @@ const ALL_RULES: { id: string; label: string }[] = [
   {
     id: "ACT-R131",
     label: "Access keys are unique and valid (Custom, Experimental, Best Practice)",
+  },
+  {
+    id: "ACT-R132",
+    label: "Review: possible language change (Custom, Potential Issue, WCAG 3.1.2)",
   },
 ];
 

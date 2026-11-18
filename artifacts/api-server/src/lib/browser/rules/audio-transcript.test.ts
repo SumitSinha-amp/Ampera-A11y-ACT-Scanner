@@ -76,6 +76,31 @@ describe.skipIf(!existsSync(chromium))("ACT-R23 audio transcript review", () => 
     const result = await scan(scriptedFixture, ["ACT-R22"]);
     expect(result.issues.some((issue: any) => issue.ruleId === "ACT-R23")).toBe(false);
   });
+  it("skips non-function event records without losing valid samples or other rule findings", async () => {
+    const fixture = scriptedFixture.replace(
+      "click: [{handler: playSample}]",
+      `click: [{handler: false}, null, undefined, {}, {handler: "not a function"},
+        {handler: {}}, {get handler() {throw new Error("unreadable handler")}},
+        {handler: playSample}]`,
+    );
+    const result = await scan(`${fixture}<img src="/example.png">`, ["ACT-R23", "ACT-R2"]);
+    expect(result.issues.filter((issue: any) => issue.ruleId === "ACT-R23")).toHaveLength(10);
+    expect(result.issues.filter((issue: any) => issue.ruleId === "ACT-R2")).toHaveLength(1);
+    expect(result.ruleStatuses.find((status: any) => status.ruleId === "ACT-R23").status).toBe("executed");
+  });
+  it.each(["{click: {handler: false}}", "{click: false}", "{click: null}"])(
+    "keeps native audio checks running with an unsupported event cache: %s",
+    async events => {
+      const result = await scan(`<audio controls src="/speech.mp3"></audio>
+        <script>window.jQuery = {_data: () => (${events})};</script>`, ["ACT-R23"]);
+      expect(result.issues.filter((issue: any) => issue.ruleId === "ACT-R23")).toHaveLength(1);
+    },
+  );
+  it("keeps native audio checks running when the page event cache throws", async () => {
+    const result = await scan(`<audio controls src="/speech.mp3"></audio>
+      <script>window.jQuery = {_data: () => {throw new Error("unsupported cache")}};</script>`, ["ACT-R23"]);
+    expect(result.issues.filter((issue: any) => issue.ruleId === "ACT-R23")).toHaveLength(1);
+  });
   it("R30-only scans assess ten scripted samples without leaking prerequisite findings", async () => {
     const result = await scan(scriptedFixture, ["ACT-R30"]);
     expect(result.issues).toHaveLength(10);

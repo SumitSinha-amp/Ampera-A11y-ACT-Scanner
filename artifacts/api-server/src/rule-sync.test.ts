@@ -19,6 +19,23 @@ function missing(expected: Set<string>, actual: Set<string>): string[] {
 }
 
 describe("scan rule surfaces stay synchronized", () => {
+  it.each(["73", "74", "80"])("maps ACT-R%s to Visual Presentation AAA", (id) => {
+    for (const path of [
+      "artifacts/api-server/src/lib/scanner.ts",
+      "artifacts/accessibility-scanner/src/lib/actRules.ts",
+    ]) {
+      expect(read(path)).toContain(`"ACT-R${id}": { sc: ["1.4.8"], level: ["AAA"] }`);
+      expect(read(path)).not.toContain(`"ACT-R${id}": { sc: ["1.4.12"], level: ["AA"] }`);
+      expect(read(path)).not.toContain(`"ACT-R${id}": { sc: ["1.4.4"], level: ["AA"] }`);
+    }
+    expect(read("artifacts/accessibility-scanner/src/pages/documentation.tsx"))
+      .toContain("1.4.8 Visual Presentation (Level AAA)");
+    expect(read("ACT-Rule-Coverage.md"))
+      .toContain(`| ACT-R${id} | SIA-R${id} | 1.4.8 | AAA | Best Practice |`);
+    expect(read("rule-coverage.md"))
+      .toContain(`| SIA-R${id} | 1.4.8 | AAA |`);
+  });
+
   it("keeps vendor references out of user-facing rule guidance and release notes", () => {
     for (const path of [
       "artifacts/accessibility-scanner/src/lib/actRules.ts",
@@ -377,7 +394,7 @@ const browserEntrySource = read("artifacts/api-server/src/lib/browser/index.ts")
     expect(browserSource).toContain(
       "Report that shared declaration once instead of repeating the same root",
     );
-    expect(browserSource).toContain("language-detector-franc-min-v1");
+    expect(browserSource).toContain("language-review-eld-franc-ensemble-v2");
     expect(browserEntrySource).toContain("verifyLanguageDetectorBundle");
     expect(browserSource).toContain('ruleId: "ACT-R111"');
     expect(browserSource).toContain("isIncludedInAccessibilityTree");
@@ -385,7 +402,7 @@ const browserEntrySource = read("artifacts/api-server/src/lib/browser/index.ts")
       "hasIndeterminateLayer",
     );
     expect(read("artifacts/api-server/src/lib/browser/alfa-helpers.ts")).toContain(
-      "rectangleDistanceSquared(targetBounds, otherBounds) < size * size",
+      "centerDistanceSquared(targetBounds, otherBounds) < size * size",
     );
     expect(read("artifacts/api-server/src/lib/browser/alfa-helpers.ts")).toContain(
       "visible descendants that are not",

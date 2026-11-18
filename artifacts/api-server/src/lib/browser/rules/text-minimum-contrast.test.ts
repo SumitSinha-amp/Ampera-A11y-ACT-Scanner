@@ -170,4 +170,59 @@ describe.skipIf(!existsSync(chromium))("R69 Alfa and W3C afw4f7", () => {
     expect(r.issues[0].type).toBe("Issue");
     expect(await page.$eval("main", el => el.scrollTop)).toBe(0);
   });
+  it("checks both location placeholders with their own color, not the input value color", async () => {
+    const result = await scan('<style>input{color:#1a1a1a;background:white;font-size:16px}input::placeholder{color:#b3b3b3;opacity:1}</style><input id="from" placeholder="Where from?"><input id="to" placeholder="Where to?">');
+    expect(result.issues).toHaveLength(2);
+    expect(result.checked).toBe(2);
+    expect(result.issues.map((i: any) => i.selector)).toEqual(["input#from", "input#to"]);
+    for (const issue of result.issues) {
+      expect(issue.type).toBe("Issue");
+      expect(issue.description).toMatch(/Placeholder .*2\.10:1.*4\.5:1/);
+    }
+  });
+  it.each([
+    ["textarea", '<textarea placeholder="Your message"></textarea>', 1],
+    ["readonly", '<input readonly placeholder="Read only">', 1],
+    ["filled input", '<input placeholder="Invisible hint" value="A value">', 0],
+    ["filled textarea", '<textarea placeholder="Invisible hint">A value</textarea>', 0],
+    ["disabled", '<input disabled placeholder="Inactive">', 0],
+    ["disabled fieldset", '<fieldset disabled><input placeholder="Inactive"></fieldset>', 0],
+    ["hidden type", '<input type="hidden" placeholder="Hidden">', 0],
+    ["hidden ancestor", '<div style="display:none"><input placeholder="Hidden"></div>', 0],
+    ["hidden visibility", '<input style="visibility:hidden" placeholder="Hidden">', 0],
+    ["clipped", '<input style="clip-path:inset(50%)" placeholder="Clipped">', 0],
+    ["empty", '<input placeholder="  ">', 0],
+    ["transparent pseudo", '<style>input::placeholder{opacity:0!important}</style><input placeholder="Invisible">', 0],
+    ["passing", '<style>input::placeholder{color:black!important}</style><input placeholder="Good contrast">', 0],
+    ["large text", '<input style="font-size:24px" placeholder="Large text">', 0],
+    ["14px semi-bold is not large", '<input style="font-size:14px;font-weight:600" placeholder="Small text">', 1],
+  ])("placeholder applicability: %s", async (_name, html, expected) => {
+    const result = await scan('<style>input,textarea{background:white;font-size:16px}input::placeholder,textarea::placeholder{color:#888;opacity:1}</style>' + html);
+    expect(result.issues).toHaveLength(expected);
+    expect(result.issues.every((i: any) => i.description.startsWith("Placeholder"))).toBe(true);
+  });
+  it.each([
+    ['input::placeholder{color:black;opacity:.5}', ""],
+    ['input::placeholder{color:black;opacity:1}input{opacity:.5}', ""],
+    ['input::placeholder{color:black;opacity:1;-webkit-text-fill-color:#888}', ""],
+  ])("composites the actual placeholder paint: %s", async (css) => {
+    const result = await scan(`<style>body,input{background:white}input{font-size:16px}${css}</style><input placeholder="A hint">`);
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].type).toBe("Issue");
+  });
+  it("keeps image-backed placeholder contrast as review", async () => {
+    const result = await scan('<style>input{background:white url(https://invalid.test/bg.png)}input::placeholder{color:#aaa;opacity:1}</style><input placeholder="Image-backed hint">');
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].type).toBe("Potential Issue");
+  });
+  it("does not assume the field background when the placeholder has its own paint", async () => {
+    const result = await scan('<style>input{background:white}input::placeholder{color:#aaa;opacity:1;background-color:black}</style><input placeholder="Own background">');
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].type).toBe("Potential Issue");
+  });
+  it("honors explicit rule selection for placeholder checks", async () => {
+    const html = '<style>input::placeholder{color:#aaa;opacity:1}</style><input placeholder="Hint">';
+    expect((await scan(html, ["ACT-R47"])).issues).toEqual([]);
+    expect((await scan(html, undefined)).issues).toHaveLength(1);
+  });
 });

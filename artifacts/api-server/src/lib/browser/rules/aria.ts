@@ -54,27 +54,10 @@ export function runAriaRules(results: ScanRawResult[], EMIT_MANUAL_ONLY_RULES: b
         results.push({ ruleId: "ACT-R16", type: "Issue", impact: "serious", description: `Element with role="${role}" is missing required attribute: ${attr}`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
       }
     }
-    if (role === "scrollbar" || role === "separator") {
-      const controls = el.getAttribute("aria-controls");
-      if (!controls || role === "separator") return;
-      if (document.getElementById(controls)) {
-        results.push({ ruleId: "ACT-R16", type: "Issue", impact: "serious", description: `Toggle control references #${controls} via aria-controls but is missing aria-expanded state`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-      }
-    }
   });
-  document.querySelectorAll("button, [role='button'], a[href='#'], a[href='javascript:void(0)'], a[href='javascript:;']").forEach((el) => {
-    // R16 applies to authored controls in dormant UI states too. Passenger
-    // pickers and similar widgets commonly keep additional categories in the
-    // DOM with display:none until activated; their required state must not be
-    // skipped merely because that state is not initially rendered.
-    if (el.getAttribute("aria-expanded") !== null) return;
-    if (el.getAttribute("aria-haspopup")) return;
-    const controls = el.getAttribute("aria-controls");
-    if (!controls) return;
-    if (document.getElementById(controls)) {
-      results.push({ ruleId: "ACT-R16", type: "Issue", impact: "serious", description: `Toggle control references #${controls} via aria-controls but is missing aria-expanded state`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
-    }
-  });
+  // aria-controls describes a relationship, not necessarily disclosure
+  // behavior. Passenger steppers and scrollbars can control another element
+  // without expanding it. Only the role model establishes required states.
 
   // ════════════════════════════════════════════════════════════════════════
   // ACT-R17: Hidden element has focusable content (WCAG 1.3.1)

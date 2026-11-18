@@ -1625,6 +1625,7 @@ async function runScanPhase(
           timeout: 30_000,
           scanDelayMs: config.scanDelayMs,
           rules: config.rules,
+          wcagLevels: config.wcagLevels,
           proxyPacUrl: config.proxyPacUrl,
           signal: controller.signal,
           onStage: undefined,
@@ -2003,7 +2004,10 @@ async function runCrawlerJob(sessionId: number): Promise<void> {
         initiatorRole: config.initiatorRole ?? null,
         status: "running",
         groupId: config.groupId ?? null,
-        options: { crawlerSessionId: sessionId, source: "crawler", crawlBoost: !!config.crawlBoost } as any,
+        options: {
+          crawlerSessionId: sessionId, source: "crawler", crawlBoost: !!config.crawlBoost,
+          rules: config.rules, wcagLevels: config.wcagLevels, selectedRules: config.selectedRules,
+        } as any,
       }).returning({ id: scanSessionsTable.id });
       scanSessionId = scanSession.id;
       await db.update(crawlerSessionsTable)
@@ -2521,6 +2525,9 @@ async function runStartScanPhase(sessionId: number): Promise<void> {
           crawlerSessionId: sessionId,
           source: "crawler",
           crawlBoost: !!config.crawlBoost,
+          rules: config.rules,
+          wcagLevels: config.wcagLevels,
+          selectedRules: config.selectedRules,
           excludedPageGroups: config.excludedPageGroups ?? [],
         } as any,
     }).returning({ id: scanSessionsTable.id });
@@ -2538,6 +2545,9 @@ async function runStartScanPhase(sessionId: number): Promise<void> {
         crawlerSessionId: sessionId,
         source: "crawler",
         crawlBoost: !!config.crawlBoost,
+        rules: config.rules,
+        wcagLevels: config.wcagLevels,
+        selectedRules: config.selectedRules,
         excludedPageGroups: config.excludedPageGroups ?? [],
       } as any,
     }).where(eq(scanSessionsTable.id, scanSessionId));

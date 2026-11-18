@@ -15,6 +15,7 @@ import { eq, and, sql, or, inArray, notInArray, lt } from "drizzle-orm";
 import { scanPage, resetBrowserInstance, setScanConcurrency, fetchRawHtmlViaBrowser } from "./scanner";
 import { runQALinkChecker } from "./qaLinkChecker";
 import { logger } from "./logger";
+import { filterScanOutcomes } from "./scan-outcome-scope";
 import { randomBytes } from "crypto";
 import { enqueueIssueAssessments, shouldQueueAIAssessments } from "./ai-assessment";
 import {
@@ -176,6 +177,7 @@ interface ScanOptions {
   bypassCSP?: boolean;
   maxConcurrency?: number;
   rules?: string[];
+  wcagLevels?: string[];
   proxyPacUrl?: string;
   skipCompletedPages?: boolean;
   disableJavascript?: boolean;
@@ -301,9 +303,9 @@ export async function tryCarryForward(
     .from(accessibilityIssuesTable)
     .where(eq(accessibilityIssuesTable.pageId, prev.id));
   const selectedRuleIds = getSelectedRuleIds(options.rules);
-  const carriedIssues = selectedRuleIds
+  const carriedIssues = filterScanOutcomes(selectedRuleIds
     ? prevIssues.filter((issue) => selectedRuleIds.has(normalizeRuleId(issue.ruleId)))
-    : prevIssues;
+    : prevIssues, currentScan.options);
   const carriedCriticalCount = carriedIssues.filter(
     (issue) => issue.impact === "critical",
   ).length;
@@ -2253,6 +2255,7 @@ async function scanSinglePage(
       scanDelayMs,
       bypassCSP: options.bypassCSP,
       rules: options.rules,
+      wcagLevels: options.wcagLevels,
       proxyPacUrl: options.proxyPacUrl,
       // If a system proxy is configured and this scan isn't already using it,
       // pass it as a fallback so 403-blocked pages can automatically retry via proxy.

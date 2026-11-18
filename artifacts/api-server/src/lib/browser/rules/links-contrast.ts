@@ -2,11 +2,12 @@ import type { ScanRawResult, PushStatFn } from "../types";
 import { runOrientationRule } from "./orientation";
 import { runLinkPurposeRule } from "./link-purpose";
 import { getAccessibleName } from "../accname";
-import { getAlfaPointerTargets, hasAlfaTargetSize, hasAlfaTargetSpacing } from "../alfa-helpers";
+import { getAlfaPointerTargets, hasAlfaTargetSize, hasAlfaTargetSpacing, isAlfaInlineSentenceTarget, isAlfaTargetExposed, hasUnresolvedTargetFonts } from "../alfa-helpers";
 import { getEffectiveAriaRole } from "../aria-data";
 import { getBackgroundResolution, getContrastRatio, getLuminanceFromColorString } from "../contrast";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
 import { isProgrammaticallyHidden, isRendered, isVisible } from "../visibility";
+import { redactProvenanceUrl } from "../../provenance-url";
 
 /** Shape stored in window.__amperaContrastCandidates for the Node.js pixel pass. */
 export interface ContrastCandidate {
@@ -164,32 +165,56 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   });
 
   // ════════════════════════════════════════════════════════════════════════
-  // ACT-R41: Multiple links with same text to different destinations
+  // ACT-R41: Same accessible name, different destinations (WCAG 2.4.9 AAA).
+  // Emit each participating link so HTML/page viewers can target every location.
   // ════════════════════════════════════════════════════════════════════════
   {
-    const groups: Map<string, { hrefs: Set<string>; first: Element }> = new Map();
+    const groups: Map<string, {
+      hrefs: Set<string>;
+      links: { element: Element; name: string; destination: string }[];
+    }> = new Map();
     document.querySelectorAll("a[href],area[href],[role='link']").forEach((el) => {
       if (getEffectiveAriaRole(el) !== "link") return;
       if (isProgrammaticallyHidden(el)) return;
-      const text = getAccessibleName(el).trim().toLowerCase().replace(/\s+/g, " ");
+      const name = getAccessibleName(el).trim().replace(/\s+/g, " ");
+      const text = name.toLowerCase();
       if (!text || text.length < 2) return;
       // SVGAnchorElement.href is an SVGAnimatedString, not a string. This
       // family also runs when R81 is selected, so it must not crash on SVG links.
       const nativeHref = (el as HTMLAnchorElement).href;
       let href = typeof nativeHref === "string" ? nativeHref : el.getAttribute("href") || "";
       if (!href || href === window.location.href + "#" || href === "#") return;
+      const destination = href;
       // Alfa alignment: links resolving to the same resource are not flagged.
       // Normalize by stripping the fragment and trailing slash.
       href = href.split("#")[0].replace(/\/$/, "");
       if (!href) return;
       const key = text;
-      if (!groups.has(key)) groups.set(key, { hrefs: new Set(), first: el });
+      if (!groups.has(key)) groups.set(key, { hrefs: new Set(), links: [] });
       const group = groups.get(key)!;
       group.hrefs.add(href);
+      group.links.push({ element: el, name, destination });
     });
-    for (const [key, g] of groups) {
+    for (const g of groups.values()) {
       if (g.hrefs.size > 1) {
-        results.push({ ruleId: "ACT-R41", type: "Potential Issue", impact: "moderate", description: `Multiple links use the same text alternative "${key}" but point to different destinations — review whether the links are equivalent or need more specific names`, element: outerHtmlSnippet(g.first), elementContext: elementContextForAI(g.first), selector: getSelector(g.first) });
+        for (const [index, link] of g.links.entries()) {
+          const visibleText = ((link.element as HTMLElement).innerText ?? link.element.textContent ?? "")
+            .replace(/\s+/g, " ").trim();
+          const evidence = [
+            `${index + 1}. Accessible name: ${JSON.stringify(link.name)}`,
+            `Visible text: ${visibleText ? JSON.stringify(visibleText) : "(no visible text)"}`,
+            `Destination: ${redactProvenanceUrl(link.destination, document.baseURI)}`,
+            `Element: ${getSelector(link.element)}`,
+          ].join("\n");
+          // Keep evidence linear in group size: each occurrence describes its
+          // own link; the report's occurrence navigator exposes its peers.
+          results.push({
+            ruleId: "ACT-R41", type: "Potential Issue", impact: "moderate",
+            description: `${g.links.length} links share the accessible name ${JSON.stringify(g.links[0].name)} but reference ${g.hrefs.size} different destinations. Review whether the resources are equivalent; different URLs alone do not prove an accessibility failure.\n\nMatching link ${index + 1} of ${g.links.length}:\n${evidence}\n\nEach matching link is a separate occurrence. Use View on page or View in HTML to inspect its location. The page snapshot highlights this occurrence's link.\n\nCredentials and sensitive query values are redacted in the destination above; matching uses the original destinations.`,
+            element: outerHtmlSnippet(link.element), elementContext: elementContextForAI(link.element),
+            selector: getSelector(link.element),
+          });
+        }
       }
     }
   }
@@ -203,18 +228,25 @@ export function runLinksContrastRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
   // ACT-R113: Touch target too small (WCAG 2.5.8)
   // ════════════════════════════════════════════════════════════════════════
   {
-    const targets = getAlfaPointerTargets();
+    const targets = getAlfaPointerTargets().filter(isAlfaTargetExposed);
     interactiveTargetsChecked = targets.filter(el => el.tagName !== "INPUT").length;
     targets.forEach((el) => {
       if (el.tagName === "INPUT") return;
-      if (hasAlfaTargetSize(el, 24) || hasAlfaTargetSpacing(el, targets, 24)) return;
+      if (isAlfaInlineSentenceTarget(el) || hasAlfaTargetSize(el, 24) || hasAlfaTargetSpacing(el, targets, 24)) return;
       const rect = el.getBoundingClientRect();
       const unresolvedArtwork = Array.from(el.querySelectorAll("img")).some(img =>
         !!(img.currentSrc || img.getAttribute("src") || img.getAttribute("srcset") || img.getAttribute("data-src") || img.getAttribute("data-srcset")) &&
         (!img.complete || img.naturalWidth === 0),
       );
-      results.push({ ruleId: "ACT-R113", type: unresolvedArtwork ? "Potential Issue" : "Issue", impact: "moderate", description: unresolvedArtwork
+      const unresolvedFonts = hasUnresolvedTargetFonts(el) || targets.some(other => {
+        const neighbor = other.getBoundingClientRect();
+        return neighbor.right > rect.left - 24 && neighbor.left < rect.right + 24 &&
+          neighbor.bottom > rect.top - 24 && neighbor.top < rect.bottom + 24 &&
+          hasUnresolvedTargetFonts(other);
+      });
+      results.push({ ruleId: "ACT-R113", type: unresolvedArtwork || unresolvedFonts ? "Potential Issue" : "Issue", impact: "moderate", description: unresolvedArtwork
         ? "Target artwork did not load; verify the rendered target is at least 24×24 CSS pixels or has sufficient spacing (WCAG 2.5.8)"
+        : unresolvedFonts ? "Authored target fonts did not load; verify target size and spacing with the intended fonts (WCAG 2.5.8)"
         : `Interactive element is ${Math.round(rect.width)}×${Math.round(rect.height)}px — below the 24×24px minimum touch target (WCAG 2.5.8) and lacks sufficient spacing`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
     });
   }

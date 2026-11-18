@@ -7,6 +7,7 @@
 export type RuleExecutionTier = "automatic" | "manual";
 export type RuleFamily =
   | "document"
+  | "language-review"
   | "names"
   | "aria"
   | "media"
@@ -50,6 +51,7 @@ export type RuleApplicabilityStat = {
 
 const familyRules: Record<RuleFamily, readonly string[]> = {
   document: ["ACT-R1", "ACT-R3", "ACT-R4", "ACT-R5", "ACT-R6", "ACT-R7", "ACT-R109", "ACT-R110", "ACT-R114"],
+  "language-review": ["ACT-R132"],
   names: ["ACT-R2", "ACT-R8", "ACT-R11", "ACT-R12", "ACT-R13", "ACT-R14", "ACT-R15", "ACT-R28", "ACT-R43", "ACT-R94", "ACT-R116"],
   aria: ["ACT-R10", "ACT-R16", "ACT-R17", "ACT-R18", "ACT-R19", "ACT-R20", "ACT-R21", "ACT-R36", "ACT-R40", "ACT-R42", "ACT-R86", "ACT-R90"],
   media: ["ACT-R9", "ACT-R22", "ACT-R23", "ACT-R24", "ACT-R25", "ACT-R26", "ACT-R27", "ACT-R29", "ACT-R30", "ACT-R31", "ACT-R32", "ACT-R33", "ACT-R35", "ACT-R37", "ACT-R38", "ACT-R47", "ACT-R48", "ACT-R50", "ACT-R51", "ACT-R52"],

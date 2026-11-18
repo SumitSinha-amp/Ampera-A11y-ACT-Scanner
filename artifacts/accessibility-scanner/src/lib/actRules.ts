@@ -6,6 +6,8 @@ export type RuleOutcomeType =
 export type RuleDisplayMeta = {
   title: string;
   detail: string;
+  expectations?: string;
+  detailLabel?: string;
   issueTitle?: string;
   potentialTitle?: string;
   deprecated?: boolean;
@@ -57,14 +59,16 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       "xml:lang attributes are no longer used in modern HTML. This rule is superseded by ACT-R4 and ACT-R5.",
   },
   "ACT-R7": {
-    title: "Content language changes are not identified",
+    title: "Content language declaration is not valid",
     detail:
-      "When a section of content is written in a different language from the page lang, that element must declare its own lang attribute so assistive technologies switch voice correctly.",
+      "SIA-R7 validates the registered primary language subtag of applicable, non-empty lang attributes within the body. It does not identify text language or report undeclared language changes. Custom ACT-R132 provides separate review suggestions for possible language changes.",
   },
   "ACT-R8": {
     title: "Form field is not labeled",
+    issueTitle: "Form field is not labeled",
+    potentialTitle: "Does this placeholder-only field have a persistent visible label?",
     detail:
-      "Every input, select, and textarea must be associated with a visible <label> or carry an accessible name via aria-label or aria-labelledby so screen reader users know the field's purpose.",
+      "Form fields need an accessible name through an associated label, aria-label, aria-labelledby, or another supported naming source. Placeholder-only fields may be announced by assistive technology; report these separately as Potential Issues under WCAG 3.3.2 because placeholder text disappears after entry. Review whether persistent visible labels or sufficient instructions identify the field's purpose; do not treat placeholder fallback alone as a confirmed missing accessible name.",
   },
   "ACT-R9": {
     title: "Page refreshes or redirects without user control",
@@ -251,11 +255,12 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       "When more than one landmark of the same type exists on a page (e.g., two <nav> elements), each should have a unique aria-label or aria-labelledby to distinguish them.",
   },
   "ACT-R41": {
-    title: "Links with identical text have different purposes",
-    potentialTitle: "Are these links identical?",
-    issueTitle: "Links on the same page with the same text alternative",
+    title: "Do these links have equivalent destinations?",
+    potentialTitle: "Do these links have equivalent destinations?",
+    issueTitle: "Links with the same accessible name have different purposes",
+    ruleType: "Potential Issue",
     detail:
-      "Multiple links sharing the same visible text but pointing to different destinations are ambiguous. Differentiate them using aria-label, additional context, or more specific link text.",
+      "WCAG 2.4.9 Link Purpose (Link Only), AAA. This review compares accessible names, which may come from visible text, aria-label, aria-labelledby, or image alternatives. Different URLs do not prove different purposes. Compare every matching link and its destination before deciding whether the resources are equivalent. Only non-equivalent destinations need distinct, descriptive accessible names. Hidden carousel slides are excluded from the settled-page check.",
   },
   "ACT-R42": {
     title: "Role not inside the required context",
@@ -356,7 +361,7 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
   "ACT-R60": {
     title: "Groups have an accessible name",
     detail:
-      "Semantic groups containing at least two form inputs included in the accessibility tree need a non-empty accessible name. Inputs are counted in their nearest semantic group only. Use a fieldset with a meaningful legend or name the group with aria-label or aria-labelledby. Plain wrappers and same-name radio sets without group semantics are not applicable. As an additional review check, unnamed semantic groups in hidden overlays or popups are reported as Potential Issues: open the popup to verify. Exposed failures remain Best Practice findings, not direct WCAG success-criterion failures.",
+      "Semantic groups containing at least two exposed form inputs need a non-empty accessible name. Inputs are counted in their nearest semantic group only. These findings remain Best Practice, not direct WCAG failures. Extended review checks report Potential Issues for unnamed semantic groups in closed popups and for labelled radio sets without semantic grouping. Inferred sets require matching radio names, the same form owner and tree, a local shared container, and active controls or visible associated labels. Open closed popups to verify. For label-driven controls with hidden native radios, also verify radio roles and keyboard/screen-reader operation. Use a fieldset/legend or a semantic group/radiogroup with aria-label or aria-labelledby; individual option labels and unassociated headings are not group names.",
   },
   "ACT-R61": {
     title: "Documents start with a level 1 heading",
@@ -410,7 +415,7 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       "Is there sufficient contrast between the text and the background?",
     issueTitle: "Color contrast is not sufficient",
     detail:
-      "Normal-size text must meet a 4.5:1 contrast ratio and large text (18pt or 14pt bold) must meet 3:1 for WCAG Level AA. Insufficient contrast impairs readability for low-vision users.",
+      "Normal-size text must meet a 4.5:1 contrast ratio and large text (18pt or 14pt bold, not 14px) must meet 3:1 for WCAG Level AA. This includes visible placeholders in empty inputs and textareas, using their own color and opacity. Placeholder checks extend upstream DOM-text coverage. Covered text remains a Potential Issue until an unobscured state establishes its contrast. When a clearly identified, non-submitting overlay close control can be safely used, the server scanner saves a separate unobscured-state snapshot and retains the original findings. Unknown image, gradient or overlapping backgrounds still require review.",
   },
   "ACT-R70": {
     title: "No obsolete or deprecated elements are used",
@@ -428,14 +433,18 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       "Extended passages in ALL CAPS are significantly harder to read, especially for users with dyslexia. Use sentence case or title case for body text.",
   },
   "ACT-R73": {
-    title: "Line height is below minimum value",
+    title: "Line height is below minimum value (Paragraphs of text have sufficient line height)",
+    expectations: "This rule checks that the line-height for paragraphs should be at least 1.5 times the font size",
+    detailLabel: "Detailed description",
     detail:
-      "Line height should be at least 1.5 times the font size. Cramped line spacing reduces readability for everyone, especially users with low vision or cognitive disabilities.",
+      "When lines of text are too close together, the text becomes harder to read.\nThis can affect the usability of your site for all visitors — but especially those with low vision or cognitive conditions such as dyslexia.\nFixed line heights (specified in px, pt, or cm) can cause other accessibility issues, so should be avoided if possible.\nIt's best to set a line height that is relative to the font size, so that the content scales proportionally when zoomed",
   },
   "ACT-R74": {
-    title: "Font size is fixed",
+    title: "Font size is fixed (Paragraphs of text do not have font sizes defined in absolute units)",
+    expectations: "This rule checks that paragraphs of text do not have font sizes that are defined as absolute lengths.",
+    detailLabel: "Description",
     detail:
-      "Using absolute font size units (px, pt) prevents text from scaling when users change their browser's default font size. Use relative units (em, rem, %) instead.",
+      "Fixed font sizes override these settings in some browsers.\nTherefore, it's best to use a relative length measurement for font-size, such as em or %.",
   },
   "ACT-R75": {
     title: "Font sizes are not too small",
@@ -463,9 +472,10 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
       "<pre> is meant for preformatted content such as code, ASCII art, or tabular data. Using it for general prose breaks reading flow and may disrupt screen reader announcement.",
   },
   "ACT-R80": {
-    title: "Line height is fixed",
+    title: "Line height is fixed (Paragraphs of text do not have line heights defined in absolute units)",
+    detailLabel: "Description",
     detail:
-      "Automatically checks paragraphs for a line height that does not scale when the text size is doubled. Findings include the measured font sizes and line heights and are reported as Best Practice in standard scans. Prefer a unitless line-height such as 1.5. A non-scaling line height alone does not prove a WCAG failure; verify overlap, clipping, or loss of content under the relevant resize or spacing test.",
+      "The line-height has been fixed using an absolute length unit, such as px, pt or cm.\nWhen line height is fixed, it does not scale proportionally with the text — which has an impact on both the readability and the aesthetic of the page.\n\nIt’s best to set a line height that is relative to the font size, so they scale together.",
   },
   "ACT-R81": {
     title: "Links with identical text lead to different destinations",
@@ -733,6 +743,13 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
     detail:
       "Experimental custom Best Practice check for accesskey usability. Checks rendered HTML elements for keys shared between elements across the scanned page, including embedded documents, tokens longer than one character, and repeated keys within one element. Keys are compared case-insensitively, so a and A conflict; whitespace separates tokens. Empty attributes, display:none subtrees and legacy fallback content are excluded. Reports each affected element with all applicable problems. Frame limits or unavailable documents leave coverage incomplete. This is not a separate WCAG failure and has no automatic WCAG, ADA or EAA mapping.",
   },
+  "ACT-R132": {
+    custom: true,
+    title: "Review: possible language change",
+    ruleType: "Potential Issue",
+    detail:
+      "Custom review aid, separate from SIA-R7. Analyzes coherent visible prose using agreement between ELD word-boundary patterns, franc character patterns, and script compatibility. Skips isolated labels, explicit language boundaries, insufficient text, mixed or disagreeing evidence. A suggestion is not a confirmed WCAG failure. A human must verify the actual language, exceptions for names/borrowed words/technical terms, and whether a local lang declaration is needed before confirming an issue.",
+  },
 };
 
 // Keep documentation badges aligned with the API's WCAG_MAPPING and
@@ -752,7 +769,7 @@ const WCAG_RULE_METADATA: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R31": { sc: ["1.2.3"], level: ["A"] }, "ACT-R32": { sc: [], level: ["Best Practice"] }, "ACT-R33": { sc: ["1.2.1"], level: ["A"] },
   "ACT-R34": { sc: [], level: ["Best Practice"] }, "ACT-R35": { sc: ["1.2.1"], level: ["A"] }, "ACT-R36": { sc: ["4.1.2"], level: ["A"] },
   "ACT-R37": { sc: ["1.2.5"], level: ["AA"] }, "ACT-R38": { sc: ["1.2.3", "1.2.5", "1.2.8"], level: ["A", "AA", "AAA"] },
-  "ACT-R39": { sc: ["1.1.1"], level: ["A"] }, "ACT-R40": { sc: ["1.3.1"], level: ["WAI-ARIA"] }, "ACT-R41": { sc: ["2.4.4"], level: ["A"] },
+   "ACT-R39": { sc: ["1.1.1"], level: ["A"] }, "ACT-R40": { sc: ["1.3.1"], level: ["WAI-ARIA"] }, "ACT-R41": { sc: ["2.4.9"], level: ["AAA"] },
   "ACT-R42": { sc: ["1.3.1"], level: ["A"] }, "ACT-R43": { sc: ["4.1.2"], level: ["A"] }, "ACT-R44": { sc: ["1.3.4"], level: ["AA"] },
   "ACT-R45": { sc: ["1.3.1"], level: ["A"] }, "ACT-R46": { sc: ["1.3.1"], level: ["A"] }, "ACT-R47": { sc: ["1.4.4"], level: ["AA"] },
   "ACT-R48": { sc: ["1.4.2"], level: ["A"] }, "ACT-R49": { sc: ["1.4.2"], level: ["A"] }, "ACT-R50": { sc: ["1.4.2"], level: ["A"] },
@@ -763,9 +780,9 @@ const WCAG_RULE_METADATA: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R63": { sc: ["4.1.2"], level: ["A"] }, "ACT-R64": { sc: ["2.4.6"], level: ["AA"] }, "ACT-R65": { sc: ["2.4.7"], level: ["AA"] },
   "ACT-R66": { sc: ["1.4.6"], level: ["AAA"] }, "ACT-R67": { sc: ["1.1.1"], level: ["A"] }, "ACT-R68": { sc: ["1.3.1"], level: ["A"] },
   "ACT-R69": { sc: ["1.4.3"], level: ["AA"] }, "ACT-R70": { sc: ["4.1.1"], level: ["A"] }, "ACT-R71": { sc: ["1.4.8"], level: ["AAA"] },
-  "ACT-R72": { sc: ["1.4.8"], level: ["AAA"] }, "ACT-R73": { sc: ["1.4.12"], level: ["AA"] }, "ACT-R74": { sc: ["1.4.4"], level: ["AA"] },
+  "ACT-R72": { sc: ["1.4.8"], level: ["AAA"] }, "ACT-R73": { sc: ["1.4.8"], level: ["AAA"] }, "ACT-R74": { sc: ["1.4.8"], level: ["AAA"] },
   "ACT-R75": { sc: ["1.4.4"], level: ["AA"] }, "ACT-R76": { sc: ["1.3.1"], level: ["A"] }, "ACT-R77": { sc: ["1.3.1"], level: ["A"] },
-  "ACT-R78": { sc: ["2.4.6"], level: ["AA"] }, "ACT-R79": { sc: ["1.3.1"], level: ["A"] }, "ACT-R80": { sc: ["1.4.12"], level: ["AA"] },
+  "ACT-R78": { sc: ["2.4.6"], level: ["AA"] }, "ACT-R79": { sc: ["1.3.1"], level: ["A"] }, "ACT-R80": { sc: ["1.4.8"], level: ["AAA"] },
   "ACT-R81": { sc: ["2.4.4", "2.4.9"], level: ["A", "AAA"] }, "ACT-R82": { sc: ["3.3.1"], level: ["A"] }, "ACT-R83": { sc: ["1.4.4"], level: ["AA"] },
   "ACT-R84": { sc: ["2.1.1"], level: ["A"] }, "ACT-R85": { sc: ["1.4.8"], level: ["AAA"] }, "ACT-R86": { sc: ["1.1.1"], level: ["A"] },
   "ACT-R87": { sc: ["2.4.1"], level: ["A"] }, "ACT-R88": { sc: ["1.4.3"], level: ["AA"] }, "ACT-R89": { sc: ["1.4.6"], level: ["AAA"] },
@@ -786,6 +803,7 @@ const WCAG_RULE_METADATA: Record<string, { sc: string[]; level: string[] }> = {
    "ACT-R129": { sc: ["1.4.12"], level: ["AA"] },
    "ACT-R130": { sc: ["1.3.1"], level: ["A"] },
    "ACT-R131": { sc: [], level: ["Best Practice"] },
+   "ACT-R132": { sc: ["3.1.2"], level: ["AA"] },
 };
 
 for (const [id, metadata] of Object.entries(WCAG_RULE_METADATA)) {
@@ -795,11 +813,11 @@ for (const [id, metadata] of Object.entries(WCAG_RULE_METADATA)) {
     rule.wcagLevel = metadata.level;
     rule.eaa = metadata.level.includes("A") || metadata.level.includes("AA");
     rule.ada = rule.eaa;
-    rule.ruleType = metadata.level.includes("Best Practice")
+    rule.ruleType = rule.ruleType ?? (metadata.level.includes("Best Practice")
       ? "Best Practice"
       : metadata.level.includes("WAI-ARIA")
         ? "WAI-ARIA"
-        : "Issue";
+        : "Issue");
   }
 }
 

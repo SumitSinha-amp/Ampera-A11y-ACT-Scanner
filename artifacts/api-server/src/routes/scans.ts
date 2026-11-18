@@ -47,6 +47,46 @@ import { isUrlLikeScanName, SCAN_NAME_URL_ERROR } from "../lib/scan-name";
 import { getRulesForLevels, ALL_SCAN_LEVELS } from "../lib/scanner";
 import { retryAIAssessment, serializeAssessment } from "../lib/ai-assessment";
 import { aggregateRuleCoverage, classifyScanConfidence } from "../lib/ruleCoverage";
+import {
+  bestPracticeExcludedSql,
+  excludesBestPracticeOutcomes,
+  filterScanOutcomes,
+  scanOutcomeVisibilitySql,
+} from "../lib/scan-outcome-scope";
+
+// Read-time scope enforcement also covers reports saved before this policy.
+// The original advisory rows remain stored; no historical evidence is deleted.
+const scopedIssueCondition = sql.raw(scanOutcomeVisibilitySql(
+  '"accessibility_issues"."rule_type"',
+  `(SELECT scope_scan.options FROM page_results scope_page
+    JOIN scan_sessions scope_scan ON scope_scan.id = scope_page.scan_id
+    WHERE scope_page.id = "accessibility_issues"."page_id")`,
+));
+const scopedAiCondition = scanOutcomeVisibilitySql(
+  "ai.rule_type",
+  "ss.options",
+);
+
+function scopedPageCount(critical = false) {
+  return sql<number>`CASE WHEN ${sql.raw(bestPracticeExcludedSql(
+    '(SELECT scope_scan.options FROM scan_sessions scope_scan WHERE scope_scan.id = "page_results"."scan_id")',
+  ))} THEN (
+    SELECT COUNT(*)::int FROM accessibility_issues scope_issue
+    WHERE scope_issue.page_id = ${pageResultsTable.id}
+      AND COALESCE(scope_issue.rule_type, 'Issue') <> 'Best Practice'
+      ${critical ? sql`AND scope_issue.impact = 'critical'` : sql``}
+  ) ELSE ${critical ? pageResultsTable.criticalCount : pageResultsTable.issueCount} END`;
+}
+
+function scopedScanCount(critical = false) {
+  return sql<number>`CASE WHEN ${sql.raw(bestPracticeExcludedSql('"scan_sessions"."options"'))} THEN (
+    SELECT COUNT(*)::int FROM accessibility_issues scope_issue
+    JOIN page_results scope_page ON scope_page.id = scope_issue.page_id
+    WHERE scope_page.scan_id = ${scanSessionsTable.id}
+      AND COALESCE(scope_issue.rule_type, 'Issue') <> 'Best Practice'
+      ${critical ? sql`AND scope_issue.impact = 'critical'` : sql``}
+  ) ELSE ${critical ? scanSessionsTable.criticalIssues : scanSessionsTable.totalIssues} END`;
+}
 
 const router: IRouter = Router();
 const upload = multer({
@@ -67,8 +107,8 @@ const scanSessionFields = {
   totalUrls: scanSessionsTable.totalUrls,
   scannedUrls: scanSessionsTable.scannedUrls,
   failedUrls: scanSessionsTable.failedUrls,
-  totalIssues: scanSessionsTable.totalIssues,
-  criticalIssues: scanSessionsTable.criticalIssues,
+  totalIssues: scopedScanCount(),
+  criticalIssues: scopedScanCount(true),
   options: scanSessionsTable.options,
   createdAt: scanSessionsTable.createdAt,
   completedAt: scanSessionsTable.completedAt,
@@ -184,8 +224,8 @@ router.get("/scans", requireAuth, async (req, res): Promise<void> => {
     totalUrls: scanSessionsTable.totalUrls,
     scannedUrls: scanSessionsTable.scannedUrls,
     failedUrls: scanSessionsTable.failedUrls,
-    totalIssues: scanSessionsTable.totalIssues,
-    criticalIssues: scanSessionsTable.criticalIssues,
+    totalIssues: scopedScanCount(),
+    criticalIssues: scopedScanCount(true),
     options: scanSessionsTable.options,
     createdAt: scanSessionsTable.createdAt,
     completedAt: scanSessionsTable.completedAt,
@@ -261,7 +301,7 @@ router.get("/scans", requireAuth, async (req, res): Promise<void> => {
   const pageIssueCounts = await db
     .select({
       scanId: pageResultsTable.scanId,
-      pagesWithIssues: sql<number>`count(*) filter (where ${pageResultsTable.issueCount} > 0)`,
+      pagesWithIssues: sql<number>`count(*) filter (where ${scopedPageCount()} > 0)`,
     })
     .from(pageResultsTable)
     .groupBy(pageResultsTable.scanId);
@@ -575,8 +615,8 @@ async function buildComparison(
     totalUrls: scanSessionsTable.totalUrls,
     scannedUrls: scanSessionsTable.scannedUrls,
     failedUrls: scanSessionsTable.failedUrls,
-    totalIssues: scanSessionsTable.totalIssues,
-    criticalIssues: scanSessionsTable.criticalIssues,
+    totalIssues: scopedScanCount(),
+    criticalIssues: scopedScanCount(true),
     createdAt: scanSessionsTable.createdAt,
     completedAt: scanSessionsTable.completedAt,
   };
@@ -603,8 +643,8 @@ async function buildComparison(
         id: pageResultsTable.id,
         url: pageResultsTable.url,
         status: pageResultsTable.status,
-        issueCount: pageResultsTable.issueCount,
-        criticalCount: pageResultsTable.criticalCount,
+        issueCount: scopedPageCount(),
+        criticalCount: scopedPageCount(true),
       })
       .from(pageResultsTable)
       .where(eq(pageResultsTable.scanId, scan1Id)),
@@ -613,8 +653,8 @@ async function buildComparison(
         id: pageResultsTable.id,
         url: pageResultsTable.url,
         status: pageResultsTable.status,
-        issueCount: pageResultsTable.issueCount,
-        criticalCount: pageResultsTable.criticalCount,
+        issueCount: scopedPageCount(),
+        criticalCount: scopedPageCount(true),
       })
       .from(pageResultsTable)
       .where(eq(pageResultsTable.scanId, scan2Id)),
@@ -659,7 +699,7 @@ async function buildComparison(
             wcagLevel: accessibilityIssuesTable.wcagLevel,
           })
           .from(accessibilityIssuesTable)
-          .where(inArray(accessibilityIssuesTable.pageId, page1Ids))
+          .where(and(inArray(accessibilityIssuesTable.pageId, page1Ids), scopedIssueCondition))
       : Promise.resolve(
           [] as {
             pageId: number;
@@ -683,7 +723,7 @@ async function buildComparison(
             wcagLevel: accessibilityIssuesTable.wcagLevel,
           })
           .from(accessibilityIssuesTable)
-          .where(inArray(accessibilityIssuesTable.pageId, page2Ids))
+          .where(and(inArray(accessibilityIssuesTable.pageId, page2Ids), scopedIssueCondition))
       : Promise.resolve(
           [] as {
             pageId: number;
@@ -1012,8 +1052,8 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
       totalUrls: scanSessionsTable.totalUrls,
       scannedUrls: scanSessionsTable.scannedUrls,
       failedUrls: scanSessionsTable.failedUrls,
-      totalIssues: scanSessionsTable.totalIssues,
-      criticalIssues: scanSessionsTable.criticalIssues,
+      totalIssues: scopedScanCount(),
+      criticalIssues: scopedScanCount(true),
       options: scanSessionsTable.options,
       createdAt: scanSessionsTable.createdAt,
       completedAt: scanSessionsTable.completedAt,
@@ -1035,8 +1075,8 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
       scanId: pageResultsTable.scanId,
       url: pageResultsTable.url,
       status: pageResultsTable.status,
-      issueCount: pageResultsTable.issueCount,
-      criticalCount: pageResultsTable.criticalCount,
+      issueCount: scopedPageCount(),
+      criticalCount: scopedPageCount(true),
       errorMessage: pageResultsTable.errorMessage,
       scannedAt: pageResultsTable.scannedAt,
       loadDurationMs: pageResultsTable.loadDurationMs,
@@ -1068,10 +1108,10 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
       .select(accessibilityIssueFields)
       .from(accessibilityIssuesTable)
       .where(
-        inArray(
+        and(scopedIssueCondition, inArray(
           accessibilityIssuesTable.pageId,
           pages.map((p) => p.id),
-        ),
+        )),
       );
 
     if (allIssues.length > 0) {
@@ -1185,8 +1225,11 @@ router.get("/scans/:scanId/pages/:pageId/report-data", requireAuth, async (req, 
       pr.scan_id AS page_scan_id,
       pr.url,
       pr.status,
-      pr.issue_count,
-      pr.critical_count,
+      CASE WHEN ${sql.raw(bestPracticeExcludedSql("ss.options"))}
+        THEN COUNT(ai.id)::int ELSE pr.issue_count END AS issue_count,
+      CASE WHEN ${sql.raw(bestPracticeExcludedSql("ss.options"))}
+        THEN COUNT(ai.id) FILTER (WHERE ai.impact = 'critical')::int
+        ELSE pr.critical_count END AS critical_count,
       pr.error_message,
       pr.scanned_at,
       pr.load_duration_ms,
@@ -1255,7 +1298,7 @@ router.get("/scans/:scanId/pages/:pageId/report-data", requireAuth, async (req, 
       ) AS issues
     FROM scan_sessions ss
     JOIN page_results pr ON pr.scan_id = ss.id
-    LEFT JOIN accessibility_issues ai ON ai.page_id = pr.id
+    LEFT JOIN accessibility_issues ai ON ai.page_id = pr.id AND ${sql.raw(scopedAiCondition)}
     LEFT JOIN ai_issue_assessments aia ON aia.issue_id = ai.id
     WHERE ss.id = ${scanId} AND pr.id = ${pageId}
     GROUP BY ss.id, ss.options, pr.id
@@ -1618,7 +1661,12 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
   // Count completed pages that have at least one issue — single cheap query
   const [pagesWithIssuesResult, pagesWithSnapshotResult] = await Promise.all([
     pool.query<{ cnt: string }>(
-      `SELECT COUNT(*)::text AS cnt FROM page_results WHERE scan_id = $1 AND status = 'completed' AND issue_count > 0`,
+      `SELECT COUNT(*)::text AS cnt FROM page_results
+       WHERE scan_id = $1 AND status = 'completed' AND issue_count > 0
+         AND EXISTS (SELECT 1 FROM accessibility_issues ai
+           WHERE ai.page_id = page_results.id AND ${scanOutcomeVisibilitySql(
+             "ai.rule_type", "(SELECT options FROM scan_sessions WHERE id = $1)",
+           )})`,
       [scanId],
     ),
     pool.query<{ cnt: string }>(
@@ -1653,8 +1701,8 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
     id: pageResultsTable.id,
     url: pageResultsTable.url,
     status: pageResultsTable.status,
-    issueCount: pageResultsTable.issueCount,
-    criticalCount: pageResultsTable.criticalCount,
+    issueCount: scopedPageCount(),
+    criticalCount: scopedPageCount(true),
     errorMessage: pageResultsTable.errorMessage,
     loadDurationMs: pageResultsTable.loadDurationMs,
     scanDurationMs: pageResultsTable.scanDurationMs,
@@ -1784,8 +1832,11 @@ router.post("/scans/:id/local-results", async (req, res): Promise<void> => {
   wafPageTokens.delete(pageId);
 
   try {
-    const issueCount = issues.length;
-    const criticalCount = issues.filter((i: any) => i.impact === "critical").length;
+    const [scopeSession] = await db.select({ options: scanSessionsTable.options })
+      .from(scanSessionsTable).where(eq(scanSessionsTable.id, scanId));
+    const scopedIssues = filterScanOutcomes(issues, scopeSession?.options);
+    const issueCount = scopedIssues.length;
+    const criticalCount = scopedIssues.filter((i: any) => i.impact === "critical").length;
 
     // Update page result to completed
     await db
@@ -1801,11 +1852,12 @@ router.post("/scans/:id/local-results", async (req, res): Promise<void> => {
       .where(eq(pageResultsTable.id, pageId));
 
     // Insert issues
-    if (issues.length > 0) {
+    if (scopedIssues.length > 0) {
       await db.insert(accessibilityIssuesTable).values(
-        issues.map((issue: any) => ({
+        scopedIssues.map((issue: any) => ({
           pageId,
           ruleId: issue.ruleId ?? "",
+          ruleType: issue.type ?? issue.ruleType ?? "Issue",
           impact: issue.impact ?? "moderate",
           description: issue.description ?? issue.help ?? "",
           element: issue.element ?? null,
@@ -2347,8 +2399,8 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
       id: pageResultsTable.id,
       url: pageResultsTable.url,
       status: pageResultsTable.status,
-      issueCount: pageResultsTable.issueCount,
-      criticalCount: pageResultsTable.criticalCount,
+      issueCount: scopedPageCount(),
+      criticalCount: scopedPageCount(true),
       scannedAt: pageResultsTable.scannedAt,
     })
     .from(pageResultsTable)
@@ -2442,10 +2494,17 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
   if (completedPageIds.length > 0) {
     await pool.query(
       `INSERT INTO page_results (scan_id, url, status, issue_count, critical_count, error_message, scanned_at, screenshot, page_html)
-       SELECT $1, url, 'completed', issue_count, critical_count, NULL, scanned_at, screenshot, page_html
-       FROM page_results
-       WHERE id = ANY($2)`,
-      [newSession.id, completedPageIds],
+       SELECT $1, pr.url, 'completed',
+              CASE WHEN $3::boolean THEN (SELECT COUNT(*)::int FROM accessibility_issues ai
+                WHERE ai.page_id = pr.id AND COALESCE(ai.rule_type, 'Issue') <> 'Best Practice')
+                ELSE pr.issue_count END,
+              CASE WHEN $3::boolean THEN (SELECT COUNT(*)::int FROM accessibility_issues ai
+                WHERE ai.page_id = pr.id AND COALESCE(ai.rule_type, 'Issue') <> 'Best Practice'
+                  AND ai.impact = 'critical') ELSE pr.critical_count END,
+              NULL, pr.scanned_at, pr.screenshot, pr.page_html
+       FROM page_results pr
+       WHERE pr.id = ANY($2)`,
+      [newSession.id, completedPageIds, excludesBestPracticeOutcomes(opts)],
     );
   }
 
@@ -2496,7 +2555,10 @@ router.post("/scans/:id/retry", async (req, res): Promise<void> => {
            FROM page_interaction_states pis
            JOIN page_results orig_pr ON orig_pr.id = pis.page_id
            JOIN page_results new_pr  ON new_pr.scan_id = $1 AND new_pr.url = orig_pr.url
-           WHERE orig_pr.id = ANY($2)`,
+           WHERE orig_pr.id = ANY($2)
+             AND ${scanOutcomeVisibilitySql(
+               "ai.rule_type", "(SELECT options FROM scan_sessions WHERE id = $1)",
+             )}`,
           [newSession.id, completedPageIds],
         );
         await pool.query(
@@ -2719,7 +2781,7 @@ router.get(
       .from(pageResultsTable)
       .leftJoin(
         accessibilityIssuesTable,
-        eq(accessibilityIssuesTable.pageId, pageResultsTable.id),
+        and(eq(accessibilityIssuesTable.pageId, pageResultsTable.id), scopedIssueCondition),
       )
       .where(eq(pageResultsTable.scanId, scanId))
       .orderBy(pageResultsTable.url);
@@ -2890,6 +2952,7 @@ router.get("/scans/:id/report", async (req, res): Promise<void> => {
       scannedUrls: scanSessionsTable.scannedUrls,
       failedUrls: scanSessionsTable.failedUrls,
       totalIssues: scanSessionsTable.totalIssues,
+      options: scanSessionsTable.options,
     })
     .from(scanSessionsTable)
     .where(eq(scanSessionsTable.id, params.data.id));
@@ -2899,6 +2962,11 @@ router.get("/scans/:id/report", async (req, res): Promise<void> => {
     return;
   }
 
+  // Resolve once per report, not once per issue in large historical scans.
+  const scopedAiCondition = excludesBestPracticeOutcomes(session.options)
+    ? "COALESCE(ai.rule_type, 'Issue') <> 'Best Practice'"
+    : "TRUE";
+
   // All aggregations done in SQL — never load full page/issue rows into Node.js.
   // Scan #178 has 11762 pages; loading everything caused OOM crashes.
   const [impactResult, wcagResult, rulesResult, topPagesResult] =
@@ -2907,7 +2975,7 @@ router.get("/scans/:id/report", async (req, res): Promise<void> => {
         `SELECT ai.impact, COUNT(*)::text AS cnt
          FROM accessibility_issues ai
          JOIN page_results pr ON pr.id = ai.page_id
-         WHERE pr.scan_id = $1
+         WHERE pr.scan_id = $1 AND ${scopedAiCondition}
          GROUP BY ai.impact`,
         [params.data.id],
       ),
@@ -2915,7 +2983,7 @@ router.get("/scans/:id/report", async (req, res): Promise<void> => {
         `SELECT ai.wcag_level, COUNT(*)::text AS cnt
          FROM accessibility_issues ai
          JOIN page_results pr ON pr.id = ai.page_id
-         WHERE pr.scan_id = $1
+         WHERE pr.scan_id = $1 AND ${scopedAiCondition}
          GROUP BY ai.wcag_level`,
         [params.data.id],
       ),
@@ -2923,17 +2991,20 @@ router.get("/scans/:id/report", async (req, res): Promise<void> => {
         `SELECT ai.rule_id, ai.description, COUNT(*)::text AS cnt
          FROM accessibility_issues ai
          JOIN page_results pr ON pr.id = ai.page_id
-         WHERE pr.scan_id = $1
+         WHERE pr.scan_id = $1 AND ${scopedAiCondition}
          GROUP BY ai.rule_id, ai.description
          ORDER BY COUNT(*) DESC
          LIMIT 10`,
         [params.data.id],
       ),
       pool.query<{ url: string; issue_count: string; critical_count: string }>(
-        `SELECT url, issue_count::text, critical_count::text
-         FROM page_results
-         WHERE scan_id = $1 AND status = 'completed'
-         ORDER BY issue_count DESC
+        `SELECT pr.url, COUNT(ai.id)::text AS issue_count,
+                COUNT(ai.id) FILTER (WHERE ai.impact = 'critical')::text AS critical_count
+         FROM page_results pr
+         LEFT JOIN accessibility_issues ai ON ai.page_id = pr.id AND ${scopedAiCondition}
+         WHERE pr.scan_id = $1 AND pr.status = 'completed'
+         GROUP BY pr.id, pr.url
+         ORDER BY COUNT(ai.id) DESC
          LIMIT 10`,
         [params.data.id],
       ),
@@ -3013,7 +3084,7 @@ router.get("/scans/:id/report", async (req, res): Promise<void> => {
     totalPages: session.totalUrls,
     scannedPages: session.scannedUrls,
     failedPages: session.failedUrls,
-    totalIssues: session.totalIssues,
+    totalIssues: Object.values(issuesByImpact).reduce((sum, count) => sum + count, 0),
     issuesByImpact,
     issuesByWcagLevel,
     topRules,
@@ -3376,6 +3447,7 @@ router.get(
         and(
           eq(pageResultsTable.scanId, scanId),
           eq(accessibilityIssuesTable.falsePositive, false),
+          scopedIssueCondition,
         ),
       );
 
@@ -3558,6 +3630,7 @@ router.get(
           eq(pageResultsTable.scanId, scanId),
           eq(pageResultsTable.url, pageUrl),
           eq(accessibilityIssuesTable.falsePositive, false),
+          scopedIssueCondition,
         ),
       );
 
@@ -3809,8 +3882,9 @@ router.get("/pages/:pageId/rule-report", requireAuth, async (req: Request, res: 
               false_positive
        FROM accessibility_issues
        WHERE page_id = $1 AND rule_id = $2
+         AND ${scanOutcomeVisibilitySql("rule_type", "(SELECT options FROM scan_sessions WHERE id = $3)")}
        ORDER BY id`,
-      [pageId, ruleId],
+      [pageId, ruleId, scan_id],
     );
 
     res.json({

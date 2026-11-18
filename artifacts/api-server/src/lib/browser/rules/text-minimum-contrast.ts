@@ -9,7 +9,7 @@ const WIDGETS = new Set(["button", "checkbox", "combobox", "grid", "gridcell", "
   "spinbutton", "switch", "tab", "tablist", "textbox", "tree", "treegrid", "treeitem",
   "group", "row", "rowheader", "columnheader", "toolbar"]);
 type Color = [number, number, number, number];
-type Target = { text: Text; parent: Element; chain: Element[] };
+type Target = { text?: Text; value: string; parent: Element; chain: Element[]; placeholder?: boolean };
 
 function parent(node: Node): Element | null {
   return (node as Element).assignedSlot || node.parentElement ||
@@ -100,11 +100,21 @@ export function runTextMinimumContrastRule(results: ScanRawResult[], pushStat: P
       const value = node.data.trim();
       if (!value || /^[\p{P}\p{S}\p{Cf}\s]+$/u.test(value)) return;
       const chain = chainOf(node), el = chain[0];
-      if (el?.namespaceURI === HTML && !chain.some(n => n.namespaceURI !== HTML)) targets.push({ text: node, parent: el, chain });
+      if (el?.namespaceURI === HTML && !chain.some(n => n.namespaceURI !== HTML)) targets.push({ text: node, value, parent: el, chain });
       return;
     }
     if (node instanceof Element) {
       elements.push(node);
+      // Product extension to upstream's DOM-text targets: placeholder glyphs
+      // are rendered by the UA, not represented by child Text nodes.
+      if ((node instanceof HTMLInputElement &&
+        ["text", "search", "email", "tel", "url", "password", "number"].includes(node.type) ||
+        node instanceof HTMLTextAreaElement) &&
+        node.matches(":placeholder-shown") && !node.value &&
+        node.getAttribute("placeholder")?.trim()) {
+        targets.push({ value: node.getAttribute("placeholder")!.trim(), parent: node,
+          chain: [node, ...chainOf(node)], placeholder: true });
+      }
       if (node.shadowRoot) { visit(node.shadowRoot); return; }
       if (node instanceof HTMLSlotElement) {
         const assigned = node.assignedNodes({ flatten: true });
@@ -170,14 +180,15 @@ export function runTextMinimumContrastRule(results: ScanRawResult[], pushStat: P
 
   let checked = 0;
   for (const target of targets) {
-    const { text, parent: el, chain } = target;
-    const ss = chain.map(style), s = ss[0];
+    const { text, value, parent: el, chain, placeholder } = target;
+    const ss = chain.map(style), s = placeholder ? getComputedStyle(el, "::placeholder") : ss[0];
     if (chain.some(n => disabled(n) || disabledNameSources.has(n))) continue;
-    if (s.visibility !== "visible" || ss.some(n => n.display === "none" || n.contentVisibility === "hidden" || Number(n.opacity) === 0)) continue;
+    if (s.visibility !== "visible" || Number(s.opacity) === 0 || ss.some(n => n.display === "none" || n.contentVisibility === "hidden" || Number(n.opacity) === 0)) continue;
     if (ss.some(n => /inset\(\s*(50|100)%/.test(n.clipPath) || /rect\(\s*0(?:px)?[, ]+\s*0/.test(n.clip))) continue;
     const range = document.createRange();
-    range.selectNodeContents(text);
-    const rects = Array.from(range.getClientRects()).filter(r => r.width > 0 && r.height > 0);
+    if (text) range.selectNodeContents(text);
+    const rects = (placeholder ? Array.from(el.getClientRects()) : Array.from(range.getClientRects()))
+      .filter(r => r.width > 0 && r.height > 0);
     if (!rects.length) continue;
     // Visibility includes content that can be brought into view by scrolling
     // an inner container. Its coordinates can exceed the document's own size.
@@ -207,6 +218,10 @@ export function runTextMinimumContrastRule(results: ScanRawResult[], pushStat: P
 
     let reason: string | undefined;
     if (ss.some(n => n.mixBlendMode !== "normal" || n.filter !== "none" || n.backdropFilter !== "none")) reason = "blending or filtering requires rendered review";
+    if (placeholder && (s.mixBlendMode !== "normal" || s.filter !== "none" || s.backdropFilter !== "none" ||
+      s.backgroundImage !== "none" || (color(s.backgroundColor)?.[3] || 0) > 0)) {
+      reason = "placeholder pseudo-element paint requires rendered review";
+    }
     if (s.textShadow !== "none" || s.webkitTextStrokeWidth && parseFloat(s.webkitTextStrokeWidth) > 0) reason = "text shadow or stroke requires rendered review";
     if (s.backgroundClip === "text" || s.webkitBackgroundClip === "text") reason = "background-clipped text requires rendered review";
     // A positioned sibling or pseudo-element is not represented by ancestry.
@@ -235,7 +250,9 @@ export function runTextMinimumContrastRule(results: ScanRawResult[], pushStat: P
         }
       }
     }
-    const fg = color(s.webkitTextFillColor || s.color);
+    const parsedForeground = color(s.webkitTextFillColor || s.color);
+    const fg: Color | null = parsedForeground && [parsedForeground[0], parsedForeground[1],
+      parsedForeground[2], parsedForeground[3] * (placeholder ? Number(s.opacity) : 1)];
     if (!fg) reason ||= "foreground color could not be resolved";
     const size = parseFloat(s.fontSize), weight = parseFloat(s.fontWeight);
     const minimum = size >= 24 || size >= 56 / 3 && weight >= 700 ? 3 : 4.5;
@@ -275,7 +292,7 @@ export function runTextMinimumContrastRule(results: ScanRawResult[], pushStat: P
     if (!reason && highest !== undefined && highest >= minimum) continue;
     results.push({
       ruleId: "ACT-R69", type: reason ? "Potential Issue" : "Issue", impact: "serious",
-      description: `Text ${JSON.stringify(text.data.trim())}: ${reason
+      description: `${placeholder ? "Placeholder" : "Text"} ${JSON.stringify(value)}: ${reason
         ? `minimum contrast needs review: ${reason}`
         : `highest possible text contrast ${highest!.toFixed(2)}:1 is below AA minimum (${minimum}:1)`}.`,
       selector: getSelector(el), element: outerHtmlSnippet(el), elementContext: elementContextForAI(el),

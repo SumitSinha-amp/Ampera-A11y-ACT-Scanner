@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useParams, Link, useSearch } from "wouter";
 import { ACT_RULES, getRuleTitle } from "@/lib/actRules";
 import { CustomRuleBadge } from "@/components/custom-rule-badge";
+import { LanguageReviewNotice } from "@/components/language-review-notice";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -554,8 +555,19 @@ export default function SiteRulePageReport() {
                   )}
                   <Badge variant="outline" className="text-[10px] capitalize">{selectedIssue.impact}</Badge>
                 </div>
-                <p className="text-xs text-gray-600 leading-relaxed">{selectedIssue.description}</p>
+                <p
+                  className={`text-xs text-gray-600 leading-relaxed${selectedIssue.ruleId === "ACT-R41" ? " max-h-48 overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere]" : ""}`}
+                  role={selectedIssue.ruleId === "ACT-R41" ? "region" : undefined}
+                  aria-label={selectedIssue.ruleId === "ACT-R41" ? "Matching links and destinations" : undefined}
+                  tabIndex={selectedIssue.ruleId === "ACT-R41" ? 0 : undefined}
+                >{selectedIssue.description}</p>
               </div>
+
+              {selectedIssue.ruleId === "ACT-R132" && (
+                <LanguageReviewNotice key={selectedIssue.id} scanId={data.scanId} pageId={pageId}
+                  pageUrl={data.url} selector={selectedIssue.selector}
+                  canCreateIssue={!!user?.permissions.canCreateIssue} />
+              )}
 
               {(ruleMeta?.detail || selectedIssue.remediation) && (
                 <div className="px-4 py-3 border-b bg-blue-50/50">

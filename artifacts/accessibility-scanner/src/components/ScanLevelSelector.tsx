@@ -160,6 +160,9 @@ export function ScanLevelSelector({
         {!allSelected && (
           <p className="mt-3 text-[12px] text-muted-foreground">
             Only rules matching the selected levels will be checked in this scan.
+            {!value.includes("Best Practice") && (
+              <> Best Practice findings are excluded, including guidance from WCAG-mapped rules. Issues and Potential Issues remain in scope.</>
+            )}
           </p>
         )}
       </div>
@@ -231,6 +234,9 @@ export function ScanLevelSelector({
       {!allSelected && (
         <p className="mt-2 text-[11px] text-muted-foreground">
           Only rules matching the selected levels will be checked in this scan.
+          {!value.includes("Best Practice") && (
+            <> Best Practice findings are excluded, including guidance from WCAG-mapped rules. Issues and Potential Issues remain in scope.</>
+          )}
         </p>
       )}
     </div>

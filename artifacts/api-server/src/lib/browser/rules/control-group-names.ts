@@ -5,9 +5,8 @@ import { composedAncestors } from "../alfa-helpers";
 import { isIncludedInAccessibilityTree } from "../visibility";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
 
-// Alfa R60 includes subclasses of group and counts inputs in their nearest
-// group only. Plain wrappers and same-name radio sets without a semantic
-// group are inapplicable, not inferred R60 targets.
+// Strict Alfa R60 counts inputs in their nearest semantic group.
+// Inferred radio sets are a separate, potential-only product review extension.
 const GROUP_ROLES = new Set([
   "group", "listbox", "menu", "menubar", "radiogroup", "row", "toolbar", "tree", "treegrid",
 ]);
@@ -82,8 +81,97 @@ function groupName(element: Element, popup?: Element): string {
   return element.getAttribute("title")?.trim() || "";
 }
 
+type ReviewRadio = { radio: HTMLInputElement; popup?: Element; labelDriven: boolean };
+
+/** Require a labelled, potentially operable option, not merely matching names. */
+function reviewRadio(radio: HTMLInputElement, popupTargets: Set<Element>): ReviewRadio | null {
+  if (!radio.name.trim() || radio.matches(":disabled") ||
+      radio.closest("[aria-disabled='true']")) return null;
+  const ancestors = composedAncestors(radio);
+  const popup = ancestors.find(ancestor =>
+    isPopup(ancestor, popupTargets) && !isIncludedInAccessibilityTree(ancestor));
+  // A popup's hiding boundary can be ignored, but independent inactivity cannot.
+  for (const node of [radio, ...ancestors]) {
+    if (node === popup) break;
+    if (node.matches("template,noscript,[hidden],[inert],[aria-hidden='true']")) return null;
+    if (node instanceof HTMLDetailsElement && !node.open &&
+        !node.querySelector(":scope > summary")?.contains(radio)) return null;
+  }
+  const labels = Array.from(radio.labels ?? []);
+  if (isIncludedInAccessibilityTree(radio)) {
+    return getAccessibleName(radio).trim() ? { radio, labelDriven: false } : null;
+  }
+  if (popup && !hiddenBelowPopup(radio, popup)) {
+    const named = radio.getAttribute("aria-label")?.trim() ||
+      labels.some(label => popupLabelText(label, popup)) ||
+      (radio.getAttribute("aria-labelledby") || "").trim().split(/\s+/).some(id => {
+        const root = radio.getRootNode() as Document | ShadowRoot;
+        return !!root.getElementById(id)?.textContent?.trim();
+      });
+    if (named) return { radio, popup, labelDriven: false };
+  }
+  // Custom radios sometimes hide only the native input and leave a working
+  // associated label visible. Preserve this uncertainty as review evidence.
+  if (!popup && labels.some(label => {
+    if (!isIncludedInAccessibilityTree(label) || !getAccessibleName(label).trim()) return false;
+    const rect = label.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 && getComputedStyle(label).opacity !== "0";
+  }) && ancestors.every(ancestor => isIncludedInAccessibilityTree(ancestor))) {
+    return { radio, labelDriven: true };
+  }
+  return null;
+}
+
+function reviewInferredRadioSets(
+  radios: HTMLInputElement[], groups: Set<Element>, popupTargets: Set<Element>,
+  report: (element: Element, description: string, potential?: boolean) => void,
+): number {
+  // HTML radio grouping is scoped by tree, form OWNER (including form=), and
+  // exact name. A name shared across different forms/roots is not one set.
+  const trees = new Map<Node, Map<HTMLFormElement | null, Map<string, ReviewRadio[]>>>();
+  for (const radio of radios) {
+    if (composedAncestors(radio).some(ancestor => groups.has(ancestor))) continue;
+    const candidate = reviewRadio(radio, popupTargets);
+    if (!candidate) continue;
+    const root = radio.getRootNode();
+    let forms = trees.get(root);
+    if (!forms) { forms = new Map(); trees.set(root, forms); }
+    let names = forms.get(radio.form);
+    if (!names) { names = new Map(); forms.set(radio.form, names); }
+    const members = names.get(radio.name) ?? [];
+    members.push(candidate);
+    names.set(radio.name, members);
+  }
+  let checked = 0;
+  for (const forms of trees.values()) for (const names of forms.values()) {
+    for (const [name, members] of names) {
+      if (members.length < 2) continue;
+      const container = composedAncestors(members[0].radio).find(ancestor =>
+        members.every(member => ancestor.contains(member.radio)));
+      // Avoid presenting the entire form/page as one inferred local group.
+      if (!container || container.matches("html,body,form,main")) continue;
+      checked++;
+      const labels = members.map(({ radio, popup }) =>
+        Array.from(radio.labels ?? []).map(label =>
+          popup ? popupLabelText(label, popup) : getAccessibleName(label)).join(" ").trim()
+          || radio.getAttribute("aria-label")?.trim() || getAccessibleName(radio)).filter(Boolean);
+      // Keep the finding stable when the scanner opens a popup: the state
+      // evidence can replace baseline evidence instead of duplicating it.
+      const context = " If this set is in a closed popup, open it and verify the active controls.";
+      const hiddenControl = members.some(member => member.labelDriven)
+        ? " Some native radios are hidden while their associated labels are visible; verify radio roles and keyboard/screen-reader operation as well as grouping."
+        : "";
+      report(container,
+        `Review inferred control group: ${members.length} labelled radio options share name ${JSON.stringify(name)} and the same form owner, but their local container has no semantic group/radiogroup.${context}${hiddenControl} Option labels: ${labels.map(label => JSON.stringify(label)).join(", ")}. Confirm that these options form one related set and provide a fieldset/legend or a named radiogroup. This is an extended ACT-R60 review suggestion, not a strict upstream failure.`,
+        true);
+    }
+  }
+  return checked;
+}
+
 export function runControlGroupNameRule(results: ScanRawResult[], pushStat: PushStatFn): void {
   const controls: Element[] = [];
+  const radios: HTMLInputElement[] = [];
   const groups = new Set<Element>();
   const popupTargets = new Set<Element>();
   const visit = (root: ParentNode): void => {
@@ -105,6 +193,9 @@ export function runControlGroupNameRule(results: ScanRawResult[], pushStat: Push
       if (INPUT_ROLES.has(role) && !element.matches("input[type='hidden']")) {
         controls.push(element);
       }
+      if (element instanceof HTMLInputElement && element.type === "radio" && role === "radio") {
+        radios.push(element);
+      }
       visit(element);
       if (element.shadowRoot) visit(element.shadowRoot);
     }
@@ -116,7 +207,7 @@ export function runControlGroupNameRule(results: ScanRawResult[], pushStat: Push
   const dormantPopups = new Map<Element, Element | undefined>();
   for (const control of controls) {
     const group = composedAncestors(control).find((ancestor) => groups.has(ancestor));
-    if (!group) continue; // Never infer a group from radio names or plain wrappers.
+    if (!group) continue; // Inferred sets are reviewed separately below.
     if (isIncludedInAccessibilityTree(control)) {
       counts.set(group, (counts.get(group) || 0) + 1);
     } else {
@@ -155,5 +246,6 @@ export function runControlGroupNameRule(results: ScanRawResult[], pushStat: Push
       report(group, "Hidden popup or overlay contains a semantic control group without a programmatically available group name. Open the popup and verify the group is exposed; add a legend or aria-label/aria-labelledby if it is.", true);
     }
   }
-  if (checked.size) pushStat("ACT-R60", checked.size, "element");
+  const inferredChecked = reviewInferredRadioSets(radios, groups, popupTargets, report);
+  if (checked.size + inferredChecked) pushStat("ACT-R60", checked.size + inferredChecked, "element");
 }

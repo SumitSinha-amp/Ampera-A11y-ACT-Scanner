@@ -12,15 +12,27 @@ import type { AudioCandidate, AudioTranscriptAssessment } from "./audio-composit
 export function getScriptedAudioCandidates(): AudioCandidate[] {
   const jq = (window as unknown as {
     jQuery?: { _data?: (element: Element, key: string) => {
-      click?: { handler: Function; selector?: string }[];
+      click?: unknown;
     } | undefined };
   }).jQuery;
   const candidates: AudioCandidate[] = [];
   const bindings = getInlineAudioHandlers();
   for (const owner of document.querySelectorAll("*")) {
-    const handlers = jq?._data?.(owner, "events")?.click ?? [];
+    // Event caches belong to the inspected page, not to our scanner. Plugins
+    // can expose sentinels, metadata, or getters instead of callable handlers.
+    let handlers: unknown;
+    try {
+      handlers = jq?._data?.(owner, "events")?.click;
+    } catch { continue; }
+    if (!Array.isArray(handlers)) continue;
     for (const handler of handlers) {
-      const code = Function.prototype.toString.call(handler.handler);
+      if (!handler || typeof handler !== "object") continue;
+      let code: string;
+      try {
+        const callback: unknown = handler.handler;
+        if (typeof callback !== "function") continue;
+        code = Function.prototype.toString.call(callback);
+      } catch { continue; }
       let targets: Element[];
       try {
         targets = handler.selector ? Array.from(owner.querySelectorAll(handler.selector)) : [owner];

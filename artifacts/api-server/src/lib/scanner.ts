@@ -1,4 +1,5 @@
 import puppeteerExtra from "puppeteer-extra";
+import { outcomeWcag } from "./outcome-wcag";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import type { Browser, Page } from "puppeteer";
 import { execSync } from "child_process";
@@ -6,12 +7,14 @@ import { mkdirSync, rmSync, existsSync, readdirSync, readFileSync } from "fs";
 import path from "path";
 import os from "os";
 import { logger } from "./logger";
+import { filterScanOutcomes } from "./scan-outcome-scope";
 import { runPixelContrastPass } from "./pixel-contrast.js";
 import { mergeContrastFindings } from "./contrast-issue-merge.js";
 import { hydrateTargetImages } from "./target-image-hydration";
 import { verifyKeyboardFocus } from "./keyboard-focus-verification";
 import { reconcileFocusIndicatorIssues, verifyFocusAppearance } from "./focus-appearance-verification";
 import { scanPageListAccesskeyRules, replacePageListAccesskeyResults } from "./page-accesskeys";
+import { scanUnobscuredContrast } from "./unobscured-contrast";
 import {
   scanEmbeddedFrames,
   mergeEmbeddedResults,
@@ -422,7 +425,7 @@ const WCAG_MAPPING: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R38": { sc: ["1.2.3", "1.2.5", "1.2.8"], level: ["A", "AA", "AAA"] },
   "ACT-R39": { sc: ["1.1.1"], level: ["A"] },
   "ACT-R40": { sc: ["1.3.1"], level: ["WAI-ARIA"] },
-  "ACT-R41": { sc: ["2.4.4"], level: ["A"] },
+  "ACT-R41": { sc: ["2.4.9"], level: ["AAA"] },
   "ACT-R42": { sc: ["1.3.1"], level: ["A"] },
   "ACT-R43": { sc: ["4.1.2"], level: ["A"] },
   "ACT-R44": { sc: ["1.3.4"], level: ["AA"] },
@@ -454,14 +457,14 @@ const WCAG_MAPPING: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R70": { sc: ["4.1.1"], level: ["A"] },
   "ACT-R71": { sc: ["1.4.8"], level: ["AAA"] },
   "ACT-R72": { sc: ["1.4.8"], level: ["AAA"] },
-  "ACT-R73": { sc: ["1.4.12"], level: ["AA"] },
-  "ACT-R74": { sc: ["1.4.4"], level: ["AA"] },
+  "ACT-R73": { sc: ["1.4.8"], level: ["AAA"] },
+  "ACT-R74": { sc: ["1.4.8"], level: ["AAA"] },
   "ACT-R75": { sc: ["1.4.4"], level: ["AA"] },
   "ACT-R76": { sc: ["1.3.1"], level: ["A"] },
   "ACT-R77": { sc: ["1.3.1"], level: ["A"] },
   "ACT-R78": { sc: ["2.4.6"], level: ["AA"] },
   "ACT-R79": { sc: ["1.3.1"], level: ["A"] },
-  "ACT-R80": { sc: ["1.4.12"], level: ["AA"] },
+  "ACT-R80": { sc: ["1.4.8"], level: ["AAA"] },
   "ACT-R81": { sc: ["2.4.4", "2.4.9"], level: ["A", "AAA"] },
   "ACT-R82": { sc: ["3.3.1"], level: ["A"] },
   "ACT-R83": { sc: ["1.4.4"], level: ["AA"] },
@@ -513,6 +516,7 @@ const WCAG_MAPPING: Record<string, { sc: string[]; level: string[] }> = {
   "ACT-R129": { sc: ["1.4.12"], level: ["AA"] },
   "ACT-R130": { sc: ["1.3.1"], level: ["A"] },
   "ACT-R131": { sc: [], level: ["Best Practice"] },
+  "ACT-R132": { sc: ["3.1.2"], level: ["AA"] },
 };
 
 /** All five level identifiers recognised by the scan level selector. */
@@ -586,14 +590,15 @@ const RULE_DESCRIPTIONS: Record<
   },
   "ACT-R7": {
     type: "Issue",
-    description: "Content language changes are not identified",
-    remediation: "Use lang attributes on elements where language changes",
+    description: "Content language declaration is not valid",
+    remediation: "Use a registered primary language subtag in applicable, non-empty lang attributes within the body. This follows SIA-R7 and does not identify the natural language of text.",
   },
   "ACT-R8": {
     type: "Issue",
     description: "Form field missing a label",
+    potentialDescription: "Does this placeholder-only field have a persistent visible label?",
     remediation:
-      "Associate labels using <label>, aria-label, or aria-labelledby",
+      "Provide a persistent visible label or sufficient instructions, and associate the field's accessible name using <label>, aria-label, or aria-labelledby. Do not rely on placeholder text alone.",
   },
   "ACT-R9": {
     type: "Issue",
@@ -797,11 +802,11 @@ const RULE_DESCRIPTIONS: Record<
   },
   "ACT-R41": {
     type: "Potential Issue",
-    description: "Are these links identical?",
+    description: "Do these links have equivalent destinations?",
     issueDescription: "Links on the same page with the same text alternative",
-    potentialDescription: "Are these links identical?",
+    potentialDescription: "Do these links have equivalent destinations?",
     remediation:
-      "Ensure links with same text point to same destination or differentiate them",
+      "Review all matching links and whether their destinations serve equivalent purposes. If they do not, give the links distinct, descriptive accessible names.",
   },
   "ACT-R42": {
     type: "Issue",
@@ -906,6 +911,7 @@ const RULE_DESCRIPTIONS: Record<
   "ACT-R60": {
     type: "Best Practice",
     description: "Groups have an accessible name",
+    potentialDescription: "Review control grouping and its accessible name",
     remediation: "Use a fieldset with a meaningful legend or a semantic group/radiogroup named with aria-label or aria-labelledby. Individual control labels, visible headings without an explicit association, and radio name attributes do not provide a group name.",
   },
   "ACT-R61": {
@@ -1030,7 +1036,7 @@ const RULE_DESCRIPTIONS: Record<
   "ACT-R80": {
     type: "Best Practice",
     description: "Line height is fixed",
-    remediation: "Use a unitless line-height such as 1.5 so it scales with text size. Verify readability when resizing text and applying spacing overrides; a fixed line height alone does not establish a WCAG failure.",
+    remediation: "Use a unitless line-height such as 1.5 so it scales with text size. Review visual presentation under WCAG 1.4.8 (AAA); a fixed line height alone does not establish a WCAG failure.",
   },
   "ACT-R81": {
     type: "Potential Issue",
@@ -1325,6 +1331,11 @@ const RULE_DESCRIPTIONS: Record<
     description: "Access keys are not unique or valid",
     remediation:
       "Use single-character, space-separated access keys. Do not repeat a key within an element or share it across rendered elements; compare keys case-insensitively. This experimental usability check is a Best Practice, not a separate WCAG failure.",
+  },
+  "ACT-R132": {
+    type: "Potential Issue",
+    description: "Review: possible language change",
+    remediation: "A reviewer must confirm the passage's actual language and whether WCAG 3.1.2 requires a local lang declaration. Exclude names, technical terms, and borrowed words. Only after human verification add the appropriate lang attribute; detector output alone is not a confirmed failure.",
   },
 };
 
@@ -1978,6 +1989,7 @@ export function scanPage(
     scanDelayMs?: number;
     bypassCSP?: boolean;
     rules?: string[];
+    wcagLevels?: string[];
     proxyPacUrl?: string;
     /** System-level proxy PAC URL to use as a fallback if a page returns 403 on the direct IP.
      *  Ignored when proxyPacUrl is already set (proxy is already in use). */
@@ -2266,10 +2278,14 @@ async function _scanPageInternal(
     // are the most common reason navigations hang (slow CDN, large video streams,
     // infinite analytics beacons). Geometry-sensitive target rules selectively
     // retry control artwork before evaluation; unrelated artwork stays blocked.
+    // Target rules also need authored fonts: fallback metrics can change a pass
+    // into a failure. Other explicitly selected scans keep fonts blocked.
     // We keep: document, script, stylesheet, xhr, fetch, websocket, other —
     // scripts drive dynamic content & redirects; stylesheets affect computed
     // visibility used by several rules.  Analytics/tracker requests are also
     // blocked by hostname (see TRACKER_HOSTS).
+    const geometryRules = getSelectedRuleIds(options.rules);
+    const needsTargetGeometry = isRuleSelected("ACT-R113", geometryRules) || isRuleSelected("ACT-R111", geometryRules);
     let allowVisualImages = false;
     const targetImageUrls = new Set<string>();
     let allowMediaMetadata = false;
@@ -2282,7 +2298,7 @@ async function _scanPageInternal(
           !targetImageUrls.has(req.url()) &&
           !req.redirectChain().some(request => targetImageUrls.has(request.url()))) ||
         (type === "media" && !allowMediaMetadata) ||
-        type === "font"
+        (type === "font" && !needsTargetGeometry)
       ) {
         req.abort().catch(() => {});
         return;
@@ -3159,16 +3175,16 @@ async function _scanPageInternal(
     } finally {
       allowMediaMetadata = false;
     }
-    const geometryRules = getSelectedRuleIds(options.rules);
-    if (isRuleSelected("ACT-R113", geometryRules) || isRuleSelected("ACT-R111", geometryRules)) {
+    if (needsTargetGeometry) {
       await hydrateTargetImages(page, targetImageUrls);
+      await settleTargetFonts(page);
     }
     const actResult = await runACTRules(page, options.rules);
     let issues = actResult.issues;
     const ruleStats = actResult.stats;
     logger.info({ url, issueCount: issues.length }, "ACT rules completed");
     issues = issues.map((issue) => {
-      const wcag = WCAG_MAPPING[issue.ruleId];
+      const wcag = outcomeWcag(issue.ruleId, issue.type, WCAG_MAPPING[issue.ruleId]);
 
       return {
         ...issue,
@@ -3724,9 +3740,27 @@ async function _scanPageInternal(
       );
     }
 
+    const scannedPageUrl = page.url() || url;
+    // Dismissal can unmount the original popup. Keep this after ALL baseline
+    // evidence/QA capture; only the new findings use the unobscured snapshots.
+    if (isRuleSelected("ACT-R69", geometryRules)) {
+      const unobscured = await scanUnobscuredContrast(page, {
+        baseline: issues,
+        scan: () => runACTRules(page!, ["ACT-R69"], false),
+        capture: async () => ({
+          screenshot: Buffer.from(await page!.screenshot({ type: "jpeg", quality: 40, fullPage: true })).toString("base64"),
+          pageHtml: await captureReplayHtml(page!, replayStylesheets),
+        }),
+      });
+      issues.push(...unobscured.issues);
+      interactionStates.push(...unobscured.states);
+      ruleStats.push(...unobscured.stats);
+      if (unobscured.error) logger.warn({ url, error: unobscured.error }, "Unobscured contrast scan stopped; baseline evidence retained");
+    }
+
     return {
       url,
-      issues,
+      issues: filterScanOutcomes(issues, options),
       screenshot,
       pageHtml,
       loadDurationMs,
@@ -3735,7 +3769,7 @@ async function _scanPageInternal(
         ...baseHttpProvenance,
         finalUrl: options.preloadHtml
           ? baseHttpProvenance.finalUrl
-          : redactProvenanceUrl(page.url() || url),
+          : redactProvenanceUrl(scannedPageUrl),
         rawHtmlHash: rawHtml ? hashPreflightHtml(rawHtml) : staticPreflight?.rawHtmlHash,
         renderedDomHash: pageHtml ? hashRenderedDom(pageHtml) : undefined,
       },
@@ -3776,6 +3810,26 @@ function getLegalCompliance(levels: string[] = []) {
     ada: isApplicable ? ["Title II"] : [],
     eaa: isApplicable,
   };
+}
+
+async function settleTargetFonts(page: Page): Promise<void> {
+  await Promise.all(page.frames().map(async frame => {
+    try {
+      await frame.evaluate(async () => {
+        // Force layout so fonts in newly revealed controls start loading.
+        document.body?.getBoundingClientRect();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          document.fonts.ready,
+          new Promise<void>(resolve => { timer = setTimeout(resolve, 2000); }),
+        ]);
+        if (timer) clearTimeout(timer);
+      });
+    } catch {
+      // Detached frames cannot block a scan. The rule retains unresolved-font
+      // findings as Potential Issues rather than confirming fallback geometry.
+    }
+  }));
 }
 
 interface SafeInteractionTrigger {
@@ -3831,7 +3885,7 @@ async function discoverSafeInteractionTriggers(
     const result: SafeInteractionTrigger[] = [];
 
     for (const el of candidates) {
-      if (result.length >= 12 || !isVisible(el)) continue;
+      if (result.length >= 40 || !isVisible(el)) continue;
       if (
         el.closest("[hidden],[inert],[aria-hidden='true']") ||
         el.getAttribute("aria-disabled") === "true" ||
@@ -3911,6 +3965,7 @@ async function exploreInteractiveStates(
   triggers: SafeInteractionTrigger[],
   replayStylesheets: Map<string, Promise<string | null>>,
   selectedRules?: string[],
+  exploration = { seen: new Set(triggers.map(trigger => trigger.selector)), attempts: 0, depth: 0 },
 ): Promise<{
   issues: ScanIssue[];
   states: InteractionStateEvidence[];
@@ -3923,8 +3978,10 @@ async function exploreInteractiveStates(
   const seenIssues = new Set<string>();
 
   for (let index = 0; index < triggers.length; index++) {
+    if (exploration.attempts >= 24) break;
     const trigger = triggers[index]!;
-    const visibilityToken = `ampera-state-${index + 1}`;
+    const attempt = ++exploration.attempts;
+    const visibilityToken = `ampera-state-${attempt}`;
     try {
       const before = await page.evaluate(({ selector, visibilityToken }) => {
         const visible = (el: Element): boolean => {
@@ -3996,7 +4053,11 @@ async function exploreInteractiveStates(
 
       if (!revealed) continue;
 
-      const stateKey = `interaction-${index + 1}`;
+      const stateKey = `interaction-${attempt}`;
+      const selectedGeometry = getSelectedRuleIds(selectedRules);
+      if (isRuleSelected("ACT-R113", selectedGeometry) || isRuleSelected("ACT-R111", selectedGeometry)) {
+        await settleTargetFonts(page);
+      }
       // Baseline frame findings are already collected. These states currently
       // explore controls in the main document only.
       const result = await runACTRules(page, selectedRules, false);
@@ -4065,7 +4126,7 @@ async function exploreInteractiveStates(
 
       stateIssues = stateIssues
         .map((issue, issueIndex): ScanIssue => {
-          const wcag = WCAG_MAPPING[issue.ruleId];
+          const wcag = outcomeWcag(issue.ruleId, issue.type, WCAG_MAPPING[issue.ruleId]);
           return {
             ...issue,
             wcagCriteria: wcag?.sc?.join(", ") || null,
@@ -4099,6 +4160,26 @@ async function exploreInteractiveStates(
           pageHtml,
         });
         issues.push(...stateIssues);
+      }
+      // Explore newly revealed controls BEFORE closing their parent state.
+      // Each selector is clicked at most once; never recurse without bounds.
+      if (exploration.depth < 3 && exploration.attempts < 24) {
+        const nested = (await discoverSafeInteractionTriggers(page)).filter(candidate =>
+          !exploration.seen.has(candidate.selector),
+        );
+        nested.forEach(candidate => exploration.seen.add(candidate.selector));
+        if (nested.length) {
+          exploration.depth++;
+          try {
+            const child = await exploreInteractiveStates(page, nested, replayStylesheets, selectedRules, exploration);
+            stats.push(...child.stats);
+            states.push(...child.states);
+            for (const issue of child.issues) {
+              const key = `${issue.ruleId}|${issue.selector ?? ""}|${issue.description}`;
+              if (!seenIssues.has(key)) { seenIssues.add(key); issues.push(issue); }
+            }
+          } finally { exploration.depth--; }
+        }
       }
     } catch (err) {
       logger.debug(
@@ -4139,7 +4220,7 @@ async function runACTRules(
   // The registry supersedes this legacy pair, while retaining its behavior:
   // ["ACT-R24", "ACT-R118"].includes and selectedRuleSet.has("ACT-R24") /
   // selectedRuleSet.has("ACT-R118") are now represented by metadata.
-  const languageDetectorBuildMarker = "language-detector-franc-min-v1";
+  const languageDetectorBuildMarker = "language-review-eld-franc-ensemble-v2";
   // Production embeds the browser rule bundle in index.mjs so Azure and zip
   // deployments cannot lose it as a sibling asset. Keep the standalone-file
   // path as a development/backwards-compatible fallback.
@@ -4200,7 +4281,7 @@ async function runACTRules(
   // ─── Map results → ScanIssue with WCAG metadata ──────────────────────────
   const issues: ScanIssue[] = [];
   for (const r of bundleResult.issues) {
-    const wcag = WCAG_MAPPING[r.ruleId];
+    const wcag = outcomeWcag(r.ruleId, r.type, WCAG_MAPPING[r.ruleId]);
     const desc = RULE_DESCRIPTIONS[r.ruleId];
     const meta = RULE_DESCRIPTIONS[r.ruleId];
     issues.push({

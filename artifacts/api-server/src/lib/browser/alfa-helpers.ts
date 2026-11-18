@@ -218,7 +218,9 @@ function circleIntersectsRect(centerX: number, centerY: number, radius: number, 
   const nearestY = Math.max(rect.top, Math.min(centerY, rect.bottom));
   const dx = centerX - nearestX;
   const dy = centerY - nearestY;
-  return dx * dx + dy * dy <= radius * radius;
+  // Tangency is allowed: a 20px target with a 4px gap meets the 24px
+  // spacing requirement. Only an overlap consumes the protected circle.
+  return dx * dx + dy * dy < radius * radius;
 }
 
 function unionRect(rects: DOMRect[]): { left: number; right: number; top: number; bottom: number } | null {
@@ -231,13 +233,57 @@ function unionRect(rects: DOMRect[]): { left: number; right: number; top: number
   };
 }
 
-function rectangleDistanceSquared(
+function centerDistanceSquared(
   left: { left: number; right: number; top: number; bottom: number },
   right: { left: number; right: number; top: number; bottom: number },
 ): number {
-  const dx = Math.max(left.left - right.right, right.left - left.right, 0);
-  const dy = Math.max(left.top - right.bottom, right.top - left.bottom, 0);
+  const dx = (left.left + left.right - right.left - right.right) / 2;
+  const dy = (left.top + left.bottom - right.top - right.bottom) / 2;
   return dx * dx + dy * dy;
+}
+
+function receivesPointerAt(el: Element, x: number, y: number): boolean {
+  // Off-screen geometry is not evidence of occlusion.
+  if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return true;
+  const hit = document.elementFromPoint(x, y);
+  return hit === null || hit === el || el.contains(hit);
+}
+
+export function isAlfaTargetExposed(el: Element): boolean {
+  return getAlfaTargetRects(el).some(rect => {
+    for (const fx of [0.05, 0.5, 0.95]) {
+      for (const fy of [0.05, 0.5, 0.95]) {
+        if (receivesPointerAt(el, rect.left + rect.width * fx, rect.top + rect.height * fy)) return true;
+      }
+    }
+    return false;
+  });
+}
+
+export function isAlfaInlineSentenceTarget(el: Element): boolean {
+  if (!el.matches("a[href]") || getComputedStyle(el).display !== "inline") return false;
+  const parent = el.parentElement;
+  if (!parent) return false;
+  // A short icon link beside a field is not sentence text.
+  return Array.from(parent.childNodes).some(node =>
+    node !== el && node.nodeType === Node.TEXT_NODE && /[\p{L}\p{N}]/u.test(node.textContent ?? ""),
+  ) && /[\p{L}\p{N}]/u.test(el.textContent ?? "");
+}
+
+export function hasUnresolvedTargetFonts(el: Element): boolean {
+  const families = new Set<string>();
+  for (const node of [el, ...Array.from(el.querySelectorAll("*"))]) {
+    for (const pseudo of [null, "::before", "::after"]) {
+      const style = getComputedStyle(node, pseudo);
+      if (pseudo && (!style.content || ["none", "normal", '""'].includes(style.content))) continue;
+      style.fontFamily.split(",").forEach(family => families.add(family.trim().replace(/['"]/g, "").toLowerCase()));
+    }
+  }
+  let unresolved = false;
+  document.fonts?.forEach(face => {
+    if (families.has(face.family.replace(/['"]/g, "").toLowerCase()) && face.status !== "loaded") unresolved = true;
+  });
+  return unresolved;
 }
 
 export function hasAlfaTargetSpacing(el: Element, allTargets: Element[], size = 24): boolean {
@@ -245,25 +291,45 @@ export function hasAlfaTargetSpacing(el: Element, allTargets: Element[], size = 
   if (rects.length === 0) return true;
   const radius = size / 2;
   const targetBounds = unionRect(rects);
+  if (targetBounds === null) return true;
+  const centerX = (targetBounds.left + targetBounds.right) / 2;
+  const centerY = (targetBounds.top + targetBounds.bottom) / 2;
   return !allTargets.some((other) => {
     if (other === el) return false;
     const otherRects = getAlfaTargetRects(other);
-    const intersectsTargetCircle = otherRects.some((otherRect) =>
-      rects.some((rect) =>
-        circleIntersectsRect(rect.left + rect.width / 2, rect.top + rect.height / 2, radius, otherRect),
-      ),
-    );
+    const intersectsTargetCircle = otherRects.some((otherRect) => {
+      if (!circleIntersectsRect(centerX, centerY, radius, otherRect)) return false;
+      // Test only the conflicting portion, not the center of a potentially
+      // huge background card. A fixed banner can cover just this portion.
+      const left = Math.max(otherRect.left, centerX - radius);
+      const right = Math.min(otherRect.right, centerX + radius);
+      const top = Math.max(otherRect.top, centerY - radius);
+      const bottom = Math.min(otherRect.bottom, centerY + radius);
+      const nearestX = Math.max(otherRect.left + 0.001, Math.min(centerX, otherRect.right - 0.001));
+      const nearestY = Math.max(otherRect.top + 0.001, Math.min(centerY, otherRect.bottom - 0.001));
+      if ((nearestX - centerX) ** 2 + (nearestY - centerY) ** 2 < radius ** 2 &&
+        receivesPointerAt(other, nearestX, nearestY)) return true;
+      for (const fx of [0.01, 0.25, 0.5, 0.75, 0.99]) {
+        for (const fy of [0.01, 0.25, 0.5, 0.75, 0.99]) {
+          const x = left + (right - left) * fx;
+          const y = top + (bottom - top) * fy;
+          if ((x - centerX) ** 2 + (y - centerY) ** 2 < radius ** 2 &&
+            receivesPointerAt(other, x, y)) return true;
+        }
+      }
+      return false;
+    });
     if (intersectsTargetCircle) return true;
 
-    // Alfa's R113 spacing exception also fails when two undersized targets are
-    // less than 24 CSS pixels apart, even if neither target intersects the
-    // other's 12px center circle.
+    // Compare bounding-box CENTERS, not the gap between rectangle edges.
+    // Each undersized target receives a 24px-diameter circle. Wide, short
+    // buttons may abut horizontally and still pass; closely stacked rows fail.
     if (hasAlfaTargetSize(other, size)) return false;
     const otherBounds = unionRect(otherRects);
     return (
-      targetBounds !== null &&
       otherBounds !== null &&
-      rectangleDistanceSquared(targetBounds, otherBounds) < size * size
+      centerDistanceSquared(targetBounds, otherBounds) < size * size &&
+      receivesPointerAt(other, (otherBounds.left + otherBounds.right) / 2, (otherBounds.top + otherBounds.bottom) / 2)
     );
   });
 }

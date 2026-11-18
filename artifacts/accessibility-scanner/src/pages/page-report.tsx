@@ -3,6 +3,7 @@ import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import { useParams, Link, useSearch } from "wouter";
 import { ACT_RULES, getRuleTitle } from "@/lib/actRules";
 import { CustomRuleBadge } from "@/components/custom-rule-badge";
+import { LanguageReviewNotice } from "@/components/language-review-notice";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -781,8 +782,19 @@ export default function PageReport() {
                   )}
                   <Badge variant="outline" className="text-[10px] capitalize">{selectedIssue.impact}</Badge>
                 </div>
-                <p className="text-xs text-gray-600 leading-relaxed">{selectedIssue.description}</p>
+                <p
+                  className={`text-xs text-gray-600 leading-relaxed${selectedIssue.ruleId === "ACT-R41" ? " max-h-48 overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere]" : ""}`}
+                  role={selectedIssue.ruleId === "ACT-R41" ? "region" : undefined}
+                  aria-label={selectedIssue.ruleId === "ACT-R41" ? "Matching links and destinations" : undefined}
+                  tabIndex={selectedIssue.ruleId === "ACT-R41" ? 0 : undefined}
+                >{selectedIssue.description}</p>
               </div>
+
+              {selectedIssue.ruleId === "ACT-R132" && (
+                <LanguageReviewNotice key={selectedIssue.id} scanId={scanId} pageId={pageId}
+                  pageUrl={page.url} selector={selectedIssue.selector}
+                  canCreateIssue={!!user?.permissions.canCreateIssue} />
+              )}
 
               {/* Why is this an issue */}
               {(ruleMeta?.detail || selectedIssue.remediation) && (
