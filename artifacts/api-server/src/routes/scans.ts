@@ -88,6 +88,28 @@ function scopedScanCount(critical = false) {
   ) ELSE ${critical ? scanSessionsTable.criticalIssues : scanSessionsTable.totalIssues} END`;
 }
 
+async function applyPageCountScope(
+  pages: { id: number; issueCount: number; criticalCount: number }[],
+  options: unknown,
+  scanId: number,
+) {
+  if (!excludesBestPracticeOutcomes(options) || !pages.length) return;
+  const counts = await pool.query<{ page_id: number; total: number; critical: number }>(
+    `SELECT ai.page_id, COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE ai.impact = 'critical')::int AS critical
+       FROM accessibility_issues ai
+       JOIN page_results pr ON pr.id = ai.page_id
+      WHERE pr.scan_id = $1 AND ai.page_id = ANY($2::int[])
+        AND COALESCE(ai.rule_type, 'Issue') <> 'Best Practice'
+      GROUP BY ai.page_id`, [scanId, pages.map(page => page.id)],
+  );
+  const byPage = new Map(counts.rows.map(count => [count.page_id, count]));
+  for (const page of pages) {
+    page.issueCount = byPage.get(page.id)?.total ?? 0;
+    page.criticalCount = byPage.get(page.id)?.critical ?? 0;
+  }
+}
+
 const router: IRouter = Router();
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -1021,6 +1043,14 @@ router.get("/scans/compare/csv", async (req, res): Promise<void> => {
 });
 
 router.get("/scans/:id", async (req, res): Promise<void> => {
+  const startedAt = Date.now();
+  let lastStageAt = startedAt;
+  const recordStage = (stage: string) => {
+    const now = Date.now();
+    req.log.info({ stage, elapsedMs: now - lastStageAt, totalMs: now - startedAt },
+      "Scan detail query stage finished");
+    lastStageAt = now;
+  };
   const userId = getAuthUserId(req);
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -1052,8 +1082,8 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
       totalUrls: scanSessionsTable.totalUrls,
       scannedUrls: scanSessionsTable.scannedUrls,
       failedUrls: scanSessionsTable.failedUrls,
-      totalIssues: scopedScanCount(),
-      criticalIssues: scopedScanCount(true),
+      totalIssues: scanSessionsTable.totalIssues,
+      criticalIssues: scanSessionsTable.criticalIssues,
       options: scanSessionsTable.options,
       createdAt: scanSessionsTable.createdAt,
       completedAt: scanSessionsTable.completedAt,
@@ -1066,6 +1096,8 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Scan not found" });
     return;
   }
+  recordStage("session");
+  const excludeBestPractice = excludesBestPracticeOutcomes(row.options);
 
   // Exclude screenshot and pageHtml — these are large blobs served via
   // dedicated snapshot endpoints and are never needed on the detail page.
@@ -1075,8 +1107,8 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
       scanId: pageResultsTable.scanId,
       url: pageResultsTable.url,
       status: pageResultsTable.status,
-      issueCount: scopedPageCount(),
-      criticalCount: scopedPageCount(true),
+      issueCount: pageResultsTable.issueCount,
+      criticalCount: pageResultsTable.criticalCount,
       errorMessage: pageResultsTable.errorMessage,
       scannedAt: pageResultsTable.scannedAt,
       loadDurationMs: pageResultsTable.loadDurationMs,
@@ -1093,6 +1125,14 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
     })
     .from(pageResultsTable)
     .where(eq(pageResultsTable.scanId, row.id));
+  // One grouped pass replaces two correlated counts per page and two more
+  // counts across the whole scan. Preserve read-time scope for legacy scans.
+  if (excludeBestPractice) {
+    await applyPageCountScope(pages, row.options, row.id);
+    row.totalIssues = pages.reduce((total, page) => total + page.issueCount, 0);
+    row.criticalIssues = pages.reduce((total, page) => total + page.criticalCount, 0);
+  }
+  recordStage("pages-and-scoped-counts");
 
   // Only load full issue details when the scan is finished.
   // During active scans (running / paused / pending) the live view doesn't
@@ -1108,11 +1148,14 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
       .select(accessibilityIssueFields)
       .from(accessibilityIssuesTable)
       .where(
-        and(scopedIssueCondition, inArray(
+        and(excludeBestPractice
+          ? sql`COALESCE(${accessibilityIssuesTable.ruleType}, 'Issue') <> 'Best Practice'`
+          : undefined, inArray(
           accessibilityIssuesTable.pageId,
           pages.map((p) => p.id),
         )),
       );
+    recordStage("issues");
 
     if (allIssues.length > 0) {
       const assessments = await db
@@ -1122,6 +1165,7 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
       for (const assessment of assessments) {
         assessmentByIssueId.set(assessment.issueId, serializeAssessment(assessment));
       }
+      recordStage("assessments");
     }
 
     for (const issue of allIssues) {
@@ -1149,18 +1193,22 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
     rule_id: string;
     status: "not-selected" | "not-applicable" | "executed" | "failed";
     execution_tier: "automatic" | "manual";
+    count: string;
   }>(
-    `SELECT rs.rule_id, rs.status, rs.execution_tier
+    `SELECT rs.rule_id, rs.status, rs.execution_tier, COUNT(*)::text AS count
        FROM rule_execution_statuses rs
        JOIN page_results pr ON pr.id = rs.page_result_id
-      WHERE pr.scan_id = $1`,
+      WHERE pr.scan_id = $1
+      GROUP BY rs.rule_id, rs.status, rs.execution_tier`,
     [row.id],
   );
   const detailCoverage = aggregateRuleCoverage(detailStatuses.rows.map((status) => ({
     ruleId: status.rule_id,
     status: status.status,
     executionTier: status.execution_tier,
+    count: Number(status.count),
   })), row.totalUrls);
+  recordStage("rule-coverage");
   const [detailFallback, detailPotential] = await Promise.all([
     pool.query<{ n: string }>(
       `SELECT COUNT(*)::text AS n FROM page_results pr
@@ -1187,6 +1235,7 @@ router.get("/scans/:id", async (req, res): Promise<void> => {
     fallbackDenominatorPages: Number(detailFallback.rows[0]?.n ?? 0),
     carriedForwardPages: pages.filter((page) => page.carriedForward).length,
   });
+  recordStage("confidence");
 
   res.json({
     ...row,
@@ -1701,8 +1750,8 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
     id: pageResultsTable.id,
     url: pageResultsTable.url,
     status: pageResultsTable.status,
-    issueCount: scopedPageCount(),
-    criticalCount: scopedPageCount(true),
+    issueCount: pageResultsTable.issueCount,
+    criticalCount: pageResultsTable.criticalCount,
     errorMessage: pageResultsTable.errorMessage,
     loadDurationMs: pageResultsTable.loadDurationMs,
     scanDurationMs: pageResultsTable.scanDurationMs,
@@ -1742,6 +1791,7 @@ router.get("/scans/:id/status", async (req, res): Promise<void> => {
       .orderBy(desc(pageResultsTable.scannedAt))
       .limit(30),
   ]);
+  await applyPageCountScope([...activePages, ...recentlyCompleted], session.options, scanId);
 
   const ACTIVE_STAGES = new Set([
     "scanning",

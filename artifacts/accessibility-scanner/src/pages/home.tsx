@@ -712,11 +712,11 @@ function InlineScanMonitor({
   const { data: scan, isLoading: isScanLoading, isError: isScanError } = useGetScan(scanId, {
     query: {
       queryKey: getGetScanQueryKey(scanId),
-      refetchInterval: 3000,
+      // Heavy issue/evidence data is not a two-second progress feed.
+      refetchInterval: query => ["running", "pending", "paused"].includes(query.state.data?.status ?? "pending") ? 30_000 : false,
     },
   });
 
-  const isRunning = scan?.status === "running" || scan?.status === "pending";
   const initiatorText = (
     scan as
       | { initiatorName?: string | null; initiatorRole?: string | null }
@@ -728,13 +728,21 @@ function InlineScanMonitor({
   const { data: liveStatus } = useGetScanStatus(scanId, {
     query: {
       queryKey: getGetScanStatusQueryKey(scanId),
-      enabled: isRunning,
-      refetchInterval: 2000,
+      enabled: !!scanId,
+      refetchInterval: query => ["running", "pending", "paused"].includes(query.state.data?.status ?? "pending") ? 2000 : false,
     },
   });
+  const currentStatus = liveStatus?.status ?? scan?.status;
+  const isRunning = currentStatus === "running" || currentStatus === "pending";
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  useEffect(() => {
+    if (liveStatus && !["running", "pending", "paused"].includes(liveStatus.status) &&
+        scan?.status !== liveStatus.status) {
+      void queryClient.invalidateQueries({ queryKey: getGetScanQueryKey(scanId) });
+    }
+  }, [liveStatus?.status, scan?.status, queryClient, scanId]);
 
   const pauseScanMutation = useMutation({
     mutationFn: async () => {
@@ -777,7 +785,10 @@ function InlineScanMonitor({
   });
 
   if (isScanLoading) {
-    return <PageLoadingSkeleton variant="detail" message="Loading scan results…" />;
+    return <div role="status" className="space-y-2 p-6">
+      <PageLoadingSkeleton variant="detail" message={liveStatus ? `Scan ${liveStatus.status}` : "Loading scan results…"} />
+      {liveStatus && <p className="text-sm text-muted-foreground">{liveStatus.scannedUrls ?? 0} completed · {liveStatus.failedUrls ?? 0} failed · {liveStatus.totalUrls ?? 0} total pages</p>}
+    </div>;
   }
 
   if (isScanError || !scan) {
@@ -807,7 +818,7 @@ function InlineScanMonitor({
   );
   const progressPercent =
     totalUrls > 0 ? Math.round((scannedUrls / totalUrls) * 100) : 0;
-  const isPaused = scan.status === "paused";
+  const isPaused = currentStatus === "paused";
 
   const etaText = (() => {
     if (!isRunning || scannedUrls === 0 || !scan.createdAt) return null;

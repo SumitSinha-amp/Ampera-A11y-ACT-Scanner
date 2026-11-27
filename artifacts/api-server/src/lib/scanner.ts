@@ -3,6 +3,7 @@ import { outcomeWcag } from "./outcome-wcag";
 import { controlGroupStateKey, resolveControlGroupOutcomes } from "./control-group-outcomes";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import type { Browser, Page } from "puppeteer";
+import { withEvidenceBudget } from "./evidence-budget";
 import { execSync } from "child_process";
 import { mkdirSync, rmSync, existsSync, readdirSync, readFileSync } from "fs";
 import path from "path";
@@ -1992,6 +1993,8 @@ export function scanPage(
     /** Post-load dwell time in ms — scanner waits this long after DOMContentLoaded, letting JS
      *  execute and render content, before running accessibility checks. Default 0. */
     scanDelayMs?: number;
+    /** Absolute queue deadline, including browser-slot wait. */
+    deadlineAt?: number;
     bypassCSP?: boolean;
     rules?: string[];
     wcagLevels?: string[];
@@ -2186,6 +2189,7 @@ async function _scanPageInternal(
   options: {
     timeout?: number;
     scanDelayMs?: number;
+    deadlineAt?: number;
     bypassCSP?: boolean;
     rules?: string[];
     proxyPacUrl?: string;
@@ -3788,30 +3792,64 @@ async function _scanPageInternal(
     // evidence/QA capture; only the new findings use the unobscured snapshots.
     const unobscuredContrastRules = ["ACT-R69", "ACT-R103"].filter(id => isRuleSelected(id, geometryRules));
     if (unobscuredContrastRules.length) {
-      const unobscured = await scanUnobscuredContrast(page, {
+      const enrichmentStarted = Date.now();
+      // Reserve time for cleanup and persistence before the queue aborts. This
+      // budget covers *whole* evaluations and evidence capture, not only the
+      // gaps between zoom states.
+      const deadline = Math.min(Date.now() + 35_000, (options.deadlineAt ?? Infinity) - 10_000);
+      const remaining = () => Math.max(0, deadline - Date.now());
+      const incomplete: string[] = [];
+      const unobscuredResult = await withEvidenceBudget(page, Math.min(15_000, remaining()), () => scanUnobscuredContrast(page!, {
         baseline: issues,
         scan: () => runACTRules(page!, unobscuredContrastRules, false),
         capture: async () => ({
           screenshot: Buffer.from(await page!.screenshot({ type: "jpeg", quality: 40, fullPage: true })).toString("base64"),
           pageHtml: await captureReplayHtml(page!, replayStylesheets),
         }),
-      });
-      issues.push(...unobscured.issues);
-      interactionStates.push(...unobscured.states);
-      ruleStats.push(...unobscured.stats);
-      if (unobscured.error) logger.warn({ url, error: unobscured.error }, "Unobscured contrast scan stopped; baseline evidence retained");
-      const zoomed = await verifyZoomContrast(page, {
+      }));
+      const unobscured = unobscuredResult.value;
+      if (unobscured) {
+        issues.push(...unobscured.issues);
+        interactionStates.push(...unobscured.states);
+        ruleStats.push(...unobscured.stats);
+      }
+      if (unobscuredResult.error || unobscured?.error) incomplete.push("unobscured contrast");
+      logger.info({ stage: "unobscured-contrast", elapsedMs: Date.now() - enrichmentStarted,
+        complete: Boolean(unobscured && !unobscured.error) }, "Additional evidence stage finished");
+      const zoomStarted = Date.now();
+      const zoomResult = page.isClosed()
+        ? { error: "Evidence page closed after time limit" }
+        : await withEvidenceBudget(page, remaining(), () => verifyZoomContrast(page!, {
         baseline: issues,
         scan: spatial => runACTRules(page!, unobscuredContrastRules, false, spatial),
+        budgetMs: Math.min(12_000, remaining()),
         capture: async () => ({
           screenshot: Buffer.from(await page!.screenshot({ type: "jpeg", quality: 40, captureBeyondViewport: false })).toString("base64"),
           pageHtml: await captureReplayHtml(page!, replayStylesheets),
         }),
-      });
-      issues.push(...zoomed.issues);
-      interactionStates.push(...zoomed.states);
-      ruleStats.push(...zoomed.stats);
-      if (!zoomed.complete) logger.warn({ url, error: zoomed.error }, "Zoom contrast coverage incomplete; captured findings and baseline evidence retained");
+      }));
+      const zoomed = "value" in zoomResult ? zoomResult.value : undefined;
+      if (zoomed) {
+        issues.push(...zoomed.issues);
+        interactionStates.push(...zoomed.states);
+        ruleStats.push(...zoomed.stats);
+      }
+      if (!zoomed?.complete) incomplete.push("200% zoom-equivalent contrast");
+      logger.info({ stage: "zoom-contrast", elapsedMs: Date.now() - zoomStarted,
+        complete: Boolean(zoomed?.complete) }, "Additional evidence stage finished");
+      if (incomplete.length) {
+        logger.warn({ stages: incomplete, elapsedMs: Date.now() - enrichmentStarted },
+          "Additional contrast coverage incomplete; baseline evidence retained");
+        // A completed baseline is not a pass for states we couldn't verify.
+        // Persist the limitation as visible review items, scoped to selected
+        // contrast rules, rather than hiding it in server logs.
+        for (const ruleId of unobscuredContrastRules) issues.push({
+          ruleId, type: "Potential Issue", impact: "moderate",
+          description: `Additional contrast verification incomplete (${incomplete.join(", ")}). Baseline findings were retained. Review these states manually; this is not a confirmed contrast failure.`,
+          element: "<body>", selector: "body", wcagCriteria: "1.4.3", wcagLevel: "AA",
+          remediation: "Check foreground and background contrast after dismissing overlays and at 200% browser zoom.",
+        });
+      }
     }
 
     return {

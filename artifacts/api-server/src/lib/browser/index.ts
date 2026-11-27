@@ -86,7 +86,16 @@ function runAllRules(
   runFamily("aria", () => runAriaRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
   runFamily("media", () => runMediaRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
   runFamily("headings-landmarks", () => runHeadingsLandmarksRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
-  runFamily("links-contrast", () => runLinksContrastRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
+  runFamily("links-contrast", () => {
+    // These legacy checks share a family with the dedicated contrast engines,
+    // but none implements R69/R88/R89/R103. Running them for a contrast-only
+    // state needlessly repeats link-purpose, rotation and target-size work.
+    // On large pages that work consumed the entire evidence-state budget.
+    if (["ACT-R39", "ACT-R41", "ACT-R44", "ACT-R66", "ACT-R81", "ACT-R113"]
+      .some(id => isRuleSelected(id, selected))) {
+      runLinksContrastRules(results, EMIT_MANUAL_ONLY_RULES, pushStat);
+    }
+  });
   if (isRuleSelected("ACT-R88", selected)) runLinkMinimumContrastRule(results, pushStat);
   if (isRuleSelected("ACT-R89", selected)) runLinkEnhancedContrastRule(results, pushStat);
   if (isRuleSelected("ACT-R69", selected)) runTextMinimumContrastRule(results, pushStat, "ACT-R69", options.spatialContrast);

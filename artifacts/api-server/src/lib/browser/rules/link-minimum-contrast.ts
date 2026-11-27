@@ -193,6 +193,13 @@ function runLinkContrastRule(results: ScanRawResult[], pushStat: PushStatFn, rul
       selector: getSelector(parent),
     });
   }
+  // Read the browser's actual paint before rewriting any author selectors.
+  // Cross-origin CSS prevents exhaustive state simulation, but cannot invalidate
+  // a measurable failure in the original, observed browser state.
+  const baseline = new Map<Text, Measurement>();
+  for (const texts of targets.values()) for (const { text, parent } of texts) {
+    baseline.set(text, measure(text, parent, enhanced));
+  }
 
   const modified: { rule: CSSStyleRule; selector: string }[] = [];
   const savedAttributes = new Map<Element, Map<string, string | null>>();
@@ -222,6 +229,7 @@ function runLinkContrastRule(results: ScanRawResult[], pushStat: PushStatFn, rul
     }
   };
   let checked = 0;
+  let incompleteStates = false;
   const started = performance.now();
   try {
     // Preserve ordinary :link styling on links not currently under test.
@@ -240,7 +248,15 @@ function runLinkContrastRule(results: ScanRawResult[], pushStat: PushStatFn, rul
       if (!guard.sheet) incompleteStyles = true;
     }
     for (const [link, texts] of targets) {
-      const evidence = texts.map(() => ({ visible: false, failures: [] as string[], reviews: new Set<string>() }));
+      const evidence = texts.map(({ text }) => {
+        const m = baseline.get(text)!;
+        const observedFailure = m.ratio !== undefined && m.minimum !== undefined && m.ratio < m.minimum;
+        return {
+          visible: m.visible, observedFailure,
+          failures: observedFailure ? [`${m.ratio!.toFixed(2)}:1 (minimum ${m.minimum}:1) in observed browser state`] : [],
+          reviews: new Set<string>(m.reason ? [m.reason] : []),
+        };
+      });
       const related = [link, ...ancestors(link)];
       const timedOut = performance.now() - started > 5000;
       for (let bits = 0; bits < (timedOut ? 1 : 8); bits++) {
@@ -262,19 +278,24 @@ function runLinkContrastRule(results: ScanRawResult[], pushStat: PushStatFn, rul
       for (const el of related) for (const state of STATES) set(el, state, state === "link" && el.hasAttribute("href"));
       texts.forEach(({ text, parent }, i) => {
         const e = evidence[i];
-        if (!e.visible && !timedOut) return;
+        if (!e.visible) return;
         checked++;
+        incompleteStates ||= timedOut;
+        // A page-wide coverage gap is not a contrast defect in every passing
+        // link. Report it once below, while retaining target-specific evidence.
+        if (!e.failures.length && !e.reviews.size) return;
         if (incompleteStyles) e.reviews.add("some stylesheet rules could not be inspected");
         if (timedOut) e.reviews.add("state-check time budget reached; not all eight states were evaluated");
-        if (!e.failures.length && !e.reviews.size) return;
         // Inaccessible CSS may override the simulated pseudo-state colours.
-        // Its uninspected cascade must never produce a confirmed failure.
-        const confirmed = e.failures.length > 0 && !incompleteStyles;
+        // Only an original browser-state measurement is independent of that
+        // uncertainty; simulated failures alone remain review findings.
+        const confirmed = e.observedFailure || e.failures.length > 0 && !incompleteStyles;
         results.push({
           ruleId, type: confirmed ? "Issue" : "Potential Issue", impact: enhanced ? "minor" : "serious",
           description: `Link text ${JSON.stringify(text.textContent?.trim())}: ${confirmed
-            ? `contrast ${e.failures.join("; ")}`
-            : `${enhanced ? "enhanced" : "minimum"} contrast needs review: ${[...e.reviews].join("; ")}`}.` +
+            ? `contrast ${(incompleteStyles ? e.failures.slice(0, 1) : e.failures).join("; ")}`
+            : `${enhanced ? "enhanced" : "minimum"} contrast needs review: ${[...e.reviews].join("; ")}` +
+              (e.failures.length ? `. Simulated low-contrast measurements: ${e.failures.join("; ")}` : "")}.` +
             (confirmed && e.reviews.size ? ` Additional coverage requires review: ${[...e.reviews].join("; ")}.` : ""),
           ...originalEvidence.get(text)!,
         });
@@ -286,6 +307,19 @@ function runLinkContrastRule(results: ScanRawResult[], pushStat: PushStatFn, rul
       if (value === null) el.removeAttribute(name); else el.setAttribute(name, value);
     }
     for (const guard of guards) guard.remove();
+  }
+  if (checked > 0 && (incompleteStyles || incompleteStates)) {
+    const reasons = [
+      ...(incompleteStyles ? ["some stylesheet rules could not be inspected"] : []),
+      ...(incompleteStates ? ["state-check time budget reached; not all eight states were evaluated for every link"] : []),
+    ];
+    results.push({
+      ruleId, type: "Potential Issue", impact: enhanced ? "minor" : "serious",
+      selector: "body", element: "<body>",
+      description: `Link contrast state coverage needs review: ${reasons.join("; ")}. ` +
+        "This is one page-level coverage warning, not a contrast failure for each link. " +
+        "Passing measurements do not establish a pass in uninspected states; target-specific failures and unresolved backgrounds are reported separately.",
+    });
   }
   pushStat(ruleId, checked, "element");
 }

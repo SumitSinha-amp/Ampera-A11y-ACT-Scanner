@@ -2,6 +2,8 @@ import type { RuleExecutionTier, RuleExecutionStatus } from "./browser/registry"
 
 export type PersistedRuleStatus = RuleExecutionStatus & {
   carriedForward?: boolean;
+  /** SQL GROUP BY multiplicity; absent for individual page records. */
+  count?: number;
 };
 
 export interface RuleCoverage {
@@ -34,6 +36,7 @@ export function aggregateRuleCoverage(
 ): { rules: RuleCoverage[]; automaticApplicabilityCoverage: number } {
   const byRule = new Map<string, RuleCoverage>();
   for (const row of rows) {
+    const count = row.count ?? 1;
     const current = byRule.get(row.ruleId) ?? {
       ruleId: row.ruleId,
       selected: 0,
@@ -45,13 +48,13 @@ export function aggregateRuleCoverage(
       executionTier: row.executionTier,
     };
     current.executionTier = row.executionTier;
-    if (row.status === "not-selected") current.notSelected++;
+    if (row.status === "not-selected") current.notSelected += count;
     else {
-      current.selected++;
-      if (row.status === "not-applicable") current.notApplicable++;
-      if (row.status === "executed") current.executed++;
-      if (row.status === "failed") current.failed++;
-      if (row.executionTier === "manual") current.manual++;
+      current.selected += count;
+      if (row.status === "not-applicable") current.notApplicable += count;
+      if (row.status === "executed") current.executed += count;
+      if (row.status === "failed") current.failed += count;
+      if (row.executionTier === "manual") current.manual += count;
     }
     byRule.set(row.ruleId, current);
   }

@@ -2,6 +2,17 @@ import { describe, expect, it } from "vitest";
 import { aggregateRuleCoverage, classifyScanConfidence } from "./ruleCoverage";
 
 describe("rule execution coverage aggregation", () => {
+  it("aggregates grouped SQL rows identically to individual page statuses", () => {
+    const rows = [
+      { ruleId: "ACT-R1", executionTier: "automatic" as const, status: "executed" as const, count: 12000 },
+      { ruleId: "ACT-R1", executionTier: "automatic" as const, status: "not-applicable" as const, count: 5 },
+      { ruleId: "ACT-R1", executionTier: "automatic" as const, status: "failed" as const, count: 2 },
+      { ruleId: "ACT-R1", executionTier: "automatic" as const, status: "not-selected" as const, count: 3 },
+      { ruleId: "ACT-R24", executionTier: "manual" as const, status: "executed" as const, count: 12010 },
+    ];
+    const expanded = rows.flatMap(({ count, ...row }) => Array.from({ length: count }, () => row));
+    expect(aggregateRuleCoverage(rows, 12010)).toEqual(aggregateRuleCoverage(expanded, 12010));
+  });
   it("keeps selection, applicability, execution, manual, and failure counts distinct", () => {
     const result = aggregateRuleCoverage([
       { ruleId: "ACT-R1", executionTier: "automatic", status: "executed" },

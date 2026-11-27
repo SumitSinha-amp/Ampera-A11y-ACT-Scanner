@@ -2252,6 +2252,7 @@ async function scanSinglePage(
     });
     const browserScanPromise = scanPage(url, {
       timeout: NAV_TIMEOUT_MS,
+      deadlineAt: Date.now() + hardDeadline,
       scanDelayMs,
       bypassCSP: options.bypassCSP,
       rules: options.rules,

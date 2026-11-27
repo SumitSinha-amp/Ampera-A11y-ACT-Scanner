@@ -730,6 +730,62 @@ export const releaseHistory: ReleaseHistoryEntry[] = [
     summary: APP_RELEASE_SUMMARY,
     groups: [
       {
+        icon: Accessibility,
+        title: "More accurate contrast findings",
+        description: "Measured failures, uncertain backgrounds, and incomplete state coverage are clearly separated.",
+        category: "Accessibility",
+        features: [
+          "ACT-R88 and ACT-R89 report inaccessible stylesheet and incomplete link-state coverage once per page, rather than flagging every otherwise passing link",
+          "Original browser-state measurements retain confirmed low-contrast findings; simulated-only failures remain Potential Issues when uninspected styles could change the result",
+          "Unknown image, gradient, overlapping, or offscreen positioned backgrounds remain reviewable instead of being assumed to pass or fail",
+          "ACT-R69 and ACT-R103 avoid unrelated legacy contrast work in selected-rule scans, allowing bounded additional-state verification to complete more reliably",
+        ],
+      },
+      {
+        icon: MousePointerClick,
+        title: "Unobscured contrast and consistent rule selection",
+        description: "Safe additional-state checks preserve both the initial page and the evidence behind new findings.",
+        category: "Scanning",
+        features: [
+          "ACT-R69 and ACT-R103 can close explicitly identified, safe popup close controls after baseline evidence is captured, without submitting forms, navigating, or choosing cookie consent",
+          "Newly confirmed findings retain matching unobscured-state screenshots and HTML; original baseline findings are preserved",
+          "Regression checks compare affected contrast rules in normal, single-rule, and combined-rule selections while keeping explicit rule boundaries authoritative",
+          "Additional-state verification is time-bounded and reports incomplete coverage rather than silently treating unfinished checks as passes",
+        ],
+      },
+      {
+        icon: Zap,
+        title: "Lighter scan-result loading",
+        description: "Progress updates and report queries do less unnecessary work.",
+        category: "Reliability",
+        features: [
+          "Lightweight scan-status polling is separated from full result loading",
+          "Full result refreshes run less frequently while scans are active, reducing repeated large requests",
+          "Page counts and rule coverage use grouped database queries rather than loading every occurrence for summary calculations",
+          "Scan-stage timing helps identify slow work without changing existing scan results",
+        ],
+      },
+      {
+        icon: GitBranch,
+        title: "New release version sequence",
+        description: "Version 1.5 starts a half-point release sequence.",
+        category: "Platform",
+        features: [
+          "Subsequent deployments advance the app version by 0.5: 1.5, 2.0, 2.5, 3.0, and onward",
+          "The Welcome screen, login version badges, App Updates page, header, and release announcement share the same version source",
+          "All previous release details remain available in the release history",
+        ],
+      },
+    ],
+    showcase: false,
+  },
+  {
+    version: "1.4.10",
+    month: "November 2026",
+    label: "Previous release",
+    summary: "Metro now shares colorful metric tiles, status chips, counts, and table actions across crawler, site, QA, scan, activity, and admin modules. Contrast verification at a 200% zoom-equivalent viewport adds state-specific evidence for selected ACT-R69 and ACT-R103 checks, while other themes and existing scan workflows remain unchanged.",
+    groups: [
+      {
         icon: Palette,
         title: "Consistent Metro tiles and tables",
         description: "The colorful Metro treatment now extends beyond manual scan history.",

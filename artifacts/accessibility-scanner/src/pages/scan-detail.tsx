@@ -1887,15 +1887,25 @@ export default function ScanDetail() {
     [scanId, setLocation],
   );
 
-  const { data: scan, isLoading: scanLoading } = useGetScan(scanId, {
+  // Bootstrap independently: a slow full-result query must not suppress live
+  // progress or keep polling a terminal scan forever.
+  const { data: liveStatus } = useGetScanStatus(scanId, {
+    query: {
+      enabled: !!scanId,
+      queryKey: getGetScanStatusQueryKey(scanId),
+      refetchInterval: query => ["running", "pending", "paused"].includes(query.state.data?.status ?? "pending") ? 2000 : false,
+    },
+  });
+  const { data: scan, isLoading: scanLoading, isError: scanError, refetch: refetchScan } = useGetScan(scanId, {
     query: {
       enabled: !!scanId,
       queryKey: getGetScanQueryKey(scanId),
     },
   });
 
-  const isRunning = scan?.status === "running" || scan?.status === "pending";
-  const isPaused = scan?.status === "paused";
+  const currentStatus = liveStatus?.status ?? scan?.status;
+  const isRunning = currentStatus === "running" || currentStatus === "pending";
+  const isPaused = currentStatus === "paused";
   const isActive = isRunning || isPaused;
   const isUpdatingResults =
     scan?.status === "completed" && (!scan.pages || scan.pages.length === 0);
@@ -1912,13 +1922,6 @@ export default function ScanDetail() {
     );
   const elapsedText = formatElapsedTime(scan?.createdAt, scan?.completedAt);
 
-  const { data: liveStatus } = useGetScanStatus(scanId, {
-    query: {
-      enabled: !!scanId && (isActive || isUpdatingResults),
-      queryKey: getGetScanStatusQueryKey(scanId),
-      refetchInterval: 2000,
-    },
-  });
   const { percent: progressPercent, processed: processedUrls } = useScanProgress({
     scanId,
     status: liveStatus?.status ?? scan?.status ?? "pending",
@@ -1944,21 +1947,14 @@ export default function ScanDetail() {
     return () => window.clearInterval(timer);
   }, [hasPendingAIAssessments, queryClient, scanId]);
 
-  // useGetScan has no refetchInterval — it fetches once and stops.
-  // When the scan finishes, liveStatus transitions to "completed" but scan.pages
-  // is never populated because nothing re-triggers useGetScan.
-  // This effect fires on two paths:
-  //   (a) liveStatus.status → "completed" (user was watching a running scan)
-  //   (b) isUpdatingResults is true on mount (user navigated to an already-finished
-  //       scan whose pages hadn't been loaded into the React Query cache yet)
-  // In both cases we force one refetch of the full scan so page results appear.
+  // Load final saved findings on any terminal transition, not on every poll.
   useEffect(() => {
     if (!scanId) return;
-    if (liveStatus?.status === "completed" || isUpdatingResults) {
+    const terminal = liveStatus && !["running", "pending", "paused"].includes(liveStatus.status);
+    if ((terminal && scan?.status !== liveStatus.status) || isUpdatingResults) {
       queryClient.invalidateQueries({ queryKey: getGetScanQueryKey(scanId) });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveStatus?.status, isUpdatingResults]);
+  }, [liveStatus?.status, scan?.status, isUpdatingResults, scanId, queryClient]);
 
   const cancelScan = useCancelScan();
   const [retryingAssessmentId, setRetryingAssessmentId] = useState<number | null>(null);
@@ -2375,13 +2371,20 @@ export default function ScanDetail() {
     return remaining * 1.5;
   }, [scan]);
 
+  if (!scan && scanError) {
+    return <div role="alert" className="space-y-3 p-6">
+      <p>Could not load scan results. Your scan has not been cancelled.</p>
+      <Button onClick={() => void refetchScan()}>Retry loading results</Button>
+    </div>;
+  }
   if (scanLoading || !scan) {
     return (
       <div className="flex min-h-[360px] items-center justify-center">
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white/85 px-8 py-7 text-center shadow-[0_5px_20px_rgba(15,23,42,0.05)] dark:border-slate-800 dark:bg-slate-950/80">
           <Loader2 className="h-7 w-7 animate-spin text-violet-600" />
           <div>
-            <p className="text-sm font-semibold text-foreground">Loading scan results</p>
+            <p className="text-sm font-semibold text-foreground">{liveStatus ? `Scan ${liveStatus.status}` : "Loading scan results"}</p>
+            {liveStatus && <p className="mt-2 text-sm" role="status">{liveStatus.scannedUrls ?? 0} completed · {liveStatus.failedUrls ?? 0} failed · {liveStatus.totalUrls ?? 0} total pages</p>}
             <p className="mt-1 text-xs text-muted-foreground">Fetching pages, issues, and scan details…</p>
           </div>
         </div>

@@ -69,7 +69,7 @@ describe.skipIf(!existsSync(chromium))("ACT-R89 enhanced link contrast", () => {
     const r = await scan('<a href="#" style="color:white;background-image:linear-gradient(white,black)">Review</a>');
     expect(r.issues).toHaveLength(1);
     expect(r.issues[0]).toMatchObject({ ruleId: "ACT-R89", type: "Potential Issue" });
-    expect(r.candidates).toEqual([]);
+    expect(r.candidates ?? []).toEqual([]);
   });
   it("checks below-fold links in inner scrollers", async () => {
     const r = await scan('<div style="height:100px;overflow:auto"><div style="height:1200px"></div><a href="#" style="color:#666;background:white">Below fold</a></div>');

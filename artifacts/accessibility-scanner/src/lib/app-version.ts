@@ -1,7 +1,7 @@
-// Increment the patch number for each release within the current minor line,
-// including multiple releases in the same month: 1.4.3 → 1.4.4 → 1.4.5.
-export const APP_VERSION = "1.4.10";
+// Advance the displayed app version by 0.5 for each subsequent deployment:
+// 1.5 → 2.0 → 2.5 → 3.0. Keep the trailing .0 on whole-number releases.
+export const APP_VERSION = "1.5";
 export const APP_RELEASE_MONTH = "November 2026";
-export const APP_RELEASE_TITLE = "Consistent Metro styling and clearer scan evidence";
-export const APP_RELEASE_SUMMARY = "Metro now shares colorful metric tiles, status chips, counts, and table actions across crawler, site, QA, scan, activity, and admin modules. Contrast verification at a 200% zoom-equivalent viewport adds state-specific evidence for selected ACT-R69 and ACT-R103 checks, while other themes and existing scan workflows remain unchanged.";
+export const APP_RELEASE_TITLE = "Clearer contrast findings and more responsive scan results";
+export const APP_RELEASE_SUMMARY = "Contrast checks retain real failures without repeating page-wide review warnings against passing links. ACT-R69 and ACT-R103 safely verify unobscured content with matching evidence, while scan-result loading uses lighter progress polling and aggregated queries. Release versions now advance by 0.5, with all previous release notes preserved.";
 export const APP_RULE_MAPPING_RELEASE = "1.4.1";

@@ -135,6 +135,64 @@ describe.skipIf(!existsSync(chromium))("R88 specification and browser integratio
     expect(await scan(html)).toEqual(explicit);
     expect((await scan(html, ["ACT-R47"])).issues).toEqual([]);
   });
+  async function scanWithUnreadableSheet(rules: string[] | null = ["ACT-R88"], timeOut = false) {
+    await page.setContent(`<style>
+      a { color: #1a1a1a; background: white }
+      #low { color: #aaa }
+      #hidden { display: none }
+      #state:hover { color: #aaa }
+    </style>
+    <a href="#" id="hotels">Hotels</a><a href="#" id="buses">Buses</a>
+    <a href="#" id="more">Know more</a><a href="#" id="about">About Cleartrip</a>
+    <a href="#" id="low">Low contrast</a><a href="#" id="state">Uninspected hover</a>
+    <a href="#" id="hidden">Hidden link</a>`);
+    await page.evaluate(() => {
+      Object.defineProperty(document.styleSheets[0], "cssRules", {
+        configurable: true, get() { throw new DOMException("Cross-origin stylesheet", "SecurityError"); },
+      });
+    });
+    await page.evaluate(bundle);
+    return page.evaluate(({ rules, timeOut }) => {
+      const original = performance.now.bind(performance);
+      let ticks = 0;
+      if (timeOut) performance.now = () => original() + ++ticks * 6000;
+      try {
+        const r = (window as any).__ampera.runAllRules({ rules: rules ?? undefined });
+        return r.issues.filter((i: any) => i.ruleId === "ACT-R88");
+      } finally { performance.now = original; }
+    }, { rules, timeOut });
+  }
+  it("reports inaccessible state styles once, not against each passing link", async () => {
+    const r = await scanWithUnreadableSheet();
+    expect(r).toHaveLength(2);
+    expect(r.find((i: any) => i.selector === "a#low")).toMatchObject({ type: "Issue" });
+    expect(r.find((i: any) => i.selector === "a#low").description).toContain("2.32:1");
+    expect(r.find((i: any) => i.selector === "body")).toMatchObject({ type: "Potential Issue" });
+    expect(r.some((i: any) => /#hotels|#buses|#more|#about|#hidden|#state/.test(i.selector))).toBe(false);
+  });
+  it("keeps coverage warnings and observed failures identical in normal and selected scans", async () => {
+    expect(await scanWithUnreadableSheet(null)).toEqual(await scanWithUnreadableSheet(["ACT-R88"]));
+  });
+  it("does not turn timed-out passing or hidden links into individual contrast findings", async () => {
+    const r = await scanWithUnreadableSheet(["ACT-R88"], true);
+    expect(r).toHaveLength(2);
+    expect(r.find((i: any) => i.selector === "body").description).toContain("time budget reached");
+    expect(r.find((i: any) => i.selector === "a#low").type).toBe("Issue");
+  });
+  it("does not confirm simulated-only failures when unreadable CSS can change the state backdrop", async () => {
+    await page.setContent(`<style>a{color:#222;background:white}a:hover{color:#aaa}</style>
+      <style>a:hover{background:#222}</style><a href="#" id="state">State link</a>`);
+    await page.evaluate(() => {
+      Object.defineProperty(document.styleSheets[1], "cssRules", {
+        get() { throw new DOMException("Cross-origin stylesheet", "SecurityError"); },
+      });
+    });
+    await page.evaluate(bundle);
+    const r = await page.evaluate(() => (window as any).__ampera.runAllRules({ rules: ["ACT-R88"] }));
+    expect(r.issues).toHaveLength(2);
+    expect(r.issues.every((i: any) => i.type === "Potential Issue")).toBe(true);
+    expect(r.issues.find((i: any) => i.selector === "a#state").description).toContain("Simulated low-contrast measurements");
+  });
   it("traverses slotted text once and shadow-root link styles", async () => {
     await page.setContent('<div id="host"><span slot="label">Slotted</span></div>');
     await page.evaluate(() => {

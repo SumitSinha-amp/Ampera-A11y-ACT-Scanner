@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import puppeteer, { type Browser, type Page } from "puppeteer";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { findContrastOverlayClose, scanUnobscuredContrast } from "./unobscured-contrast";
+import { withEvidenceBudget } from "./evidence-budget";
 import type { ScanIssue } from "./scanner";
 
 describe("Unobscured ACT-R69 states", () => {
@@ -72,6 +73,95 @@ describe("Unobscured ACT-R69 states", () => {
     expect(action.interactionStateKey).toBe(result.states[0].key);
     expect(result.states[0].pageHtml).not.toContain('<div id="overlay"');
   });
+  it("confirms nested button text and a scripted promotion within the production evidence budget", async () => {
+    await load(`
+      <button id="search" style="background:#ff4f17;color:white;border:0">
+        <div><h4 id="search-text" style="font:600 14px Arial;color:white">Search Flights</h4></div>
+      </button>
+      <div id="save" onclick="return false" style="cursor:pointer;color:white;background:#ff4f17;font:600 10px Arial">SAVE MORE</div>
+      ${modal()}
+    `);
+    await page.evaluate(() => {
+      const original = document.createTreeWalker.bind(document);
+      (window as any).__legacyWalks = 0;
+      document.createTreeWalker = (...args: Parameters<Document["createTreeWalker"]>) => {
+        (window as any).__legacyWalks++;
+        return original(...args);
+      };
+    });
+    const widgetScan = async () => page.evaluate(() => {
+      const r = (window as any).__ampera.runAllRules({ rules: ["ACT-R103"] });
+      return { issues: r.issues as ScanIssue[], stats: r.stats };
+    });
+    const baseline = (await widgetScan()).issues;
+    for (const selector of ["h4#search-text", "div#save"]) {
+      expect(baseline.some(i => i.selector === selector && i.type === "Potential Issue")).toBe(true);
+    }
+    const bounded = await withEvidenceBudget(page, 15000,
+      () => scanUnobscuredContrast(page, { ...options(baseline), scan: widgetScan }));
+    expect(bounded.error).toBeUndefined();
+    expect(bounded.value?.error).toBeUndefined();
+    for (const selector of ["h4#search-text", "div#save"]) {
+      const finding = bounded.value!.issues.find(i => i.selector === selector && i.type === "Issue")!;
+      expect(finding).toBeDefined();
+      expect(finding.description).toContain("3.29:1");
+      expect(finding.description).toContain("(4.5:1)");
+      expect(finding.interactionStateKey).toBe(bounded.value!.states[0].key);
+    }
+    expect(await page.evaluate(() => (window as any).__legacyWalks)).toBe(0);
+    // The optimization must not disable the legacy enhanced-contrast rule
+    // when that rule really was selected.
+    await page.evaluate(() => (window as any).__ampera.runAllRules({ rules: ["ACT-R66"] }));
+    expect(await page.evaluate(() => (window as any).__legacyWalks)).toBeGreaterThan(0);
+  });
+  it("keeps R69 popup findings identical in normal, rule-only and combined-rule scans", async () => {
+    const fixture = `<style>
+      body{background:white;color:black;font:14px Arial}
+      .green{color:#11a670;font:500 10px Arial}
+      input{background:white;font-size:16px}
+      input::placeholder{color:#b3b3b3;opacity:1}
+      #return{color:#999;font-size:16px}
+      #booking,#save{background:#ff4f17;color:white;border:0}
+      #booking h4{font:600 14px Arial;color:white}
+    </style>
+    <p id="extra" class="green">Extra baggage, discounts</p>
+    <p id="senior" class="green">Up to ₹600 off</p>
+    <p id="armed" class="green">Up to ₹600 off</p>
+    <input id="origin" placeholder="Where from?">
+    <input id="destination" placeholder="Where to?">
+    <span id="return">Return</span>
+    <button id="booking"><div><h4 id="search">Search Flights</h4></div></button>
+    <div id="save" role="button" tabindex="0">SAVE MORE</div>${modal()}`;
+    const modes: (string[] | undefined)[] = [undefined, ["ACT-R69"], ["ACT-R69", "ACT-R103"]];
+    const actual: unknown[] = [];
+    for (const rules of modes) {
+      await page.setContent(fixture);
+      await page.evaluate(bundle);
+      const modeScan = () => page.evaluate(rules => {
+        const r = (window as any).__ampera.runAllRules({ rules });
+        return { issues: r.issues as ScanIssue[], stats: r.stats };
+      }, rules);
+      const baseline = (await modeScan()).issues;
+      const baselineBefore = JSON.stringify(baseline);
+      const result = await withEvidenceBudget(page, 15000, () =>
+        scanUnobscuredContrast(page, { ...options(baseline), scan: modeScan }));
+      expect(result.error).toBeUndefined();
+      expect(result.value?.error).toBeUndefined();
+      expect(JSON.stringify(baseline)).toBe(baselineBefore);
+      const confirmed = result.value!.issues.filter(i => i.ruleId === "ACT-R69" && i.type === "Issue");
+      expect(confirmed).toHaveLength(8);
+      expect(confirmed.every(i => i.interactionStateKey === result.value!.states[0].key)).toBe(true);
+      expect(result.value!.states[0].pageHtml).not.toContain('<div id="overlay"');
+      actual.push(confirmed.map(i => ({
+        selector: i.selector, type: i.type, description: i.description,
+      })).sort((a, b) => a.selector!.localeCompare(b.selector!)));
+      if (rules?.length === 1) {
+        expect(result.value!.issues.every(i => i.ruleId === "ACT-R69")).toBe(true);
+      }
+    }
+    expect(actual[1]).toEqual(actual[0]);
+    expect(actual[2]).toEqual(actual[0]);
+  }, 30000);
   it("recognizes an explicitly named SVG close icon in a non-semantic fixed overlay", async () => {
     await load(modal('<svg data-testid="closeIcon" width="24" height="24"><path d="M0 0L24 24" stroke="black"/></svg>').replace('role="dialog"', ""));
     expect(await findContrastOverlayClose(page)).toMatchObject({ label: "closeIcon" });
