@@ -5,6 +5,7 @@ import { useSite as useSiteContext } from "@/contexts/site";
 import { usePageGroup } from "@/contexts/page-group";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { metroCountProps } from "@/lib/metro-presentation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -325,7 +326,7 @@ export function ConformanceBadge({ level }: { level: string | null }) {
     AAA: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
   };
   return (
-    <Badge className={`text-[10px] px-1.5 py-0 font-semibold ${styles[level] ?? styles.A}`}>
+    <Badge data-metro-conformance={level} className={`text-[10px] px-1.5 py-0 font-semibold ${styles[level] ?? styles.A}`}>
       {level}
     </Badge>
   );
@@ -580,7 +581,7 @@ export function IssuesTable({ siteId, type, label, scopeImpacts }: IssuesTablePr
                               : issue.rule_id}
                           </p>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {issue.rule_id}
+                            <span data-metro-rule-chip>{issue.rule_id}</span>
                             {issue.wcag_criteria && <> · WCAG {issue.wcag_criteria}</>}
                           </p>
                         </div>
@@ -593,10 +594,10 @@ export function IssuesTable({ siteId, type, label, scopeImpacts }: IssuesTablePr
                       <DifficultyDots impact={issue.impact} />
                     </TableCell>
                     <TableCell className="text-right text-sm font-medium tabular-nums">
-                      {issue.occurrences.toLocaleString()}
+                      <span {...(issue.occurrences > 0 ? metroCountProps("issues") : {})}>{issue.occurrences.toLocaleString()}</span>
                     </TableCell>
                     <TableCell className="text-right text-sm tabular-nums">
-                      {issue.pages_affected.toLocaleString()}
+                      <span {...(issue.pages_affected > 0 ? metroCountProps("pages") : {})}>{issue.pages_affected.toLocaleString()}</span>
                     </TableCell>
                     <TableCell className="text-right">
                       <span className="text-sm font-semibold text-green-700 dark:text-green-400 tabular-nums">
@@ -751,8 +752,8 @@ export function PagesWithIssuesTable({ siteId, type = "issues" }: { siteId: numb
                         <ExternalLink className="w-3 h-3 shrink-0 mt-0.5 opacity-60 group-hover:opacity-100" />
                       </a>
                     </TableCell>
-                    <TableCell className="text-right font-medium tabular-nums">{pageRow.issueCount.toLocaleString()}</TableCell>
-                    <TableCell className="text-right tabular-nums">{pageRow.ruleCount.toLocaleString()}</TableCell>
+                    <TableCell className="text-right font-medium tabular-nums"><span {...(pageRow.issueCount > 0 ? metroCountProps("issues") : {})}>{pageRow.issueCount.toLocaleString()}</span></TableCell>
+                    <TableCell className="text-right tabular-nums"><span {...(pageRow.ruleCount > 0 ? metroCountProps("rules") : {})}>{pageRow.ruleCount.toLocaleString()}</span></TableCell>
                     <TableCell className="text-right text-xs text-muted-foreground">
                       {pageRow.scannedAt ? new Date(pageRow.scannedAt).toLocaleDateString() : "—"}
                     </TableCell>

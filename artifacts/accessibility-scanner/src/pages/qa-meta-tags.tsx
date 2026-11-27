@@ -40,15 +40,15 @@ interface QAPage {
 
 function qualityBadge(value: string | null, minLen: number, maxLen: number) {
   if (!value || value.trim() === "") {
-    return <Badge variant="destructive" className="text-xs">Missing</Badge>;
+    return <Badge data-metro-status-badge="failed" variant="destructive" className="text-xs">Missing</Badge>;
   }
   if (value.length < minLen) {
-    return <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-600">Too short</Badge>;
+    return <Badge data-metro-status-badge="warning" variant="outline" className="text-xs text-yellow-600 border-yellow-600">Too short</Badge>;
   }
   if (value.length > maxLen) {
-    return <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-600">Too long</Badge>;
+    return <Badge data-metro-status-badge="warning" variant="outline" className="text-xs text-yellow-600 border-yellow-600">Too long</Badge>;
   }
-  return <Badge variant="outline" className="text-xs text-green-600 border-green-600">OK</Badge>;
+  return <Badge data-metro-status-badge="healthy" variant="outline" className="text-xs text-green-600 border-green-600">OK</Badge>;
 }
 
 function MetaTagsContent({ scanId }: { scanId: number }) {

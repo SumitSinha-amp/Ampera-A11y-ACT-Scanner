@@ -27,6 +27,7 @@ import {
   QA_URL_CLASS,
 } from "@/pages/qa-shared";
 import { exportCSV, truncate } from "@/pages/scan-qa";
+import { metroActionProps, metroCountProps } from "@/lib/metro-presentation";
 
 interface QAIssue {
   url: string;
@@ -58,9 +59,9 @@ const ISSUE_TYPE_META: Record<string, { label: string; description: string }> = 
 const SEVERITY_ORDER: ("high" | "medium" | "low")[] = ["high", "medium", "low"];
 
 function severityBadge(severity: "high" | "medium" | "low") {
-  if (severity === "high") return <Badge variant="destructive" className="text-xs">High</Badge>;
-  if (severity === "medium") return <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-600">Medium</Badge>;
-  return <Badge variant="outline" className="text-xs text-muted-foreground">Low</Badge>;
+  if (severity === "high") return <Badge data-metro-impact="critical" variant="destructive" className="text-xs">High</Badge>;
+  if (severity === "medium") return <Badge data-metro-impact="moderate" variant="outline" className="text-xs text-yellow-600 border-yellow-600">Medium</Badge>;
+  return <Badge data-metro-impact="minor" variant="outline" className="text-xs text-muted-foreground">Low</Badge>;
 }
 
 function IssuesContent({ scanId }: { scanId: number }) {
@@ -202,6 +203,7 @@ function IssuesContent({ scanId }: { scanId: number }) {
                 <TableCell>{severityBadge(row.severity)}</TableCell>
                 <TableCell>
                   <a
+                    {...metroActionProps("view")}
                     href={row.url}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -218,7 +220,9 @@ function IssuesContent({ scanId }: { scanId: number }) {
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right text-sm text-muted-foreground hidden sm:table-cell">
+                  <span {...metroCountProps("links")}>
                   {row.inlinkCount}
+                  </span>
                 </TableCell>
               </TableRow>
             ))}

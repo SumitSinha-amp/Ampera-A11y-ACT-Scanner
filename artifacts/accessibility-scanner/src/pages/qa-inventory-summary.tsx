@@ -103,10 +103,10 @@ function SummaryContent({ scanId }: { scanId: number }) {
   if (!data) return null;
 
   const metrics = [
-    { label: "Pages", value: data.pages, icon: Globe2, iconClass: "text-violet-700", iconSurfaceClass: "bg-violet-100" },
-    { label: "Links", value: data.links.total, icon: Link2, iconClass: "text-sky-700", iconSurfaceClass: "bg-sky-100" },
-    { label: "Emails", value: data.links.email, icon: Mail, iconClass: "text-rose-700", iconSurfaceClass: "bg-rose-100" },
-    { label: "Phone numbers", value: data.links.phone, icon: Phone, iconClass: "text-fuchsia-700", iconSurfaceClass: "bg-fuchsia-100" },
+    { label: "Pages", value: data.pages, tile: "pages", icon: Globe2, iconClass: "text-violet-700", iconSurfaceClass: "bg-violet-100" },
+    { label: "Links", value: data.links.total, tile: "links", icon: Link2, iconClass: "text-sky-700", iconSurfaceClass: "bg-sky-100" },
+    { label: "Emails", value: data.links.email, tile: "total", icon: Mail, iconClass: "text-rose-700", iconSurfaceClass: "bg-rose-100" },
+    { label: "Phone numbers", value: data.links.phone, tile: "total", icon: Phone, iconClass: "text-fuchsia-700", iconSurfaceClass: "bg-fuchsia-100" },
   ];
 
   return (
@@ -115,7 +115,7 @@ function SummaryContent({ scanId }: { scanId: number }) {
         {metrics.map((metric) => {
           const Icon = metric.icon;
           return (
-            <Card key={metric.label} className="!rounded-xl !border-border/80 !bg-card !shadow-sm">
+            <Card key={metric.label} data-metro-tile={metric.tile} className="!rounded-xl !border-border/80 !bg-card !shadow-sm">
               <CardContent className="flex items-center gap-3.5 p-4">
                 <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${metric.iconSurfaceClass}`}>
                   <Icon className={`h-[18px] w-[18px] ${metric.iconClass}`} />

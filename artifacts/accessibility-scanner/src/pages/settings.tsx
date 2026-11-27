@@ -182,7 +182,7 @@ export function getLogoSize(): number {
 }
 
 export const THEME_LS_KEY = "a11y-theme";
-export type Theme = "light" | "dark" | "system" | "glass-dark" | "glass-light" | "glass-vision" | "glass-vision-light" | "liquid-glass";
+export type Theme = "light" | "dark" | "system" | "glass-dark" | "glass-light" | "glass-vision" | "glass-vision-light" | "liquid-glass" | "metro";
 
 export const ACCENT_LS_KEY = "a11y-accent";
 export type AccentColor =
@@ -354,21 +354,21 @@ export function applyAccentColor(accent: AccentColor | string) {
   }
 
   const root = document.documentElement;
-  if (savedTheme === "liquid-glass") {
-    // Scoped accessible cool-blue action palette; saved accent is untouched.
-    const blue = "212 86% 36%";
-    root.style.setProperty("--chrome-accent", blue);
-    root.style.setProperty("--chrome-accent-color", "#0d57ac");
+  if (savedTheme === "liquid-glass" || savedTheme === "metro") {
+    // Theme-owned action palettes never overwrite the saved custom accent.
+    const themeAccent = savedTheme === "metro" ? "274 100% 37%" : "212 86% 36%";
+    root.style.setProperty("--chrome-accent", themeAccent);
+    root.style.setProperty("--chrome-accent-color", savedTheme === "metro" ? "#6a00bd" : "#0d57ac");
     root.style.setProperty("--chrome-accent-foreground", "0 0% 100%");
     root.style.setProperty("--shell-text-shadow", "none");
     root.style.setProperty("--shell-interaction-color", "white");
-    root.style.setProperty("--app-accent", blue);
-    root.style.setProperty("--primary", blue);
-    root.style.setProperty("--ring", blue);
-    root.style.setProperty("--sidebar-primary", blue);
-    root.style.setProperty("--sidebar-ring", blue);
+    root.style.setProperty("--app-accent", themeAccent);
+    root.style.setProperty("--primary", themeAccent);
+    root.style.setProperty("--ring", themeAccent);
+    root.style.setProperty("--sidebar-primary", themeAccent);
+    root.style.setProperty("--sidebar-ring", themeAccent);
     root.style.setProperty("--primary-foreground", "0 0% 100%");
-    root.dataset.accent = "liquid-glass";
+    root.dataset.accent = savedTheme;
     return;
   }
   root.style.setProperty("--chrome-accent", chromeAccent);
@@ -392,7 +392,7 @@ export function getSavedTheme(): Theme {
     if (
       v === "light" || v === "dark" || v === "system" ||
       v === "glass-dark" || v === "glass-light" || v === "glass-vision" ||
-      v === "glass-vision-light" || v === "liquid-glass"
+      v === "glass-vision-light" || v === "liquid-glass" || v === "metro"
     ) return v;
   } catch {
     /* ignore */
@@ -413,6 +413,7 @@ export function applyTheme(theme: Theme) {
   document.documentElement.classList.toggle("glass-vision", theme === "glass-vision");
   document.documentElement.classList.toggle("glass-vision-light", theme === "glass-vision-light");
   document.documentElement.classList.toggle("liquid-glass", theme === "liquid-glass");
+  document.documentElement.classList.toggle("metro", theme === "metro");
 
   // Reapply the persisted accent after changing themes. Standard Light/Dark
   // use it on navigation; every header uses its theme's own surface.
@@ -1302,6 +1303,7 @@ export default function Settings() {
       "glass-vision": "Vision Pro",
       "glass-vision-light": "Vision Pro Light",
       "liquid-glass": "Liquid Glass",
+      metro: "Windows Phone Metro",
     };
     toast({ title: `Theme set to ${labels[t]}` });
   };
@@ -1504,6 +1506,31 @@ export default function Settings() {
                   </button>
                 ))}
               </div>
+
+              <button
+                type="button"
+                data-testid="button-theme-metro"
+                aria-pressed={theme === "metro"}
+                onClick={() => handleThemeChange("metro")}
+                className={`flex w-full items-center gap-3 rounded-lg border-2 p-4 text-left transition-colors ${
+                  theme === "metro"
+                    ? "border-primary bg-primary/5 text-primary"
+                    : "border-border text-foreground hover:border-primary/40 hover:bg-muted/40"
+                }`}
+              >
+                <span className="grid h-10 w-10 shrink-0 grid-cols-2 gap-1" aria-hidden="true">
+                  <span className="bg-[#6a00bd]" />
+                  <span className="bg-[#287e00]" />
+                  <span className="bg-[#005bbb]" />
+                  <span className="bg-[#c60016]" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold">Windows Phone Metro</span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    Noto Sans, bold square tiles, and light Metro navigation.
+                  </span>
+                </span>
+              </button>
 
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">

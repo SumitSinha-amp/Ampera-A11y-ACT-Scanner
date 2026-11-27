@@ -53,6 +53,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const Comp = asChild ? Slot : "button"
     return (
       <Comp
+        data-metro-ui="button"
+        data-metro-variant={variant ?? "default"}
+        data-metro-size={size ?? "default"}
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
         {...props}

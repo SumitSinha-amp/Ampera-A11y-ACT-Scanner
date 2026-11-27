@@ -1,0 +1,123 @@
+/* Scan History reference treatment; no layout or filter behavior changes. */
+html.metro [data-metro-history-filters] {
+  gap: 0.375rem;
+  border-top: 0;
+}
+html.metro [data-metro-history-filters] > span:first-child,
+html.metro [data-metro-history-results] {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0.375rem 0.625rem;
+  background: #e5e7e9;
+  color: #171717 !important;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+html.metro [data-metro-status-filter],
+html.metro [data-metro-history-status] {
+  --metro-status-color: #6a00bd;
+  background: var(--metro-status-color) !important;
+  color: #fff !important;
+  border-color: var(--metro-status-color) !important;
+  border-radius: 0 !important;
+  box-shadow: none;
+}
+html.metro :is([data-metro-status-filter="running"], [data-metro-history-status="running"]) { --metro-status-color: #218200; }
+html.metro :is([data-metro-status-filter="paused"], [data-metro-history-status="paused"]) { --metro-status-color: #a94d00; }
+html.metro :is([data-metro-status-filter="pending"], [data-metro-history-status="pending"]) { --metro-status-color: #005bbb; }
+html.metro [data-metro-status-filter="completed"] { --metro-status-color: #00786f; }
+html.metro [data-metro-history-status="completed"] { --metro-status-color: #0063d4; }
+html.metro :is([data-metro-status-filter="failed"], [data-metro-history-status="failed"]) { --metro-status-color: #ce001a; }
+html.metro :is([data-metro-status-filter="cancelled"], [data-metro-history-status="cancelled"]) { --metro-status-color: #6500a0; }
+html.metro [data-metro-status-filter] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-height: 2.25rem;
+  padding: 0.375rem 0.75rem;
+  font-weight: 500;
+}
+html.metro [data-metro-status-filter]:hover { filter: brightness(0.9); }
+html.metro [data-metro-status-filter][aria-pressed="true"] {
+  box-shadow: inset 0 0 0 2px #fff, 0 0 0 1px var(--metro-status-color) !important;
+}
+html.metro [data-metro-status-dot],
+html.metro [data-metro-history-status] > span { display: none; }
+html.metro [data-metro-status-filter] .metro-history-status-icon {
+  display: block;
+  width: 1.125rem;
+  height: 1.125rem;
+  color: inherit;
+}
+html.metro .app-shell [data-metro-history-table] {
+  border-collapse: collapse;
+  color: #171717;
+}
+html.metro .app-shell [data-metro-history-table] th {
+  height: 2.25rem;
+  background: #e5e7e9 !important;
+  color: #111 !important;
+  font-size: 0.8125rem !important;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  padding-block: 0.375rem;
+}
+html.metro .app-shell [data-metro-history-table] tbody tr {
+  border-bottom: 1px solid #dedede;
+}
+html.metro .app-shell [data-metro-history-table] td {
+  padding-block: 0.625rem;
+  color: #262626 !important;
+  font-size: 0.8125rem !important;
+}
+html.metro [data-metro-history-status] {
+  padding: 0.375rem 0.5rem;
+  font-size: 0.75rem !important;
+  font-weight: 500;
+}
+html.metro [data-metro-history-table] [data-metro-issue-count="positive"] {
+  display: inline-block;
+  background: #ce001a;
+  color: #fff !important;
+  padding: 0.25rem 0.375rem;
+  font-family: inherit;
+  font-size: 0.75rem !important;
+  font-weight: 500;
+}
+html.metro .app-shell [data-metro-history-table] [data-metro-ui="button"][data-metro-size="icon"] {
+  width: 1.875rem;
+  min-width: 1.875rem;
+  height: 1.875rem;
+  min-height: 1.875rem;
+  padding: 0;
+}
+html.metro .app-shell [data-metro-history-action="view"] {
+  background: #0063d4 !important;
+  color: #fff !important;
+  border-color: #0063d4 !important;
+}
+html.metro .app-shell [data-metro-history-action="edit"] {
+  background: #00786f !important;
+  color: #fff !important;
+  border-color: #00786f !important;
+}
+html.metro .app-shell [data-metro-history-action="delete"] {
+  background: #ce001a !important;
+  color: #fff !important;
+  border-color: #ce001a !important;
+}
+html.metro [data-metro-history-table] [data-metro-history-rules] > span {
+  background: #6a00bd !important;
+  color: #fff !important;
+  border-color: #6a00bd !important;
+  border-radius: 0 !important;
+  font-size: 0.75rem !important;
+}
+html.metro [data-metro-history-table] [data-metro-history-action] > svg {
+  width: 1rem !important;
+  height: 1rem !important;
+}

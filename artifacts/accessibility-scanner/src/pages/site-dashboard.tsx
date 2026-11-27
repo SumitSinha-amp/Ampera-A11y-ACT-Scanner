@@ -184,7 +184,7 @@ export default function SiteDashboard({ siteId }: Props) {
   }
 
   return (
-    <div className="site-dashboard ampera-dashboard loaded-reveal relative w-full pb-10">
+      <div className="site-dashboard ampera-dashboard loaded-reveal relative w-full pb-10" data-metro-module="site-dashboard">
       <div className="relative z-10 space-y-5">
         
         {/* Header */}
@@ -277,6 +277,7 @@ export default function SiteDashboard({ siteId }: Props) {
                 ]).map((metric) => (
                   <button
                     key={metric.id}
+                    data-metro-tile={metric.id === "score" ? "score" : metric.id === "severity" ? "issues" : metric.id === "rules" ? "rules" : "pages"}
                     type="button"
                     onClick={() => setMetricView(metric.id)}
                     aria-pressed={metricView === metric.id}

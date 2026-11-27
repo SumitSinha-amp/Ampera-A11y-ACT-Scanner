@@ -87,6 +87,56 @@ describe.skipIf(!existsSync(chromium))("ACT-R119 native keyboard focus verificat
     expect((await scan('<button id="covered">Partly visible</button><div id="cover" style="top:155px"></div>')).issues).toEqual([]);
   });
 
+  it("detects fully covered focus at fractional bottom and right viewport edges", async () => {
+    const result = await scan(`<button id="bottom-edge" style="position:fixed;left:50px;top:580.609375px;height:19px">Bottom</button>
+      <button id="right-edge" style="position:fixed;left:780.609375px;top:250px;width:19px">Right</button>
+      <div style="position:fixed;bottom:0;width:100%;height:60px;background:black;z-index:10"></div>
+      <div style="position:fixed;right:0;top:200px;width:60px;height:100px;background:black;z-index:10"></div>`);
+    expect(result.issues.map(issue => issue.selector)).toEqual(["button#bottom-edge", "button#right-edge"]);
+    expect(result.issues[0]?.bboxY).toBeCloseTo(580.609375);
+  });
+
+  it("does not call fractional edge overlap complete when a strip remains visible", async () => {
+    const result = await scan(`<button id="edge-partial" style="position:fixed;left:50px;top:580.609375px;height:19px">Partial</button>
+      <div style="position:fixed;bottom:0;width:100%;height:18px;background:black;z-index:10"></div>`);
+    expect(result.issues).toEqual([]);
+  });
+
+  it("does not truncate forward findings at three or total findings at six", async () => {
+    const result = await scan(`${Array.from({ length: 8 }, (_, index) =>
+      `<button id="many-${index}" style="position:absolute;left:${index * 90}px;top:140px;width:80px">Covered ${index}</button>`).join("")}<div id="cover"></div>`, {
+      budgetMs: 10000,
+    });
+    expect(result.issues).toHaveLength(8);
+    expect(result.complete).toBe(true);
+    expect(new Set(result.issues.map(issue => issue.selector)).size).toBe(8);
+    expect(result.states.every(state => result.issues.some(issue => issue.interactionStateKey === state.key))).toBe(true);
+  });
+
+  it("retains explicitly configured finding caps and marks coverage incomplete", async () => {
+    const result = await scan(`<button id="covered">First</button>
+      <button style="position:absolute;left:170px;top:140px">Second</button><div id="cover"></div>`, {
+      maxFindings: 1,
+    });
+    expect(result.issues).toHaveLength(1);
+    expect(result.complete).toBe(false);
+  });
+
+  it("checks shorter viewports with distinct evidence and restores the original viewport", async () => {
+    const page = await prepare(`<button id="responsive-covered" style="position:fixed;left:50px;top:680px">Covered at 720</button>
+      <div style="position:fixed;bottom:0;width:100%;height:80px;background:black;z-index:10"></div>`);
+    try {
+      await page.setViewport({ width: 1000, height: 900 });
+      const baseline = await check(page, { viewportHeights: [] });
+      expect(baseline.issues).toEqual([]);
+      const result = await check(page, { viewportHeights: [720, 800], budgetMs: 10000 });
+      expect(result.issues).toHaveLength(1);
+      expect(result.issues[0]?.interactionStateKey).toContain("viewport-720");
+      expect(result.states[0]?.triggerLabel).toContain("1000×720");
+      expect(page.viewport()).toMatchObject({ width: 1000, height: 900 });
+    } finally { await page.close(); }
+  });
+
   it("passes unobscured controls, overlay descendants, and transparent layers", async () => {
     expect((await scan('<button id="covered">Visible</button>')).issues).toEqual([]);
     expect((await scan('<div id="cover"><button>In the bar</button></div>')).issues).toEqual([]);

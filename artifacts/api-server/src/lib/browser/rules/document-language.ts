@@ -4,6 +4,7 @@ import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpe
 import { isProgrammaticallyHidden } from "../visibility";
 import { verifyLanguageReviewBundle } from "./language-parts-review";
 import { hasRegisteredPrimaryLanguage, runLanguageDeclarationRule } from "./language-declarations";
+import { nonDescriptiveTitleReason } from "./page-title";
 
 export const LANGUAGE_DETECTOR_BUILD_MARKER =
   "language-review-eld-franc-ensemble-v2";
@@ -25,8 +26,11 @@ export function runDocumentLanguageRules(results: ScanRawResult[], EMIT_MANUAL_O
   // ════════════════════════════════════════════════════════════════════════
   {
     const title = document.title?.trim();
-    if (title && /^(home|index|untitled|page|document|new page|welcome)$/i.test(title)) {
-      results.push({ ruleId: "ACT-R114", type: "Issue", impact: "moderate", description: `Page title "${title}" is not descriptive`, element: `<title>${title}</title>`, selector: "head > title" });
+    const reason = nonDescriptiveTitleReason(title ?? "");
+    if (title && reason) {
+      results.push({ ruleId: "ACT-R114", type: "Issue", impact: "moderate", description: reason === "placeholder"
+        ? `Page title "${title}" is an unreplaced placeholder and does not describe the page topic or purpose`
+        : `Page title "${title}" is not descriptive`, element: document.querySelector("head > title")?.outerHTML ?? "<title></title>", selector: "head > title" });
     }
   }
 

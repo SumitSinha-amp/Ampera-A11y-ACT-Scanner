@@ -36,7 +36,7 @@ export async function verifyFocusAppearance(page: Page, options: Options) {
     let incompleteCoverage = false;
     for (let step = 0; step < (options.maxSteps ?? 160); step++) {
       if (Date.now() - started >= (options.budgetMs ?? 12000) ||
-        states.length >= (options.maxFindings ?? 40) || page.url() !== url) break;
+        states.length >= (options.maxFindings ?? 80) || page.url() !== url) break;
       await page.keyboard.press("Tab");
       const probe = await page.evaluate(async () => {
         await new Promise(resolve => setTimeout(resolve, 50));
@@ -60,7 +60,7 @@ export async function verifyFocusAppearance(page: Page, options: Options) {
         issues.push({
           ...probe.issue, ruleId, type: "Potential Issue", impact: "serious",
           description: ruleId === primary ? probe.issue.description
-            : "Native Tab navigation focused this element with :focus-visible active, author outline suppression was detected, and no replacement focus styling was observed on the element, its ancestors, descendants, or pseudo-elements. Verify the rendered indicator; Ampera's custom check does not measure the full WCAG 2.4.13 area/contrast requirements.",
+            : "Native Tab navigation focused this element with :focus-visible active, author outline suppression was detected, and focus styling requires visual review. Color-only changes do not establish sufficient visibility. Ampera's custom check does not measure the full WCAG 2.4.13 area/contrast requirements.",
           wcagCriteria: ruleId === "ACT-R65" ? "2.4.7" : "2.4.13",
           wcagLevel: ruleId === "ACT-R65" ? "AA" : "AAA",
           remediation: ruleId === "ACT-R65"
@@ -99,6 +99,8 @@ export function reconcileFocusIndicatorIssues(
   return [
     ...existing.filter(issue => issue.ruleId !== "ACT-R65" ||
       issue.selector?.includes(" >>> ") ||
+      // Root-document coverage does not verify a previously opened popup.
+      (!!issue.interactionStateKey && !issue.interactionStateKey.startsWith("focus-appearance-")) ||
       (!focus.complete && !visited.has(issue.selector ?? ""))),
     ...focus.issues,
   ];

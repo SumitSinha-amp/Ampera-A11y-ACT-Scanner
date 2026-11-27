@@ -59,6 +59,7 @@ import {
   XCircle,
   Clock,
   Search,
+  Lock,
   Filter,
   X,
   RotateCcw,
@@ -403,13 +404,13 @@ function ImpactBadge({ impact, className = "" }: { impact: string; className?: s
   const compactClass = `h-5 rounded-full border-0 px-2 py-0 text-[10px] font-bold leading-5 capitalize ${className}`;
   switch (impact) {
     case "critical":
-      return <Badge variant="outline" className={`bg-[#fdecea] text-[#d32f2f] ${compactClass}`}>Critical</Badge>;
+      return <Badge data-metro-impact="critical" variant="outline" className={`bg-[#fdecea] text-[#d32f2f] ${compactClass}`}>Critical</Badge>;
     case "serious":
-      return <Badge variant="outline" className={`bg-[#fbe9e7] text-[#e64a19] ${compactClass}`}>Serious</Badge>;
+      return <Badge data-metro-impact="serious" variant="outline" className={`bg-[#fbe9e7] text-[#e64a19] ${compactClass}`}>Serious</Badge>;
     case "moderate":
-      return <Badge variant="outline" className={`bg-[#fff8e1] text-[#f57f17] ${compactClass}`}>Moderate</Badge>;
+      return <Badge data-metro-impact="moderate" variant="outline" className={`bg-[#fff8e1] text-[#f57f17] ${compactClass}`}>Moderate</Badge>;
     case "minor":
-      return <Badge variant="outline" className={`bg-[#e3f0fb] text-[#1976d2] ${compactClass}`}>Minor</Badge>;
+      return <Badge data-metro-impact="minor" variant="outline" className={`bg-[#e3f0fb] text-[#1976d2] ${compactClass}`}>Minor</Badge>;
     default:
       return <Badge className={compactClass}>{impact}</Badge>;
   }
@@ -3755,7 +3756,8 @@ export default function ScanDetail() {
                           {page.errorMessage.includes("Cloudflare") ||
                           page.errorMessage.includes("Bot Protection") ? (
                             <div className="flex items-start gap-2">
-                              <span className="text-lg shrink-0">🛡️</span>
+                              <span className="scan-legacy-emoji shrink-0 text-lg">🛡️</span>
+                              <Shield className="scan-metro-icon hidden mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                               <div>
                                 <p className="font-semibold mb-1">
                                   Cloudflare Bot Protection blocked this page
@@ -3770,7 +3772,8 @@ export default function ScanDetail() {
                             page.errorMessage.includes("WAF") ||
                             page.errorMessage.includes("Access Denied") ? (
                             <div className="flex items-start gap-2">
-                              <span className="text-lg shrink-0">🔒</span>
+                              <span className="scan-legacy-emoji shrink-0 text-lg">🔒</span>
+                              <Lock className="scan-metro-icon hidden mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                               <div className="flex-1">
                                 <p className="font-semibold mb-1">
                                   Site firewall blocked the scanner
@@ -3794,7 +3797,8 @@ export default function ScanDetail() {
                                         window.open(`${page.url}#${hash}`, "_blank", "noopener");
                                       }}
                                     >
-                                      🔍 Open &amp; Scan from Browser
+                                      <span className="scan-legacy-emoji">🔍 </span>
+                                      <Search className="scan-metro-icon hidden h-3.5 w-3.5" aria-hidden="true" /> Open &amp; Scan from Browser
                                     </button>
                                     <p className="text-xs opacity-60 mt-1">
                                       Requires the <strong>Ampera WAF Scanner</strong> Chrome Extension. The page will open in your browser and scan results will be reported back automatically.
@@ -4009,15 +4013,15 @@ export default function ScanDetail() {
               ?? (pages.filter(p => p.status === "completed" && (p.issueCount ?? 0) > 0).length);
             const pagesWithSnapshot = (liveStatus as { pagesWithSnapshot?: number })?.pagesWithSnapshot ?? 0;
             return (
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-2">
-                <div className="flex items-center gap-2.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-2" data-metro-module="scan-live-status">
+                <div data-metro-tile="pages" className="flex items-center gap-2.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2.5">
                   <Globe className="w-4 h-4 text-violet-500 shrink-0 animate-pulse" />
                   <div>
                     <p className="text-[10px] font-medium uppercase tracking-wide text-violet-600">In Queue</p>
                     <p className="text-xl font-bold text-violet-700 leading-none mt-0.5">{inQueue}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5">
+                <div data-metro-tile="active" className="flex items-center gap-2.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5">
                   <div className="relative flex h-2.5 w-2.5 shrink-0">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
                     <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
@@ -4027,49 +4031,49 @@ export default function ScanDetail() {
                     <p className="text-xl font-bold text-blue-700 leading-none mt-0.5">{scanning}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2.5 rounded-lg border border-green-200 bg-green-50 px-3 py-2.5">
+                <div data-metro-tile="completed" className="flex items-center gap-2.5 rounded-lg border border-green-200 bg-green-50 px-3 py-2.5">
                   <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
                   <div>
                     <p className="text-[10px] font-medium uppercase tracking-wide text-green-600">Done</p>
                     <p className="text-xl font-bold text-green-700 leading-none mt-0.5">{done}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+                <div data-metro-tile="pages" className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
                   <Clock className="w-4 h-4 text-slate-400 shrink-0" />
                   <div>
                     <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">Pending</p>
                     <p className="text-xl font-bold text-slate-600 leading-none mt-0.5">{pending}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2.5">
+                <div data-metro-tile="warning" className="flex items-center gap-2.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2.5">
                   <RotateCcw className="w-4 h-4 text-indigo-500 shrink-0" />
                   <div>
                     <p className="text-[10px] font-medium uppercase tracking-wide text-indigo-500">Retry</p>
                     <p className="text-xl font-bold text-indigo-600 leading-none mt-0.5">{retry}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
+                <div data-metro-tile="failed" className="flex items-center gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
                   <XCircle className="w-4 h-4 text-red-500 shrink-0" />
                   <div>
                     <p className="text-[10px] font-medium uppercase tracking-wide text-red-500">Failed</p>
                     <p className="text-xl font-bold text-red-600 leading-none mt-0.5">{failed}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2.5 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2.5">
+                <div data-metro-tile="warning" className="flex items-center gap-2.5 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2.5">
                   <Ban className="w-4 h-4 text-slate-400 shrink-0" />
                   <div>
                     <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">Not Available</p>
                     <p className="text-xl font-bold text-slate-500 leading-none mt-0.5">{notAvail}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2.5 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2.5">
+                <div data-metro-tile="warning" className="flex items-center gap-2.5 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2.5">
                   <AlertTriangle className="w-4 h-4 text-orange-500 shrink-0" />
                   <div>
                     <p className="text-[10px] font-medium uppercase tracking-wide text-orange-600">Pages w/ Issues</p>
                     <p className="text-xl font-bold text-orange-700 leading-none mt-0.5">{pagesWithIssues}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2.5 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2.5">
+                <div data-metro-tile="issues" className="flex items-center gap-2.5 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2.5">
                   <Camera className="w-4 h-4 text-teal-500 shrink-0" />
                   <div>
                     <p className="text-[10px] font-medium uppercase tracking-wide text-teal-600">HTML + Snapshot</p>

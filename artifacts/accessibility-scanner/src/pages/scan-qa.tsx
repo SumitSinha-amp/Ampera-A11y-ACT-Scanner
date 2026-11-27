@@ -143,12 +143,12 @@ function QALoadingSkeleton({ rows = 5 }: { rows?: number }) {
 }
 
 export function httpStatusBadge(status: number | null) {
-  if (status === null) return <Badge variant="outline" className="text-muted-foreground">—</Badge>;
-  if (status === 0) return <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">Timeout</Badge>;
-  if (status >= 500) return <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">{status}</Badge>;
-  if (status >= 400) return <Badge variant="outline" className="border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300">{status}</Badge>;
-  if (status >= 300) return <Badge variant="outline" className="border-yellow-500/30 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300">{status}</Badge>;
-  return <Badge variant="outline" className="border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-300">{status}</Badge>;
+  if (status === null) return <Badge data-metro-status-badge="other" variant="outline" className="text-muted-foreground">—</Badge>;
+  if (status === 0) return <Badge data-metro-status-badge="failed" variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">Timeout</Badge>;
+  if (status >= 500) return <Badge data-metro-status-badge="failed" variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">{status}</Badge>;
+  if (status >= 400) return <Badge data-metro-status-badge="warning" variant="outline" className="border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300">{status}</Badge>;
+  if (status >= 300) return <Badge data-metro-status-badge="completed" variant="outline" className="border-yellow-500/30 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300">{status}</Badge>;
+  return <Badge data-metro-status-badge="healthy" variant="outline" className="border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-300">{status}</Badge>;
 }
 
 export function linkTypeBadge(type: string) {

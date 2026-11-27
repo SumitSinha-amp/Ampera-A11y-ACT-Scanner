@@ -184,14 +184,14 @@ export default function SitePageGroups({ siteId }: Props) {
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[
-              { label: "Page groups", value: groups.length.toLocaleString(), hint: "Across this site", icon: Layers, surface: "bg-violet-100", iconClass: "text-violet-700" },
-              { label: "Pages analysed", value: totalPages.toLocaleString(), hint: "Latest completed crawl", icon: Globe2, surface: "bg-sky-100", iconClass: "text-sky-700" },
-                { label: "Average score", value: averageScore === null ? "—" : averageScore.toFixed(1), hint: "Across scanned groups", icon: Target, surface: "bg-emerald-100", iconClass: "text-emerald-700" },
-              { label: "Open issues", value: totalIssues.toLocaleString(), hint: `${groupsOnTarget} group${groupsOnTarget === 1 ? "" : "s"} on target`, icon: AlertTriangle, surface: "bg-rose-100", iconClass: "text-rose-700" },
+              { label: "Page groups", value: groups.length.toLocaleString(), hint: "Across this site", tile: "total", icon: Layers, surface: "bg-violet-100", iconClass: "text-violet-700" },
+              { label: "Pages analysed", value: totalPages.toLocaleString(), hint: "Latest completed crawl", tile: "pages", icon: Globe2, surface: "bg-sky-100", iconClass: "text-sky-700" },
+                { label: "Average score", value: averageScore === null ? "—" : averageScore.toFixed(1), hint: "Across scanned groups", tile: "score", icon: Target, surface: "bg-emerald-100", iconClass: "text-emerald-700" },
+              { label: "Open issues", value: totalIssues.toLocaleString(), hint: `${groupsOnTarget} group${groupsOnTarget === 1 ? "" : "s"} on target`, tile: "issues", icon: AlertTriangle, surface: "bg-rose-100", iconClass: "text-rose-700" },
             ].map((metric) => {
               const Icon = metric.icon;
               return (
-                <Card key={metric.label} className="border-white/80 bg-white shadow-[0_8px_24px_rgba(69,57,112,.06)]">
+                <Card key={metric.label} data-metro-tile={metric.tile} className="border-white/80 bg-white shadow-[0_8px_24px_rgba(69,57,112,.06)]">
                   <CardContent className="flex items-center gap-3 p-4 sm:p-5">
                     <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${metric.surface}`}>
                       <Icon className={`h-4 w-4 ${metric.iconClass}`} />
@@ -300,12 +300,12 @@ export default function SitePageGroups({ siteId }: Props) {
                        </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {g.issues_count > 0
-                          ? <span className="font-semibold text-rose-600">{g.issues_count.toLocaleString()}</span>
-                          : <span className="font-semibold text-emerald-600">0</span>}
+                          ? <span data-metro-count="issues" className="font-semibold text-rose-600">{g.issues_count.toLocaleString()}</span>
+                          : <span data-metro-count="success" className="font-semibold text-emerald-600">0</span>}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {g.potential_issues_count > 0
-                          ? <span className="font-semibold text-amber-600">{g.potential_issues_count.toLocaleString()}</span>
+                          ? <span data-metro-count="warning" className="font-semibold text-amber-600">{g.potential_issues_count.toLocaleString()}</span>
                           : <span className="text-muted-foreground">0</span>}
                       </TableCell>
                       <TableCell className="pr-6 text-right text-sm font-medium tabular-nums text-[#405575]">

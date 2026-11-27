@@ -8,6 +8,8 @@ export type ScanRawResult = {
   element: string | null;
   elementContext?: string | null;
   selector: string | null;
+  /** Internal DOM identity across repeated scans of the same document. */
+  occurrenceKey?: string;
 };
 
 export type PushStatFn = (ruleId: string, totalChecked: number, scope: "element" | "page") => void;

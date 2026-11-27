@@ -82,7 +82,7 @@ export async function scanUnobscuredContrast(page: Page, options: {
       // Earlier safe disclosure/focus exploration may already have dismissed
       // an overlay. Re-evaluate that settled state without inventing a click.
       const settledReview = index === 0 && !trigger && options.baseline.some(i =>
-        i.ruleId === "ACT-R69" && i.type === "Potential Issue" &&
+        (i.ruleId === "ACT-R69" || i.ruleId === "ACT-R103") && i.type === "Potential Issue" &&
         i.description.includes("overlapping non-ancestor"));
       if ((!trigger && !settledReview) || trigger && clicked.has(trigger.selector) || page.url() !== url) break;
       if (trigger) {
@@ -109,7 +109,8 @@ export async function scanUnobscuredContrast(page: Page, options: {
       }
       const result = await options.scan();
       stats.push(...result.stats);
-      const candidates = result.issues.filter(i => i.ruleId === "ACT-R69" && i.selector && !seen.has(key(i)));
+      const candidates = result.issues.filter(i =>
+        (i.ruleId === "ACT-R69" || i.ruleId === "ACT-R103") && i.selector && !seen.has(key(i)));
       const boxes = await page.evaluate(selectors => selectors.map(selector => {
         try {
           const el = document.querySelector(selector!);

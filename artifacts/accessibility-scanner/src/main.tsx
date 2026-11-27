@@ -3,6 +3,12 @@ import App from "./App";
 import "./index.css";
 import "./refined-app.css";
 import "./liquid-glass.css";
+import "./metro.css";
+import "./metro-typography.css";
+import "./metro-controls.css";
+import "./metro-issues.css";
+import "./metro-history.css";
+import "./metro-operations.css";
 import {
   getSavedTheme,
   applyTheme,

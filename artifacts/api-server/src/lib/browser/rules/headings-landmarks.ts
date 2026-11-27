@@ -4,6 +4,7 @@ import { getAlfaTabOrder, hasAlfaFocusIndicator, isInsideAlfaLandmarkOrDialog } 
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
 import { isProgrammaticallyHidden, isRendered, isVisible } from "../visibility";
 import { runRepeatedContentRule } from "./repeated-content";
+import { hasNativeCaretIndicator } from "../focus-indicator-paint";
 
 type LandmarkIdentity = { role: string; name: string };
 
@@ -354,7 +355,9 @@ export function runHeadingsLandmarksRules(results: ScanRawResult[], EMIT_MANUAL_
   // ════════════════════════════════════════════════════════════════════════
   {
     getAlfaTabOrder().forEach((el) => {
-      if (hasAlfaFocusIndicator(el)) return;
+      // Native editable fields can expose an insertion caret without changing
+      // CSS on focus. Keep popup/static checks consistent with native R65.
+      if (hasNativeCaretIndicator(el) || hasAlfaFocusIndicator(el)) return;
       results.push({ ruleId: "ACT-R65", type: "Potential Issue", impact: "serious", description: "No replacement focus styling was observed during the programmatic focus check. Verify this control using native keyboard navigation; this heuristic does not establish a confirmed missing focus indicator.", element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: getSelector(el) });
     });
   }

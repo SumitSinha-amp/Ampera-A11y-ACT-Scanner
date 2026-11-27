@@ -3,20 +3,12 @@ import { elementContextForAI, getSelector, outerHtmlSnippet } from "./dom-helper
 import { createKeyboardFocusProbe } from "./keyboard-focus-probe";
 import type { ScanRawResult } from "./types";
 import { getAccessibleName } from "./accname";
+import { hasNativeCaretIndicator, snapshotFocusPaint, type FocusPaint } from "./focus-indicator-paint";
 
-const PAINT = ["color", "background-color", "background-image", "box-shadow",
-  "border-top", "border-right", "border-bottom", "border-left",
-  "text-decoration", "opacity", "visibility", "transform", "filter", "fill", "stroke"];
 function visibleOutline(style: CSSStyleDeclaration) {
   return style.outlineStyle !== "none" && style.outlineStyle !== "hidden" &&
     parseFloat(style.outlineWidth) > 0 && style.outlineColor !== "transparent" &&
     !/rgba\([^)]*,\s*0(?:\.0*)?\s*\)/.test(style.outlineColor);
-}
-function paint(element: Element, pseudo?: string): string {
-  const style = getComputedStyle(element, pseudo);
-  if (pseudo && (style.content === "none" || style.content === "normal")) return "";
-  return JSON.stringify([pseudo ? style.content : "", ...PAINT.map(p => style.getPropertyValue(p)),
-    visibleOutline(style) ? style.outline : ""]);
 }
 
 /** Shared native focus-indicator probe for R65 and Ampera's custom R121.
@@ -36,8 +28,8 @@ export function createFocusAppearanceProbe(ruleId: "ACT-R65" | "ACT-R121" = "ACT
     }
   };
   collect(document);
-  const baseline = new WeakMap<Element, string[]>();
-  for (const el of elements) baseline.set(el, [paint(el), paint(el, "::before"), paint(el, "::after")]);
+  const baseline = new WeakMap<Element, FocusPaint[]>();
+  for (const el of elements) baseline.set(el, [snapshotFocusPaint(el), snapshotFocusPaint(el, "::before"), snapshotFocusPaint(el, "::after")]);
   const suppressionRules: CSSStyleRule[] = [];
   const suppresses = (style: CSSStyleDeclaration) =>
     style.outlineStyle === "none" || style.outlineStyle === "hidden" ||
@@ -67,24 +59,38 @@ export function createFocusAppearanceProbe(ruleId: "ACT-R65" | "ACT-R121" = "ACT
     const id = ids.get(target)!;
     if (target.matches("iframe")) return { id, unverifiedFrame: true };
     const selector = getSelector(target);
-    if (!target.matches(":focus-visible") || !isAlfaVisible(target)) return { id, selector, unverifiedTarget: true };
+    const descendants = [...target.querySelectorAll("*")];
+    // An inline icon link can have zero width while its positioned icon paints
+    // outside that box. Test and highlight its visible descendants instead.
+    const visible = [target, ...descendants].filter(el => isAlfaVisible(el));
+    if (!target.matches(":focus-visible") || !visible.length) return { id, selector, unverifiedTarget: true };
     if (visibleOutline(getComputedStyle(target))) return { id, selector };
+    if (hasNativeCaretIndicator(target)) return { id, selector };
     const rule = suppressionRules.find(rule => {
       try { return target!.matches(rule.selectorText); } catch { return false; }
     });
     const inline = target instanceof HTMLElement || target instanceof SVGElement ? target.style : null;
     const authorSuppressed = !!rule || !!(inline && suppresses(inline));
     if (ruleId === "ACT-R121" && !authorSuppressed) return { id, selector };
-    const descendants = [...target.querySelectorAll("*")];
     // Dynamic/large subtrees require visual review, not an assertion of absence.
     if (descendants.length > 100) return { id, selector, unverifiedTarget: true };
+    const visibleSet = new Set(visible), descendantSet = new Set(descendants);
+    let colorOnly = false;
     for (const el of [target, ...composedAncestors(target), ...descendants]) {
+      if (descendantSet.has(el) && !visibleSet.has(el)) continue;
       const before = baseline.get(el);
       if (!before) return { id, selector, unverifiedTarget: true };
-      const after = [paint(el), paint(el, "::before"), paint(el, "::after")];
-      if (after.some((value, i) => value !== before[i])) return { id, selector };
+      const after = [snapshotFocusPaint(el), snapshotFocusPaint(el, "::before"), snapshotFocusPaint(el, "::after")];
+      if (after.some((value, i) => value.structure !== before[i].structure)) return { id, selector };
+      if (after.some((value, i) => value.colors !== before[i].colors)) colorOnly = true;
     }
-    const rect = target.getBoundingClientRect();
+    const boxes = visible.map(el => el.getBoundingClientRect());
+    const rect = {
+      left: Math.min(...boxes.map(box => box.left)), top: Math.min(...boxes.map(box => box.top)),
+      right: Math.max(...boxes.map(box => box.right)), bottom: Math.max(...boxes.map(box => box.bottom)),
+      width: 0, height: 0,
+    };
+    rect.width = rect.right - rect.left; rect.height = rect.bottom - rect.top;
     if (rect.width <= 0 || rect.height <= 0 || rect.right <= 0 || rect.bottom <= 0 ||
       rect.left >= innerWidth || rect.top >= innerHeight) return { id, selector, unverifiedTarget: true };
     const label = getAccessibleName(target).trim();
@@ -93,8 +99,8 @@ export function createFocusAppearanceProbe(ruleId: "ACT-R65" | "ACT-R121" = "ACT
       issue: {
         ruleId, type: "Potential Issue", impact: "serious",
         description: ruleId === "ACT-R65"
-          ? `Native Tab navigation focused ${label ? JSON.stringify(label) : "this element"} with :focus-visible active, but no visible outline or replacement focus styling was observed on the element, its ancestors, descendants, or pseudo-elements. Review the focused-state evidence for WCAG 2.4.7; subtle, clipped, or low-contrast indicators require visual assessment.`
-          : `Native Tab navigation focused this element with :focus-visible active, but its outline is suppressed by ${rule ? JSON.stringify(rule.selectorText) : "inline CSS"} and no replacement focus styling was observed on the element, its ancestors, descendants, or pseudo-elements. Verify the rendered indicator; this check does not measure the full WCAG 2.4.13 area/contrast requirements.`,
+          ? `Native Tab navigation focused ${label ? JSON.stringify(label) : "this element"} with :focus-visible active, but ${colorOnly ? "only color or other unverified paint changes were observed, without a visible outline or new indicator geometry" : "no visible outline or replacement focus styling was observed on the element, its ancestors, descendants, or pseudo-elements"}. Review the focused-state evidence for WCAG 2.4.7; this is not a confirmed missing indicator or a contrast measurement.`
+          : `Native Tab navigation focused this element with :focus-visible active, but its outline is suppressed by ${rule ? JSON.stringify(rule.selectorText) : "inline CSS"} and ${colorOnly ? "only color or other unverified paint changes were observed" : "no replacement focus styling was observed on the element, its ancestors, descendants, or pseudo-elements"}. Verify the rendered indicator; this check does not measure the full WCAG 2.4.13 area/contrast requirements.`,
         selector, element: outerHtmlSnippet(target), elementContext: elementContextForAI(target),
       },
       box: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },

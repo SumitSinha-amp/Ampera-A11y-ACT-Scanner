@@ -8,6 +8,7 @@ const Card = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
+    data-metro-ui="card"
     className={cn(
       "rounded-xl border bg-card text-card-foreground shadow",
       className
@@ -23,6 +24,7 @@ const CardHeader = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
+    data-metro-ui="card-header"
     className={cn("flex flex-col space-y-1.5 p-6", className)}
     {...props}
   />
@@ -35,6 +37,7 @@ const CardTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
+    data-metro-ui="card-title"
     className={cn("font-semibold leading-none tracking-tight", className)}
     {...props}
   />
@@ -47,6 +50,7 @@ const CardDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
+    data-metro-ui="card-description"
     className={cn("text-sm text-muted-foreground", className)}
     {...props}
   />

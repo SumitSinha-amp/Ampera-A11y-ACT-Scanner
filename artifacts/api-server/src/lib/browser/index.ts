@@ -46,7 +46,7 @@ import {
 
 // Legacy callers may continue to use options: { emitManualOnlyRules?: boolean } = {}.
 function runAllRules(
-  options: { emitManualOnlyRules?: boolean; rules?: string[] } = {},
+  options: { emitManualOnlyRules?: boolean; rules?: string[]; spatialContrast?: boolean } = {},
 ): {
   issues: import("./types").ScanRawResult[];
   stats: { ruleId: string; totalChecked: number; scope: "element" | "page" }[];
@@ -89,7 +89,8 @@ function runAllRules(
   runFamily("links-contrast", () => runLinksContrastRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
   if (isRuleSelected("ACT-R88", selected)) runLinkMinimumContrastRule(results, pushStat);
   if (isRuleSelected("ACT-R89", selected)) runLinkEnhancedContrastRule(results, pushStat);
-  if (isRuleSelected("ACT-R69", selected)) runTextMinimumContrastRule(results, pushStat);
+  if (isRuleSelected("ACT-R69", selected)) runTextMinimumContrastRule(results, pushStat, "ACT-R69", options.spatialContrast);
+  if (isRuleSelected("ACT-R103", selected)) runTextMinimumContrastRule(results, pushStat, "ACT-R103", options.spatialContrast);
   runFamily("tables-forms", () => runTablesFormsRules(results, pushStat));
   runFamily("text-style", () => runTextStyleRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));
   runFamily("structure", () => runStructureMiscRules(results, EMIT_MANUAL_ONLY_RULES, pushStat));

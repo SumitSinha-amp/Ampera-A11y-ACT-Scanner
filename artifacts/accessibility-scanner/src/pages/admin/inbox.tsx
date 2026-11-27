@@ -102,7 +102,7 @@ const STATUS_CONFIG: Record<string, { label: string; icon: React.ReactNode; cls:
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.open;
   return (
-    <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${cfg.cls}`}>
+    <span data-metro-status-badge={status === "open" ? "pending" : status === "in_progress" ? "scanning" : status === "resolved" ? "completed" : "cancelled"} className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${cfg.cls}`}>
       {cfg.icon} {cfg.label}
     </span>
   );

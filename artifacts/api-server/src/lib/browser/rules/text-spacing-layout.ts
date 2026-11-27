@@ -2,6 +2,7 @@ import type { PushStatFn, ScanRawResult } from "../types";
 import { composedAncestors } from "../alfa-helpers";
 import { elementContextForAI, getSelector, outerHtmlSnippet } from "../dom-helpers";
 import { isVisible } from "../visibility";
+import { collectSpacingIcons, hasWorsenedSpacingOverlap, spacingIconBoxes } from "./text-spacing-icons";
 
 type Box = { left: number; right: number; top: number; bottom: number; width: number; height: number };
 type Geometry = { boxes: Box[]; hidden: boolean; clips: Map<Element, number> };
@@ -86,8 +87,9 @@ export function runTextSpacingLayoutRule(results: ScanRawResult[], pushStat: Pus
       }
     }
   }
-  if (!targets.length) return;
-  pushStat("ACT-R129", targets.length, "element");
+  const icons = collectSpacingIcons(elements);
+  if (!targets.length && !icons.length) return;
+  pushStat("ACT-R129", targets.length + icons.length, "element");
 
   // Read all computed values before writing, avoiding forced layout per element.
   // Preserve already wider spacing instead of reducing it to the threshold.
@@ -127,9 +129,16 @@ export function runTextSpacingLayoutRule(results: ScanRawResult[], pushStat: Pus
         findings.set(element, { kind: "Text becomes hidden", potential: false });
         continue;
       }
+      // A larger ancestor can start clipping the same already-truncated text.
+      // Do not move a rejected baseline finding up to that ancestor and label
+      // it newly lost content.
+      if ([...before.clips.values()].some(loss => loss > 0.005)) continue;
       for (const [boundary, loss] of current.clips) {
-        // Ignore baseline clipping and tiny differences caused by rounding.
-        if (loss > 0.05 && loss - (before.clips.get(boundary) || 0) > 0.05) {
+        // Only call clipping newly created when this text was previously
+        // readable within the boundary. Existing ellipsis/truncation is not a
+        // newly created failure merely because its clipped fraction grows.
+        const baselineLoss = before.clips.get(boundary) || 0;
+        if (baselineLoss <= 0.005 && loss > 0.05 && loss - baselineLoss > 0.05) {
           findings.set(boundary, { kind: "Text is newly clipped or truncated by this container", potential: false });
           break; // nearest responsible container, not each ancestor as well
         }
@@ -152,6 +161,35 @@ export function runTextSpacingLayoutRule(results: ScanRawResult[], pushStat: Pus
           if (!findings.has(first.element)) findings.set(first.element, {
             kind: "Text bounds newly overlap another text element; verify readability",
             potential: true, related: second.element,
+          });
+        }
+      }
+    }
+    const iconAfter = icons.map(icon => spacingIconBoxes(icon.element));
+    for (let i = 0; i < icons.length; i++) {
+      const first = icons[i];
+      if (!isVisible(first.element)) continue;
+      for (let j = i + 1; j < icons.length; j++) {
+        const second = icons[j];
+        if (first.element.contains(second.element) || second.element.contains(first.element) ||
+          !isVisible(second.element)) continue;
+        if (hasWorsenedSpacingOverlap(first.before, second.before, iconAfter[i], iconAfter[j]) &&
+          !findings.has(first.element)) {
+          findings.set(first.element, {
+            kind: "Icon or graphic bounds newly overlap, or overlap more, with another icon; verify visibility and functionality",
+            potential: true, related: second.element,
+          });
+        }
+      }
+      for (let j = 0; j < targets.length; j++) {
+        const text = targets[j];
+        if (first.element.contains(text.element) || after[j].hidden ||
+          [...after[j].clips.values()].some(loss => loss > 0.05)) continue;
+        if (hasWorsenedSpacingOverlap(first.before, text.before.boxes, iconAfter[i], after[j].boxes) &&
+          !findings.has(first.element)) {
+          findings.set(first.element, {
+            kind: "Icon or graphic bounds newly overlap, or overlap more, with text; verify readability and functionality",
+            potential: true, related: text.element,
           });
         }
       }
@@ -181,7 +219,7 @@ export function runTextSpacingLayoutRule(results: ScanRawResult[], pushStat: Pus
       ruleId: "ACT-R129",
       type: finding.potential ? "Potential Issue" : "Issue",
       impact: finding.potential ? "moderate" : "serious",
-      description: `${finding.kind} after applying line height ≥1.5×, letter spacing ≥0.12em, word spacing ≥0.16em and paragraph spacing ≥2em (WCAG 1.4.12).${finding.related ? ` Other text: ${getSelector(finding.related)}.` : ""} Custom Ampera layout check.`,
+      description: `${finding.kind} after applying line height ≥1.5×, letter spacing ≥0.12em, word spacing ≥0.16em and paragraph spacing ≥2em (WCAG 1.4.12).${finding.related ? ` Other element: ${getSelector(finding.related)}.` : ""} Custom Ampera layout check.`,
       element: outerHtmlSnippet(element), elementContext: elementContextForAI(element), selector: getSelector(element),
     });
   }

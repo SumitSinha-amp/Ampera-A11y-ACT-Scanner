@@ -55,6 +55,23 @@ describe("Unobscured ACT-R69 states", () => {
     expect(result.states[0].pageHtml).not.toContain('<div id="overlay"');
     expect(result.issues.every(i => i.interactionStateKey === result.states[0].key && i.bboxWidth! > 0)).toBe(true);
   });
+  it("supports an R103-only scan and keeps widget failures with matching unobscured evidence", async () => {
+    await load('<button id="action" style="color:white;background:#ff4f17">Promotion</button>' + modal());
+    const widgetScan = async () => page.evaluate(() => {
+      const r = (window as any).__ampera.runAllRules({ rules: ["ACT-R103"] });
+      return { issues: r.issues as ScanIssue[], stats: r.stats };
+    });
+    const baseline = (await widgetScan()).issues;
+    expect(baseline.some(i => i.selector === "button#action" && i.type === "Potential Issue")).toBe(true);
+    const result = await scanUnobscuredContrast(page, { ...options(baseline), scan: widgetScan });
+    expect(result.error).toBeUndefined();
+    // The empty native field's placeholder is also applicable widget text.
+    expect(result.issues).toHaveLength(2);
+    const action = result.issues.find(i => i.selector === "button#action")!;
+    expect(action).toMatchObject({ ruleId: "ACT-R103", type: "Issue" });
+    expect(action.interactionStateKey).toBe(result.states[0].key);
+    expect(result.states[0].pageHtml).not.toContain('<div id="overlay"');
+  });
   it("recognizes an explicitly named SVG close icon in a non-semantic fixed overlay", async () => {
     await load(modal('<svg data-testid="closeIcon" width="24" height="24"><path d="M0 0L24 24" stroke="black"/></svg>').replace('role="dialog"', ""));
     expect(await findContrastOverlayClose(page)).toMatchObject({ label: "closeIcon" });

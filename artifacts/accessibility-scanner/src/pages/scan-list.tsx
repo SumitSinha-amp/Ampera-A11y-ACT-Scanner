@@ -18,6 +18,8 @@ import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import { useActionProgress } from "@/components/top-loading-progress";
 import { useSite } from "@/contexts/site";
 import { ProjectSelector } from "@/components/project-selector";
+import { SearchableFilter } from "@/components/searchable-filter";
+import { FilterAutocompleteInput } from "@/components/filter-autocomplete-input";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -72,11 +74,6 @@ import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -174,6 +171,7 @@ function ScanRulesSummary({ options }: { options?: ScanRuleDisplayOptions | null
       <TooltipTrigger asChild>
         <div
           className="flex max-w-[11rem] cursor-help flex-wrap gap-1"
+          data-metro-history-rules
           aria-label={
             display.mode === "levels"
               ? `Accessibility scope: ${display.values.join(", ")}. ${appliedRulesDescription}.`
@@ -262,6 +260,11 @@ const HISTORY_STATUS_CONFIG: Record<string, {
   cancelled: { label: "Cancelled", bg: "#f3e5f5", color: "#6a1b9a", dot: "#9c27b0" },
 };
 
+const HISTORY_STATUS_ICONS: Record<string, typeof Play> = {
+  running: Play, paused: Pause, pending: Clock, completed: CheckCircle2,
+  failed: X, cancelled: MinusCircle,
+};
+
 function HistoryStatusBadge({ status }: { status: string }) {
   const config = HISTORY_STATUS_CONFIG[status] ?? {
     label: status || "Unknown",
@@ -273,6 +276,7 @@ function HistoryStatusBadge({ status }: { status: string }) {
   return (
     <span
       className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap"
+      data-metro-history-status={status}
       style={{ backgroundColor: config.bg, color: config.color }}
     >
       <span
@@ -558,84 +562,6 @@ const ALL_STATUSES = [
   { value: "failed",    label: "Failed" },
   { value: "cancelled", label: "Cancelled" },
 ];
-
-function MultiSelectFilter({
-  label,
-  options,
-  selected,
-  onChange,
-}: {
-  label: string;
-  options: { value: string; label: string }[];
-  selected: string[];
-  onChange: (val: string[]) => void;
-}) {
-  const toggle = (value: string) => {
-    onChange(
-      selected.includes(value)
-        ? selected.filter((v) => v !== value)
-        : [...selected, value],
-    );
-  };
-
-  const displayLabel =
-    selected.length === 0
-      ? label
-      : selected.length === 1
-        ? options.find((o) => o.value === selected[0])?.label ?? selected[0]
-        : `${selected.length} selected`;
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          className="flex items-center gap-2 h-10 font-normal"
-        >
-          <span className="truncate max-w-[120px]">{displayLabel}</span>
-          {selected.length > 0 && (
-            <span className="ml-auto flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground font-bold">
-              {selected.length}
-            </span>
-          )}
-          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-52 p-2">
-        <p className="text-xs font-semibold text-muted-foreground px-2 py-1.5 uppercase tracking-wide">
-          {label}
-        </p>
-        <div className={`space-y-0.5 ${label === "Rules" ? "max-h-64 overflow-y-auto pr-1" : ""}`}>
-          {options.map((opt) => (
-            <label
-              key={opt.value}
-              className="flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer text-sm"
-            >
-              <Checkbox
-                checked={selected.includes(opt.value)}
-                onCheckedChange={() => toggle(opt.value)}
-              />
-              {opt.label}
-            </label>
-          ))}
-        </div>
-        {selected.length > 0 && (
-          <>
-            <div className="my-1.5 border-t" />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full h-7 text-xs text-muted-foreground"
-              onClick={() => onChange([])}
-            >
-              Clear
-            </Button>
-          </>
-        )}
-      </PopoverContent>
-    </Popover>
-  );
-}
 
 function EditScanDialog({ scan, open, onClose }: EditScanDialogProps) {
   const { user } = useAuth();
@@ -1201,12 +1127,12 @@ export default function ScanList() {
 
       <div className="relative grid w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: "Total scans", value: siteScopedScans.length, icon: FileText, color: "#6d48c7", bg: "#eee9ff" },
-          { label: "Active now", value: activeScanCount, icon: Activity, color: "#198f88", bg: "#e4f7f0" },
-          { label: "Completed", value: completedScanCount, icon: CheckCircle2, color: "#3778c8", bg: "#e3f0fb" },
-          { label: "Failed scans", value: failedScanCount, icon: AlertTriangle, color: "#e84a3d", bg: "#fff0ed" },
-        ].map(({ label, value, icon: Icon, color, bg }) => (
-          <div key={label} className="flex items-center gap-3 rounded-2xl border border-white/80 bg-white/75 px-5 py-4 shadow-[0_2px_12px_rgba(0,0,0,.06)] backdrop-blur-xl">
+          { label: "Total scans", tile: "total", value: siteScopedScans.length, icon: FileText, color: "#6d48c7", bg: "#eee9ff" },
+          { label: "Active now", tile: "active", value: activeScanCount, icon: Activity, color: "#198f88", bg: "#e4f7f0" },
+          { label: "Completed", tile: "completed", value: completedScanCount, icon: CheckCircle2, color: "#3778c8", bg: "#e3f0fb" },
+          { label: "Failed scans", tile: "failed", value: failedScanCount, icon: AlertTriangle, color: "#e84a3d", bg: "#fff0ed" },
+        ].map(({ label, tile, value, icon: Icon, color, bg }) => (
+          <div key={label} data-metro-tile={tile} className="flex items-center gap-3 rounded-2xl border border-white/80 bg-white/75 px-5 py-4 shadow-[0_2px_12px_rgba(0,0,0,.06)] backdrop-blur-xl">
             <span className="grid h-10 w-10 place-items-center rounded-xl" style={{ backgroundColor: bg, color }}>
               <Icon className="h-5 w-5" />
             </span>
@@ -1224,9 +1150,11 @@ export default function ScanList() {
             <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#9eadca]">Scan title</Label>
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#9eadca]" />
-              <Input
+              <FilterAutocompleteInput
+                aria-label="Search scans by title"
+                suggestions={(scans ?? []).map((scan) => scan.name)}
                 value={nameFilter}
-                onChange={(e) => setNameFilter(e.target.value)}
+                onValueChange={setNameFilter}
                 placeholder="Search by title…"
                 className="h-9 rounded-[10px] border-[#e8edf5] bg-[#f7f8fd] pl-8 text-xs text-[#172b4d] placeholder:text-[#9eadca] focus:border-[#8f73dc] focus:ring-0"
               />
@@ -1237,9 +1165,11 @@ export default function ScanList() {
             <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#9eadca]">Initiator</Label>
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#9eadca]" />
-              <Input
+              <FilterAutocompleteInput
+                aria-label="Filter scans by initiator"
+                suggestions={(scans ?? []).map((scan) => scan.initiatorName)}
                 value={initiatorFilter}
-                onChange={(e) => setInitiatorFilter(e.target.value)}
+                onValueChange={setInitiatorFilter}
                 placeholder="Filter by initiator…"
                 className="h-9 rounded-[10px] border-[#e8edf5] bg-[#f7f8fd] pl-8 text-xs text-[#172b4d] placeholder:text-[#9eadca] focus:border-[#8f73dc] focus:ring-0"
               />
@@ -1250,43 +1180,26 @@ export default function ScanList() {
             <Label htmlFor="history-project-filter" className="text-[11px] font-semibold uppercase tracking-wide text-[#9eadca]">
               Project
             </Label>
-            <Select
-              value={projectFilter == null ? "all" : String(projectFilter)}
-              onValueChange={(value) => setProjectFilter(value === "all" ? null : Number(value))}
+            <SearchableFilter
+              id="history-project-filter"
+              label={!activeSite ? "Select a site" : isLoadingProjects ? "Loading projects…" : "Projects"}
+              selected={[projectFilter == null ? "all" : String(projectFilter)]}
+              onChange={([value]) => setProjectFilter(value === "all" ? null : Number(value))}
               disabled={!activeSite || isLoadingProjects}
-            >
-              <SelectTrigger id="history-project-filter" className="h-9 min-w-[150px] rounded-[10px] border-[#e8edf5] bg-[#f7f8fd] text-xs font-normal text-[#172b4d]">
-                <SelectValue
-                  placeholder={
-                    !activeSite
-                      ? "Select a site"
-                      : isLoadingProjects
-                        ? "Loading projects…"
-                        : "All projects"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All projects</SelectItem>
-                {siteProjects.length > 0 ? (
-                  siteProjects.map((project) => (
-                    <SelectItem key={project.id} value={String(project.id)}>
-                      {project.name}
-                    </SelectItem>
-                  ))
-                ) : (
-                  <SelectItem value="no-projects" disabled>
-                    No projects under this site
-                  </SelectItem>
-                )}
-              </SelectContent>
-            </Select>
+              className="h-9 min-w-[150px] gap-2 rounded-[10px] border-[#e8edf5] bg-[#f7f8fd] text-xs font-normal text-[#172b4d]"
+              options={[
+                { value: "all", label: "All projects" },
+                ...siteProjects.map((project) => ({ value: String(project.id), label: project.name })),
+              ]}
+              emptyMessage={siteProjects.length === 0 ? "No projects under this site" : "No matching projects"}
+            />
           </div>
 
           {ruleOptions.length > 0 && (
             <div className="shrink-0 space-y-1">
               <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#9eadca]">Rules</Label>
-              <MultiSelectFilter
+              <SearchableFilter
+                multiple
                 label="Rules"
                 options={ruleOptions}
                 selected={rulesFilter}
@@ -1305,6 +1218,7 @@ export default function ScanList() {
                   try { input?.showPicker(); } catch { input?.focus(); }
                 }}
                 data-testid="date-from-box"
+                data-metro-ui="date-field"
               >
                 <CalendarDays className="h-3.5 w-3.5 shrink-0 text-[#9eadca]" />
                 <span className="shrink-0 text-xs text-[#7b8aaa]">From</span>
@@ -1323,6 +1237,7 @@ export default function ScanList() {
                   try { input?.showPicker(); } catch { input?.focus(); }
                 }}
                 data-testid="date-to-box"
+                data-metro-ui="date-field"
               >
                 <CalendarDays className="h-3.5 w-3.5 shrink-0 text-[#9eadca]" />
                 <span className="shrink-0 text-xs text-[#7b8aaa]">To</span>
@@ -1360,11 +1275,13 @@ export default function ScanList() {
             </div>
           )}
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[#eef0f8] pt-3">
+        <div data-metro-history-filters className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[#eef0f8] pt-3">
           <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-[#9eadca]">Status</span>
           <button
             type="button"
             onClick={() => setStatusFilter([])}
+            data-metro-status-filter="all"
+            aria-pressed={statusFilter.length === 0}
             className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${statusFilter.length === 0 ? "border-[#6d48c7] bg-[#6d48c7] text-white" : "border-[#e0e4ef] bg-[#fafafa] text-[#667085] hover:border-[#bdb1ed]"}`}
           >
             All
@@ -1372,10 +1289,13 @@ export default function ScanList() {
           {ALL_STATUSES.map((status) => {
             const config = HISTORY_STATUS_CONFIG[status.value];
             const active = statusFilter.includes(status.value);
+            const StatusIcon = HISTORY_STATUS_ICONS[status.value] ?? Clock;
             return (
               <button
                 key={status.value}
                 type="button"
+                data-metro-status-filter={status.value}
+                aria-pressed={active}
                 onClick={() => setStatusFilter((current) => current.includes(status.value)
                   ? current.filter((value) => value !== status.value)
                   : [...current, status.value])}
@@ -1384,7 +1304,8 @@ export default function ScanList() {
                   ? { borderColor: config?.dot, backgroundColor: config?.bg, color: config?.color }
                   : { borderColor: "#e0e4ef", backgroundColor: "#fafafa", color: "#667085" }}
               >
-                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: config?.dot }} />
+                <span data-metro-status-dot className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: config?.dot }} />
+                <StatusIcon className="metro-history-status-icon hidden" aria-hidden="true" />
                 {status.label}
               </button>
             );
@@ -1402,13 +1323,13 @@ export default function ScanList() {
                 Live refresh{secondsSinceRefresh > 0 ? ` · ${secondsSinceRefresh}s ago` : ""}
               </span>
             )}
-            <span>{filteredScans.length} result{filteredScans.length === 1 ? "" : "s"}</span>
+            <span data-metro-history-results>{filteredScans.length} result{filteredScans.length === 1 ? "" : "s"}</span>
           </div>
         </div>
       </div>
 
       <div className="relative w-full overflow-hidden rounded-[20px] border border-white/80 bg-white/75 shadow-[0_2px_16px_rgba(0,0,0,.07)] backdrop-blur-xl">
-        <Table className="min-w-[1120px] table-fixed">
+        <Table data-metro-history-table className="min-w-[1120px] table-fixed">
           <colgroup>
             <col style={{ width: "4%" }} />
             <col style={{ width: "29%" }} />
@@ -1547,7 +1468,7 @@ export default function ScanList() {
                       <ScanRulesSummary options={historyScan.options} />
                     </TableCell>
                     <TableCell className="py-3">
-                      <span className={`font-mono text-[13px] font-bold ${(historyScan.pagesWithIssues ?? 0) > 0 ? "text-[#e84a3d]" : "text-[#b8c1cf]"}`}>
+                      <span data-metro-issue-count={(historyScan.pagesWithIssues ?? 0) > 0 ? "positive" : "zero"} className={`font-mono text-[13px] font-bold ${(historyScan.pagesWithIssues ?? 0) > 0 ? "text-[#e84a3d]" : "text-[#b8c1cf]"}`}>
                         {(historyScan.pagesWithIssues ?? 0) > 0 ? `${(historyScan.pagesWithIssues ?? 0).toLocaleString()} pages` : "—"}
                       </span>
                     </TableCell>
@@ -1594,6 +1515,7 @@ export default function ScanList() {
                             size="icon"
                             className="h-7 w-7 rounded-lg border border-[#d9d0f8] bg-[#eee9ff] text-[#6d48c7] hover:bg-[#e3dcff] hover:text-[#5c3bb5]"
                             title="View Detail"
+                            data-metro-history-action="view"
                           >
                             <FileText className="w-4 h-4" />
                           </Button>
@@ -1603,6 +1525,7 @@ export default function ScanList() {
                           size="icon"
                             className="h-7 w-7 rounded-lg border border-[#e0e4ef] bg-[#fafafa] text-[#667085] hover:bg-[#f0f2f8] hover:text-[#374151]"
                           title="Edit scan details"
+                          data-metro-history-action="edit"
                           onClick={() =>
                             setEditingScan({
                               id: scan.id,
@@ -1623,6 +1546,7 @@ export default function ScanList() {
                               size="icon"
                               className="h-7 w-7 rounded-lg border border-[#ffcdd2] bg-[#fff5f5] text-[#e53935] hover:bg-[#ffe7e7] hover:text-[#c62828]"
                               title="Delete"
+                              data-metro-history-action="delete"
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>

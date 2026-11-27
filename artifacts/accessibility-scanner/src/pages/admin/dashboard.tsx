@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Users, Shield, Clock3, Zap, LayoutGrid, Ticket, ArrowRight } from "lucide-react";
 import { Link } from "wouter";
 import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
+import type { MetroTile } from "@/lib/metro-presentation";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -36,6 +37,7 @@ function StatCard({
   color,
   bg,
   border,
+  tile,
   delayMs,
 }: {
   label: string;
@@ -45,10 +47,12 @@ function StatCard({
   color: string;
   bg: string;
   border: string;
+  tile: MetroTile;
   delayMs: number;
 }) {
   return (
-    <article 
+    <article
+      data-metro-tile={tile}
       className="dashboard-overview-card relative animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both"
       style={{ animationDelay: `${delayMs}ms` }}
     >
@@ -120,6 +124,7 @@ export default function AdminDashboardPage() {
       <section className="dashboard-metric-grid relative grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Total users"
+          tile="total"
           value={stats?.totalUsers ?? 0}
           sub="Across all groups"
           icon={<Users className="h-5 w-5" />}
@@ -130,6 +135,7 @@ export default function AdminDashboardPage() {
         />
         <StatCard
           label="Active users"
+          tile="active"
           value={stats?.activeUsers ?? 0}
           sub="Currently active accounts"
           icon={<Zap className="h-5 w-5" />}
@@ -140,6 +146,7 @@ export default function AdminDashboardPage() {
         />
         <StatCard
           label="User groups"
+          tile="pages"
           value={stats?.totalGroups ?? 0}
           sub="Organizational units"
           icon={<LayoutGrid className="h-5 w-5" />}
@@ -150,6 +157,7 @@ export default function AdminDashboardPage() {
         />
         <StatCard
           label="Open tickets"
+          tile="warning"
           value={stats?.openTickets ?? 0}
           sub="Pending resolutions"
           icon={<Ticket className="h-5 w-5" />}

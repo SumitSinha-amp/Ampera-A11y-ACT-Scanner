@@ -1,0 +1,163 @@
+/* Shared operational data language. Semantic attributes are authored by UI components,
+   never inferred from row position or visible text. */
+html.metro .app-shell :is([data-metro-status-badge], [data-metro-impact]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 1.55rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--metro-semantic-color, #59636f) !important;
+  border-radius: 0 !important;
+  background: var(--metro-semantic-color, #59636f) !important;
+  color: #fff !important;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+html.metro .app-shell :is([data-metro-status-badge], [data-metro-impact]) :is(svg, span) {
+  color: inherit !important;
+}
+html.metro .app-shell :is([data-metro-status-badge="running"], [data-metro-status-badge="active"], [data-metro-status-badge="healthy"], [data-metro-status-badge="confirmed"], [data-metro-status-badge="discovering"]) { --metro-semantic-color: #218200; }
+html.metro .app-shell :is([data-metro-status-badge="crawled"], [data-metro-status-badge="paused"], [data-metro-status-badge="warning"], [data-metro-status-badge="moderate"], [data-metro-impact="moderate"]) { --metro-semantic-color: #a94d00; }
+html.metro .app-shell :is([data-metro-status-badge="scanning"], [data-metro-status-badge="pending"], [data-metro-status-badge="minor"], [data-metro-impact="minor"]) { --metro-semantic-color: #005bbb; }
+html.metro .app-shell :is([data-metro-status-badge="completed"]) { --metro-semantic-color: #0063d4; }
+html.metro .app-shell :is([data-metro-status-badge="failed"], [data-metro-status-badge="error"], [data-metro-status-badge="rejected"], [data-metro-status-badge="critical"], [data-metro-impact="critical"]) { --metro-semantic-color: #ce001a; }
+html.metro .app-shell [data-metro-status-badge="cancelled"] { --metro-semantic-color: #6500a0; }
+html.metro .app-shell :is([data-metro-status-badge="serious"], [data-metro-impact="serious"]) { --metro-semantic-color: #c34a00; }
+html.metro .app-shell [data-metro-status-badge="other"] { --metro-semantic-color: #59636f; }
+
+html.metro [data-metro-status-filter="running"],
+html.metro [data-metro-status-filter="discovering"],
+html.metro [data-metro-status-filter="confirmed"] { --metro-status-color: #218200; }
+html.metro [data-metro-status-filter="paused"],
+html.metro [data-metro-status-filter="crawled"],
+html.metro [data-metro-status-filter="in_progress"] { --metro-status-color: #a94d00; }
+html.metro [data-metro-status-filter="pending"],
+html.metro [data-metro-status-filter="scanning"] { --metro-status-color: #005bbb; }
+html.metro [data-metro-status-filter="rejected"],
+html.metro [data-metro-status-filter="failed"] { --metro-status-color: #ce001a; }
+html.metro [data-metro-status-filter="completed"] { --metro-status-color: #0063d4; }
+html.metro [data-metro-status-filter="cancelled"] { --metro-status-color: #6500a0; }
+html.metro [data-metro-status-filter="all"] { --metro-status-color: #6a00bd; }
+
+/* Metric cards become saturated only when explicitly marked by semantic identity. */
+html.metro .app-shell [data-metro-tile] {
+  --metro-tile-color: #6a00bd;
+  background: var(--metro-tile-color) !important;
+  border-color: var(--metro-tile-color) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: #fff !important;
+}
+html.metro .app-shell [data-metro-tile] :is(svg, p, span, strong, small, .text-muted-foreground, [class*="text-"]) {
+  color: #fff !important;
+}
+html.metro .app-shell [data-metro-tile="active"] { --metro-tile-color: #16821b; }
+html.metro .app-shell [data-metro-tile="completed"],
+html.metro .app-shell [data-metro-tile="pages"] { --metro-tile-color: #0865ba; }
+html.metro .app-shell [data-metro-tile="failed"],
+html.metro .app-shell [data-metro-tile="critical"] { --metro-tile-color: #c91420; }
+html.metro .app-shell [data-metro-tile="warning"],
+html.metro .app-shell [data-metro-tile="links"] { --metro-tile-color: #a94d00; }
+html.metro .app-shell [data-metro-tile="issues"] { --metro-tile-color: #00786f; }
+html.metro :is(.app-shell, [role="menu"]) :is(button, a, [role="button"], [role="menuitem"])[data-metro-action] {
+  border: 1px solid var(--metro-action-color) !important;
+  border-radius: 0 !important;
+  background: var(--metro-action-color) !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+html.metro :is(.app-shell, [role="menu"]) [data-metro-action] :is(svg, span) { color: inherit !important; }
+html.metro :is(.app-shell, [role="menu"]) [data-metro-action="view"] { --metro-action-color: #0063d4; }
+html.metro :is(.app-shell, [role="menu"]) [data-metro-action="edit"] { --metro-action-color: #00786f; }
+html.metro :is(.app-shell, [role="menu"]) [data-metro-action="delete"] { --metro-action-color: #ce001a; }
+html.metro :is(.app-shell, [role="menu"]) [data-metro-action="retry"] { --metro-action-color: #a94d00; }
+html.metro :is(.app-shell, [role="menu"]) [data-metro-action="manage"] { --metro-action-color: #6a00bd; }
+html.metro .app-shell [data-metro-count] {
+  display: inline-block;
+  min-width: 1.5rem;
+  padding: 0.18rem 0.4rem;
+  border-radius: 0 !important;
+  color: #fff !important;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+html.metro .app-shell [data-metro-count="issues"],
+html.metro .app-shell [data-metro-count="critical"] { background: #ce001a !important; }
+html.metro .app-shell [data-metro-count="rules"] { background: #6a00bd !important; }
+html.metro .app-shell [data-metro-count="pages"] { background: #0063d4 !important; }
+html.metro .app-shell [data-metro-count="links"] { background: #005bbb !important; }
+html.metro .app-shell [data-metro-count="success"] { background: #00786f !important; }
+html.metro .app-shell [data-metro-count="warning"] { background: #a94d00 !important; }
+html.metro .app-shell [data-metro-rule-chip] {
+  border: 1px solid #6a00bd !important;
+  border-radius: 0 !important;
+  background: #6a00bd !important;
+  color: #fff !important;
+}
+html.metro .app-shell [data-metro-conformance] {
+  background: #005bbb !important;
+  border-color: #005bbb !important;
+  color: #fff !important;
+}
+html.metro .app-shell [data-metro-conformance="AA"] {
+  background: #6a00bd !important;
+  border-color: #6a00bd !important;
+}
+html.metro .app-shell [data-metro-conformance="AAA"] {
+  background: #a94d00 !important;
+  border-color: #a94d00 !important;
+}
+html.metro [data-metro-status-filter] {
+  background: var(--metro-status-color, #6a00bd) !important;
+  border-color: var(--metro-status-color, #6a00bd) !important;
+  color: #fff !important;
+}
+html.metro [data-metro-status-filter][aria-pressed="true"] {
+  box-shadow: inset 0 0 0 2px #fff, 0 0 0 1px var(--metro-status-color, #6a00bd) !important;
+}
+
+html.metro .qa-tab-icon,
+html.metro .qa-coming-soon-emoji,
+html.metro .scan-legacy-emoji { display: none !important; }
+html.metro .qa-coming-soon-metro-icon,
+html.metro .scan-metro-icon { display: inline-block !important; }
+
+/* Data tables keep their compact neutral header and dark, high-legibility body. */
+html.metro .app-shell :is([data-metro-data-table], .qa-data-table-surface) table {
+  color: #262626;
+}
+html.metro .app-shell :is([data-metro-data-table], .qa-data-table-surface) :is(tbody td, tbody [role="cell"]) {
+  color: #262626;
+}
+html.metro .app-shell :is([data-metro-data-table], .qa-data-table-surface) tbody tr {
+  background-color: #fff;
+  border-bottom: 1px solid #dedede;
+}
+html.metro .app-shell :is([data-metro-data-table], .qa-data-table-surface) tbody tr:hover {
+  background-color: #eef5fc !important;
+}
+html.metro .app-shell :is(table, [role="table"]) :is(tbody td, tbody [role="cell"]) {
+  color: #262626;
+}
+html.metro .app-shell .vision-qa .qa-stat[data-metro-tile] {
+  min-height: 5rem;
+}
+html.metro .app-shell .vision-qa .qa-panel[data-metro-tile] {
+  border-radius: 0 !important;
+  border-color: var(--metro-tile-color, #6a00bd) !important;
+  background: var(--metro-tile-color, #6a00bd) !important;
+  color: #fff !important;
+}
+html.metro .app-shell .vision-qa .qa-stat[data-metro-tile] :is(svg, p, span, strong) {
+  color: #fff !important;
+}
+html.metro .app-shell [data-metro-tile="total"],
+html.metro .app-shell [data-metro-tile="score"],
+html.metro .app-shell [data-metro-tile="rules"] { --metro-tile-color: #6a00bd; }
+html.metro .app-shell [data-metro-tile="scanned"],
+html.metro .app-shell [data-metro-tile="checked"] { --metro-tile-color: #0865ba; }
+html.metro .app-shell [data-metro-tile="broken"],
+html.metro .app-shell [data-metro-tile="redirects"] { --metro-tile-color: #ce001a; }

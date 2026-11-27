@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Clock, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight } from "lucide-react";
@@ -146,7 +146,7 @@ export function QAPageShell({
   children: ReactNode;
 }) {
   return (
-    <div className="vision-page vision-qa relative -m-3 min-h-full min-w-0 overflow-hidden bg-[#f5f6fb] p-3 md:-m-5 md:p-5">
+    <div className="vision-page vision-qa relative -m-3 min-h-full min-w-0 overflow-hidden bg-[#f5f6fb] p-3 md:-m-5 md:p-5" data-metro-module="quality-assurance">
       <div className="relative z-10 mx-auto max-w-none space-y-5 pb-10">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Link href="/welcome" className="inline-flex items-center gap-1 hover:text-foreground hover:underline">
@@ -190,7 +190,7 @@ export function QAPageShell({
                     : "text-[#7b8aaa] hover:bg-[#f0f2f8] hover:text-[#172b4d]"
                 }`}
               >
-                <span aria-hidden="true" className="text-[13px] leading-none">{tab.icon}</span>
+                <span aria-hidden="true" className="qa-tab-icon text-[13px] leading-none">{tab.icon}</span>
                 {tab.label}
               </Link>
             );
@@ -382,7 +382,8 @@ export function QAComingSoon({ feature, description }: { feature: string; descri
   return (
     <div className="flex flex-col items-center justify-center py-20 gap-4 text-muted-foreground">
       <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center">
-        <span className="text-2xl">🔜</span>
+        <span className="qa-coming-soon-emoji text-2xl">🔜</span>
+        <Clock className="qa-coming-soon-metro-icon hidden h-6 w-6" aria-hidden="true" />
       </div>
       <p className="text-lg font-semibold text-foreground">{feature}</p>
       {description && (

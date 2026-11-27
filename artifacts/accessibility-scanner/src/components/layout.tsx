@@ -135,6 +135,7 @@ const THEME_OPTIONS: { value: Theme; label: string }[] = [
   { value: "glass-vision", label: "Vision Pro" },
   { value: "glass-vision-light", label: "Vision Pro Light" },
   { value: "liquid-glass", label: "Liquid Glass" },
+  { value: "metro", label: "Windows Phone Metro" },
 ];
 
 function HeaderThemeSwitcher() {
@@ -3359,7 +3360,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   <div className="flex min-w-0 items-center gap-2">
                      <p className="text-sm font-normal text-muted-foreground">Main menu</p>
                 </div>
-                  <div className="sidebar-search-wrap is-open">
+                  <div className="sidebar-search-wrap is-open" data-metro-ui="search-field">
                    <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
                    <input
                       value={sidebarSearch}

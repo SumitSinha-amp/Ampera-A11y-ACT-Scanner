@@ -58,12 +58,19 @@ export function runStructureMiscRules(results: ScanRawResult[], EMIT_MANUAL_ONLY
       const fontSize = parseFloat(style.fontSize);
       if (isNaN(fontSize) || fontSize <= 0) continue;
       const origLSStr = style.letterSpacing;
-      if (origLSStr && origLSStr !== "normal") {
-        const origLS = parseFloat(origLSStr);
+      if (origLSStr && (origLSStr !== "normal" ||
+        (el.style.getPropertyPriority("letter-spacing") === "important" &&
+          el.style.getPropertyValue("letter-spacing") !== "normal"))) {
+        // Chromium serializes zero letter spacing as "normal".
+        const origLS = origLSStr === "normal" ? 0 : parseFloat(origLSStr);
         if (!isNaN(origLS) && origLS / fontSize < 0.12) {
-          if (isImportantBlocked(el, "letter-spacing", "999px")) {
+          // R91 concerns an authored inline-important declaration, not a
+          // stylesheet default or the result of a transient computed-style
+          // probe. A failed 999px probe does not establish clipping or an
+          // inline declaration that can block spacing overrides.
+          if (el.style.getPropertyPriority("letter-spacing") === "important") {
             const sel = getSelector(el);
-            if (!r91Seen.has(sel)) { r91Seen.add(sel); results.push({ ruleId: "ACT-R91", type: "Potential Issue", impact: "moderate", description: `letter-spacing is locked with !important (${origLS.toFixed(1)}px, ${(origLS / fontSize).toFixed(3)}× font-size) below 0.12× minimum`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: sel }); }
+            if (!r91Seen.has(sel)) { r91Seen.add(sel); results.push({ ruleId: "ACT-R91", type: "Potential Issue", impact: "moderate", description: `An inline !important letter-spacing declaration computes to ${origLS.toFixed(1)}px (${(origLS / fontSize).toFixed(3)}× font-size), below the 0.12em test setting. Review whether users can increase spacing without losing content or functionality. This finding does not establish clipping, and default spacing below 0.12em alone is not a WCAG failure.`, element: outerHtmlSnippet(el), elementContext: elementContextForAI(el), selector: sel }); }
           }
         }
       }

@@ -22,6 +22,7 @@ import {
   QA_TABLE_SHELL_CLASS,
   QAPageShell,
 } from "@/pages/qa-shared";
+import { metroStatusProps } from "@/lib/metro-presentation";
 import "./qa-pages.css";
 
 interface CrawlHistoryRow {
@@ -55,7 +56,7 @@ function StatusBadge({ status }: { status: string }) {
       : status === "failed" || status === "error"
       ? "destructive"
       : "outline";
-  return <Badge variant={variant}>{status}</Badge>;
+  return <Badge {...metroStatusProps(status)} variant={variant}>{status}</Badge>;
 }
 
 export default function QACheckHistoryPage() {

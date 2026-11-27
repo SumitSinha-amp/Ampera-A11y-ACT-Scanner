@@ -52,6 +52,7 @@ import { useAuth } from "@/contexts/auth";
 import { useSite } from "@/contexts/site";
 import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import "./crawler-dashboard.css";
+import { metroActionProps, metroCountProps, metroStatusProps } from "@/lib/metro-presentation";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -132,7 +133,7 @@ function StatusPill({ status }: { status: string }) {
   const view = STATUS_VIEW[status] ?? STATUS_VIEW.pending;
   return (
     <span className="inline-flex flex-col items-start gap-0.5">
-      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[12px] font-semibold ${view.bg} ${view.text}`}>
+      <span {...metroStatusProps(status)} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[12px] font-semibold ${view.bg} ${view.text}`}>
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${view.dot} ${isActiveStatus(status) ? "animate-pulse" : ""}`} />
         {view.label}
       </span>
@@ -507,13 +508,13 @@ export default function CrawlerListPage() {
         <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-5">
             {([
-              ["Total Crawlers", sessions.length.toLocaleString(), "text-primary", Bug],
-              ["Active", sessions.filter((s) => isActiveStatus(s.status) && s.status !== "paused").length.toLocaleString(), "text-secondary", Zap],
-              ["Ready to Scan", sessions.filter((s) => s.status === "crawled").length.toLocaleString(), "text-amber-600 dark:text-amber-400", Hourglass],
-              ["Pages Scanned", sessions.reduce((sum, s) => sum + s.totalScanned, 0).toLocaleString(), "text-violet-600 dark:text-violet-400", FileText],
-              ["Broken Links", sessions.reduce((sum, s) => sum + s.brokenLinksCount, 0).toLocaleString(), "text-red-600 dark:text-red-400", Link2],
-            ] as const).map(([label, value, color, icon]) => (
-              <div key={String(label)} className="crawler-stat-card min-w-0 rounded-[14px] border border-white/70 bg-white/75 px-3.5 py-3 shadow-[0_2px_10px_rgba(0,0,0,.06)] backdrop-blur-xl">
+              ["Total Crawlers", sessions.length.toLocaleString(), "text-primary", Bug, "total"],
+              ["Active", sessions.filter((s) => isActiveStatus(s.status) && s.status !== "paused").length.toLocaleString(), "text-secondary", Zap, "active"],
+              ["Ready to Scan", sessions.filter((s) => s.status === "crawled").length.toLocaleString(), "text-amber-600 dark:text-amber-400", Hourglass, "warning"],
+              ["Pages Scanned", sessions.reduce((sum, s) => sum + s.totalScanned, 0).toLocaleString(), "text-violet-600 dark:text-violet-400", FileText, "pages"],
+              ["Broken Links", sessions.reduce((sum, s) => sum + s.brokenLinksCount, 0).toLocaleString(), "text-red-600 dark:text-red-400", Link2, "failed"],
+            ] as const).map(([label, value, color, icon, tile]) => (
+              <div key={String(label)} data-metro-tile={tile} className="crawler-stat-card min-w-0 rounded-[14px] border border-white/70 bg-white/75 px-3.5 py-3 shadow-[0_2px_10px_rgba(0,0,0,.06)] backdrop-blur-xl">
                 {(() => {
                   const Icon = icon;
                   return <Icon className={`crawler-stat-icon ${color}`} aria-hidden="true" />;
@@ -672,6 +673,7 @@ export default function CrawlerListPage() {
                       type="button"
                       onClick={() => setStatusFilter(status)}
                       aria-pressed={selected}
+                      data-metro-status-filter={status}
                       className={`rounded-full border px-3 py-[5px] text-[12px] font-semibold capitalize transition-colors ${
                         selected
                           ? "border-[#198f88] bg-[#198f88] text-white"
@@ -768,7 +770,7 @@ export default function CrawlerListPage() {
                           </TableCell>
                           <TableCell className="px-2 py-3">
                             {s.totalIssues > 0
-                              ? <span className="text-[13px] font-bold text-[#e84a3d]">{s.totalIssues.toLocaleString()}</span>
+                              ? <span {...metroCountProps("issues")} className="text-[13px] font-bold text-[#e84a3d]">{s.totalIssues.toLocaleString()}</span>
                               : <span className="text-[#cccccc]">—</span>}
                           </TableCell>
                           <TableCell className="px-2 py-3">
@@ -790,7 +792,7 @@ export default function CrawlerListPage() {
                                   Scan now
                                 </Button>
                               )}
-                              <Button asChild variant="outline" size="icon" className="h-7 w-7 rounded-lg border-violet-200 bg-violet-50 text-violet-600 hover:bg-violet-100 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-300" aria-label={`View crawler ${s.name || `#${s.id}`}`}>
+                              <Button {...metroActionProps("view")} asChild variant="outline" size="icon" className="h-7 w-7 rounded-lg border-violet-200 bg-violet-50 text-violet-600 hover:bg-violet-100 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-300" aria-label={`View crawler ${s.name || `#${s.id}`}`}>
                                 <Link href={`/crawler/${s.id}`}><ExternalLink className="h-3.5 w-3.5" aria-hidden="true" /></Link>
                               </Button>
                               {(s.status === "discovering" || s.status === "scanning") && (
@@ -820,7 +822,7 @@ export default function CrawlerListPage() {
                                     <DropdownMenuItem onClick={() => cancelMutation.mutate(s.id)} className="gap-2 text-orange-600"><XCircle className="h-4 w-4" /> Cancel</DropdownMenuItem>
                                   ) : null}
                                   {canDeleteCrawl && (
-                                    <DropdownMenuItem onClick={() => setDeleteId(s.id)} className="gap-2 text-destructive focus:text-destructive"><Trash2 className="h-4 w-4" /> Delete</DropdownMenuItem>
+                                    <DropdownMenuItem {...metroActionProps("delete")} onClick={() => setDeleteId(s.id)} className="gap-2 text-destructive focus:text-destructive"><Trash2 className="h-4 w-4" /> Delete</DropdownMenuItem>
                                   )}
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -884,7 +886,7 @@ export default function CrawlerListPage() {
                           <Link href={`/crawler/${s.id}`} className="hover:underline text-foreground">
                             {new Date(s.createdAt).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}
                           </Link>
-                          <Badge className={`block w-fit mt-1 text-[10px] px-1.5 ${statusBadge(s.status)}`}>
+                          <Badge {...metroStatusProps(s.status)} className={`block w-fit mt-1 text-[10px] px-1.5 ${statusBadge(s.status)}`}>
                             {statusLabel(s.status)}
                           </Badge>
                           {/* Mini phase indicator for active */}

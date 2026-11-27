@@ -26,6 +26,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useSite } from "@/contexts/site";
+import { metroActionProps, metroCountProps, metroStatusProps } from "@/lib/metro-presentation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
 import {
@@ -124,7 +125,7 @@ function OverviewTab({ site, overview, onRunNow, isRunning }: { site: Site, over
   return (
     <div className="space-y-6">
       <div className="dashboard-metric-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="dashboard-overview-card">
+        <Card data-metro-tile="pages" className="dashboard-overview-card">
           <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="dashboard-metric-label text-sm font-medium">Pages Scanned</CardTitle>
             <FileText className="w-4 h-4 text-muted-foreground" />
@@ -134,7 +135,7 @@ function OverviewTab({ site, overview, onRunNow, isRunning }: { site: Site, over
             <p className="dashboard-metric-detail text-xs text-muted-foreground mt-1">Total pages in index</p>
           </CardContent>
         </Card>
-        <Card className="dashboard-overview-card">
+        <Card data-metro-tile="warning" className="dashboard-overview-card">
           <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="dashboard-metric-label text-sm font-medium">Failed Pages</CardTitle>
             <AlertTriangle className="w-4 h-4 text-orange-500" />
@@ -144,7 +145,7 @@ function OverviewTab({ site, overview, onRunNow, isRunning }: { site: Site, over
             <p className="dashboard-metric-detail text-xs text-muted-foreground mt-1">Encountered errors</p>
           </CardContent>
         </Card>
-        <Card className="dashboard-overview-card">
+        <Card data-metro-tile="links" className="dashboard-overview-card">
           <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="dashboard-metric-label text-sm font-medium">Internal Links</CardTitle>
             <LinkIcon className="w-4 h-4 text-muted-foreground" />
@@ -154,7 +155,7 @@ function OverviewTab({ site, overview, onRunNow, isRunning }: { site: Site, over
             <p className="dashboard-metric-detail text-xs text-muted-foreground mt-1">Discovered edges</p>
           </CardContent>
         </Card>
-        <Card className="dashboard-overview-card">
+        <Card data-metro-tile="total" className="dashboard-overview-card">
           <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="dashboard-metric-label text-sm font-medium">Assets Checked</CardTitle>
             <Activity className="w-4 h-4 text-muted-foreground" />
@@ -180,7 +181,7 @@ function OverviewTab({ site, overview, onRunNow, isRunning }: { site: Site, over
               <Activity className="w-4 h-4 text-muted-foreground" />
               <span className="text-sm font-medium">Current Status</span>
             </div>
-            <Badge variant={overview.status === "running" ? "default" : "outline"} className={overview.status === "running" ? "animate-pulse" : ""}>
+            <Badge {...metroStatusProps(overview.status)} variant={overview.status === "running" ? "default" : "outline"} className={overview.status === "running" ? "animate-pulse" : ""}>
               {overview.status.toUpperCase()}
             </Badge>
           </div>
@@ -334,9 +335,9 @@ function RulesTab({ siteId }: { siteId: string }) {
                   <TableCell className="text-sm text-muted-foreground">{rule.note}</TableCell>
                   <TableCell className="text-center">
                     {rule.enabled ? (
-                      <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/10">Active</Badge>
+                      <Badge data-metro-status-badge="active" variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/10">Active</Badge>
                     ) : (
-                      <Badge variant="outline">Disabled</Badge>
+                      <Badge data-metro-status-badge="other" variant="outline">Disabled</Badge>
                     )}
                   </TableCell>
                   <TableCell>
@@ -347,10 +348,10 @@ function RulesTab({ siteId }: { siteId: string }) {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setEditingRule(rule)}>
+                        <DropdownMenuItem {...metroActionProps("edit")} onClick={() => setEditingRule(rule)}>
                           <Pencil className="w-4 h-4 mr-2" /> Edit Configuration
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => deleteRule.mutate(rule.id)} className="text-destructive focus:text-destructive">
+                        <DropdownMenuItem {...metroActionProps("delete")} onClick={() => deleteRule.mutate(rule.id)} className="text-destructive focus:text-destructive">
                           <Trash2 className="w-4 h-4 mr-2" /> Delete Rule
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -471,7 +472,7 @@ function HistoryTab({ history }: { history: HistorySession[] }) {
                 <TableRow key={session.id}>
                   <TableCell className="font-mono text-xs">{fmtDateTime(session.createdAt)}</TableCell>
                   <TableCell>
-                    <Badge variant="outline" className={`px-2 py-0 border-transparent ${statusBadge(session.status)}`}>
+                    <Badge {...metroStatusProps(session.status)} variant="outline" className={`px-2 py-0 border-transparent ${statusBadge(session.status)}`}>
                       {session.status.toUpperCase()}
                     </Badge>
                   </TableCell>
@@ -483,14 +484,14 @@ function HistoryTab({ history }: { history: HistorySession[] }) {
                   </TableCell>
                   <TableCell className="text-right font-mono text-sm">
                     {session.totalIssues > 0 ? (
-                      <span className="text-orange-600 dark:text-orange-400">{session.totalIssues.toLocaleString()}</span>
+                      <span {...metroCountProps("issues")} className="text-orange-600 dark:text-orange-400">{session.totalIssues.toLocaleString()}</span>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
                   <TableCell className="text-right font-mono text-sm">
                     {session.brokenLinksCount > 0 ? (
-                      <span className="text-destructive">{session.brokenLinksCount.toLocaleString()}</span>
+                      <span {...metroCountProps("issues")} className="text-destructive">{session.brokenLinksCount.toLocaleString()}</span>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}

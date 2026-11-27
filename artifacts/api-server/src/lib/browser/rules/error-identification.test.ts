@@ -84,19 +84,57 @@ describe.skipIf(!existsSync(chromium))("ACT-R82 automatic findings and Alfa revi
     "checkbox", "combobox", "listbox", "menuitemcheckbox", "menuitemradio",
     "radio", "searchbox", "slider", "spinbutton", "switch", "textbox",
   ])("covers Alfa role %s without needing aria-invalid", async (role) => {
-    const result = await scan(`<div id="field" role="${role}" aria-label="Example field"></div>`);
+    const result = await scan(`<div id="field" role="${role}" aria-required="true" aria-label="Example field"></div>`);
     expect(result.issues).toHaveLength(1);
     expect(result.issues[0]).toMatchObject({ selector: "div#field", type: "Potential Issue" });
     expect(result.issues[0].description).toContain("not evidence of an error or a confirmed failure");
     expect(result.status?.status).toBe("executed");
   });
   it("covers native roles, hidden/dormant controls, and role-token fallbacks", async () => {
-    const result = await scan(`<input type="checkbox"><input type="radio"><select><option>Country</option></select>
+    const result = await scan(`<input type="checkbox" required><input type="radio" required><select><option>Country</option></select>
       <input type="search"><input type="range"><input type="number"><textarea></textarea>
       <div hidden><input type="text"></div><div role="bogus textbox"></div>`);
     expect(result.issues).toHaveLength(9);
     expect(result.issues.every((issue) => issue.type === "Potential Issue")).toBe(true);
     expect(result.stats[0].totalChecked).toBe(9);
+  });
+  it("omits optional checkbox and selected or unselected radio reviews without error evidence", async () => {
+    const result = await scan(`<input type="radio" name="trip" checked><input type="radio" name="trip">
+      <input type="checkbox"><input placeholder="Origin"><input placeholder="Destination"><input type="number">`);
+    expect(result.issues).toHaveLength(3);
+    expect(result.issues.every((issue) => issue.type === "Potential Issue")).toBe(true);
+    expect(result.issues.every((issue) => !/type="(?:radio|checkbox)"/.test(issue.elementContext))).toBe(true);
+    expect(result.stats[0].totalChecked).toBe(6);
+    expect(result.events).toEqual([0, 0, 0]);
+    expect(result.unchanged).toBe(true);
+  });
+  it.each(["checkbox", "radio", "menuitemcheckbox", "menuitemradio", "switch"])(
+    "omits optional custom %s without error evidence", async (role) => {
+      const result = await scan(`<div role="${role}" aria-checked="false" aria-label="Optional choice"></div>`);
+      expect(result.issues).toEqual([]);
+      expect(result.stats[0].totalChecked).toBe(1);
+    });
+  it("retains automatic choice errors and optional choices with validation evidence", async () => {
+    const result = await scan(`<input type="checkbox" aria-invalid="true">
+      <div role="radio" aria-invalid="true"></div>
+      <input type="checkbox" aria-describedby="explanation"><span id="explanation">Review your selection.</span>
+      <input type="radio" aria-errormessage="missing">`);
+    expect(result.issues.map((issue) => issue.type)).toEqual([
+      "Issue", "Potential Issue", "Potential Issue", "Potential Issue",
+    ]);
+  });
+  it("retains required native radio group peers without affecting unrelated optional groups", async () => {
+    const result = await scan(`<form><input type="radio" name="choice" required checked>
+      <input type="radio" name="choice"></form>
+      <form><input type="radio" name="choice"></form>`);
+    expect(result.issues).toHaveLength(2);
+  });
+  it("retains required custom groups and locally styled checkbox errors", async () => {
+    const result = await scan(`<div role="radiogroup" aria-required="true">
+      <div role="radio" aria-checked="true"></div><div role="radio" aria-checked="false"></div></div>
+      <div class="has-error"><input type="checkbox"></div>`);
+    expect(result.issues).toHaveLength(3);
+    expect(result.issues[2].description).toContain("invalid value/state");
   });
   it("does not manufacture reviews for non-applicable roles or hidden-value inputs", async () => {
     const result = await scan('<button>Submit</button><input type="hidden"><div role="button">Action</div><svg role="textbox"></svg>');

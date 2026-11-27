@@ -26,6 +26,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { metroCountProps, metroRuleProps, metroStatusProps } from "@/lib/metro-presentation";
 import {
   Globe,
   Loader2,
@@ -391,22 +392,22 @@ function CrawlerRuleScope({ config }: { config: Record<string, unknown> }) {
         <TooltipTrigger asChild>
           <div className="flex cursor-help flex-wrap gap-1">
             {display.mode === "all" ? (
-              <Badge variant="outline" className="text-[10px]">All rules</Badge>
+              <Badge {...metroRuleProps()} variant="outline" className="text-[10px]">All rules</Badge>
             ) : display.mode === "levels" ? (
               visibleValues.map((level) => (
-                <Badge key={level} variant="outline" className="text-[10px]">
+                <Badge {...metroRuleProps()} key={level} variant="outline" className="text-[10px]">
                   {SCAN_LEVEL_BADGES[level] ?? level}
                 </Badge>
               ))
             ) : (
               <>
                 {visibleValues.map((ruleId) => (
-                  <Badge key={ruleId} variant="outline" className="font-mono text-[10px]">
+                  <Badge {...metroRuleProps()} key={ruleId} variant="outline" className="font-mono text-[10px]">
                     {ruleId}
                   </Badge>
                 ))}
                 {remainingRuleCount > 0 && (
-                  <Badge variant="outline" className="text-[10px]">+{remainingRuleCount}</Badge>
+                  <Badge {...metroCountProps("rules")} variant="outline" className="text-[10px]">+{remainingRuleCount}</Badge>
                 )}
               </>
             )}
@@ -799,7 +800,7 @@ export default function CrawlerDetailPage() {
               <ChevronLeft className="w-4 h-4" aria-hidden="true" />
             </Link>
             <h1 className="text-xl font-bold truncate">{displaySession.name}</h1>
-            <Badge className={`text-xs ${statusBadge(displaySession.status)}`}>
+            <Badge {...metroStatusProps(displaySession.status)} className={`text-xs ${statusBadge(displaySession.status)}`}>
               {sessionStatusLabel(displaySession.status)}
             </Badge>
             {displaySession.crawlBoost && (
@@ -1124,7 +1125,7 @@ export default function CrawlerDetailPage() {
           </TabsTrigger>
           <TabsTrigger value="broken" aria-label={`Broken links${totalBroken > 0 ? `, ${totalBroken} total` : ""}`}>
             Broken Links
-            {totalBroken > 0 && <Badge variant="secondary" className="ml-1.5 text-xs">{totalBroken}</Badge>}
+            {totalBroken > 0 && <Badge {...metroCountProps("issues")} variant="secondary" className="ml-1.5 text-xs">{totalBroken}</Badge>}
           </TabsTrigger>
           <TabsTrigger value="config" aria-label="Crawl configuration">Config</TabsTrigger>
         </TabsList>

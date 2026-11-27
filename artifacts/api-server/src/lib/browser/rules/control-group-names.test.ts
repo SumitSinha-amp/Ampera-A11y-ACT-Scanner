@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { buildSync } from "esbuild";
 import puppeteer, { type Browser } from "puppeteer";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { resolveControlGroupOutcomes } from "../../control-group-outcomes";
 
 let chromium = process.env.TEST_CHROMIUM_PATH || "";
 if (!chromium) {
@@ -58,6 +59,45 @@ describe.skipIf(!existsSync(chromium))("ACT-R60 group-name regressions", () => {
     browser = await puppeteer.launch({ executablePath: chromium, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
   }, 30000);
   afterAll(async () => { await browser?.close(); });
+
+  it("reconciles dormant and exposed findings by node across bundle reinjection and added siblings", async () => {
+    const page = await browser.newPage();
+    try {
+      await page.setContent(`<div class="overlay" style="display:none">
+        <fieldset class="railcard"><select><option>1</option></select><select><option>Card</option></select></fieldset>
+      </div>`);
+      type Finding = { ruleId: string; type: string; occurrenceKey?: string; selector: string };
+      const collect = async () => {
+        await page.addScriptTag({ content: bundle });
+        return page.evaluate(() => {
+          const rows: Finding[] = [];
+          (window as unknown as { R60: {
+            runControlGroupNameRule: (rows: Finding[], stat: () => void) => void;
+          } }).R60.runControlGroupNameRule(rows, () => {});
+          return rows;
+        });
+      };
+      const baseline = await collect();
+      await page.evaluate(() => {
+        const overlay = document.querySelector<HTMLElement>(".overlay")!;
+        overlay.style.display = "block";
+        overlay.append(overlay.firstElementChild!.cloneNode(true), overlay.firstElementChild!.cloneNode(true));
+      });
+      const opened = await collect();
+      expect(baseline).toHaveLength(1);
+      expect(baseline[0].type).toBe("Potential Issue");
+      expect(opened).toHaveLength(3);
+      expect(opened.every(issue => issue.type === "Best Practice")).toBe(true);
+      expect(opened[0].occurrenceKey).toBe(baseline[0].occurrenceKey);
+      expect(new Set(opened.map(issue => issue.occurrenceKey)).size).toBe(3);
+      expect(opened[0].selector).not.toBe(baseline[0].selector);
+      const merged = resolveControlGroupOutcomes([...baseline, ...opened]);
+      expect(merged).toEqual(opened);
+      // Closing the popup cannot downgrade verified findings back to reviews.
+      await page.evaluate(() => { document.querySelector<HTMLElement>(".overlay")!.style.display = "none"; });
+      expect(resolveControlGroupOutcomes([...merged, ...await collect()])).toEqual(opened);
+    } finally { await page.close(); }
+  });
 
   async function scan(html: string, full = false, onlyR60 = true) {
     const page = await browser.newPage();

@@ -1,0 +1,311 @@
+/* Shared Metro control language. Only colors, typography and control chrome. */
+html.metro .filter-autocomplete-popup {
+  border-radius: 0 !important;
+  border-color: #888 !important;
+  background: #fff !important;
+  color: #171717 !important;
+}
+html.metro .filter-autocomplete-popup [role="option"] {
+  border-radius: 0 !important;
+}
+html.metro :is(button, [role="button"], [data-slot="button"], a, summary, select) {
+  border-radius: 0 !important;
+  font-family: var(--app-font-sans) !important;
+  transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+html.metro [data-metro-ui="button"][data-metro-size] {
+  min-height: 2.5rem;
+  padding-inline: 0.875rem;
+  font-size: 0.875rem !important;
+  font-weight: 500;
+}
+html.metro [data-metro-ui="button"][data-metro-size="sm"] {
+  min-height: 2.125rem;
+  padding-inline: 0.625rem;
+}
+html.metro [data-metro-ui="button"][data-metro-size="lg"] {
+  min-height: 2.75rem;
+  padding-inline: 1.125rem;
+}
+html.metro [data-metro-ui="button"][data-metro-size="icon"] {
+  width: 2.5rem;
+  min-width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+}
+/* Both header selectors share a two-line-compatible control height. */
+html.metro .ampera-header [data-metro-ui="button"]:is(.ampera-site-selector-trigger, .ampera-page-group-trigger) {
+  height: 3.25rem;
+  min-height: 3.25rem;
+}
+html.metro [data-metro-ui="button"][data-metro-variant="outline"] {
+  background-color: #fff;
+  border-color: #888;
+  color: #222;
+}
+html.metro [data-metro-ui="button"][data-metro-variant="secondary"] {
+  background-color: #e9e9e9;
+  border-color: #d0d0d0;
+  color: #171717;
+}
+html.metro [data-metro-ui="button"][data-metro-variant="ghost"],
+html.metro [data-metro-ui="button"][data-metro-variant="link"] {
+  background-color: transparent;
+  border-color: transparent;
+  color: hsl(var(--chrome-accent, var(--primary)));
+}
+html.metro [data-metro-ui="button"][data-metro-variant="destructive"] {
+  background-color: #c91420;
+  border-color: #c91420;
+  color: #fff;
+}
+html.metro [data-metro-ui="input"]:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]) {
+  min-height: 2.5rem;
+  font-size: 0.875rem;
+}
+/* Preserve each field's icon-aware pl-* / pr-* spacing; do not reset it. */
+html.metro [data-metro-ui="date-field"],
+html.metro .refined-screen [data-metro-ui="search-field"].sidebar-search-wrap {
+  height: 2.5rem;
+  border: 1px solid #888 !important;
+  border-radius: 0 !important;
+  background: #fff !important;
+  box-shadow: none !important;
+  color: #171717 !important;
+}
+html.metro [data-metro-ui="date-field"]:focus-within,
+html.metro .refined-screen [data-metro-ui="search-field"].sidebar-search-wrap:focus-within {
+  border-color: hsl(var(--primary)) !important;
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 1px;
+}
+/* Compound controls have one outer border, not a second box around the text. */
+html.metro .app-shell [data-metro-ui="date-field"] input[type="date"],
+html.metro .refined-screen [data-metro-ui="search-field"] input.sidebar-search-input {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  color: inherit !important;
+  font-size: 0.875rem;
+}
+html.metro [data-metro-ui="date-field"] :is(svg, span) {
+  color: #555 !important;
+}
+html.metro :is(button, [role="button"], [data-slot="button"]) {
+  border-color: #aaa;
+  box-shadow: none !important;
+}
+html.metro :is(button, [role="button"], [data-slot="button"]) > svg.lucide:not(.animate-spin),
+html.metro :is(button, [role="button"], [data-slot="button"]) > span > svg.lucide:not(.animate-spin) {
+  width: 1.25rem;
+  height: 1.25rem;
+  stroke-width: 1.75;
+}
+html.metro :is(button, a, [role="button"], [data-slot="button"]).bg-primary,
+html.metro :is(button, a, [role="button"], [data-slot="button"])[class*="bg-[#6d48c7]"],
+html.metro :is(button, a, [role="button"], [data-slot="button"])[class*="bg-[#5c3bb5]"] {
+  background: hsl(var(--chrome-accent, var(--primary))) !important;
+  border-color: hsl(var(--chrome-accent, var(--primary))) !important;
+  color: hsl(var(--chrome-accent-foreground, var(--primary-foreground))) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+html.metro :is(button, [role="button"], [data-slot="button"]):not(:disabled):hover {
+  filter: brightness(.94);
+}
+html.metro :is(button, [role="button"], [data-slot="button"]):disabled,
+html.metro :is(button, [role="button"], [data-slot="button"])[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: .56;
+  filter: none;
+}
+html.metro :is(button[aria-pressed="true"], [role="button"][aria-pressed="true"]) {
+  outline: 1px solid hsl(var(--chrome-accent, var(--primary)));
+  outline-offset: -2px;
+}
+html.metro :is(a, button, [role="button"]):focus-visible {
+  outline: 2px solid hsl(var(--chrome-accent, var(--primary)));
+  outline-offset: 2px;
+}
+html.metro :is(input, textarea, select, [role="combobox"], [data-slot="select-trigger"]) {
+  border-radius: 0 !important;
+  font-family: var(--app-font-sans) !important;
+}
+html.metro :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select, [role="combobox"], [data-slot="select-trigger"]) {
+  border: 1px solid #888 !important;
+  box-shadow: none !important;
+  color: #171717 !important;
+}
+html.metro :is(input, textarea, select, [role="combobox"], [data-slot="select-trigger"]):focus-visible {
+  border-color: hsl(var(--chrome-accent, var(--primary))) !important;
+  outline: 2px solid hsl(var(--chrome-accent, var(--primary)));
+  outline-offset: 1px;
+}
+html.metro :is(input, textarea, select)::placeholder { color: #555 !important; opacity: 1; }
+html.metro :is(input[type="checkbox"], [role="checkbox"], input[type="radio"], [role="radio"]) {
+  accent-color: hsl(var(--chrome-accent, var(--primary)));
+}
+html.metro input[type="checkbox"],
+html.metro [role="checkbox"] {
+  border-radius: 0 !important;
+}
+html.metro [role="checkbox"] svg.lucide {
+  width: 0.875rem !important;
+  height: 0.875rem !important;
+}
+html.metro :is(input[type="checkbox"], [role="checkbox"], input[type="radio"], [role="radio"]) {
+  min-width: 1.125rem;
+  min-height: 1.125rem;
+}
+html.metro :is([role="switch"], button[role="switch"]) {
+  border-radius: 0 !important;
+  border-color: #777 !important;
+  background-color: #ddd !important;
+  color: #171717 !important;
+}
+html.metro :is([role="switch"], button[role="switch"])[aria-checked="true"],
+html.metro :is([role="switch"], button[role="switch"])[data-state="checked"] {
+  background-color: hsl(var(--chrome-accent, var(--primary))) !important;
+  border-color: hsl(var(--chrome-accent, var(--primary))) !important;
+  color: hsl(var(--chrome-accent-foreground, var(--primary-foreground))) !important;
+}
+html.metro [role="switch"] > span {
+  border-radius: 0 !important;
+  box-shadow: none;
+}
+html.metro [role="switch"][data-state="unchecked"] > span {
+  background-color: #333;
+}
+html.metro :is([role="slider"], input[type="range"]) {
+  accent-color: hsl(var(--chrome-accent, var(--primary)));
+}
+html.metro [role="slider"] {
+  border-radius: 0 !important;
+}
+html.metro .app-shell :is([role="progressbar"], [data-slot="progress"]) {
+  border-radius: 0 !important;
+  background-color: #e4e4e4;
+}
+html.metro .app-shell :is([role="progressbar"], [data-slot="progress"]) > :first-child {
+  border-radius: 0 !important;
+  background-color: hsl(var(--chrome-accent, var(--primary)));
+}
+
+/* Tabs and disclosure rows: a strong underline/edge marks current state. */
+html.metro .app-shell :is([role="tablist"], [data-slot="tabs-list"]) {
+  border-radius: 0 !important;
+  border-color: #c8c8c8;
+}
+html.metro .app-shell :is([role="tab"], [data-slot="tabs-trigger"]) {
+  border-radius: 0 !important;
+  color: #333;
+}
+html.metro .app-shell :is([role="tab"][aria-selected="true"], [data-slot="tabs-trigger"][data-state="active"]) {
+  background-color: #fff !important;
+  color: hsl(var(--chrome-accent, var(--primary))) !important;
+  box-shadow: inset 0 -2px 0 hsl(var(--chrome-accent, var(--primary))) !important;
+}
+html.metro .app-shell :is([data-slot="accordion-item"], [data-slot="collapsible"]) {
+  border-color: #d0d0d0;
+}
+html.metro .app-shell :is([data-slot="accordion-trigger"], [data-slot="collapsible-trigger"]) {
+  border-radius: 0 !important;
+}
+html.metro .app-shell :is([data-slot="accordion-trigger"], [data-slot="collapsible-trigger"]):is(:hover, [data-state="open"]) {
+  background-color: #eef5fc;
+}
+
+/* Tables, filters, pagination, badges and semantic metric surfaces. */
+html.metro .app-shell :is(th, td, [role="cell"], [role="columnheader"]) { border-color: #d0d0d0; }
+html.metro .app-shell :is(th, [role="columnheader"]) {
+  background-color: #ededed !important;
+  color: #202020 !important;
+}
+html.metro .app-shell :is(tbody tr:hover, [role="row"]:hover) { background: #eef5fc !important; }
+html.metro .app-shell :is([data-metro-ui="badge"], [data-slot="badge"], .badge) {
+  border-radius: 0 !important;
+  font-weight: 600;
+}
+html.metro .app-shell :is([data-metro-ui="badge"], [data-slot="badge"], .badge) {
+  font-size: 0.8125rem;
+}
+html.metro :is([data-metro-ui="card"], [data-slot="card"], .bg-card) {
+  border: 1px solid #d0d0d0;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+html.metro [data-metro-ui="card-title"] {
+  color: #171717;
+  font-size: 1.25rem;
+  font-weight: 400;
+  letter-spacing: -0.025em;
+}
+html.metro [data-metro-ui="card-description"] {
+  color: #4b4b4b;
+  font-size: 0.875rem;
+}
+html.metro .app-shell :is([data-metro-tile], [data-metro-metric]) {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Portals: dialog/sheet, option menus, tooltips, toast and select popups. */
+html.metro :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"], [data-slot="drawer-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"], [data-slot="context-menu-content"], [data-slot="select-content"], [data-slot="command"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-sonner-toast], [data-slot="toast"], [role="tooltip"]) {
+  background-color: #fff !important;
+  border-color: #aaa;
+  border-radius: 0 !important;
+  box-shadow: 0 7px 22px rgb(0 0 0 / 16%);
+  color: #171717 !important;
+  font-family: var(--app-font-sans) !important;
+}
+html.metro :is([data-slot="dialog-title"], [data-slot="alert-dialog-title"], [data-slot="sheet-title"]) {
+  color: #171717 !important;
+  font-size: 1.5rem;
+  font-weight: 300 !important;
+}
+html.metro :is([data-slot="dropdown-menu-item"], [data-slot="context-menu-item"], [data-slot="select-item"], [role="menuitem"], [role="option"]):is(:focus, [data-highlighted], [aria-selected="true"]) {
+  background-color: #e7f1fc !important;
+  color: #111 !important;
+}
+html.metro :is([role="menuitem"], [role="option"], [data-slot="select-item"]) { border-radius: 0 !important; }
+html.metro :is([data-sonner-toast], [data-slot="toast"]) { border-left: 3px solid hsl(var(--chrome-accent, var(--primary))); }
+html.metro [role="tooltip"] { border: 1px solid #777; }
+
+/* Login/support screens contain authored inline utility colors and gradients. */
+html.metro .login-page :is(.login-visual-wash, .login-intro-wash, .login-visual) {
+  background: #f2f2f2 !important;
+}
+html.metro .login-page :is(section, main) { color: #171717 !important; }
+html.metro .login-page :is(h1, h2, p, label, span, a) { color: #262626; }
+html.metro .login-page :is(.text-\[\#152b54\], .text-\[\#52647c\], .text-\[\#64748b\], .text-\[\#94a3b8\], .text-\[\#3b82f6\], .text-\[\#ef6f61\]) {
+  color: #343434 !important;
+}
+html.metro .login-page :is(.login-input, input) {
+  background: #fff !important;
+  border-color: #777 !important;
+  border-radius: 0 !important;
+  color: #171717 !important;
+}
+html.metro .login-page .login-submit {
+  background: hsl(var(--primary)) !important;
+  border-radius: 0 !important;
+  color: hsl(var(--primary-foreground)) !important;
+  box-shadow: none !important;
+}
+html.metro .login-page :is(.login-visual-wash, .login-intro-wash) { opacity: 1; }
+
+@media (max-width: 767px) {
+  html.metro .refined-screen #main-content h1 { font-size: 2.125rem !important; }
+  html.metro .refined-screen :is(.sidebar-panel .sidebar-nav-item, .ampera-header button) { font-size: 0.875rem !important; }
+  html.metro .issues-workspace-page :is([data-testid="issue-list-scroll"], [data-testid="panel-issue-detail"]) { color: #171717; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.metro .app-shell *,
+  html.metro .app-shell *::before,
+  html.metro .app-shell *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useQASites, useQASelectedSite, QAPageShell, QA_BASE, type QASiteEntry } from "@/pages/qa-shared";
 import { PageLoadingSkeleton } from "@/components/page-loading-skeleton";
+import type { MetroTile } from "@/lib/metro-presentation";
 import "./qa-pages.css";
 
 interface QAStatus {
@@ -109,6 +110,7 @@ function QAStatCard({
   color,
   bg,
   border,
+  tile,
   delayMs = 0,
 }: {
   label: string;
@@ -118,10 +120,12 @@ function QAStatCard({
   color: string;
   bg: string;
   border: string;
+  tile: MetroTile;
   delayMs?: number;
 }) {
   return (
-    <article 
+    <article
+       data-metro-tile={tile}
        className="qa-panel relative rounded-[22px] border border-white/80 bg-card/80 p-5 backdrop-blur-xl shadow-[0_14px_34px_rgba(69,57,112,.06)] animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both"
       style={{ animationDelay: `${delayMs}ms` }}
     >
@@ -261,6 +265,7 @@ function OverviewContent({ site }: { site: QASiteEntry }) {
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <QAStatCard 
           label="Total pages" 
+          tile="pages"
           value={status?.totalPages ?? site.pageCount ?? 0} 
           sub="Indexed inventory" 
           icon={<Globe className="h-5 w-5"/>} 
@@ -271,6 +276,7 @@ function OverviewContent({ site }: { site: QASiteEntry }) {
         />
         <QAStatCard 
           label="Links checked" 
+          tile="checked"
           value={status?.checked ?? 0} 
           sub="Total evaluations" 
           icon={<BarChart3 className="h-5 w-5"/>} 
@@ -281,6 +287,7 @@ function OverviewContent({ site }: { site: QASiteEntry }) {
         />
         <QAStatCard 
           label="Broken links" 
+          tile="broken"
           value={status?.broken ?? site.brokenLinksCount ?? 0} 
           sub="Require attention" 
           icon={<XCircle className="h-5 w-5"/>} 
@@ -291,6 +298,7 @@ function OverviewContent({ site }: { site: QASiteEntry }) {
         />
         <QAStatCard 
           label="Redirects" 
+          tile="redirects"
           value={status?.redirects ?? 0} 
           sub="Non-blocking chains" 
           icon={<ArrowRight className="h-5 w-5"/>} 
@@ -301,6 +309,7 @@ function OverviewContent({ site }: { site: QASiteEntry }) {
         />
         <QAStatCard
           label="Meta issues"
+          tile="warning"
           value={status?.pageChecks?.metaDescriptions?.issues ?? 0}
           sub="Title and description quality"
           icon={<FileText className="h-5 w-5"/>}
@@ -311,6 +320,7 @@ function OverviewContent({ site }: { site: QASiteEntry }) {
         />
         <QAStatCard
           label="Content issues"
+          tile="failed"
           value={status?.pageChecks?.contentDepth?.issues ?? 0}
           sub="Pages needing more content"
           icon={<AlertTriangle className="h-5 w-5"/>}

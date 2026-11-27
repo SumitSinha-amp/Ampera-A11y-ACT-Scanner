@@ -101,6 +101,16 @@ function currentErrorState(field: Element): boolean {
   return false;
 }
 
+function isRequiredChoice(field: Element, fields: Element[]): boolean {
+  if (field.matches("[required],[aria-required='true']") ||
+    field.closest("[role='radiogroup'][aria-required='true'],fieldset[aria-required='true']")) return true;
+  // A required native radio makes its entire same-name/form/tree group required.
+  return field instanceof HTMLInputElement && field.type === "radio" && !!field.name &&
+    fields.some((other) => other instanceof HTMLInputElement && other.type === "radio" &&
+      other.name === field.name && other.form === field.form &&
+      other.getRootNode() === field.getRootNode() && other.required);
+}
+
 export function runErrorIdentificationReviews(results: ScanRawResult[], pushStat: PushStatFn): void {
   const fields = Array.from(document.querySelectorAll("input,textarea,select,[role]")).filter((field) =>
     field.namespaceURI === "http://www.w3.org/1999/xhtml" &&
@@ -161,6 +171,12 @@ export function runErrorIdentificationReviews(results: ScanRawResult[], pushStat
     const selector = getSelector(field);
     if (legacySelectors.has(selector)) continue; // Preserve every existing Issue.
     const state = evidence.get(field)!;
+    // An optional selection is not an input error merely because no error
+    // message exists. Keep required choices and any independently observed
+    // validation/indicator evidence reviewable, without activating controls.
+    if (["checkbox", "radio", "menuitemcheckbox", "menuitemradio", "switch"].includes(getEffectiveAriaRole(field)) &&
+      !isRequiredChoice(field, fields) && !state.error &&
+      !state.indicators.length && !state.missing.length) continue;
     const form = ownerForm(field);
     // The summary question already covers unassigned controls in this form.
     if (form && genericForms.has(form) && !state.error && !state.indicators.length && !state.missing.length) continue;

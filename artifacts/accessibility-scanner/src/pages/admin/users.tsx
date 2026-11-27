@@ -4,6 +4,7 @@ import {
   Loader2, Plus, Pencil, Trash2, Copy, CheckCheck, Shield, ShieldOff, Mail, KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { metroActionProps } from "@/lib/metro-presentation";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -323,23 +324,23 @@ export default function AdminUsersPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
                         {u.isActive
-                          ? <Badge className="bg-green-500/10 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800">Active</Badge>
-                          : <Badge variant="outline" className="text-muted-foreground">Inactive</Badge>}
+                          ? <Badge data-metro-status-badge="active" className="bg-green-500/10 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800">Active</Badge>
+                          : <Badge data-metro-status-badge="other" variant="outline" className="text-muted-foreground">Inactive</Badge>}
                         {u.mustResetPassword && <Badge variant="outline" className="text-amber-600 border-amber-300 text-xs">Password reset</Badge>}
                       </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
                         {u.id !== currentUser?.id && (
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30" onClick={() => setResetPwUser(u)} title="Reset password & send email">
+                          <Button {...metroActionProps("retry")} variant="ghost" size="icon" className="h-7 w-7 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30" onClick={() => setResetPwUser(u)} title="Reset password & send email">
                             <KeyRound className="w-3.5 h-3.5" />
                           </Button>
                         )}
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(u)} title="Edit user">
+                        <Button {...metroActionProps("edit")} variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(u)} title="Edit user">
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
                         {isSuperAdmin && u.id !== currentUser?.id && (
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteUser(u)} title="Archive user" aria-label="Archive user">
+                          <Button {...metroActionProps("delete")} variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteUser(u)} title="Archive user" aria-label="Archive user">
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
                         )}

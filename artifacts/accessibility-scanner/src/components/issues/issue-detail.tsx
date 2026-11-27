@@ -278,7 +278,7 @@ export function IssueDetail({ id, people, issues, currentUserId, canEdit, canCom
     >
       {/* Header */}
       <div data-testid="issue-detail-header" className="flex-none border-b bg-card px-4 py-3">
-        <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+        <div className={`mb-2 flex flex-wrap items-start justify-between gap-2 ${isPopoutContent ? "pr-12" : ""}`}>
           <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
             <span className="font-mono text-xs font-semibold text-muted-foreground">{issue.issueKey}</span>
             <Badge className={`${TYPE_COLORS[issue.type]} border-0 px-1.5 py-0 text-[10px] font-bold uppercase tracking-wider`}>

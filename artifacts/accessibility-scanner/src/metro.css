@@ -1,0 +1,261 @@
+/*
+ * Ampera Metro — desktop Windows Phone language: flat paper surfaces,
+ * high-contrast ink, crisp rules and selectively saturated action tiles.
+ * Surface-only rules never change the shell or page layout geometry.
+ */
+html:root.metro {
+  color-scheme: light;
+  --background: 0 0% 100%;
+  --foreground: 0 0% 8%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 8%;
+  --card-border: 0 0% 81%;
+  --border: 0 0% 81%;
+  --input: 0 0% 62%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 31%;
+  --secondary: 0 0% 92%;
+  --secondary-foreground: 0 0% 10%;
+  --accent: 274 75% 95%;
+  --accent-foreground: 274 100% 30%;
+  --primary: 274 100% 37%;
+  --primary-foreground: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 8%;
+  --popover-border: 0 0% 72%;
+  --sidebar: 0 0% 96%;
+  --sidebar-foreground: 0 0% 12%;
+  --sidebar-border: 0 0% 82%;
+  --sidebar-accent: 274 75% 95%;
+  --sidebar-accent-foreground: 274 100% 30%;
+  --ring: 274 100% 37%;
+  --refined-ink: 0 0% 8%;
+  --refined-subtle: 0 0% 31%;
+  --refined-rule: 0 0% 81%;
+  --refined-paper: 0 0% 100%;
+  --refined-tint: 0 0% 96%;
+  --refined-hover: 274 75% 97%;
+  --suite-canvas: #fff;
+  --suite-sidebar: #f4f4f4;
+  --suite-line: #d0d0d0;
+  --suite-elevation: none;
+  --shell-surface: #f4f4f4;
+  --shell-hover: #e9e9e9;
+  --shell-active: #f0e7fa;
+  --shell-text: #171717;
+  --shell-muted: #424242;
+  --shell-stroke: #d0d0d0;
+  --shell-control: #fff;
+  --app-font-sans: "Noto Sans", system-ui, sans-serif;
+  --app-font-display: "Noto Sans", system-ui, sans-serif;
+  --app-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+html.metro body,
+html.metro .app-shell,
+html.metro .refined-screen {
+  background: #fff !important;
+  color: #171717;
+  font-family: var(--app-font-sans);
+  letter-spacing: 0;
+}
+
+html.metro .app-shell {
+  border-color: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Light sidebar, rail, utility navigation and collapsed-mode flyouts. */
+html.metro .refined-screen :is(.sidebar-shell, .sidebar-rail, .sidebar-panel) {
+  background: #f4f4f4 !important;
+  border-color: #d0d0d0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: #171717 !important;
+  text-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html.metro .refined-screen :is(.sidebar-brand-header, .sidebar-panel-header, .sidebar-utilities, .sidebar-profile-link) {
+  border-color: #d0d0d0 !important;
+}
+html.metro .refined-screen :is(.sidebar-panel .sidebar-nav-item, .sidebar-utility-link, .sidebar-rail-item, .sidebar-rail-toggle, .sidebar-panel-icon-button) {
+  color: #333 !important;
+  border-radius: 0 !important;
+}
+html.metro .refined-screen :is(.sidebar-panel .sidebar-nav-item:hover, .sidebar-panel .sidebar-nav-item[data-sidebar-active="true"], .sidebar-utility-link:hover, .sidebar-utility-link:focus-visible, .sidebar-utility-link.is-active, .sidebar-rail-item:hover, .sidebar-rail-item[data-sidebar-active="true"], .sidebar-rail-toggle:hover, .sidebar-panel-icon-button:hover) {
+  background: #e5e5e5 !important;
+  color: #111 !important;
+  box-shadow: inset 3px 0 0 hsl(var(--chrome-accent, var(--primary))) !important;
+}
+html.metro .refined-screen :is(.sidebar-panel .sidebar-nav-item[data-sidebar-active="true"], .sidebar-rail .sidebar-rail-item[data-sidebar-active="true"]) {
+  background: hsl(var(--chrome-accent, var(--primary))) !important;
+  color: hsl(var(--chrome-accent-foreground, var(--primary-foreground))) !important;
+  box-shadow: none !important;
+}
+html.metro .refined-screen :is(.sidebar-nav-item, .sidebar-rail-item):is(:hover, [data-sidebar-active="true"]) :is(svg, span) {
+  color: inherit !important;
+}
+/* Rail icons must inherit the actual link/button state, not a category color. */
+html.metro .refined-screen .sidebar-rail .sidebar-rail-item .sidebar-rail-icon,
+html.metro .refined-screen .sidebar-rail .sidebar-rail-item .sidebar-rail-icon * {
+  color: inherit !important;
+}
+html.metro .refined-screen .sidebar-rail .sidebar-rail-item[data-sidebar-active="true"]:is(:hover, :focus-visible) {
+  background: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+}
+html.metro .refined-screen .sidebar-rail :is(.sidebar-rail-item, .sidebar-rail-toggle):focus-visible {
+  outline-color: hsl(var(--primary));
+}
+html.metro .refined-screen .sidebar-panel :is(.text-muted-foreground, .sidebar-section-label, .sidebar-flyout-section-label, [class*="text-sidebar-foreground"]) {
+  color: #4a4a4a !important;
+}
+html.metro .refined-screen :is(.sidebar-flyout, .sidebar-flyout-nested-menu, .sidebar-flyout-create-menu) {
+  background: #fff !important;
+  border-color: #aaa !important;
+  border-radius: 0 !important;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 16%) !important;
+  color: #171717 !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html.metro .refined-screen :is(.sidebar-flyout-item, .sidebar-flyout-create-item, .sidebar-flyout-heading) {
+  color: #171717 !important;
+  border-radius: 0 !important;
+}
+html.metro .refined-screen :is(.sidebar-flyout-item:hover, .sidebar-flyout-item:focus-visible, .sidebar-flyout-create-item:hover, .sidebar-flyout-create-item:focus-visible) {
+  background: #f0e7fa !important;
+  color: #111 !important;
+}
+html.metro .refined-screen .sidebar-flyout-create {
+  background: hsl(var(--chrome-accent, var(--primary))) !important;
+  color: hsl(var(--chrome-accent-foreground, var(--primary-foreground))) !important;
+  border-radius: 0 !important;
+}
+
+html.metro .refined-screen .ampera-header {
+  --shell-surface: #fff;
+  --shell-control: #f5f5f5;
+  --shell-text: #171717;
+  --shell-muted: #484848;
+  --shell-stroke: #d0d0d0;
+  background: #fff !important;
+  border-color: #d0d0d0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html.metro .refined-screen #main-content {
+  background: #fff !important;
+  border-radius: 0 !important;
+}
+
+/* Neutralize hard-coded dark/glass utility surfaces without touching layout. */
+html.metro .app-shell :is([data-metro-ui="card"], [data-slot="card"], .bg-card, .bg-white, .bg-white\/75, .bg-white\/80) {
+  background-color: #fff !important;
+  border-color: #d0d0d0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html.metro .app-shell :is(.rounded-sm, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl, .rounded-\[18px\], .rounded-\[20px\], .rounded-\[22px\]) {
+  border-radius: 0 !important;
+}
+html.metro :is(.app-shell, [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]) :is(button, [role="button"], [role="tab"], [data-slot="badge"]) {
+  border-radius: 0 !important;
+}
+html.metro .app-shell :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select, [data-slot="select-trigger"]) {
+  background-color: #fff !important;
+  border-color: #888 !important;
+  border-radius: 0 !important;
+  color: #171717 !important;
+}
+html.metro .app-shell :is(input, textarea)::placeholder { color: #555 !important; }
+html.metro .app-shell :is(hr, [data-slot="separator"], [role="separator"], th, td, [role="cell"], [role="columnheader"]) {
+  border-color: #d0d0d0;
+}
+html.metro .app-shell :is(th, [role="columnheader"]) {
+  background: #ededed;
+  color: #171717;
+  font-weight: 600;
+}
+html.metro .app-shell :is(tbody tr:hover, [role="row"]:hover) { background-color: #eef5fc; }
+html.metro .app-shell :is([role="tablist"], [data-slot="tabs-list"]) {
+  border-radius: 0;
+  background-color: #ededed;
+}
+html.metro .app-shell :is([role="tab"][aria-selected="true"], [data-slot="tabs-trigger"][data-state="active"]) {
+  color: hsl(var(--chrome-accent, var(--primary)));
+}
+
+/* Four scan-history tiles retain their distinct, saturated Windows tile colors. */
+html.metro .vision-scan-history [data-metro-tile] {
+  border-color: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: #fff !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html.metro .vision-scan-history [data-metro-tile="total"] { background: #5b168e !important; }
+html.metro .vision-scan-history [data-metro-tile="active"] { background: #16821b !important; }
+html.metro .vision-scan-history [data-metro-tile="completed"] { background: #0865ba !important; }
+html.metro .vision-scan-history [data-metro-tile="failed"] { background: #c91420 !important; }
+html.metro .vision-scan-history [data-metro-tile] :is(svg, [style*="color"], .text-xs, .text-\[22px\]) { color: #fff !important; }
+html.metro .vision-scan-history [data-metro-tile] [style*="background-color"] { background-color: transparent !important; }
+html.metro .vision-scan-history > div:has(> .flex.w-full.flex-wrap.items-end) {
+  background: #fff !important;
+  border-color: #d0d0d0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Issue Management keeps both panes, density, scroll ownership and dimensions. */
+html.metro .issues-workspace-page { background: #fff !important; }
+html.metro .issues-workspace-page :is(.issues-filter-bar, [data-testid="issue-navigator-header"], [data-testid="panel-issue-detail"] > [data-testid="issue-detail-header"]) {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+html.metro .issues-workspace-page :is([data-testid="issue-list-scroll"], [data-testid="panel-issue-detail"], [data-testid="issue-navigator-header"]) {
+  background-color: #fff !important;
+}
+html.metro .issues-workspace-page :is([class~="bg-slate-100"], [class~="bg-blue-100"], [class~="bg-emerald-100"], [class~="bg-teal-100"], [class~="bg-violet-100"], [class~="bg-amber-100"], [class~="bg-rose-100"]):is([class*="text-slate-"], [class*="text-blue-"], [class*="text-emerald-"], [class*="text-teal-"], [class*="text-violet-"], [class*="text-amber-"], [class*="text-rose-"]) {
+  border-radius: 0 !important;
+  font-weight: 600;
+}
+html.metro .issues-workspace-page :is([class*="dark:bg-"], [class*="dark:text-"], [class*="dark:border-"]) {
+  color-scheme: light;
+}
+
+/* Radix content is portalled outside .app-shell; retain its native geometry. */
+html.metro :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"], [data-slot="drawer-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"], [data-slot="context-menu-content"], [data-slot="select-content"], [data-slot="command"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-sonner-toast], [data-slot="toast"], [role="tooltip"]) {
+  background: #fff !important;
+  border-color: #aaa;
+  border-radius: 0;
+  box-shadow: 0 7px 22px rgb(0 0 0 / 16%);
+  color: #171717 !important;
+  font-family: var(--app-font-sans);
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html.metro :is([data-slot="dropdown-menu-item"], [data-slot="context-menu-item"], [data-slot="select-item"], [role="menuitem"], [role="option"]):is(:focus, [data-highlighted]) {
+  background: #e7f1fc !important;
+  color: #111 !important;
+}
+html.metro :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"], [data-slot="drawer-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"], [data-slot="context-menu-content"], [data-slot="select-content"], [data-slot="command"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]) :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select, [data-slot="select-trigger"]) {
+  background: #fff !important;
+  border-color: #888 !important;
+  border-radius: 0 !important;
+  color: #171717 !important;
+}
+html.metro :is([data-sonner-toast], [data-slot="toast"]) { border-radius: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  html.metro .app-shell :is(button, [role="button"], a, summary, select) { transition: none; }
+}

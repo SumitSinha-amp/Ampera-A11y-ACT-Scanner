@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
+import { metroStatusProps } from "@/lib/metro-presentation";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -73,10 +74,10 @@ type DecisionRecord = {
 
 function ReviewStatusBadge({ status }: { status: string }) {
   if (status === "confirmed")
-    return <Badge className="gap-1 rounded-full border border-[#afe9d0] bg-[#e4f7f0] px-2 py-0.5 text-[10px] font-semibold text-[#14835f] whitespace-nowrap"><CheckCircle2 className="w-3 h-3" />Confirmed</Badge>;
+    return <Badge {...metroStatusProps(status)} className="gap-1 rounded-full border border-[#afe9d0] bg-[#e4f7f0] px-2 py-0.5 text-[10px] font-semibold text-[#14835f] whitespace-nowrap"><CheckCircle2 className="w-3 h-3" />Confirmed</Badge>;
   if (status === "rejected")
-    return <Badge className="gap-1 rounded-full border border-[#f5c0c0] bg-[#fdf0f0] px-2 py-0.5 text-[10px] font-semibold text-[#be2e2e] whitespace-nowrap"><XCircle className="w-3 h-3" />Rejected</Badge>;
-  return <Badge className="gap-1 rounded-full border border-[#f8d79b] bg-[#fff4e4] px-2 py-0.5 text-[10px] font-semibold text-[#b85c0c] whitespace-nowrap"><Clock className="w-3 h-3" />Pending review</Badge>;
+    return <Badge {...metroStatusProps(status)} className="gap-1 rounded-full border border-[#f5c0c0] bg-[#fdf0f0] px-2 py-0.5 text-[10px] font-semibold text-[#be2e2e] whitespace-nowrap"><XCircle className="w-3 h-3" />Rejected</Badge>;
+  return <Badge {...metroStatusProps(status)} className="gap-1 rounded-full border border-[#f8d79b] bg-[#fff4e4] px-2 py-0.5 text-[10px] font-semibold text-[#b85c0c] whitespace-nowrap">Pending review</Badge>;
 }
 
 function ScopeBadge({ scope }: { scope: string }) {
@@ -272,11 +273,11 @@ export default function ActivityPage() {
 
         <div className="dashboard-metric-grid grid grid-cols-1 gap-4 sm:grid-cols-3">
           {[
-            ["Total decisions", decisions.length, "Across all scans", "bg-violet-100/70 border-violet-200"],
-            ["Pending review", decisions.filter(d => d.reviewStatus === "pending").length, "Awaiting response", "bg-amber-50/80 border-amber-200"],
-            ["Confirmed", decisions.filter(d => d.reviewStatus === "confirmed").length, "Accepted overrides", "bg-teal-50/80 border-teal-200"],
-          ].map(([label, value, sub, tone]) => (
-            <article key={String(label)} className={`dashboard-overview-card ${tone}`}>
+            ["Total decisions", decisions.length, "Across all scans", "bg-violet-100/70 border-violet-200", "total"],
+            ["Pending review", decisions.filter(d => d.reviewStatus === "pending").length, "Awaiting response", "bg-amber-50/80 border-amber-200", "warning"],
+            ["Confirmed", decisions.filter(d => d.reviewStatus === "confirmed").length, "Accepted overrides", "bg-teal-50/80 border-teal-200", "active"],
+          ].map(([label, value, sub, tone, tile]) => (
+            <article key={String(label)} data-metro-tile={tile} className={`dashboard-overview-card ${tone}`}>
               <p data-testid={`text-activity-${String(label).toLowerCase().replaceAll(" ", "-")}`} className="dashboard-metric-value text-3xl font-bold tracking-tight text-[#172b4d]">{value}</p>
               <p className="dashboard-metric-label text-sm font-semibold text-[#263650]">{label}</p>
               <p className="dashboard-metric-detail text-xs text-[#7a8899]">{sub}</p>
@@ -320,6 +321,8 @@ export default function ActivityPage() {
                     key={key || "all"}
                     type="button"
                     onClick={() => setFilterStatus(key)}
+                    aria-pressed={active}
+                    data-metro-status-filter={key || "all"}
                     className={`rounded-full px-2.5 py-1 text-[10px] font-semibold transition-all ${active ? "bg-[#6d48c7] text-white" : "bg-[#f0f2f6] text-[#7a899e] hover:text-[#6d48c7]"}`}
                   >
                     {label} {count}
@@ -424,7 +427,7 @@ export default function ActivityPage() {
           </div>
         ) : (
           <div className="loaded-reveal overflow-x-auto">
-            <table className="w-full table-fixed text-xs" style={{ minWidth: "980px" }}>
+            <table data-metro-data-table className="w-full table-fixed text-xs" style={{ minWidth: "980px" }}>
               <colgroup>
                 <col style={{ width: "16%" }} />
                 <col style={{ width: "14%" }} />

@@ -1,5 +1,6 @@
 import puppeteerExtra from "puppeteer-extra";
 import { outcomeWcag } from "./outcome-wcag";
+import { controlGroupStateKey, resolveControlGroupOutcomes } from "./control-group-outcomes";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import type { Browser, Page } from "puppeteer";
 import { execSync } from "child_process";
@@ -11,10 +12,12 @@ import { filterScanOutcomes } from "./scan-outcome-scope";
 import { runPixelContrastPass } from "./pixel-contrast.js";
 import { mergeContrastFindings } from "./contrast-issue-merge.js";
 import { hydrateTargetImages } from "./target-image-hydration";
+import { verifyScrollTargets } from "./scroll-target-verification";
 import { verifyKeyboardFocus } from "./keyboard-focus-verification";
 import { reconcileFocusIndicatorIssues, verifyFocusAppearance } from "./focus-appearance-verification";
 import { scanPageListAccesskeyRules, replacePageListAccesskeyResults } from "./page-accesskeys";
 import { scanUnobscuredContrast } from "./unobscured-contrast";
+import { verifyZoomContrast } from "./zoom-contrast-verification";
 import {
   scanEmbeddedFrames,
   mergeEmbeddedResults,
@@ -210,6 +213,8 @@ export interface ScanIssue {
   falsePositive?: boolean;
   /** Local interaction-state key, resolved to a persisted state row by scanQueue. */
   interactionStateKey?: string | null;
+  /** Internal DOM identity; used only to reconcile R60 interaction outcomes. */
+  occurrenceKey?: string;
 }
 
 export interface InteractionStateEvidence {
@@ -1102,7 +1107,7 @@ const RULE_DESCRIPTIONS: Record<
   "ACT-R91": {
     type: "Best Practice",
     description: "Letter spacing is not wide enough",
-    remediation: "Ensure letter spacing is at least 0.12em",
+    remediation: "Remove restrictive inline !important letter-spacing declarations and verify that users can increase letter spacing to 0.12em without losing content or functionality. Default letter spacing need not be 0.12em.",
   },
   "ACT-R92": {
     type: "Best Practice",
@@ -2285,7 +2290,9 @@ async function _scanPageInternal(
     // visibility used by several rules.  Analytics/tracker requests are also
     // blocked by hostname (see TRACKER_HOSTS).
     const geometryRules = getSelectedRuleIds(options.rules);
-    const needsTargetGeometry = isRuleSelected("ACT-R113", geometryRules) || isRuleSelected("ACT-R111", geometryRules);
+    const needsTargetGeometry = isRuleSelected("ACT-R113", geometryRules) || isRuleSelected("ACT-R111", geometryRules) ||
+      isRuleSelected("ACT-R129", geometryRules) || isRuleSelected("ACT-R65", geometryRules) ||
+      isRuleSelected("ACT-R121", geometryRules);
     let allowVisualImages = false;
     const targetImageUrls = new Set<string>();
     let allowMediaMetadata = false;
@@ -3216,6 +3223,10 @@ async function _scanPageInternal(
           options.rules,
         );
         for (const stateIssue of explored.issues) {
+          if (stateIssue.ruleId === "ACT-R60" && stateIssue.occurrenceKey) {
+            issues.push(stateIssue);
+            continue;
+          }
           const key = `${stateIssue.ruleId}|${stateIssue.selector ?? ""}|${stateIssue.description}`;
           issues = issues.filter(
             (existing) =>
@@ -3223,6 +3234,7 @@ async function _scanPageInternal(
           );
           issues.push(stateIssue);
         }
+        issues = resolveControlGroupOutcomes(issues);
         ruleStats.push(...explored.stats);
         const usedStateKeys = new Set(
           issues
@@ -3247,6 +3259,37 @@ async function _scanPageInternal(
         { url, err: interactionErr },
         "Interactive-state exploration failed — continuing with baseline state",
       );
+    }
+
+    if (isRuleSelected("ACT-R113", geometryRules)) {
+      try {
+        const revealed = await verifyScrollTargets(page, {
+          scan: () => runACTRules(page!, ["ACT-R113"], false),
+          captureEvidence: async () => ({
+            screenshot: Buffer.from(await page!.screenshot({ type: "jpeg", quality: 55, fullPage: false })).toString("base64"),
+            pageHtml: await captureReplayHtml(page!, replayStylesheets),
+          }),
+        });
+        for (const issue of revealed.issues) {
+          // Prefer evidence from the viewport where this control was exposed.
+          issues = issues.filter(existing => existing.ruleId !== issue.ruleId || existing.selector !== issue.selector);
+          issues.push({ ...issue, legal: getLegalCompliance(["AA"]) });
+        }
+        interactionStates.push(...revealed.states);
+        const status = actResult.ruleStatuses?.find(item => item.ruleId === "ACT-R113");
+        if (status && !revealed.complete) status.status = "failed";
+        else if (status && revealed.issues.length && status.status !== "failed") status.status = "executed";
+        const stat = ruleStats.find(item => item.ruleId === "ACT-R113");
+        if (stat) stat.totalChecked = Math.max(stat.totalChecked, revealed.issues.length);
+        else if (revealed.issues.length) ruleStats.push({
+          ruleId: "ACT-R113", totalChecked: revealed.issues.length, scope: "element",
+        });
+        logger.info({ url, issues: revealed.issues.length, complete: revealed.complete }, "Scroll-revealed target verification completed");
+      } catch (error) {
+        const status = actResult.ruleStatuses?.find(item => item.ruleId === "ACT-R113");
+        if (status) status.status = "failed";
+        logger.warn({ url, err: error }, "Scroll-revealed target verification incomplete");
+      }
     }
 
     // Keep verified focus evidence at its actual viewport/scroll state before
@@ -3743,10 +3786,11 @@ async function _scanPageInternal(
     const scannedPageUrl = page.url() || url;
     // Dismissal can unmount the original popup. Keep this after ALL baseline
     // evidence/QA capture; only the new findings use the unobscured snapshots.
-    if (isRuleSelected("ACT-R69", geometryRules)) {
+    const unobscuredContrastRules = ["ACT-R69", "ACT-R103"].filter(id => isRuleSelected(id, geometryRules));
+    if (unobscuredContrastRules.length) {
       const unobscured = await scanUnobscuredContrast(page, {
         baseline: issues,
-        scan: () => runACTRules(page!, ["ACT-R69"], false),
+        scan: () => runACTRules(page!, unobscuredContrastRules, false),
         capture: async () => ({
           screenshot: Buffer.from(await page!.screenshot({ type: "jpeg", quality: 40, fullPage: true })).toString("base64"),
           pageHtml: await captureReplayHtml(page!, replayStylesheets),
@@ -3756,6 +3800,18 @@ async function _scanPageInternal(
       interactionStates.push(...unobscured.states);
       ruleStats.push(...unobscured.stats);
       if (unobscured.error) logger.warn({ url, error: unobscured.error }, "Unobscured contrast scan stopped; baseline evidence retained");
+      const zoomed = await verifyZoomContrast(page, {
+        baseline: issues,
+        scan: spatial => runACTRules(page!, unobscuredContrastRules, false, spatial),
+        capture: async () => ({
+          screenshot: Buffer.from(await page!.screenshot({ type: "jpeg", quality: 40, captureBeyondViewport: false })).toString("base64"),
+          pageHtml: await captureReplayHtml(page!, replayStylesheets),
+        }),
+      });
+      issues.push(...zoomed.issues);
+      interactionStates.push(...zoomed.states);
+      ruleStats.push(...zoomed.stats);
+      if (!zoomed.complete) logger.warn({ url, error: zoomed.error }, "Zoom contrast coverage incomplete; captured findings and baseline evidence retained");
     }
 
     return {
@@ -4055,7 +4111,9 @@ async function exploreInteractiveStates(
 
       const stateKey = `interaction-${attempt}`;
       const selectedGeometry = getSelectedRuleIds(selectedRules);
-      if (isRuleSelected("ACT-R113", selectedGeometry) || isRuleSelected("ACT-R111", selectedGeometry)) {
+      if (isRuleSelected("ACT-R113", selectedGeometry) || isRuleSelected("ACT-R111", selectedGeometry) ||
+        isRuleSelected("ACT-R129", selectedGeometry) || isRuleSelected("ACT-R65", selectedGeometry) ||
+        isRuleSelected("ACT-R121", selectedGeometry)) {
         await settleTargetFonts(page);
       }
       // Baseline frame findings are already collected. These states currently
@@ -4141,7 +4199,7 @@ async function exploreInteractiveStates(
         })
         .filter((_issue, issueIndex) => bboxes[issueIndex]?.wasVisibleBefore === false)
         .filter((issue) => {
-          const key = `${issue.ruleId}|${issue.selector ?? ""}|${issue.description}`;
+          const key = controlGroupStateKey(issue);
           if (seenIssues.has(key)) return false;
           seenIssues.add(key);
           return true;
@@ -4175,7 +4233,7 @@ async function exploreInteractiveStates(
             stats.push(...child.stats);
             states.push(...child.states);
             for (const issue of child.issues) {
-              const key = `${issue.ruleId}|${issue.selector ?? ""}|${issue.description}`;
+              const key = controlGroupStateKey(issue);
               if (!seenIssues.has(key)) { seenIssues.add(key); issues.push(issue); }
             }
           } finally { exploration.depth--; }
@@ -4210,6 +4268,7 @@ async function runACTRules(
   page: Page,
   selectedRules?: string[],
   includeEmbeddedFrames = true,
+  spatialContrast = false,
 ): Promise<{
   issues: ScanIssue[];
   stats: RuleCheckStat[];
@@ -4258,7 +4317,7 @@ async function runACTRules(
 
   let bundleResult: BrowserRuleResult = await page.evaluate(
     (options) => (window as any).__ampera.runAllRules(options),
-    { emitManualOnlyRules, rules: selectedRules },
+    { emitManualOnlyRules, rules: selectedRules, spatialContrast },
   );
 
   if (includeEmbeddedFrames) {
@@ -4305,6 +4364,7 @@ async function runACTRules(
       wcagCriteria: wcag ? wcag.sc.join(", ") : null,
       wcagLevel: wcag ? wcag.level.join(", ") : null,
       selector: r.selector,
+      occurrenceKey: r.occurrenceKey,
       remediation: desc?.remediation || null,
       legal: getLegalCompliance(wcag?.level || []),
     });

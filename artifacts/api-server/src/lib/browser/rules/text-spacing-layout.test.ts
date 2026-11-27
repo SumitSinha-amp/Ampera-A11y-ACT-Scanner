@@ -100,6 +100,68 @@ describe.skipIf(!existsSync(chromium))("ACT-R129 custom text-spacing layout", ()
     expect(result.issues).toEqual([]);
     expect(result.restored).toBe(true);
   });
+  it("does not call pre-existing widget truncation newly created clipping", async () => {
+    const result = await scan(`<a id="follow" style="display:block;width:125px;height:28px;overflow:hidden;white-space:nowrap;font:700 13px/26px Arial">
+      <span style="padding-left:30px">Follow @MarsTrip1</span></a>
+      <a id="video-title" style="display:block;width:190px;overflow:hidden;white-space:nowrap;font:18px/26px Arial">NASA: Life on Mars Was a Possibility</a>`);
+    expect(result.issues).toEqual([]);
+    expect(result.restored).toBe(true);
+  });
+  it("recognizes a small amount of baseline title truncation rather than reporting it as new", async () => {
+    const result = await scan(`<a style="display:block;width:78px;overflow:hidden;white-space:nowrap;font:16px/22px monospace">123456789</a>`);
+    expect(result.issues).toEqual([]);
+  });
+  it("does not re-report already truncated text against a newly clipping ancestor", async () => {
+    const result = await scan(`<div style="width:90px;overflow:hidden"><a style="display:block;width:80px;overflow:hidden;white-space:nowrap;font:16px/22px monospace">123456789</a></div>`);
+    expect(result.issues).toEqual([]);
+    expect(result.restored).toBe(true);
+  });
+  const graphic = '<svg width="24" height="24" viewBox="0 0 24 24"><path d="M0 0h24v24H0z"/></svg>';
+  it("detects newly overlapping SVG icons after their text label expands", async () => {
+    const result = await scan(`<div style="position:relative;height:60px">
+      <span style="white-space:nowrap">Text label${graphic}</span>
+      <span style="position:absolute;left:110px;top:0">${graphic}</span></div>`);
+    expect(result.issues.some(issue => issue.type === "Potential Issue" && issue.description.includes("another icon"))).toBe(true);
+    expect(result.restored).toBe(true);
+  });
+  it("detects the Mars-style worsening Google image / phone sprite collision", async () => {
+    const result = await scan(`<div style="position:relative;height:60px;font:12px/16px Arial">
+      <a style="display:inline-block;white-space:nowrap;font:12px/13px Arial">
+        <div style="display:inline-block;font-weight:bold;vertical-align:top;margin-right:5px;margin-top:8px">MarsCommuter</div>
+        <div style="display:inline-block;vertical-align:top;margin-top:8px">&nbsp;</div>
+        <img alt="Google+" width="32" height="32" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='32' height='32'/%3E%3C/svg%3E"></a>
+      <em id="phone" style="position:absolute;left:140px;top:2px;width:25px;height:25px;background-image:url(data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7)"></em></div>`);
+    expect(result.issues.some(issue => issue.type === "Potential Issue" && issue.description.includes("another icon") && issue.description.includes("em#phone"))).toBe(true);
+    expect(result.restored).toBe(true);
+  });
+  it("detects new overlap between an icon and its expanding sibling label", async () => {
+    const result = await scan(`<div style="position:relative;height:60px;font:16px/20px Arial">
+      <span>Phone</span><span style="position:absolute;left:50px;top:0">${graphic}</span></div>`);
+    expect(result.issues.some(issue => issue.type === "Potential Issue" && issue.description.includes("with text"))).toBe(true);
+  });
+  it("does not flag stable pre-existing icon overlap or common vertical movement", async () => {
+    const result = await scan(`<p>Growing paragraph spacing moves the icon row together.</p>
+      <div style="position:relative;height:60px">${graphic}<span style="position:absolute;left:10px;top:0">${graphic}</span></div>`);
+    expect(result.issues).toEqual([]);
+    expect(result.restored).toBe(true);
+  });
+  it("does not mistake a container background for an overlapping icon", async () => {
+    const result = await scan(`<div style="background:linear-gradient(white,gray);width:120px;height:120px"><p>Label text wraps freely</p>${graphic}</div>`);
+    expect(result.issues).toEqual([]);
+  });
+  it("checks generated icon glyphs without modifying their authored markup", async () => {
+    const result = await scan(`<style>.glyph:before{content:"☎"}.glyph{display:inline-block;width:24px;height:24px}</style>
+      <div style="position:relative;height:60px;font:16px/20px Arial"><span>Phone</span>
+      <i class="glyph" style="position:absolute;left:50px;top:0"></i></div>`);
+    expect(result.issues.some(issue => issue.type === "Potential Issue" && issue.description.includes("with text"))).toBe(true);
+    expect(result.restored).toBe(true);
+  });
+  it("ignores dormant carousel icons", async () => {
+    const result = await scan(`<div class="carousel" style="height:50px;overflow:hidden">
+      <div style="position:relative;transform:translateY(200px)">Text label${graphic}
+      <span style="position:absolute;left:100px;top:0">${graphic}</span></div></div>`);
+    expect(result.issues).toEqual([]);
+  });
   it.each(["display:none", "visibility:hidden", "opacity:0"])("ignores inactive text: %s", async (style) => {
     expect((await scan(`<div style="${style}">${overflowing}</div>`)).issues).toEqual([]);
   });

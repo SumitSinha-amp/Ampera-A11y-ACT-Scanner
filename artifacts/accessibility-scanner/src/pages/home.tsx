@@ -67,7 +67,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getStatusBadge } from "@/lib/status-badge";
 import { isUrlLikeScanName, SCAN_NAME_URL_ERROR } from "@/lib/scan-name";
 import { ScanLevelSelector } from "@/components/ScanLevelSelector";
-import { ALL_SCAN_LEVELS } from "@/lib/scanLevels";
+import { ALL_SCAN_LEVELS, getSelectedRuleLevels, ruleMatchesScanLevels } from "@/lib/scanLevels";
 import { FieldMessage } from "@/components/ui/field-message";
 import { useSite } from "@/contexts/site";
 import { ProjectSelector } from "@/components/project-selector";
@@ -1256,27 +1256,22 @@ export default function Home() {
   const [selectedRules, setSelectedRules] = useState<string[]>([]);
   const [selectedLevels, setSelectedLevels] = useState<string[]>([...ALL_SCAN_LEVELS]);
 
-  // Rules visible in the filter dropdown — restricted to the selected level scope.
-  // "WAI-ARIA" in the UI covers "WAI-ARIA" and "ARIA APG" entries in actRules.
-  const allLevelsActive = ALL_SCAN_LEVELS.every((l) => selectedLevels.includes(l));
-  const availableRules = useMemo(() => {
-    if (allLevelsActive) return ALL_RULES;
-    const uiLevelSet = new Set(selectedLevels);
-    if (uiLevelSet.has("WAI-ARIA")) uiLevelSet.add("ARIA APG");
-    return ALL_RULES.filter((r) => {
-      const wcagLevel = ACT_RULES[r.id]?.wcagLevel;
-      if (!wcagLevel || wcagLevel.length === 0) return true; // no level metadata → always show
-      return wcagLevel.some((l) => uiLevelSet.has(l));
-    });
-  }, [selectedLevels, allLevelsActive]);
+  const manualLevels = useRef<string[]>([...ALL_SCAN_LEVELS]);
 
-  // Drop any individually selected rules that fall outside the new level scope.
-  useEffect(() => {
-    if (allLevelsActive) return;
-    const inScope = new Set(availableRules.map((r) => r.id));
-    const pruned = selectedRules.filter((id) => inScope.has(id));
-    if (pruned.length !== selectedRules.length) setSelectedRules(pruned);
-  }, [availableRules]); // eslint-disable-line react-hooks/exhaustive-deps
+  const handleSelectedRulesChange = (rules: string[]) => {
+    setSelectedRules(rules);
+    const categories = getSelectedRuleLevels(rules, ACT_RULES);
+    setSelectedLevels(categories.length > 0 ? categories : [...manualLevels.current]);
+  };
+
+  const handleSelectedLevelsChange = (levels: string[]) => {
+    manualLevels.current = [...levels];
+    setSelectedLevels(levels);
+    // Explicit category edits still remove incompatible rules, as before.
+    setSelectedRules(current =>
+      current.filter(id => ruleMatchesScanLevels(id, levels, ACT_RULES)),
+    );
+  };
   const [activeScanId, setActiveScanId] = useState<number | null>(null);
 
   const [manualUrls, setManualUrls] = useState("");
@@ -1706,7 +1701,7 @@ export default function Home() {
     setProjectId(null);
     setProjectError(null);
     setAiContextualAssessment(false);
-    setSelectedRules([]);
+    handleSelectedRulesChange([]);
     // Re-apply auto-select if user is in exactly one group
     if (myGroups.length === 1) {
       setGroupId(myGroups[0].id);
@@ -2070,7 +2065,7 @@ export default function Home() {
                 <CardContent className="px-6 pb-8 lg:px-8">
                   <ScanLevelSelector
                     value={selectedLevels}
-                    onChange={setSelectedLevels}
+                    onChange={handleSelectedLevelsChange}
                     variant="card"
                   />
                 </CardContent>
@@ -2083,14 +2078,14 @@ export default function Home() {
                     Rule Filter
                   </CardTitle>
                   <CardDescription className="text-[12px]">
-                    Optionally pick individual rules to run within the selected levels.
+                    Pick individual rules to automatically select their matching categories above.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="px-6 pb-8 lg:px-8">
                   <RuleFilterSelector
                     selectedRules={selectedRules}
-                    onChange={setSelectedRules}
-                    availableRules={availableRules}
+                    onChange={handleSelectedRulesChange}
+                    availableRules={ALL_RULES}
                   />
                 </CardContent>
               </Card>

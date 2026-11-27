@@ -536,7 +536,7 @@ export const ACT_RULES: Record<string, RuleDisplayMeta> = {
   "ACT-R91": {
     title: "Letter spacing is not wide enough",
     detail:
-      "WCAG 1.4.12 requires content to remain usable when letter-spacing is increased to at least 0.12em. Layouts that break under this override need adjustment.",
+      "Reviews inline !important letter-spacing declarations below the 0.12em test setting that may restrict user overrides. This is not evidence of clipping, and default spacing below 0.12em is not itself a WCAG failure. Verify that increased spacing preserves content and functionality; ACT-R129 separately checks layout changes under text-spacing overrides.",
   },
   "ACT-R92": {
     title: "Word spacing is not wide enough",

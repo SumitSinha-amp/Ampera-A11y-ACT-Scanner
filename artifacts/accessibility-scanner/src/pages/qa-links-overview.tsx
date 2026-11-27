@@ -68,7 +68,7 @@ function StatCard({
       : "text-primary";
 
   const content = (
-    <Card className="qa-stat hover:border-primary/40 transition-colors">
+    <Card className="qa-stat hover:border-primary/40 transition-colors" data-metro-tile={variant === "destructive" ? "failed" : variant === "warning" ? "warning" : "links"}>
       <CardContent className="pt-5 pb-5">
         <div className="flex items-center gap-3">
           <div className={`${color} shrink-0`}>{icon}</div>

@@ -22,17 +22,67 @@ describe.skipIf(!existsSync(chromium))("R69 Alfa and W3C afw4f7", () => {
   }, 30000);
   afterAll(async () => { await browser?.close(); });
 
-  async function scan(html: string, rules: string[] | undefined = ["ACT-R69"]) {
+  async function scan(html: string, rules: string[] | undefined = ["ACT-R69"], ruleId = "ACT-R69") {
     await page.setContent(`<!doctype html><html><head><title>Contrast</title></head><body>${html}</body></html>`);
     await page.evaluate(bundle);
-    return page.evaluate(rules => {
+    return page.evaluate(({ rules, ruleId }) => {
       const r = (window as any).__ampera.runAllRules({ rules });
-      return { issues: r.issues.filter((i: any) => i.ruleId === "ACT-R69"),
-        checked: r.stats.find((s: any) => s.ruleId === "ACT-R69")?.totalChecked,
-        status: r.ruleStatuses.find((s: any) => s.ruleId === "ACT-R69")?.status };
-    }, rules);
+      return { issues: r.issues.filter((i: any) => i.ruleId === ruleId),
+        checked: r.stats.find((s: any) => s.ruleId === ruleId)?.totalChecked,
+        status: r.ruleStatuses.find((s: any) => s.ruleId === ruleId)?.status };
+    }, { rules, ruleId });
   }
 
+  it.each([
+    '<button style="color:white;background:#ff4f17;font:600 10px Arial">Promotional action</button>',
+    '<div role="button" style="color:white;background:#ff4f17"><span>Nested action</span></div>',
+    '<div onclick="window.activated=true" style="color:white;background:#ff4f17;cursor:pointer"><span>Scripted action</span></div>',
+    '<input type="submit" value="Find journeys" style="color:white;background:#ff4f17">',
+  ])("R103 detects widget text independently: %s", async html => {
+    const r = await scan(html, ["ACT-R103"], "ACT-R103");
+    expect(r.issues).toHaveLength(1);
+    expect(r.issues[0].type).toBe("Issue");
+    expect(r.issues[0].description).toContain("3.29:1");
+    expect(r.status).toBe("executed");
+    expect(r.checked).toBe(1);
+    expect(await page.evaluate(() => (window as any).activated)).toBeUndefined();
+  });
+  it.each([
+    '<p style="color:#aaa;background:white">Ordinary paragraph</p>',
+    '<div style="cursor:pointer;color:#aaa;background:white">Pointer alone is not a widget</div>',
+    '<div onclick="window.activated=true"><p style="color:#aaa;background:white">Container delegation alone is not a widget</p></div>',
+    '<button disabled style="color:#aaa;background:white">Disabled action</button>',
+    '<div role="button" aria-disabled="true" style="color:#aaa;background:white">Disabled widget</div>',
+    '<button hidden style="color:#aaa;background:white">Hidden action</button>',
+    '<button style="color:black;background:white">Readable action</button>',
+    '<button style="font:700 24px Arial;color:#777;background:white">Large readable action</button>',
+  ])("R103 excludes non-applicable and passing targets: %s", async html => {
+    expect((await scan(html, ["ACT-R103"], "ACT-R103")).issues).toEqual([]);
+  });
+  it("R103 retains unknown image backgrounds as review rather than a confirmed failure", async () => {
+    const r = await scan('<button style="color:white;background:#ff4f17 url(https://invalid.test/image.jpg)">Image-backed action</button>', ["ACT-R103"], "ACT-R103");
+    expect(r.issues).toHaveLength(1);
+    expect(r.issues[0].type).toBe("Potential Issue");
+  });
+  it("R103 runs in standard scans and does not leak into an R69-only selection", async () => {
+    const html = '<button style="color:#aaa;background:white">Widget text</button>';
+    expect((await scan(html, [], "ACT-R103")).issues).toHaveLength(1);
+    expect((await scan(html, ["ACT-R69"], "ACT-R103")).issues).toEqual([]);
+    expect((await scan(html, ["ACT-R103"], "ACT-R69")).issues).toEqual([]);
+  });
+  it("R103 evaluates the actual hover and focus paint without activating the widget", async () => {
+    await scan(`<style>#action{color:black;background:white}
+      #action:hover,#action:focus{color:#aaa}</style>
+      <button id="action" onclick="window.activated=true">Action</button>`, ["ACT-R103"], "ACT-R103");
+    await page.hover("#action");
+    const hovered = await page.evaluate(() => (window as any).__ampera.runAllRules({ rules: ["ACT-R103"] }));
+    expect(hovered.issues.some((i: any) => i.ruleId === "ACT-R103" && i.type === "Issue")).toBe(true);
+    await page.mouse.move(1100, 700);
+    await page.focus("#action");
+    const focused = await page.evaluate(() => (window as any).__ampera.runAllRules({ rules: ["ACT-R103"] }));
+    expect(focused.issues.some((i: any) => i.ruleId === "ACT-R103" && i.type === "Issue")).toBe(true);
+    expect(await page.evaluate(() => (window as any).activated)).toBeUndefined();
+  });
   it.each([
     ["Alfa pass 1 / W3C pass 1", '<p style="color:#333;background:#fff">Some text in a human language</p>'],
     ["Alfa pass 2", '<p style="color:#666;background:white">Some text in English</p>'],

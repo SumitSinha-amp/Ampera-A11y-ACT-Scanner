@@ -14,7 +14,6 @@ import {
   FilePlus2,
   Route,
   Palette,
-  ShieldCheck,
   ListChecks,
   CheckCircle2,
 } from "lucide-react";
@@ -202,30 +201,30 @@ export default function WelcomePage() {
               <CardContent className="p-5 md:p-6">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-400/10 text-teal-600 dark:text-teal-300">
-                    <ShieldCheck className="h-5 w-5" />
+                    <Palette className="h-5 w-5" />
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-300">
-                      Target-size guidance
+                      Metro theme update
                     </p>
-                    <h2 className="mt-0.5 text-base font-semibold">Understand target-size results</h2>
+                    <h2 className="mt-0.5 text-base font-semibold">Consistent color across your workspace</h2>
                   </div>
                 </div>
                 <p className="mt-4 text-sm leading-6 text-muted-foreground">
-                  ACT-R113 accepts targets that are at least 24×24 CSS pixels or have sufficient spacing.
-                  Covered background controls do not create spacing failures. Findings measured with
-                  unresolved artwork or fonts remain Potential Issues for review.
+                  Metric tiles, status chips, issue counts, and table actions now share the same
+                  colorful Metro styling across crawler, site, QA, scan, activity, and admin screens.
+                  Other themes and your existing workflows stay unchanged.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-1.5">
-                  {["ACT-R113", "Size or spacing", "State evidence"].map((level) => (
+                  {["Colorful tiles", "Clear statuses", "Consistent tables"].map((level) => (
                     <Badge key={level} variant="outline" className="border-teal-400/30 bg-teal-400/5 text-[10px] text-teal-700 dark:text-teal-300">
                       {level}
                     </Badge>
                   ))}
                 </div>
-                <Link href="/documentation">
+                <Link href="/app-updates">
                   <Button variant="link" className="mt-3 h-auto px-0 text-xs">
-                    Read the rule guidance
+                    Explore the Metro improvements
                     <ArrowRight className="ml-1 h-3 w-3" />
                   </Button>
                 </Link>

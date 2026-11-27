@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useLocation } from "wouter";
 import { AlertCircle, Ban, CheckCheck, CheckCircle2, CircleDot, Eye, GripVertical, Layers, List, Loader2, Lock, PanelRight, PauseCircle, Plus, RefreshCw, RotateCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { FilterAutocompleteInput } from "@/components/filter-autocomplete-input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -323,6 +323,7 @@ export default function IssuesPage() {
       <div className="issues-metrics flex-none grid grid-flow-col auto-cols-[112px] gap-1.5 overflow-x-auto pb-1 lg:grid-flow-row lg:auto-cols-auto lg:grid-cols-9">
         <button
           type="button"
+          data-metro-issue-tile="total"
           className="rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           aria-label={`Show all ${metrics.total} issues`}
           aria-pressed={statusFilter === "all"}
@@ -348,6 +349,7 @@ export default function IssuesPage() {
           <button
             key={key}
             type="button"
+            data-metro-issue-tile={key}
             className="rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 cursor-pointer"
             aria-label={`Filter issues by ${label}`}
             aria-pressed={statusFilter === key}
@@ -374,12 +376,13 @@ export default function IssuesPage() {
       {/* Filter Bar */}
       <div className="issues-filter-bar flex-none bg-card p-2 rounded-lg border shadow-sm flex flex-col md:flex-row items-center gap-2">
         <div className="relative flex-1 min-w-0 w-full">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input 
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <FilterAutocompleteInput
+            suggestions={issues.flatMap((issue) => [issue.issueKey, issue.title])}
             aria-label="Search issues" 
             className="pl-9 border-transparent focus-visible:border-ring bg-muted/50 font-medium" 
             value={search} 
-            onChange={(e) => setSearch(e.target.value)} 
+            onValueChange={setSearch}
             placeholder="Search keywords or keys..." 
           />
         </div>

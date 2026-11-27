@@ -428,7 +428,7 @@ export default function PageReport() {
     [ruleGroups, potentialGroups, bestPracticeGroups, waiAriaGroups],
   );
   const selectedGroup = selectedIssue
-    ? (allGroups.find(([r]) => r === selectedIssue.ruleId)?.[1] ?? [])
+    ? (allGroups.find(([, group]) => group.some((issue) => issue.id === selectedIssue.id))?.[1] ?? [])
     : [];
   const occIndex = selectedIssue
     ? selectedGroup.findIndex((i) => i.id === selectedIssue.id)
@@ -618,7 +618,7 @@ export default function PageReport() {
                 {expandedSections.has("Issue") && (
                   <div className="space-y-0.5 pl-1">
                     {ruleGroups.map(([rid, grp]) => {
-                      const active = selectedIssue?.ruleId === rid;
+                      const active = grp.some((issue) => issue.id === selectedIssueId);
                       return (
                         <button
                           key={rid}
@@ -653,7 +653,7 @@ export default function PageReport() {
                 {expandedSections.has("Potential Issue") && (
                   <div className="space-y-0.5 pl-1">
                     {potentialGroups.map(([rid, grp]) => {
-                      const active = selectedIssue?.ruleId === rid;
+                      const active = grp.some((issue) => issue.id === selectedIssueId);
                       return (
                         <button
                           key={rid}
@@ -688,7 +688,7 @@ export default function PageReport() {
                 {expandedSections.has("Best Practice") && (
                   <div className="space-y-0.5 pl-1">
                     {bestPracticeGroups.map(([rid, grp]) => {
-                      const active = selectedIssue?.ruleId === rid;
+                      const active = grp.some((issue) => issue.id === selectedIssueId);
                       return (
                         <button
                           key={rid}
@@ -723,7 +723,7 @@ export default function PageReport() {
                 {expandedSections.has("WAI-ARIA") && (
                   <div className="space-y-0.5 pl-1">
                     {waiAriaGroups.map(([rid, grp]) => {
-                      const active = selectedIssue?.ruleId === rid;
+                      const active = grp.some((issue) => issue.id === selectedIssueId);
                       return (
                         <button
                           key={rid}

@@ -104,8 +104,16 @@ export function createKeyboardFocusProbe() {
     const overrides: { el: HTMLElement | SVGElement; style: string | null }[] = [];
     const candidateBlockers = new Set<Element>();
     const root = target.getRootNode();
-    const elementsAt = (x: number, y: number) => root instanceof ShadowRoot
-      ? root.elementsFromPoint(x, y) : document.elementsFromPoint(x, y);
+    const elementsAt = (x: number, y: number) => {
+      // Chromium rounds hit-test coordinates: e.g. y=719.51 in a 720px
+      // viewport can return [] even though the CSS point is inside. The
+      // geometric paint intersection below still proves complete coverage;
+      // sample stacking at the last addressable pixel rather than outside it.
+      const sampleX = Math.max(0, Math.min(innerWidth - 1, x));
+      const sampleY = Math.max(0, Math.min(innerHeight - 1, y));
+      return root instanceof ShadowRoot
+        ? root.elementsFromPoint(sampleX, sampleY) : document.elementsFromPoint(sampleX, sampleY);
+    };
     try {
       if (getComputedStyle(target).pointerEvents === "none") {
         overrides.push({ el: target, style: target.getAttribute("style") });

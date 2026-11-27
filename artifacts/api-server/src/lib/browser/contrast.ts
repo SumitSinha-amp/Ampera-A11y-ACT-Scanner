@@ -184,12 +184,18 @@ export function resolveLineHeight(style: CSSStyleDeclaration, fontSize: number):
 }
 
 export function isImportantBlocked(el: HTMLElement, prop: string, testValue: string): boolean {
-  const savedVal = el.style.getPropertyValue(prop);
-  const savedPri = el.style.getPropertyPriority(prop);
-  el.style.setProperty(prop, testValue);
-  const testComputed = parseFloat(window.getComputedStyle(el).getPropertyValue(prop));
-  el.style.removeProperty(prop);
-  if (savedVal) el.style.setProperty(prop, savedVal, savedPri);
+  const authoredStyle = el.getAttribute("style");
+  let testComputed: number;
+  try {
+    el.style.setProperty(prop, testValue);
+    testComputed = parseFloat(window.getComputedStyle(el).getPropertyValue(prop));
+  } finally {
+    // Sibling spacing checks must not serialize/alter authored R91 evidence
+    // or leave empty attributes after a temporary probe.
+    el.getAttribute("style");
+    if (authoredStyle === null) el.removeAttribute("style");
+    else el.setAttribute("style", authoredStyle);
+  }
   const origComputed = parseFloat(window.getComputedStyle(el).getPropertyValue(prop));
   return Math.abs(testComputed - origComputed) < 50;
 }

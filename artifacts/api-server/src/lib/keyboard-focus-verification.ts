@@ -8,6 +8,8 @@ interface FocusVerificationOptions {
   maxSteps?: number;
   budgetMs?: number;
   maxFindings?: number;
+  /** Additional shorter viewport heights; [] disables responsive verification. */
+  viewportHeights?: number[];
   captureEvidence: () => Promise<{ screenshot: string; pageHtml: string }>;
 }
 
@@ -16,7 +18,7 @@ interface FocusVerificationOptions {
  * click, or type into controls. Both directions matter: browser scroll-into-view
  * can put forward focus behind a footer and reverse focus behind a header.
  */
-export async function verifyKeyboardFocus(page: Page, options: FocusVerificationOptions) {
+async function verifyKeyboardFocusAtViewport(page: Page, options: FocusVerificationOptions) {
   const issues: ScanIssue[] = [];
   const states: InteractionStateEvidence[] = [];
   const checked = new Set<number>();
@@ -28,7 +30,7 @@ export async function verifyKeyboardFocus(page: Page, options: FocusVerification
   const started = Date.now();
   const budgetMs = options.budgetMs ?? 6500;
   const maxSteps = options.maxSteps ?? 100;
-  const maxFindings = options.maxFindings ?? 6;
+  const maxFindings = options.maxFindings ?? 24;
   const url = page.url();
   let initialized = false;
   try {
@@ -43,14 +45,11 @@ export async function verifyKeyboardFocus(page: Page, options: FocusVerification
     const found = new Set<number>();
     for (const reverse of [false, true]) {
       const deadline = started + budgetMs * (reverse ? 1 : 0.5);
-      const directionFindingsStart = issues.length;
-      const directionQuota = Math.ceil(maxFindings / 2);
       await page.evaluate(() => (window as any).__ampera.keyboardFocusProbe.reset());
       const seen = new Set<number>();
       let finishedDirection = false;
       for (let step = 0; step < Math.ceil(maxSteps / 2); step++) {
-        if (Date.now() >= deadline || issues.length >= maxFindings ||
-          issues.length - directionFindingsStart >= directionQuota || page.url() !== url) break;
+        if (Date.now() >= deadline || issues.length >= maxFindings || page.url() !== url) break;
         if (reverse) await page.keyboard.down("Shift");
         try { await page.keyboard.press("Tab"); }
         finally { if (reverse) await page.keyboard.up("Shift"); }
@@ -107,4 +106,63 @@ export async function verifyKeyboardFocus(page: Page, options: FocusVerification
     }
   }
   return { issues, states, checked: checked.size, complete, error };
+}
+
+/**
+ * Native focus scrolling depends on viewport height. Preserve the authored
+ * layout and inspect two common shorter desktop viewports as well as baseline;
+ * never simulate an obstruction by manually positioning a focused control.
+ */
+export async function verifyKeyboardFocus(page: Page, options: FocusVerificationOptions) {
+  const viewport = page.viewport();
+  const heights = viewport && isRuleSelected("ACT-R119", getSelectedRuleIds(options.rules))
+    ? [...new Set([viewport.height, ...(options.viewportHeights ?? [720, 800])
+      .filter(height => Number.isFinite(height) && height >= 320 && height < viewport.height)])]
+    : [viewport?.height ?? 0];
+  const originalScroll = await page.evaluate(() => ({ x: scrollX, y: scrollY }));
+  const issues: ScanIssue[] = [];
+  const states: InteractionStateEvidence[] = [];
+  const seen = new Set<string>();
+  const started = Date.now();
+  // One overall budget, divided across viewports, rather than multiplying the
+  // scanner's work without a bound. Preserve caller-supplied zero/short budgets.
+  const budgetMs = options.budgetMs ?? (heights.length > 1 ? 12000 : 6500);
+  const maxFindings = options.maxFindings ?? 24;
+  let complete = true;
+  let checked = 0;
+  let error: string | undefined;
+  try {
+    for (let index = 0; index < heights.length; index++) {
+      if (index > 0 && (Date.now() - started >= budgetMs || issues.length >= maxFindings)) {
+        complete = false;
+        break;
+      }
+      if (viewport && index > 0) await page.setViewport({ ...viewport, height: heights[index]! });
+      const result = await verifyKeyboardFocusAtViewport(page, {
+        ...options,
+        maxFindings: Math.max(0, maxFindings - issues.length),
+        budgetMs: Math.max(0, (budgetMs - (Date.now() - started)) / (heights.length - index)),
+      });
+      checked = Math.max(checked, result.checked);
+      complete &&= result.complete;
+      error ??= result.error;
+      const retained = new Set<string>();
+      for (const issue of result.issues) {
+        const identity = issue.selector ?? issue.element ?? "";
+        if (seen.has(identity)) continue;
+        seen.add(identity);
+        const key = `viewport-${heights[index]}-${issue.interactionStateKey}`;
+        retained.add(issue.interactionStateKey!);
+        issues.push({ ...issue, interactionStateKey: key });
+      }
+      states.push(...result.states.filter(state => retained.has(state.key)).map(state => ({
+        ...state, key: `viewport-${heights[index]}-${state.key}`,
+        triggerLabel: `${state.triggerLabel} — ${viewport?.width ?? "current"}×${heights[index]} viewport`,
+      })));
+    }
+  } finally {
+    if (viewport && heights.length > 1) await page.setViewport(viewport);
+    await page.evaluate(({ x, y }) => window.scrollTo({ left: x, top: y, behavior: "instant" }), originalScroll).catch(() => {});
+  }
+  return { issues, states, checked, complete, error };
 }

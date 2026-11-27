@@ -9,7 +9,7 @@ const WIDGETS = new Set(["button", "checkbox", "combobox", "grid", "gridcell", "
   "spinbutton", "switch", "tab", "tablist", "textbox", "tree", "treegrid", "treeitem",
   "group", "row", "rowheader", "columnheader", "toolbar"]);
 type Color = [number, number, number, number];
-type Target = { text?: Text; value: string; parent: Element; chain: Element[]; placeholder?: boolean };
+type Target = { text?: Text; value: string; parent: Element; chain: Element[]; placeholder?: boolean; paintRect?: DOMRect };
 
 function parent(node: Node): Element | null {
   return (node as Element).assignedSlot || node.parentElement ||
@@ -63,7 +63,12 @@ function ratio(a: Color, b: Color): number {
  * single characters and flat-tree shadow/slot content. Unknown color evidence
  * is always a review, never a failure inferred from an average screenshot.
  */
-export function runTextMinimumContrastRule(results: ScanRawResult[], pushStat: PushStatFn): void {
+export function runTextMinimumContrastRule(
+  results: ScanRawResult[],
+  pushStat: PushStatFn,
+  ruleId: "ACT-R69" | "ACT-R103" = "ACT-R69",
+  spatialContrast = false,
+): void {
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = 1;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -105,6 +110,10 @@ export function runTextMinimumContrastRule(results: ScanRawResult[], pushStat: P
     }
     if (node instanceof Element) {
       elements.push(node);
+      if (ruleId === "ACT-R103" && node instanceof HTMLInputElement &&
+        /^(button|submit|reset)$/.test(node.type) && node.value.trim()) {
+        targets.push({ value: node.value.trim(), parent: node, chain: [node, ...chainOf(node)] });
+      }
       // Product extension to upstream's DOM-text targets: placeholder glyphs
       // are rendered by the UA, not represented by child Text nodes.
       if ((node instanceof HTMLInputElement &&
@@ -143,7 +152,21 @@ export function runTextMinimumContrastRule(results: ScanRawResult[], pushStat: P
   const backgrounds = new Map<Element, { colors?: Color[]; reason?: string }>();
   // Return local paint with its alpha intact. Group opacity is applied after
   // compositing that group's entire content, not once per background layer.
-  const getLocalBackground = (el: Element): { colors?: Color[]; reason?: string } => {
+  const getLocalBackground = (el: Element, rect?: DOMRect): { colors?: Color[]; reason?: string } => {
+    if (rect && !el.matches("html,body")) {
+      const box = el.getBoundingClientRect(), s = style(el);
+      const paints = s.backgroundImage !== "none" || (color(s.backgroundColor)?.[3] || 0) > 0;
+      if (paints && (rect.right <= box.left || rect.left >= box.right ||
+        rect.bottom <= box.top || rect.top >= box.bottom)) {
+        // Overflowing children do not inherit an ancestor's background paint.
+        // Body/root backgrounds are special: they may propagate to the canvas.
+        return { colors: [[0, 0, 0, 0]] };
+      }
+      if (paints && (rect.left < box.left || rect.right > box.right ||
+        rect.top < box.top || rect.bottom > box.bottom)) {
+        return { reason: "text fragment crosses a background paint boundary" };
+      }
+    }
     const cached = backgrounds.get(el);
     if (cached) return cached;
     const s = style(el);
@@ -178,16 +201,65 @@ export function runTextMinimumContrastRule(results: ScanRawResult[], pushStat: P
     return result;
   };
 
+  // Zoom verification is spatial and conservative: evaluate visible words
+  // independently, not a screenshot average or a page-wide image color.
+  // A failing readable fragment proves loss even if another fragment passes.
+  const evaluatedTargets: Target[] = [];
+  if (spatialContrast) {
+    const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    outer: for (const target of targets) {
+      const elBox = target.parent.getBoundingClientRect();
+      if (elBox.bottom <= 0 || elBox.top >= innerHeight || elBox.right <= 0 || elBox.left >= innerWidth) continue;
+      if (!target.text) { evaluatedTargets.push(target); continue; }
+      const range = document.createRange();
+      for (const word of target.text.data.matchAll(/\S+/gu)) {
+        range.setStart(target.text, word.index!);
+        range.setEnd(target.text, word.index! + word[0].length);
+        let fragments = Array.from(range.getClientRects());
+        const crossesPaint = fragments.some(rect => target.chain.some(node => {
+          if (node.matches("html,body")) return false;
+          const s = style(node), box = node.getBoundingClientRect();
+          if (s.backgroundImage === "none" && !(color(s.backgroundColor)?.[3] || 0)) return false;
+          return rect.right > box.left && rect.left < box.right && rect.bottom > box.top && rect.top < box.bottom &&
+            (rect.left < box.left || rect.right > box.right || rect.top < box.top || rect.bottom > box.bottom);
+        }));
+        if (crossesPaint) {
+          // A word can straddle the image edge (e.g. the first affected label).
+          // Resolve whole graphemes, never infer their paint from word averages.
+          fragments = [];
+          for (const part of graphemes.segment(word[0])) {
+            range.setStart(target.text, word.index! + part.index);
+            range.setEnd(target.text, word.index! + part.index + part.segment.length);
+            fragments.push(...Array.from(range.getClientRects()));
+          }
+        }
+        for (const rect of fragments) {
+          if (rect.width <= 0 || rect.height <= 0 || rect.left < 0 ||
+            rect.top < 0 || rect.right > innerWidth || rect.bottom > innerHeight) continue;
+          evaluatedTargets.push({ ...target, paintRect: rect });
+          if (evaluatedTargets.length >= 6000) break outer;
+        }
+      }
+    }
+  }
   let checked = 0;
-  for (const target of targets) {
+  const spatialChecked = new Set<Element>();
+  const spatialFindings = new Map<string, ScanRawResult>();
+  for (const target of spatialContrast ? evaluatedTargets : targets) {
     const { text, value, parent: el, chain, placeholder } = target;
+    if (ruleId === "ACT-R103" && !chain.some(node =>
+      WIDGETS.has(getEffectiveAriaRole(node)) ||
+      // Direct authored handlers cover non-semantic scripted controls.
+      // Ignore document-wide delegation: it does not make all text a widget.
+      !node.matches("body,html") && style(node).cursor === "pointer" &&
+        typeof (node as HTMLElement).onclick === "function")) continue;
     const ss = chain.map(style), s = placeholder ? getComputedStyle(el, "::placeholder") : ss[0];
     if (chain.some(n => disabled(n) || disabledNameSources.has(n))) continue;
     if (s.visibility !== "visible" || Number(s.opacity) === 0 || ss.some(n => n.display === "none" || n.contentVisibility === "hidden" || Number(n.opacity) === 0)) continue;
     if (ss.some(n => /inset\(\s*(50|100)%/.test(n.clipPath) || /rect\(\s*0(?:px)?[, ]+\s*0/.test(n.clip))) continue;
     const range = document.createRange();
     if (text) range.selectNodeContents(text);
-    const rects = (placeholder ? Array.from(el.getClientRects()) : Array.from(range.getClientRects()))
+    const rects = (target.paintRect ? [target.paintRect] : !text ? Array.from(el.getClientRects()) : Array.from(range.getClientRects()))
       .filter(r => r.width > 0 && r.height > 0);
     if (!rects.length) continue;
     // Visibility includes content that can be brought into view by scrolling
@@ -260,7 +332,7 @@ export function runTextMinimumContrastRule(results: ScanRawResult[], pushStat: P
     if (!reason && fg) {
       let pairs: { fg: Color; bg: Color }[] = [{ fg, bg: [0, 0, 0, 0] }];
       for (let i = 0; i < chain.length; i++) {
-        const node = chain[i], a = ss[i], local = getLocalBackground(node);
+        const node = chain[i], a = ss[i], local = getLocalBackground(node, target.paintRect);
         if (!local.colors) { reason = local.reason; break; }
         if (pairs.length * local.colors.length > 256) { reason = "foreground/background combinations require review"; break; }
         pairs = pairs.flatMap(pair => local.colors!.map(backdrop => {
@@ -289,14 +361,21 @@ export function runTextMinimumContrastRule(results: ScanRawResult[], pushStat: P
       }
     }
     checked++;
+    if (spatialContrast) spatialChecked.add(el);
     if (!reason && highest !== undefined && highest >= minimum) continue;
-    results.push({
-      ruleId: "ACT-R69", type: reason ? "Potential Issue" : "Issue", impact: "serious",
+    const finding: ScanRawResult = {
+      ruleId, type: reason ? "Potential Issue" : "Issue", impact: "serious",
       description: `${placeholder ? "Placeholder" : "Text"} ${JSON.stringify(value)}: ${reason
         ? `minimum contrast needs review: ${reason}`
-        : `highest possible text contrast ${highest!.toFixed(2)}:1 is below AA minimum (${minimum}:1)`}.`,
+        : `${spatialContrast ? "visible text fragment" : "highest possible text"} contrast ${highest!.toFixed(2)}:1 is below AA minimum (${minimum}:1)`}.`,
       selector: getSelector(el), element: outerHtmlSnippet(el), elementContext: elementContextForAI(el),
-    });
+    };
+    if (!spatialContrast) results.push(finding);
+    else {
+      const prior = spatialFindings.get(finding.selector!);
+      if (!prior || prior.type !== "Issue" && finding.type === "Issue") spatialFindings.set(finding.selector!, finding);
+    }
   }
-  pushStat("ACT-R69", checked, "element");
+  results.push(...spatialFindings.values());
+  pushStat(ruleId, spatialContrast ? spatialChecked.size : checked, "element");
 }

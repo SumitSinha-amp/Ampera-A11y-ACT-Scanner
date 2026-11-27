@@ -224,11 +224,28 @@ export function runControlGroupNameRule(results: ScanRawResult[], pushStat: Push
 
   const checked = new Set<Element>();
   const report = (element: Element, description: string, potential = false): void => {
+    // The bundle is reinjected for every explored state. Keep identity on the
+    // document, not in module scope, and never add scanner attributes to markup.
+    const owner = element.ownerDocument as Document & {
+      __amperaControlGroupIdentity?: {
+        prefix: string; next: number; elements: WeakMap<Element, string>;
+      };
+    };
+    const identity = owner.__amperaControlGroupIdentity ??= {
+      prefix: Array.from(crypto.getRandomValues(new Uint32Array(4))).join("-"),
+      next: 0, elements: new WeakMap(),
+    };
+    let occurrenceKey = identity.elements.get(element);
+    if (!occurrenceKey) {
+      occurrenceKey = `${identity.prefix}:${++identity.next}`;
+      identity.elements.set(element, occurrenceKey);
+    }
     results.push({
       ruleId: "ACT-R60", type: "Best Practice", impact: "serious", description,
       ...(potential ? { type: "Potential Issue" as const } : {}),
       element: outerHtmlSnippet(element), elementContext: elementContextForAI(element),
       selector: getSelector(element),
+      occurrenceKey,
     });
   };
   for (const [group, count] of counts) {

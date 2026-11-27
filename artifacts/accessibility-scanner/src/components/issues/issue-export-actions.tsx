@@ -193,12 +193,12 @@ export function IssueExportActions({ issues }: IssueExportActionsProps) {
       </DropdownMenu>
 
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
+        <DialogContent className="min-w-0 max-h-[90dvh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-md [&>*]:min-w-0">
+          <DialogHeader className="pr-10">
             <DialogTitle>Share Issues</DialogTitle>
             <DialogDescription>Choose an app or copy a link to this filtered Issues view.</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-3 py-2 sm:grid-cols-3">
+          <div className="grid min-w-0 grid-cols-2 gap-3 py-2 sm:grid-cols-3 [&>button]:min-w-0">
             <button
               type="button"
               onClick={() => { window.location.href = `mailto:?subject=${encodeURIComponent("Issue Management")}&body=${encodeURIComponent(`${shareText}\n\n${shareUrl}`)}`; }}
@@ -244,10 +244,10 @@ export function IssueExportActions({ issues }: IssueExportActionsProps) {
               </button>
             )}
           </div>
-          <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+          <div className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-lg border bg-muted/30 px-3 py-2">
             <Clipboard className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{shareUrl}</span>
-            <Button type="button" size="sm" variant="outline" onClick={copyShareLink}>{shared ? "Copied" : "Copy"}</Button>
+            <span title={shareUrl} className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{shareUrl}</span>
+            <Button type="button" size="sm" variant="outline" className="shrink-0" onClick={copyShareLink}>{shared ? "Copied" : "Copy"}</Button>
           </div>
         </DialogContent>
       </Dialog>

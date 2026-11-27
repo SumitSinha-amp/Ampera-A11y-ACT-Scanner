@@ -131,6 +131,92 @@ describe.skipIf(!existsSync(chromium))("Ampera R121 native focus appearance", ()
   it("preserves the default browser indicator", async () => {
     expect((await scan('<a href="#">Default</a><button>Button</button><input aria-label="Name">')).issues).toEqual([]);
   });
+  it("does not treat color and underline on an image-only link as a rendered indicator", async () => {
+    const r = await scan(`<style>a{outline:none;color:blue}a:focus{color:red;text-decoration:underline}</style>
+      <a id="store" href="#"><img alt="Google Play" width="60" height="30" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='30'%3E%3Crect width='60' height='30'/%3E%3C/svg%3E"></a>`,
+      { rules: ["ACT-R65"], ruleIds: ["ACT-R65"] });
+    expect(r.issues).toHaveLength(1);
+    expect(r.issues[0]).toMatchObject({ selector: "a#store", type: "Potential Issue" });
+  });
+  it.each([
+    "a:focus{color:#656565}",
+    "a{border:1px solid #dadada}a:focus{border-color:#0088ce}",
+    "a{background:linear-gradient(#ff3c76,#ff2364)}a:focus{background:linear-gradient(#ff6f9a,#ff5688)}",
+  ])("keeps color-only changes reviewable rather than asserting visibility: %s", async css => {
+    const r = await scan(`<style>a{outline:none;text-decoration:none}${css}</style><a href="#">Control</a>`,
+      { rules: ["ACT-R65"], ruleIds: ["ACT-R65"] });
+    expect(r.issues).toHaveLength(1);
+    expect(r.issues[0].description).toContain("only color or other unverified paint");
+    expect(r.states).toHaveLength(1);
+  });
+  it("keeps a new text underline as observed replacement styling", async () => {
+    const r = await scan('<style>a{outline:none;text-decoration:none}a:focus{text-decoration:underline}</style><a href="#"><span>Text link</span></a>',
+      { rules: ["ACT-R65"], ruleIds: ["ACT-R65"] });
+    expect(r.issues).toEqual([]);
+  });
+  it("does not accept underline on text isolated inside an inline-block descendant", async () => {
+    const r = await scan('<style>a{outline:none;text-decoration:none}a:focus{text-decoration:underline}span{display:inline-block}</style><a href="#"><span>Isolated text</span></a>',
+      { rules: ["ACT-R65"], ruleIds: ["ACT-R65"] });
+    expect(r.issues).toHaveLength(1);
+  });
+  it("does not accept focus styling on a hidden descendant", async () => {
+    const r = await scan('<style>a{outline:none}a:focus span{background:yellow}</style><a href="#">Visible<span hidden>Hidden</span></a>',
+      { rules: ["ACT-R65"], ruleIds: ["ACT-R65"] });
+    expect(r.issues).toHaveLength(1);
+  });
+  it("checks zero-width icon links and captures their visible descendant bounds", async () => {
+    const r = await scan(`<style>a{outline:none;display:inline-block;width:0;height:12px}i{display:inline-block;width:20px;height:20px;background:black}</style>
+      <a id="social" aria-label="Social" href="#"><i></i></a>`,
+      { rules: ["ACT-R65"], ruleIds: ["ACT-R65"] });
+    expect(r.issues).toHaveLength(1);
+    expect(r.issues[0]).toMatchObject({ selector: "a#social", bboxWidth: 20 });
+    expect(r.complete).toBe(true);
+  });
+  it("accepts a contrasting native insertion caret in editable text fields", async () => {
+    const r = await scan('<style>input,textarea{outline:none;background:white;color:#333;caret-color:#333}</style><input aria-label="From"><input aria-label="To"><textarea aria-label="Notes"></textarea>',
+      { rules: ["ACT-R65"], ruleIds: ["ACT-R65"] });
+    expect(r.issues).toEqual([]);
+    expect(r.checked).toBe(3);
+    expect(r.complete).toBe(true);
+  });
+  it.each(["transparent", "white", "#eee"])("does not accept an invisible/low-contrast caret: %s", async color => {
+    const r = await scan(`<input aria-label="From" style="outline:none;background:white;caret-color:${color}">`,
+      { rules: ["ACT-R65"], ruleIds: ["ACT-R65"] });
+    expect(r.issues).toHaveLength(1);
+  });
+  it("does not infer an insertion caret in a readonly field", async () => {
+    const r = await scan('<input aria-label="Readonly" readonly value="Value" style="outline:none;background:white;color:black">',
+      { rules: ["ACT-R65"], ruleIds: ["ACT-R65"] });
+    expect(r.issues).toHaveLength(1);
+  });
+  it.each(["font-size:0", "text-indent:-9999px", "clip-path:inset(100%)"])("does not assume a caret is visible through %s", async css => {
+    const r = await scan(`<input aria-label="From" style="outline:none;background:white;color:black;${css}">`,
+      { rules: ["ACT-R65"], ruleIds: ["ACT-R65"] });
+    expect(r.issues).toHaveLength(1);
+  });
+  it("accepts a solid field's contrasting caret even when its ancestor has a background image", async () => {
+    const r = await scan('<div style="background:linear-gradient(black,gray)"><input aria-label="From" style="outline:none;background:white;caret-color:#333"></div>',
+      { rules: ["ACT-R65"], ruleIds: ["ACT-R65"] });
+    expect(r.issues).toEqual([]);
+  });
+  it("keeps caret visibility unverified over an unresolved image background", async () => {
+    const r = await scan('<div style="background:linear-gradient(black,gray)"><input aria-label="From" style="outline:none;background:transparent;caret-color:#333"></div>',
+      { rules: ["ACT-R65"], ruleIds: ["ACT-R65"] });
+    expect(r.issues).toHaveLength(1);
+  });
+  it("retains a popup finding when only the baseline document traversal is complete", () => {
+    const popup = { ruleId: "ACT-R65", selector: "a#add-another", interactionStateKey: "opened-railcards" } as any;
+    expect(reconcile([popup], { complete: true, visitedSelectors: [], issues: [] })).toEqual([popup]);
+  });
+  it("keeps the static/popup R65 check consistent for native caret indicators", async () => {
+    const page = await prepare('<input id="from" style="outline:none;background:white;caret-color:#333"><input id="hidden-caret" style="outline:none;background:white;caret-color:transparent">');
+    try {
+      const issues = await page.evaluate(() =>
+        (window as any).__ampera.runAllRules({ rules: ["ACT-R65"] }).issues);
+      expect(issues.some((issue: any) => issue.selector === "input#from")).toBe(false);
+      expect(issues.some((issue: any) => issue.selector === "input#hidden-caret")).toBe(true);
+    } finally { await page.close(); }
+  });
   it.each([
     "a:focus-visible{outline:3px solid blue}",
     "a:focus-visible{box-shadow:0 0 0 3px blue}",

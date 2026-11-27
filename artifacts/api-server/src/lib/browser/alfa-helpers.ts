@@ -276,6 +276,11 @@ export function hasUnresolvedTargetFonts(el: Element): boolean {
     for (const pseudo of [null, "::before", "::after"]) {
       const style = getComputedStyle(node, pseudo);
       if (pseudo && (!style.content || ["none", "normal", '""'].includes(style.content))) continue;
+      // Empty CSS-drawn dots do not depend on inherited web fonts. Keep font
+      // uncertainty for actual text, field values and generated icon glyphs.
+      if (!pseudo && !Array.from(node.childNodes).some(child =>
+        child.nodeType === Node.TEXT_NODE && !!child.textContent?.trim(),
+      ) && !node.matches("input,textarea,select")) continue;
       style.fontFamily.split(",").forEach(family => families.add(family.trim().replace(/['"]/g, "").toLowerCase()));
     }
   }
